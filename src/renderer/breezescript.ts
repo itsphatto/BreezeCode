@@ -4495,7 +4495,15 @@ document.addEventListener('drop', e => {
 function restoreBuffer(b: EditorBuffer, s: Session, dirty: Record<string, string>): void {
   if (b.kind === 'text' && dirty[b.path] != null) { b.text = dirty[b.path]; if (b.ta) b.ta.value = b.text; }
   const pos = s.pos[b.path];
-  if (b.ta && pos) { b.ta.setSelectionRange(pos[0], pos[0]); b.ta.scrollTop = pos[1]; }
+  if (b.ta && pos) { b.ta.setSelectionRange(pos[0], pos[0]); b.ta.scrollTop = pos[1]; pendingScroll.set(b, pos[1]); }
+}
+// A hidden (display:none) surface ignores scrollTop, so a restored offset waits until the surface is laid out.
+const pendingScroll = new WeakMap<EditorBuffer, number>();
+function applyPendingScroll(b: EditorBuffer & { ta: CodeSurface }): void {
+  const top = pendingScroll.get(b);
+  if (top == null || !b.ta.clientHeight) return;
+  b.ta.scrollTop = top;
+  pendingScroll.delete(b);
 }
 async function loadWorkspace(info: RootInfo): Promise<void> {
   if (rootInfo) { flushSession(); resetWorkspace(); }
@@ -4603,9 +4611,12 @@ async function lintBuffer(b: EditorBuffer): Promise<void> {
 
 // Each open file keeps its own surface (and history) across tab switches.
 function createSurface(b: EditorBuffer): CodeSurface {
-  const ta = new CodeSurface($('#editor .code'), {
+  // Measure against the surface's own text: mid-edit it is ahead of b.text (the input handler updates that after).
+  // The constructor paints before `ta` is assigned, hence the empty text then.
+  let self: CodeSurface | null = null;
+  const ta = self = new CodeSurface($('#editor .code'), {
     lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: `Editing ${b.path}`,
-    ...lineMeasurer(hlLines, () => winFirst, () => b.text),
+    ...lineMeasurer(hlLines, () => winFirst, () => self?.value ?? ''),
   });
   ta.classList.add('hidden');
   ta.value = b.text;
@@ -5681,6 +5692,18 @@ function measureChar(): number {
 }
 void document.fonts?.ready.then(() => { charW = 0; renderCode(); activeText()?.ta.refresh(); });
 
+// The caret stops of a line: 0, each grapheme's end. Remembered for the last line asked about (clicks and drags repeat it).
+const graphemeSeg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+let graphemeMemo = { text: '', cuts: [0] };
+function graphemeCuts(text: string): number[] {
+  if (graphemeMemo.text !== text) {
+    const cuts = [0];
+    for (const g of graphemeSeg.segment(text)) cuts.push(g.index + g.segment.length);
+    graphemeMemo = { text, cuts };
+  }
+  return graphemeMemo.cuts;
+}
+
 // Where the caret goes on lines the char grid can't place (Thai marks, CJK, emoji): measured on the drawn
 // line itself. Pure-ASCII lines, and lines not drawn or drawn from other text, return null (the grid is exact there).
 function lineMeasurer(lines: HTMLElement, first: () => number, text: () => string): Pick<SurfaceOpts, 'xAt' | 'colAt'> {
@@ -5719,12 +5742,14 @@ function lineMeasurer(lines: HTMLElement, first: () => number, text: () => strin
     colAt(line, x) {
       const nodes = measured(line);
       if (!nodes) return null;
-      let lo = 0, hi = nodes.reduce((s, n) => s + n.length, 0);
+      // Only grapheme boundaries: a caret inside an emoji's surrogate pair or a Thai mark's cluster would split it.
+      const cuts = graphemeCuts(lineText(line)!);
+      let lo = 0, hi = cuts.length - 1;
       while (lo < hi) { // the first boundary at or right of x
         const mid = (lo + hi) >> 1;
-        if (measure(nodes, mid) < x) lo = mid + 1; else hi = mid;
+        if (measure(nodes, cuts[mid]) < x) lo = mid + 1; else hi = mid;
       }
-      return lo > 0 && x - measure(nodes, lo - 1) < measure(nodes, lo) - x ? lo - 1 : lo;
+      return lo > 0 && x - measure(nodes, cuts[lo - 1]) < measure(nodes, cuts[lo]) - x ? cuts[lo - 1] : cuts[lo];
     },
   };
 }
@@ -6052,6 +6077,7 @@ function visibleLines(ta: CodeSurface | HTMLTextAreaElement, total: number): [nu
 function renderCode(): void {
   const b = activeText();
   if (!b) return;
+  applyPendingScroll(b);
   const doc = highlighted(b);
   const count = doc.lines.length;
   winTotal = count;
