@@ -9528,8 +9528,9 @@ function hideThinking(tab?: AgentTabState): void {
    Breeze Box's greeting changes every 5 s ----- */
 // Built from parts, so each list holds over a thousand lines without writing them out one by one.
 const combine = (templates: string[], parts: string[]) => templates.flatMap(t => parts.map(p => t.replace('{x}', p)));
+// The composer's own placeholder ("Describe what you want to build") isn't one of these: it's the fixed one, and the
+// examples rotate over it.
 const IDE_PLACEHOLDERS = [
-  'Describe what you want to build',
   ...combine(['Build {x}', 'Make {x}', 'Create {x}', 'Design {x}', 'Prototype {x}', 'Scaffold {x}', 'Sketch out {x}', 'Put together {x}', 'Spin up {x}', 'Draft {x}', 'Code up {x}', 'Set up {x}'], [
     'a landing page for a coffee shop', 'a todo app with drag and drop', 'a dark mode toggle', 'a pricing table', 'a contact form with validation',
     'a weather widget', 'a Markdown previewer', 'a login screen', 'a REST API for notes', 'a CLI that renames photos',
@@ -9603,14 +9604,14 @@ function blurSwap(el: HTMLElement, text: string): void {
     into.id = 'blurSwap';
   };
 }
-// A native placeholder can't blur, so while a box shows its usual one, a layer on top draws it instead.
-// Any other placeholder (a question about a plan, say) shows as usual.
+// A native placeholder can't blur, so while a box shows its usual one (`home`), a layer on top draws an example from
+// the list instead. Any other placeholder (a question about a plan, say) shows as usual.
 interface PlaceholderRotator { ta: HTMLTextAreaElement; list: string[]; layer: HTMLElement }
-function rotatePlaceholder(ta: HTMLTextAreaElement, list: string[]): void {
+function rotatePlaceholder(ta: HTMLTextAreaElement, home: string, list: string[]): void {
   const layer = document.createElement('span');
   layer.className = 'ph-rot';
   layer.setAttribute('aria-hidden', 'true');
-  layer.textContent = list[0];
+  layer.textContent = list.includes(home) ? home : pickOther(list, '');
   ta.after(layer);
   const place = () => {
     const cs = getComputedStyle(ta);
@@ -9621,7 +9622,7 @@ function rotatePlaceholder(ta: HTMLTextAreaElement, list: string[]): void {
     layer.style.font = cs.font;
     layer.style.lineHeight = cs.lineHeight;
   };
-  const sync = () => ta.classList.toggle('ph-rotating', ta.placeholder === list[0]);
+  const sync = () => ta.classList.toggle('ph-rotating', ta.placeholder === home);
   new ResizeObserver(place).observe(ta);
   new MutationObserver(sync).observe(ta, { attributes: true, attributeFilter: ['placeholder'] });
   place(); sync();
@@ -9640,8 +9641,8 @@ function nextPlaceholder(r: PlaceholderRotator): void {
   if (r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
   blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
 }
-rotatePlaceholder(SURFACES.ide.prompt, IDE_PLACEHOLDERS);
-rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS);
+rotatePlaceholder(SURFACES.ide.prompt, 'Describe what you want to build', IDE_PLACEHOLDERS);
+rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS[0], BOX_PLACEHOLDERS);
 setInterval(() => {
   if (document.hidden) return;
   for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) blurSwap(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
