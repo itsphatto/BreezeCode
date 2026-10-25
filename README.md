@@ -18,7 +18,7 @@ A lightweight desktop IDE for Windows. Free and open source.
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.5.0-005EFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.5.3-005EFF?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/platform-Windows-1c1c21?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-1c1c21?style=for-the-badge)
 <br>
