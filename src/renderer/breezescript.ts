@@ -2942,7 +2942,8 @@ function flushSession(): void {
   if (!rootInfo) return;
   clearTimeout(sessionTimer);
   const pos: Session['pos'] = {};
-  for (const b of buffers.values()) if (b.ta) pos[b.path] = [b.ta.selectionStart, b.ta.scrollTop];
+  // A hidden surface reads scrollTop 0; a restored offset still waiting to be applied is the real one.
+  for (const b of buffers.values()) if (b.ta) pos[b.path] = [b.ta.selectionStart, pendingScroll.get(b) ?? b.ta.scrollTop];
   store.set(sessionKey(), { tabs: openTabs, active, expanded: [...expanded], pos } as Session);
   // Hot exit: unsaved edits survive a reload or a crash.
   const dirty: Record<string, string> = {};
@@ -5693,11 +5694,14 @@ function measureChar(): number {
   s.textContent = 'x'.repeat(200);
   s.style.visibility = 'hidden';
   hlInner.appendChild(s);
-  charW = s.getBoundingClientRect().width / 200 || 7.8;
+  const w = s.getBoundingClientRect().width / 200;
   s.remove();
-  return charW;
+  // Hidden (#ide not shown yet) measures 0, and before the code font loads it measures the fallback font:
+  // use either for now, but measure again next time.
+  if (w > 0 && (!document.fonts || document.fonts.check('12px "Google Sans Code"') || document.fonts.status === 'loaded')) charW = w;
+  return w || 7.8;
 }
-void document.fonts?.ready.then(() => { charW = 0; renderCode(); activeText()?.ta.refresh(); });
+void document.fonts?.ready.then(() => { charW = 0; renderCode(); activeText()?.ta.refresh(); splitTa.refresh(); });
 
 // The caret stops of a line: 0, each grapheme's end. Remembered for the last line asked about (clicks and drags repeat it).
 const graphemeSeg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -6273,6 +6277,7 @@ function paintSplit(): void {
   splitInner.querySelectorAll('.guide').forEach(g => g.remove());
   splitInner.append(...guideBoxes(b, splitTa.selectionStart, measureChar(), splitWin.first, splitWin.last));
   syncSplitScroll();
+  splitTa.refresh(); // the caret was placed against the lines drawn before; measure it against these
 }
 function syncSplitScroll(): void {
   const [vf, vl] = visibleLines(splitTa, splitWin.total);
@@ -8657,6 +8662,8 @@ document.addEventListener('keydown', e => {
         if (fe.ta === splitTa) { e.preventDefault(); e.stopPropagation(); stepHistory(b, true, fe.ta); }
         return;
       }
+      // The split's history is its own: with none left, Ctrl+Z must not fall through to the left file.
+      if (fe?.ta === splitTa) { e.preventDefault(); return; }
     }
     if (actionUndoStack.length > 0) {
       e.preventDefault();
@@ -8693,6 +8700,7 @@ document.addEventListener('keydown', e => {
         if (fe.ta === splitTa) { e.preventDefault(); e.stopPropagation(); stepHistory(b, false, fe.ta); }
         return;
       }
+      if (fe?.ta === splitTa) { e.preventDefault(); return; } // nor redo
     }
     if (actionRedoStack.length > 0) {
       e.preventDefault();

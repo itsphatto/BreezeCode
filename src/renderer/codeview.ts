@@ -84,7 +84,8 @@ class CodeSurface extends EventTarget {
     this.root.addEventListener('pointerdown', e => this.onPointerDown(e));
     // Block native selection and focus loss on mousedown, not pointerdown: a canceled pointerdown would
     // suppress mousedown, and app mousedown listeners (menu closing, hiding suggestions) must still run.
-    this.root.addEventListener('mousedown', e => { if (e.button === 0) e.preventDefault(); });
+    // Every button: the root can't take focus, so an uncanceled right or middle press would move it to <body>.
+    this.root.addEventListener('mousedown', e => e.preventDefault());
     // Panel resizes change which lines are visible; repaint so no strip is left without selection or caret.
     this.resizer = new ResizeObserver(() => this.paint());
     this.resizer.observe(this.root);
@@ -209,6 +210,14 @@ class CodeSurface extends EventTarget {
       this.select(r.sel.anchor, r.sel.head);
       this.goal = r.goal;
       this.revealCaret();
+    } else if (e.key === 'Delete' && e.shiftKey && !ctrl && this.selStart !== this.selEnd) {
+      // Shift+Delete cuts, as in a Windows textarea. The cut command fires 'cut' (onCopy writes the clipboard and
+      // deletes); when the page may not run it (no user activation), cut by hand.
+      e.preventDefault();
+      if (!document.execCommand('cut')) {
+        void navigator.clipboard?.writeText(this.text.slice(this.selStart, this.selEnd)).catch(() => {});
+        this.userEdit(this.selStart, this.selEnd, '', 'deleteByCut');
+      }
     } else if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
       const [a, b] = deleteSpan(this.text, { anchor: this.anchor(), head: this.head() }, e.key, ctrl);
@@ -264,7 +273,7 @@ class CodeSurface extends EventTarget {
   }
 
   private onPointerDown(e: PointerEvent) {
-    if (e.button !== 0) return;
+    if (e.button !== 0) { this.focus({ preventScroll: true }); return; } // keeps the caret and selection
     const rect = this.root.getBoundingClientRect();
     if (e.clientX - rect.left >= this.root.clientWidth || e.clientY - rect.top >= this.root.clientHeight) return; // on a scrollbar
     this.focus({ preventScroll: true });
