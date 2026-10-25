@@ -247,7 +247,6 @@ function squiggles(b: EditorBuffer, lineCount: number, cw: number): HTMLElement[
   });
 }
 /* ----- Matching tags: with the caret in an opening or closing tag, both halves light up ----- */
-const VOID_HTML = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '));
 interface TagSpan { start: number; end: number; nameStart: number; nameEnd: number; }
 // Pairs every opening tag with its closing tag (void and self-closing tags have no partner; stray closers are ignored).
 function tagPairs(text: string, xml: boolean): [TagSpan, TagSpan][] {
@@ -831,6 +830,18 @@ function pairKey(e: KeyboardEvent, ta: CodeSurface): boolean {
   replaceRange(ta, s, en, ch + close, s + 1);
   return true;
 }
+// Typing '/' just after '<' finishes the closing tag of the innermost open element: <test>…</ becomes <test>…</test>.
+function closeTagKey(e: KeyboardEvent, ta: CodeSurface, b: EditorBuffer): boolean {
+  if (e.key !== '/' || !plainKey(e)) return false;
+  const v = ta.value, s = ta.selectionStart, ext = extOf(b.path);
+  if (s !== ta.selectionEnd || v[s - 1] !== '<' || v.length > 200000) return false;
+  if (langOf(b.path)[0] !== 'html' && ext !== 'jsx' && ext !== 'tsx') return false;
+  const name = openTagAt(v, s - 1, ['xml', 'svg', 'jsx', 'tsx'].includes(ext));
+  if (!name) return false;
+  const tail = `/${name}>`;
+  replaceRange(ta, s, s, tail, s + tail.length);
+  return true;
+}
 function editorKeys(e: KeyboardEvent): void {
   // Mid-composition keys belong to the IME; no shortcut may act on them.
   if (e.isComposing || e.keyCode === 229) return;
@@ -842,6 +853,7 @@ function editorKeys(e: KeyboardEvent): void {
     lastUserTypeAt = Date.now(); // the tick itself comes from sfx's typing listener
   }
   if (suggestKeys(e, ta.input)) return;
+  if (b && closeTagKey(e, ta, b)) { e.preventDefault(); return; }
   if (b && pairKey(e, ta)) { e.preventDefault(); return; }
   if (b && e.ctrlKey && e.key === ' ') { e.preventDefault(); editorSuggest(b, true); return; }
   if (b && (e.ctrlKey || e.metaKey) && !e.altKey && (k === 'z' || k === 'y')) {

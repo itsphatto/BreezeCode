@@ -129,3 +129,31 @@ function deleteSpan(text: string, sel: Sel, key: 'Backspace' | 'Delete', ctrl: b
   if (key === 'Backspace') return [ctrl ? wordLeft(text, head) : prevChar(text, head), head];
   return [head, ctrl ? wordRight(text, head) : nextChar(text, head)];
 }
+
+/* ----- Closing tags ----- */
+const VOID_HTML = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '));
+// The innermost element still open at `pos`, as it was written, or null (also inside a comment).
+// Void and self-closing tags never open; in HTML the body of <script> and <style> is raw text.
+function openTagAt(text: string, pos: number, xml: boolean): string | null {
+  const re = /<!--[\s\S]*?(?:-->|$)|<(\/?)([A-Za-z][\w:.-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  const stack: { name: string; written: string }[] = [];
+  for (let m = re.exec(text); m && m.index < pos; m = re.exec(text)) {
+    const comment = m[0].startsWith('<!--');
+    if (comment && (m.index + m[0].length > pos || !m[0].endsWith('-->'))) return null;
+    if (m.index + m[0].length > pos) break; // a tag still being typed at the caret
+    if (comment) continue;
+    const name = xml ? m[2] : m[2].toLowerCase();
+    if (m[1]) {
+      const at = stack.map(s => s.name).lastIndexOf(name);
+      if (at !== -1) stack.length = at; // anything opened after it was left open
+    } else if (!m[3].endsWith('/') && (xml || !VOID_HTML.has(name))) {
+      stack.push({ name, written: m[2] });
+      if (!xml && (name === 'script' || name === 'style')) {
+        const close = text.slice(re.lastIndex, pos).search(new RegExp(String.raw`</${name}\b`, 'i'));
+        if (close === -1) return m[2];
+        re.lastIndex += close;
+      }
+    }
+  }
+  return stack.at(-1)?.written ?? null;
+}

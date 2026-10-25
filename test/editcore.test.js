@@ -5,8 +5,8 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/editcore.ts'), 'utf8')), ctx);
-const { lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan } =
-  vm.runInContext('({ lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan })', ctx);
+const { lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt } =
+  vm.runInContext('({ lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt })', ctx);
 
 const T = 'ab cd\n  ef\n\nxyz';           // lines start at 0, 6, 11, 12; length 15
 const S = lineStarts(T);
@@ -94,4 +94,23 @@ test('wordAt returns the run around an offset', () => {
 test('word jumps skip whitespace', () => {
   assert.equal(wordRight('a  b', 1), 4);
   assert.equal(wordLeft('a  b', 3), 0);
+});
+
+test('openTagAt finds the element a closing tag should close', () => {
+  // `at` is where the '<' of the new closing tag sits: the end of each sample.
+  const open = (t, xml = false) => openTagAt(t, t.length, xml);
+  assert.equal(open('<test>hello '), 'test');
+  assert.equal(open('<div class="a>b"><span>x</span>'), 'div');
+  assert.equal(open('<ul>\n  <li>a</li>\n  <li>b'), 'li');
+  assert.equal(open('<p>a<br><img src=x><input/>'), 'p');
+  assert.equal(open('<Div>x', false), 'Div');
+  assert.equal(open('<a><b>x</a>'), null);
+  assert.equal(open('<a></a>'), null);
+  assert.equal(open('<x><!-- <y> --> '), 'x');
+  assert.equal(open('<x><!-- note '), null);
+  assert.equal(open('<script>if (a < b) { s = "<div>" } '), 'script');
+  assert.equal(open('<body><script>"<i>"</script> '), 'body');
+  assert.equal(open('<Foo.Bar><Baz/>', true), 'Foo.Bar');
+  assert.equal(open('<g><circle r="1"/><rect></rect>', true), 'g');
+  assert.equal(open('plain text'), null);
 });
