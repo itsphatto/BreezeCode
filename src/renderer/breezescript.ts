@@ -2204,7 +2204,10 @@ function htmlToks(text: string): Tok[] {
 // Lines are turned into HTML only when they are drawn, so a 10,000-line file costs the same as the lines in view.
 interface HlDoc { text: string; lexer: string; starts: number[]; kinds: (string | null)[]; lines: number[]; html: (string | undefined)[]; }
 type HlToks = Pick<HlDoc, 'starts' | 'kinds'>;
-const HL_MAX = 400000;
+// Every file Breeze opens is coloured (main.js opens up to 5 MB). HTML and CSS past HL_EXACT_MAX are lexed in full
+// only once typing pauses, since they can't be re-lexed near an edit.
+const HL_MAX = 5 * 1024 * 1024;
+const HL_EXACT_MAX = 400000;
 function fullToks(text: string, lexerName: string): HlToks {
   const starts: number[] = [], kinds: (string | null)[] = [];
   if (LEXERS[lexerName] && text.length <= HL_MAX) {
@@ -2220,10 +2223,9 @@ function fullToks(text: string, lexerName: string): HlToks {
 // Lexers whose tokens depend only on the text around them (not HTML's embedded blocks or CSS's selector depth),
 // so an edit is re-lexed from just above it until the tokens fall back in step with the old ones.
 const INCREMENTAL = new Set(['js', 'json', 'cs', 'py', 'java', 'rs', 'cpp', 'md', 'ignore']);
-function relex(prev: HlDoc, text: string): HlToks {
-  const old = prev.text, re = LEXERS[prev.lexer];
+// The lengths of the unchanged head and tail of an edit, compared a chunk at a time first (string === is a native compare).
+function editSpan(old: string, text: string): [head: number, tail: number] {
   const min = Math.min(old.length, text.length);
-  // The unchanged head and tail, compared a chunk at a time first (string === is a native compare).
   const CH = 2048;
   let p = 0;
   while (p + CH <= min && old.slice(p, p + CH) === text.slice(p, p + CH)) p += CH;
@@ -2231,6 +2233,26 @@ function relex(prev: HlDoc, text: string): HlToks {
   let s = 0;
   while (s + CH <= min - p && old.slice(old.length - s - CH, old.length - s) === text.slice(text.length - s - CH, text.length - s)) s += CH;
   while (s < min - p && old.charCodeAt(old.length - 1 - s) === text.charCodeAt(text.length - 1 - s)) s++;
+  return [p, s];
+}
+// Big HTML and CSS can't be re-lexed near an edit (embedded blocks, selector depth), so while typing the old
+// tokens are kept around the edit and moved along with the text after it; the exact colours follow on a pause.
+function shiftToks(prev: HlDoc, text: string): HlToks {
+  const [p, s] = editSpan(prev.text, text);
+  const delta = text.length - prev.text.length, oldEnd = prev.text.length - s;
+  const k = lineOfOffset(prev.starts, p);
+  const starts = prev.starts.slice(0, k + 1), kinds = prev.kinds.slice(0, k + 1);
+  for (let j = lineOfOffset(prev.starts, oldEnd); j < prev.starts.length; j++) {
+    const at = Math.max(prev.starts[j], oldEnd) + delta;
+    if (at <= starts[starts.length - 1]) { starts.pop(); kinds.pop(); }
+    if (at < text.length) { starts.push(at); kinds.push(prev.kinds[j]); }
+  }
+  if (!starts.length) { starts.push(0); kinds.push(null); }
+  return { starts, kinds };
+}
+function relex(prev: HlDoc, text: string): HlToks {
+  const old = prev.text, re = LEXERS[prev.lexer];
+  const [p, s] = editSpan(old, text);
   const delta = text.length - old.length;
   // Start two lines above the edit (a lookahead can reach past a line break), at the token found there.
   let from = lineStart(text, p);
@@ -5807,6 +5829,7 @@ function renderEditor(): void {
       empty.addEventListener('animationend', () => empty.classList.remove('enter'), { once: true });
     }
     hlLines.replaceChildren(); hlBoxes.replaceChildren(); gutLines.replaceChildren();
+    updateVSlider();
     closeFind();
     updateStatus();
     return;
@@ -6074,11 +6097,26 @@ function highlighted(b: EditorBuffer): HlDoc {
   const c = hlCache.get(b);
   if (c?.text === b.text && c.lexer === lexer) return c;
   const text = b.text;
-  const toks = c && c.lexer === lexer && INCREMENTAL.has(lexer) && LEXERS[lexer] && text.length <= HL_MAX && c.text.length <= HL_MAX
-    ? relex(c, text) : fullToks(text, lexer);
+  const prev = c && c.lexer === lexer && LEXERS[lexer] && text.length <= HL_MAX && c.text.length <= HL_MAX ? c : undefined;
+  let toks: HlToks;
+  if (prev && INCREMENTAL.has(lexer)) toks = relex(prev, text);
+  else if (prev && text.length > HL_EXACT_MAX) { toks = shiftToks(prev, text); exactLater(b); }
+  else toks = fullToks(text, lexer);
   const d: HlDoc = { text, lexer, ...toks, lines: lineStartsOf(text), html: [] };
   hlCache.set(b, d);
   return d;
+}
+// After a pause in typing, a big HTML or CSS file gets its exact colours back.
+const exactTimers = new WeakMap<EditorBuffer, TimeoutId>();
+function exactLater(b: EditorBuffer): void {
+  clearTimeout(exactTimers.get(b));
+  exactTimers.set(b, setTimeout(() => {
+    const c = hlCache.get(b);
+    if (!c || c.text !== b.text) return; // highlighted() runs again on the next draw
+    hlCache.set(b, { ...c, ...fullToks(c.text, c.lexer), html: [] });
+    if (b.path === active) queueRender();
+    if (b.path === splitPath) paintSplit();
+  }, 400));
 }
 function visibleLines(ta: CodeSurface, total: number): [number, number] {
   const first = clamp(Math.floor((ta.scrollTop - 10) / LINE_H), 0, total - 1);
@@ -6127,49 +6165,59 @@ function syncScroll(): void {
   updateVSlider(b.ta);
 }
 
-/* ----- Vertical scroll slider on the right edge of the editor (native scrollbars are hidden) ----- */
-const vTrack = document.createElement('div');
-vTrack.className = 'v-slider';
-const vThumb = document.createElement('div');
-vThumb.className = 'v-slider-thumb';
-vTrack.append(vThumb);
-$('#editor').append(vTrack);
-function updateVSlider(ta: CodeSurface): void {
-  const room = vTrack.clientHeight;
-  const overflow = ta.scrollHeight - ta.clientHeight;
-  vTrack.classList.toggle('on', overflow > 0 && room > 0);
-  if (overflow <= 0 || room <= 0) return;
-  const h = Math.max(32, room * ta.clientHeight / ta.scrollHeight);
-  vThumb.style.height = `${h}px`;
-  vThumb.style.transform = `translateY(${(room - h) * ta.scrollTop / overflow}px)`;
+/* ----- Vertical scroll slider on the right edge of an editor (native scrollbars are hidden) ----- */
+// Returns the function that brings the slider up to date with its surface. The track fills its editor
+// top to bottom, so its room is the editor's height (the track itself measures 0 while it is hidden).
+function vSlider(host: HTMLElement, surface: () => CodeSurface | undefined): (ta?: CodeSurface) => void {
+  const track = document.createElement('div');
+  track.className = 'v-slider';
+  const thumb = document.createElement('div');
+  thumb.className = 'v-slider-thumb';
+  track.append(thumb);
+  host.append(track);
+  const update = (ta = surface()): void => {
+    const room = host.clientHeight;
+    const overflow = ta ? ta.scrollHeight - ta.clientHeight : 0;
+    track.classList.toggle('on', !!ta && overflow > 0 && room > 0);
+    if (!ta || overflow <= 0 || room <= 0) return;
+    const h = Math.max(32, room * ta.clientHeight / ta.scrollHeight);
+    thumb.style.height = `${h}px`;
+    thumb.style.transform = `translateY(${(room - h) * ta.scrollTop / overflow}px)`;
+  };
+  thumb.addEventListener('pointerdown', e => {
+    const ta = surface();
+    if (!ta || e.button !== 0) return;
+    const startY = e.clientY, startTop = ta.scrollTop;
+    try { thumb.setPointerCapture(e.pointerId); } catch { /* pointer already gone: the drag still follows moves over the thumb */ }
+    track.classList.add('drag');
+    const move = (ev: PointerEvent): void => {
+      const travel = host.clientHeight - thumb.offsetHeight;
+      if (travel > 0) ta.scrollTop = startTop + (ev.clientY - startY) * (ta.scrollHeight - ta.clientHeight) / travel;
+    };
+    const up = (): void => {
+      track.classList.remove('drag');
+      thumb.removeEventListener('pointermove', move);
+      thumb.removeEventListener('pointerup', up);
+      thumb.removeEventListener('pointercancel', up);
+    };
+    thumb.addEventListener('pointermove', move);
+    thumb.addEventListener('pointerup', up);
+    thumb.addEventListener('pointercancel', up);
+    e.preventDefault();
+  });
+  // Clicking the track jumps there, centred on the click.
+  track.addEventListener('pointerdown', e => {
+    const ta = surface();
+    if (e.target !== track || !ta || e.button !== 0) return;
+    const r = track.getBoundingClientRect();
+    ta.scrollTop = (e.clientY - r.top) / r.height * ta.scrollHeight - ta.clientHeight / 2;
+    e.preventDefault();
+  });
+  // A panel resize changes the room without a scroll.
+  new ResizeObserver(() => update()).observe(host);
+  return update;
 }
-vThumb.addEventListener('pointerdown', e => {
-  const b = activeText();
-  if (!b) return;
-  const ta = b.ta;
-  const startY = e.clientY, startTop = ta.scrollTop;
-  vThumb.setPointerCapture(e.pointerId);
-  vTrack.classList.add('drag');
-  const move = (ev: PointerEvent): void => {
-    const travel = vTrack.clientHeight - vThumb.offsetHeight;
-    if (travel > 0) ta.scrollTop = startTop + (ev.clientY - startY) * (ta.scrollHeight - ta.clientHeight) / travel;
-  };
-  const up = (): void => {
-    vTrack.classList.remove('drag');
-    vThumb.removeEventListener('pointermove', move);
-    vThumb.removeEventListener('pointerup', up);
-  };
-  vThumb.addEventListener('pointermove', move);
-  vThumb.addEventListener('pointerup', up);
-  e.preventDefault();
-});
-vTrack.addEventListener('pointerdown', e => {
-  if (e.target !== vTrack) return;
-  const b = activeText();
-  if (!b) return;
-  const r = vTrack.getBoundingClientRect();
-  b.ta.scrollTop = (e.clientY - r.top) / r.height * (b.ta.scrollHeight - b.ta.clientHeight);
-});
+const updateVSlider = vSlider($('#editor'), () => activeText()?.ta);
 
 
 
@@ -6284,7 +6332,9 @@ function syncSplitScroll(): void {
   if (vf < splitWin.first || vl > splitWin.last) { paintSplit(); return; }
   splitInner.style.transform = `translate(${-splitTa.scrollLeft}px, ${-splitTa.scrollTop}px)`;
   splitGutInner.style.transform = `translateY(${-splitTa.scrollTop}px)`;
+  updateSplitSlider();
 }
+const updateSplitSlider = vSlider($('.split-editor'), () => (splitBuf() ? splitTa : undefined));
 splitTa.addEventListener('scroll', syncSplitScroll);
 splitTa.addEventListener('input', () => {
   const b = splitBuf();
