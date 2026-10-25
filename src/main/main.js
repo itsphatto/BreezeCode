@@ -1397,7 +1397,8 @@ function cliArgs(agent, mode, prompt, session, team, shell) {
   const model = st.codexModel;
   if (model && SAFE_MODEL.test(model)) args.push('-m', model);
   const effort = effortArg(st.codexEffort);
-  if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
+  // Unquoted: Codex reads a -c value that is not valid TOML as a plain string, and quotes can't pass the npm shim's shell.
+  if (effort) args.push('-c', `model_reasoning_effort=${effort}`);
   if (session) args.push('resume', session);
   args.push('-');
   if (build) return { args, prompt };
@@ -2141,7 +2142,7 @@ function codexCommitMsg(base, prompt, model, effort) {
   if (!bin) throw new Error('Codex was not found');
   const targetModel = model || 'gpt-4o-mini';
   const args = ['exec', '--json', '-s', 'read-only', '--skip-git-repo-check', '-m', targetModel];
-  if (effortArg(effort) && /^(o1|o3|o4)/i.test(targetModel)) args.push('-c', `model_reasoning_effort="${effortArg(effort)}"`);
+  if (effortArg(effort) && /^(o1|o3|o4)/i.test(targetModel)) args.push('-c', `model_reasoning_effort=${effortArg(effort)}`);
   let message = '';
   const onLine = l => {
     try {

@@ -232,12 +232,20 @@ const store = {
 // first click or key press, and the speaker button in the status bar (or Settings › Sound Effects) turns them off.
 const sfx = (() => {
   let on = store.get('breeze.sound', true);
-  let volume = store.get('breeze.volume', 50); // 0–100; the middle is the old fixed level
+  let volume = store.get('breeze.volume', 25); // 0–100; 25 is the default (and where the slider snaps)
+  // Levels saved on the old, quieter scale would be far too loud on the new one, so they start over at 25 once.
+  if (!store.get('breeze.volumeScale2', false)) {
+    volume = 25;
+    store.set('breeze.volume', volume);
+    store.set('breeze.volumeScale2', true);
+  }
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
-  let lastAt = -Infinity; // when any sound last played, so a button that makes its own sound doesn't also click
+  let lastAt = -Infinity; // when a control's sound last played, so a button that makes its own sound doesn't also click
+  let anyAt = -Infinity; // when any sound at all last played
 
-  const gainFor = (v: number) => v / 100;
+  // 25 plays twice as loud as the old fixed level did; the top of the slider is four times that.
+  const gainFor = (v: number) => v / 25;
 
   // Audio may only start after a gesture, so the context is made on the first one.
   function unlock(): void {
@@ -247,6 +255,12 @@ const sfx = (() => {
       master = ctx.createGain();
       master.gain.value = gainFor(volume);
       master.connect(ctx.destination);
+      // Many Windows audio devices doze after a moment of silence and swallow the first short blip that wakes
+      // them (a tab's X, a lone key). A far-below-hearing signal keeps the output awake.
+      const awake = ctx.createConstantSource();
+      awake.offset.value = 0.00002;
+      awake.connect(ctx.destination);
+      awake.start();
     } catch { ctx = null; } // no audio available
   }
   for (const t of ['pointerdown', 'keydown']) addEventListener(t, unlock, { capture: true, passive: true });
@@ -258,7 +272,8 @@ const sfx = (() => {
   // One blip: a pitch (optionally sliding) with a fast attack and a fade-out.
   function tone(freq: number, dur: number, { type = 'sine', vol = 0.1, to = freq, at = 0 }: { type?: OscillatorType; vol?: number; to?: number; at?: number } = {}): void {
     const c = ctx as AudioContext;
-    const t0 = c.currentTime + at;
+    // A little ahead of now: a note started at currentTime lands partly in the past and very short ones get lost.
+    const t0 = c.currentTime + 0.012 + at;
     const osc = c.createOscillator();
     const g = c.createGain();
     osc.type = type;
@@ -277,7 +292,7 @@ const sfx = (() => {
   const SOUNDS = {
     click: () => tone(1500 * jitter(0.06), 0.05, { to: 900, vol: 0.09 }),
     hover: () => tone(2400, 0.025, { vol: 0.025 }),
-    key: () => tone(1900 * jitter(0.25), 0.022, { type: 'triangle', vol: 0.035 }),
+    key: () => tone(1900 * jitter(0.25), 0.03, { type: 'triangle', vol: 0.035 }),
     tab: () => tone(520, 0.08, { to: 760, vol: 0.09 }),
     close: () => tone(720, 0.08, { to: 420, vol: 0.08 }),
     menu: () => tone(420, 0.09, { to: 640, type: 'triangle', vol: 0.07 }),
@@ -307,7 +322,7 @@ const sfx = (() => {
     trash: () => tone(260, 0.16, { to: 110, type: 'sawtooth', vol: 0.03 }),
     deny: () => { tone(220, 0.08, { type: 'square', vol: 0.03 }); tone(185, 0.12, { type: 'square', vol: 0.03, at: 0.08 }); },
     slide: () => tone(900 * jitter(0.1), 0.015, { type: 'triangle', vol: 0.025 }),
-    keyDel: () => tone(1300 * jitter(0.2), 0.022, { to: 1000, type: 'triangle', vol: 0.03 }),
+    keyDel: () => tone(1300 * jitter(0.2), 0.03, { to: 1000, type: 'triangle', vol: 0.03 }),
     keyEnter: () => tone(1100, 0.04, { to: 800, type: 'triangle', vol: 0.05 }),
     remove: () => { tone(900, 0.07, { to: 300, type: 'triangle', vol: 0.06 }); tone(1800, 0.03, { vol: 0.025, at: 0.01 }); },
     // Agent thinking (a soft questioning lift), answer text streaming in, and a fresh answer arriving
@@ -319,11 +334,15 @@ const sfx = (() => {
   };
   type Sound = keyof typeof SOUNDS;
   // Fast repeating sounds (typing, tool lines) are spaced out so they stay ticks and don't buzz.
-  const GAP: Partial<Record<Sound, number>> = { key: 30, keyDel: 30, keyEnter: 30, tool: 40, rowHover: 45, slide: 35, stream: 90, remove: 70 };
+  const GAP: Partial<Record<Sound, number>> = { key: 18, keyDel: 18, keyEnter: 18, tool: 40, rowHover: 45, slide: 35, stream: 90, remove: 70, trash: 200, drop: 150 };
   const last: Partial<Record<Sound, number>> = {};
+  const AMBIENT = new Set<Sound>(['key', 'keyDel', 'keyEnter', 'stream', 'hum', 'tool', 'rowHover', 'hover', 'slide']);
 
   function play(name: Sound): void {
     if (!on || !volume || document.hidden) return;
+    // Silent while the loading screen is up: start-up restores tabs and focuses the editor behind it, which would
+    // otherwise tick and chirp before anything is on screen.
+    if (document.getElementById('splash')) return;
     if (!ctx) unlock(); // a sound asked for before the first gesture (or after the context was lost)
     if (!ctx) return;
     const now = performance.now();
@@ -332,7 +351,10 @@ const sfx = (() => {
       if (now - (last[name] ?? -Infinity) < gap) return;
       last[name] = now;
     }
-    lastAt = now;
+    // Background sounds (typing, streaming, the thinking hum, hovers) don't count as a control's own sound, or a
+    // click or focus landing next to one would stay silent.
+    if (!AMBIENT.has(name)) lastAt = now;
+    anyAt = now;
     // Chromium suspends an idle context (and Windows can interrupt one when the audio device changes). Notes
     // scheduled while it is paused would land in the past and be dropped, so they wait for it to run again.
     if (ctx.state !== 'running') {
@@ -371,9 +393,13 @@ const sfx = (() => {
     ['a[href]', 'link'],
     ['.tree-item, .row, [role="option"], [role="menuitem"], .chat-file-chip, .card', 'row'],
     ['button, [role="button"], summary, select, label, .btn, .pill-btn, .mode-card', 'click'],
+    // Source control rows (changes, checkpoints): after buttons, so a row's own stage/discard buttons still click.
+    ['.scm-row, .commit, .commit-detail-row', 'row'],
   ];
   const kindOf = (t: EventTarget | null): Sound | null => {
     if (!(t instanceof Element)) return null;
+    // Hold-to-delete buttons make their own sound when the hold completes; the release's click stays silent.
+    if (t.closest('[data-hold]')) return null;
     for (const [sel, s] of KINDS) {
       const el = t.closest(sel);
       if (!el) continue;
@@ -382,31 +408,37 @@ const sfx = (() => {
     }
     return null;
   };
-  let pending: Sound | null = null;
-  let pendingAt = 0;
+  // What was pressed, read on the press: a control that redraws itself under the pointer hands the click to its
+  // parent, which would otherwise make no sound.
+  let downKind: Sound | null = null;
+  let downAt = -Infinity;
   document.addEventListener('click', e => {
-    pending = kindOf(e.target);
-    pendingAt = performance.now();
+    const kind = kindOf(e.target) ?? (performance.now() - downAt < 800 ? downKind : null);
+    downKind = null;
+    if (!kind) return;
     // Close buttons often stop the click from bubbling, so a removal sounds right here instead of after.
-    if (pending === 'remove') { play('remove'); pending = null; }
+    if (kind === 'remove') { play('remove'); return; }
+    // Played once the click has been handled (many handlers stop it bubbling, so this can't wait for it to come
+    // back up), unless the control made its own sound meanwhile.
+    const at = performance.now();
+    setTimeout(() => { if (lastAt < at) play(kind); }, 0);
   }, true);
-  document.addEventListener('click', () => {
-    if (pending && lastAt < pendingAt) play(pending);
-    pending = null;
-  });
   // Disabled buttons swallow clicks, so they're caught on the press instead.
   document.addEventListener('pointerdown', e => {
+    if (e.button === 0) { downKind = kindOf(e.target); downAt = performance.now(); }
     const el = (e.target as Element).closest?.('button:disabled, [aria-disabled="true"]');
     if (el && e.button === 0) play('deny');
   }, true);
   // Text boxes chirp on focus; dropdown pickers and sliders answer their changes.
   document.addEventListener('focusin', e => {
     const el = e.target as HTMLElement;
-    if (el.matches?.('input:not([type="range"], [type="checkbox"], [type="radio"]), textarea, [contenteditable="true"]') && performance.now() - lastAt > 120) play('focus');
+    // A box focused for you as something closes (the next file after a tab's X) stays quiet.
+    if (el.matches?.('input:not([type="range"], [type="checkbox"], [type="radio"]), textarea, [contenteditable="true"]') && performance.now() - lastAt > 120 && performance.now() - (last.remove ?? -Infinity) > 600) play('focus');
   });
   document.addEventListener('change', e => { if ((e.target as Element).matches?.('select')) play('select'); });
   document.addEventListener('input', e => { if ((e.target as Element).matches?.('input[type="range"]')) play('slide'); });
-  document.addEventListener('drop', () => play('drop'));
+  // Caught on the way down: some drop zones stop the event before it would bubble back up here.
+  document.addEventListener('drop', () => play('drop'), true);
   // Typing anywhere in Breeze ticks (the editor's own ticks fall inside the same gap, so they never double up).
   document.addEventListener('keydown', e => {
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat && e.key !== 'Backspace') return;
@@ -432,20 +464,24 @@ const sfx = (() => {
     const gone = count(records.map(r => r.removedNodes));
     if (!gone || gone <= count(records.map(r => r.addedNodes))) return;
     // The control that removed it already made its sound (a tab's X sounds on the press, before the fold-away ends).
-    if (performance.now() - lastAt < 120 || performance.now() - (last.remove ?? -Infinity) < 700) return;
+    if (performance.now() - anyAt < 120 || performance.now() - (last.remove ?? -Infinity) < 700 || performance.now() - (last.trash ?? -Infinity) < 1500) return;
     if (records.some(r => (r.target as Element).closest?.('#menuRoot, #modalRoot, .menu'))) return; // menus and dialogs have their own close sounds
     play('remove');
   });
   addEventListener('DOMContentLoaded', () => removals.observe(document.body, { childList: true, subtree: true }));
   if (document.body) removals.observe(document.body, { childList: true, subtree: true });
   document.addEventListener('copy', () => play('copy'));
-  // Buttons hover like the website's; menu rows and list rows give a fainter tick.
+  // Buttons hover like the website's; menu rows and list rows give a fainter tick. Only when the pointer itself
+  // moved onto them: the page appearing under a still pointer (at start-up, behind the loading screen) or a menu
+  // opening beneath it fires the same event, and stays quiet.
+  let movedAt = -Infinity;
+  document.addEventListener('pointermove', e => { if (e.movementX || e.movementY) movedAt = performance.now(); }, { capture: true, passive: true });
   document.addEventListener('pointerover', e => {
-    if (e.pointerType !== 'mouse') return;
+    if (e.pointerType !== 'mouse' || performance.now() - movedAt > 120) return;
     const t = e.target as Element;
     const btn = t.closest?.('.btn');
     if (btn) { if (!btn.contains(e.relatedTarget as Node | null)) play('hover'); return; }
-    const row = t.closest?.('.menu-item, [role="option"], .tree-item');
+    const row = t.closest?.('.menu-item, [role="option"], .tree-item, .scm-row, .commit, .commit-detail-row');
     if (row && !row.contains(e.relatedTarget as Node | null)) play('rowHover');
   });
 
@@ -882,6 +918,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   down: [['path', { d: 'M12 5v14' }], ['path', { d: 'm19 12-7 7-7-7' }]],
   chevronRight: [['path', { d: 'm9 18 6-6-6-6' }]],
   chevronDown: [['path', { d: 'm6 9 6 6 6-6' }]],
+  chevronLeft: [['path', { d: 'm15 18-6-6 6-6' }]],
   sparkles: [['path', { d: 'm12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z' }], ['path', { d: 'M5 3v4' }], ['path', { d: 'M19 17v4' }], ['path', { d: 'M3 5h4' }], ['path', { d: 'M17 19h4' }]],
   backspace: [['path', { d: 'M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z' }], ['path', { d: 'm12 9 6 6' }], ['path', { d: 'm18 9-6 6' }]],
   volume: [['path', { d: SPEAKER }], ['path', { d: 'M16 9a5 5 0 0 1 0 6' }], ['path', { d: 'M19.364 18.364a9 9 0 0 0 0-12.728' }]],
@@ -1640,8 +1677,14 @@ function setEffort(eff: EffortLevel): void {
   store.set('breeze.effort', eff);
 }
 
+// Each agent keeps its own effort; one never picked follows the global setting.
+function agentEffort(a: DetectedAgent): EffortLevel {
+  const stored = store.get<string>(`breeze.effort.${a.id}`, '');
+  return (EFFORTS.find(e => e.toLowerCase() === stored.toLowerCase()) ?? currentEffort()) as EffortLevel;
+}
+
 async function applyModelAndEffort(a: DetectedAgent, model: string, effort: EffortLevel): Promise<void> {
-  setEffort(effort);
+  if (!a.api) store.set(`breeze.effort.${a.id}`, effort);
   if (a.id === 'codex') {
     await api.agent.setModel('codex', model, effort.toLowerCase());
     a.version = model;
@@ -1670,7 +1713,7 @@ function modelMenuItems(a: DetectedAgent, onSelect?: () => void): MenuItem[] {
     subClass: 'effort-menu',
     sub: () => EFFORTS.map(eff => ({
       label: eff,
-      checked: () => (a.version || a.models?.[0]) === m && currentEffort() === eff,
+      checked: () => (a.version || a.models?.[0]) === m && agentEffort(a) === eff,
       run: () => {
         background(applyModelAndEffort(a, m, eff).then(() => {
           onSelect?.();
@@ -1678,46 +1721,13 @@ function modelMenuItems(a: DetectedAgent, onSelect?: () => void): MenuItem[] {
       }
     })),
     run: () => {
-      background(applyModelAndEffort(a, m, currentEffort()).then(() => {
+      background(applyModelAndEffort(a, m, agentEffort(a)).then(() => {
         onSelect?.();
       }));
     }
   }));
 }
 
-function updateComposerModelSelect(a: DetectedAgent | null): void {
-  const sel = $('#agentModelSelect') as HTMLSelectElement | null;
-  if (!sel) return;
-  const btn = sel.nextElementSibling?.classList.contains('dd-btn') ? (sel.nextElementSibling as HTMLElement) : null;
-  if (!a?.found || !a.models?.length) {
-    sel.classList.add('hidden');
-    if (btn) btn.classList.add('hidden');
-    sel.innerHTML = '';
-    return;
-  }
-  sel.classList.remove('hidden');
-  if (btn) {
-    btn.classList.remove('hidden', 'model-swap');
-    const _reflow = btn.offsetWidth;
-    btn.classList.add('model-swap');
-  }
-  const current = a.version || a.models[0];
-  const eff = currentEffort();
-  sel.innerHTML = a.models.map(m => `<option value="${escAttr(m)}"${m === current ? ' selected' : ''}>${esc(m)}</option>`).join('');
-  sel.value = current;
-  if (btn) {
-    btn.innerHTML = `<span class="dd-val">${esc(current)}<small class="dd-eff"> · ${esc(eff)}</small></span><svg class="dd-chev" width="10" height="10"><use href="#i-chev"/></svg>`;
-    btn.title = `${current} (${eff} effort)`;
-  }
-  sel.onchange = async () => {
-    const chosen = sel.value;
-    await applyModelAndEffort(a, chosen, currentEffort());
-    if (btn) {
-      btn.innerHTML = `<span class="dd-val">${esc(chosen)}<small class="dd-eff"> · ${esc(currentEffort())}</small></span><svg class="dd-chev" width="10" height="10"><use href="#i-chev"/></svg>`;
-      btn.title = `${chosen} (${currentEffort()} effort)`;
-    }
-  };
-}
 /* ----- Agent bar: one chip per installed agent; a chip inserts its @mention ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
 const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['local', 'Local']]);
@@ -1748,7 +1758,12 @@ function makeDefaultAgent(ag: DetectedAgent): void {
   toast(`Active agent: ${ag.name}`);
 }
 function agentChipMenuItems(ag: DetectedAgent): MenuItem[] {
+  // Each model opens its effort levels, so the agent's chip is where model and effort are picked.
+  const models: MenuItem[] = ag.models?.length
+    ? [{ label: 'Model', enabled: () => false }, ...modelMenuItems(ag), { sep: true }]
+    : [];
   return [
+    ...models,
     { label: 'Make default', checked: () => ag.id === appState.agent, enabled: () => ag.id !== appState.agent, run: () => makeDefaultAgent(ag) },
     { sep: true },
     { label: 'Manage agents', run: openAgentPicker },
@@ -1772,17 +1787,68 @@ function agentChipHtml(a: DetectedAgent, on: boolean): string {
   return `<button type="button" class="agent-chip${on ? ' on' : ''}" data-agent="${escAttr(a.id)}" aria-label="Mention @${escAttr(short)}" aria-pressed="${on}">${logo}<span class="chip-name">${esc(short)}</span><span class="chip-more" role="button" aria-label="Options for ${escAttr(short)}" aria-haspopup="menu">${svgIcon('chevronDown', 10)}</span></button>`;
 }
 
-// Chips that do not fit the bar move into a trailing "+N" chip.
+// Chips that do not fit the bar move into a trailing "+N" chip. As the bar is squeezed or widened, a chip that
+// folds away shrinks out where it stood, one that comes back grows in, and the "+N" chip grows in or pops its count.
+let agentBarFolded = new Set<string>();
+let agentBarRest = 0; // the "+N" count last shown, 0 for none
 function fitAgentBar(): void {
   const bar = $('#agentBar');
+  const before = new Map($$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar).map(c => [c.dataset.agent as string, c]));
+  const rects = new Map([...before].map(([id, c]) => [id, c.getBoundingClientRect()]));
+  layoutAgentBar(bar);
+  bar.classList.remove('measuring');
+  const nowFolded = new Set($$<HTMLElement>('.agent-chip[data-agent].hidden', bar).map(c => c.dataset.agent as string));
+  const rest = bar.querySelector<HTMLElement>('.chip-rest');
+  const restCount = rest ? nowFolded.size : 0;
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches && bar.offsetParent) {
+    const grow = { duration: 260, easing: 'cubic-bezier(.175, .885, .32, 1.275)' };
+    for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
+      if (agentBarFolded.has(c.dataset.agent as string)) c.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
+    }
+    for (const id of nowFolded) {
+      const from = before.get(id), r = rects.get(id);
+      if (from && r && !agentBarFolded.has(id)) shrinkOut(bar, from, r);
+    }
+    if (rest && !agentBarRest) rest.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
+    else if (rest && restCount !== agentBarRest) rest.animate([{ transform: 'scale(1.12)' }, { transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
+  agentBarFolded = nowFolded;
+  agentBarRest = restCount;
+}
+// A copy of the chip, left in the bar where it stood, shrinks and fades while the real one is already folded away.
+// It stays inside the bar so it keeps the bar's chip styles, and drops data-agent so the bar never counts it.
+function shrinkOut(bar: HTMLElement, chip: HTMLElement, r: DOMRect): void {
+  const ghost = chip.cloneNode(true) as HTMLElement;
+  ghost.classList.remove('hidden', 'open');
+  ghost.classList.add('chip-ghost');
+  ghost.removeAttribute('data-agent');
+  ghost.setAttribute('aria-hidden', 'true');
+  if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
+  const b = bar.getBoundingClientRect();
+  Object.assign(ghost.style, { position: 'absolute', left: `${r.left - b.left + bar.scrollLeft}px`, top: `${r.top - b.top + bar.scrollTop}px`, width: `${r.width}px`, height: `${r.height}px`, margin: '0', pointerEvents: 'none' });
+  bar.append(ghost);
+  ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 200, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' }).onfinish = () => ghost.remove();
+  setTimeout(() => ghost.remove(), 300); // a hidden window doesn't run animations, so a timer makes sure it goes
+}
+function layoutAgentBar(bar: HTMLElement): void {
   bar.querySelector('.chip-rest')?.remove();
   const chips = $$('.agent-chip[data-agent]', bar);
   chips.forEach(c => c.classList.remove('hidden'));
+  // Measured at full size: in a tight bar the kept chip may shrink (see .agent-bar), which mustn't skew the fit.
+  bar.classList.add('measuring');
+  const _reflow = bar.offsetWidth;
   const avail = bar.clientWidth;
   if (chips.length < 2 || avail <= 0) return;
   const gap = Number.parseFloat(getComputedStyle(bar).columnGap) || 0;
   const widths = chips.map(c => c.offsetWidth);
   if (widths.reduce((sum, w) => sum + w, 0) + gap * (chips.length - 1) <= avail) return;
+  // A chip still fits if its logo, arrow and a few letters of its name do: the chips then shrink their names
+  // (with an ellipsis) to share the room, rather than folding one away while there's space for most of it.
+  const minWidths = chips.map((c, i) => {
+    const name = c.querySelector<HTMLElement>('.chip-name');
+    return name ? widths[i] - name.scrollWidth + Math.min(name.scrollWidth, 30) : widths[i];
+  });
+  if (minWidths.reduce((sum, w) => sum + w, 0) + gap * (chips.length - 1) <= avail) return;
   const rest = document.createElement('button');
   rest.type = 'button';
   rest.className = 'agent-chip chip-rest';
@@ -1791,7 +1857,7 @@ function fitAgentBar(): void {
   bar.append(rest);
   let used = rest.offsetWidth;
   let keep = 0;
-  for (const w of widths) {
+  for (const w of minWidths) {
     if (used + gap + w > avail) break;
     used += gap + w;
     keep++;
@@ -1810,6 +1876,8 @@ function renderAgentBar(): void {
   const found = (appState.detect?.agents ?? []).filter(x => x.found);
   // The default agent comes first, so it is the last chip to be folded into "+N".
   found.sort((x, y) => Number(y.id === a?.id) - Number(x.id === a?.id));
+  // Where each chip was, so a new default can glide to the front instead of jumping there.
+  const before = new Map($$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar).map(c => [c.dataset.agent, c.getBoundingClientRect().left]));
   if (found.length) {
     bar.innerHTML = found.map(x => agentChipHtml(x, x.id === a?.id)).join('');
   } else {
@@ -1823,12 +1891,19 @@ function renderAgentBar(): void {
     on.addEventListener('animationend', () => on.classList.remove('agent-swap'), { once: true });
   }
   fitAgentBar();
+  if (prev !== bar.dataset.current && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
+      const x = before.get(c.dataset.agent);
+      const dx = x == null ? 0 : x - c.getBoundingClientRect().left;
+      if (dx) c.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+    }
+  }
   const model = a?.api && a.version ? ' · ' + a.version : '';
   const label = a ? a.name + model : 'Choose an agent';
   $('#boxModel').innerHTML = `${esc(label)}${svgIcon('chevronDown', 12)}`;
   for (const k of Object.values(agentsDef)) k.model = modelLabel(a);
   renderAgents();
-  updateComposerModelSelect(a);
+  renderPromptModels();
   updateScmGenBtn();
 }
 
@@ -1840,7 +1915,13 @@ $('#agentBar').addEventListener('click', e => {
   if (chip.classList.contains('chip-rest')) {
     const ids = (chip.dataset.hidden ?? '').split(',');
     const hidden = (appState.detect?.agents ?? []).filter(x => ids.includes(x.id));
-    openChipMenu(chip, hidden.map(x => ({ label: agentShortName(x), icon: brandMark('menu-ico', x.id, x.name[0]), run: () => insertMention(x) })));
+    // Each agent opens its own options (model, effort, default), the same menu as its chip's arrow.
+    openChipMenu(chip, hidden.map(x => ({ label: agentShortName(x), icon: brandMark('menu-ico', x.id, x.name[0]), run: () => insertMention(x), sub: () => agentChipMenuItems(x), clickRuns: true })));
+    const m = chip.classList.contains('open') ? $('#menuRoot .menu') : null;
+    if (m) {
+      m.style.minWidth = '160px';
+      m.style.left = `${Math.max(8, Math.min(chip.getBoundingClientRect().left, innerWidth - m.offsetWidth - 8))}px`;
+    }
     return;
   }
   const ag = appState.detect?.agents.find(x => x.id === chip.dataset.agent);
@@ -3384,6 +3465,23 @@ function renderFluidFrame(state: FluidCanvasState): void {
     ]
   } });
 
+  // The haze runs right up to the panel's edge, where the dots thin out, so the last few pixels read as a hard cyan
+  // line along the border. Erase a soft band there so the glow fades out before the edge.
+  // A blurred stroke fades the band in; a hard one clears the outermost pixels the blur can't fully reach.
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.strokeStyle = '#000';
+  ctx.beginPath();
+  if (typeof (ctx as any).roundRect === 'function' && rawR > 0.5) (ctx as any).roundRect(0, 0, w, h, Math.min(rawR, w / 2, h / 2));
+  else ctx.rect(0, 0, w, h);
+  ctx.filter = 'blur(3px)';
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  ctx.filter = 'none';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.restore();
+
   // 3. Stippled Wave Dot Grid (Gemini-style undulating micro-dot matrix with chromatic crests and increased density)
   drawFluidDotGrid({ ctx, w, h, rawR, gx, gy, t, maxEnergy });
 
@@ -4640,7 +4738,8 @@ $('#tree').addEventListener('dragstart', e => {
     e.dataTransfer.setData('application/x-breeze-tree-path', draggedTreePath);
     e.dataTransfer.setData('application/x-breeze-is-dir', draggedTreeIsDir ? '1' : '0');
 
-    // Clean, crisp custom drag ghost preview pill
+    // The browser's own drag image is a flat bitmap, so it can't blur what's behind it. It is swapped for an
+    // empty image and a real element follows the pointer instead, with a backdrop blur.
     let ghost = document.getElementById('breezeDragGhost');
     if (!ghost) {
       ghost = document.createElement('div');
@@ -4651,19 +4750,26 @@ $('#tree').addEventListener('dragstart', e => {
     const name = draggedTreePath.split('/').pop() || draggedTreePath;
     const iconHtml = draggedTreeIsDir ? folderIcon(name, false) : fileIcon(name);
     ghost.innerHTML = `<span class="ico">${iconHtml}</span><span class="nm">${esc(name)}</span>`;
-    ghost.style.left = '0px';
-    ghost.style.top = '0px';
-    const rect = ghost.getBoundingClientRect();
-    e.dataTransfer.setDragImage(ghost, Math.min(28, rect.width / 2), Math.round(rect.height / 2));
-    setTimeout(() => {
-      if (ghost) {
-        ghost.style.left = '-9999px';
-        ghost.style.top = '-9999px';
-      }
-    }, 0);
+    e.dataTransfer.setDragImage(emptyDragImage, 0, 0);
+    moveDragGhost(e.clientX, e.clientY);
+    ghost.classList.add('on');
   }
 });
+const emptyDragImage = new Image();
+emptyDragImage.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+function moveDragGhost(x: number, y: number): void {
+  const ghost = document.getElementById('breezeDragGhost');
+  if (!ghost) return;
+  const r = ghost.getBoundingClientRect();
+  ghost.style.transform = `translate(${x - Math.min(28, r.width / 2)}px, ${y - r.height / 2}px)`;
+}
+function hideDragGhost(): void {
+  document.getElementById('breezeDragGhost')?.classList.remove('on');
+}
+document.addEventListener('dragover', e => { if (draggedTreePath) moveDragGhost(e.clientX, e.clientY); }, true);
+document.addEventListener('drop', hideDragGhost, true);
 $('#tree').addEventListener('dragend', e => {
+  hideDragGhost();
   (e.target as HTMLElement).closest<HTMLElement>('[data-path]')?.classList.remove('dragging');
   draggedTreePath = null;
   draggedTreeIsDir = false;
@@ -5003,8 +5109,13 @@ function setActive(path: string | null): void {
   if (changed && path) sfx.play('tab');
   renderTabs(); renderEditor(); renderTree(); saveSession();
   if (changed) queueDiscord();
-  if (changed) for (const el of [$('#hl'), $('#gutter')]) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160 });
+  if (changed) fadeInEditor();
   if (running && path && /\.(html?|css|js)$/i.test(path)) $('#urlText').title = path;
+}
+// Another file's code fades in rather than snapping in place of the last one.
+function fadeInEditor(): void {
+  if (!activeBuf() || activeBuf()?.kind !== 'text') return;
+  for (const el of [$('#hl'), $('#gutter')]) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
 }
 const seenTabs = new Set<string>();
 function tabHtml(n: string): string {
@@ -5024,41 +5135,113 @@ function renderTabs(): void {
   if (tabDrag?.moved) { tabDrag.stale = true; return; }
   const tabsEl = $('#tabs');
   const hasTabs = openTabs.length > 0;
+  let growNew: HTMLElement | null = null;
   tabsEl.classList.toggle('hidden', !hasTabs);
   if (!hasTabs) {
     tabsEl.innerHTML = '';
   } else {
     let runBtn = '';
     if (runnable(active)) {
-      runBtn = `<button class="tab-run" data-run-file="1" title="Run File (F5)">${svgIcon('play', 12)}<span>Run</span></button>`;
+      runBtn = `<button class="tab-run${tabRunCompact ? ' compact' : ''}" data-run-file="1" title="Run File (F5)">${svgIcon('play', 12)}<span>Run</span></button>`;
     } else if (isHtml(active)) {
-      runBtn = `<button class="tab-run tab-preview" data-preview-file="1" title="Preview this page (F5)">${svgIcon('play', 12)}<span>Preview</span></button>`;
+      runBtn = `<button class="tab-run tab-preview${tabRunCompact ? ' compact' : ''}" data-preview-file="1" title="Preview this page (F5)">${svgIcon('play', 12)}<span>Preview</span></button>`;
     }
     const splitTitle = splitPath ? 'Close Split' : 'Split Editor Right';
     const splitBtn = `<button class="icon-btn tab-split${splitPath ? ' on' : ''}" data-split="1" title="${splitTitle} ${String.raw`(Ctrl\)`}">${svgIcon('columns', 14)}</button>`;
-    tabsEl.innerHTML = openTabs.map(tabHtml).join('') + runBtn + splitBtn;
+    const oldRun = tabsEl.querySelector<HTMLElement>('.tab-run:not(.ghost)');
+    const oldKind = oldRun?.title ?? '';
+    const runTitle = /title="([^"]*)"/.exec(runBtn)?.[1] ?? '';
+    // The same Run / Preview, and any old one still narrowing shut, stay put rather than being rebuilt: the strip
+    // re-renders often (git status, saves), and a fresh button would cut its grow, fold or shrink short.
+    const keep = oldRun && oldKind === runTitle ? oldRun : null;
+    for (const c of [...tabsEl.children]) if (c !== keep && !c.classList.contains('ghost')) c.remove();
+    tabsEl.insertAdjacentHTML('afterbegin', openTabs.map(tabHtml).join(''));
+    tabsEl.insertAdjacentHTML('beforeend', (keep ? '' : runBtn) + splitBtn);
+    // Run / Preview grows open when a file that has one opens, and narrows shut in place when it no longer does.
+    const newRun = tabsEl.querySelector<HTMLElement>('.tab-run:not(.ghost)');
+    if (oldRun && oldKind !== (newRun?.title ?? '')) narrowAway(tabsEl, oldRun);
+    if (newRun && oldKind !== newRun.title) growNew = newRun;
   }
-  placeTabInk();
+  // Run / Preview first: hiding it widens the tabs, so the line under the open tab is placed after.
   fitTabRunBtn();
+  if (growNew) growTabRun(growNew); // after the fit, so it grows to its folded or unfolded size
+  placeTabInk();
+  markCutTabNames();
   if (!running) renderPreviewEmpty();
   renderSplit();
 }
-// Run / Preview is sticky at the right edge, so on a narrow editor it would cover the file name. Hide it when the tabs and button don't both fit.
+// Run / Preview is sticky at the right edge, so on a narrow editor it would cover the file name. Tabs shrink to make
+// room for it; once they can't shrink any more, it folds to just its play icon (its tooltip still names it), its
+// label sliding away. The state outlives re-renders, so switching tabs doesn't replay the fold.
+let tabRunCompact = false;
 function fitTabRunBtn(): void {
   const tabs = $('#tabs');
-  const btn = tabs.querySelector<HTMLElement>('.tab-run');
+  const btn = tabs.querySelector<HTMLElement>('.tab-run:not(.ghost)');
   if (!btn) return;
-  btn.style.display = '';
-  const split = tabs.querySelector<HTMLElement>('.tab-split');
-  let need = (split ? split.offsetWidth + 4 : 0) + btn.offsetWidth + 16;
-  tabs.querySelectorAll<HTMLElement>('.tab').forEach((t) => { need += t.offsetWidth + 4; });
-  if (need > tabs.clientWidth) btn.style.display = 'none';
+  // Measured with an unfolded stand-in in the button's place. Unfolding the live button to measure would cancel its
+  // fold every frame of a window or panel resize (this runs on each one), and the fold would snap instead of animate.
+  const probe = btn.cloneNode(true) as HTMLElement;
+  probe.classList.remove('compact');
+  probe.classList.add('probe');
+  btn.style.position = 'absolute'; btn.style.visibility = 'hidden'; // out of the flow; its transitions keep running
+  btn.after(probe);
+  tabs.classList.add('measuring');
+  const compact = tabs.scrollWidth > tabs.clientWidth + 1;
+  tabs.classList.remove('measuring');
+  probe.remove();
+  btn.style.position = ''; btn.style.visibility = '';
+  if (compact === tabRunCompact) return;
+  tabRunCompact = compact;
+  btn.classList.toggle('compact', compact);
+  followTabRunFold();
 }
-new ResizeObserver(() => fitTabRunBtn()).observe($('#tabs'));
+// Read live (not the shared reduceMotion constant): tabs can render before that line of the script has run.
+const tabMotionOff = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Grow, not pop: the button's width opens from nothing (or closes to nothing) and the tabs beside it make room as it
+// does, with no scaling or overshoot.
+// An even ease-in-out: a strong ease-out opened most of the width in the first frame, so the grow read as a pop.
+const TAB_RUN_GROW = { duration: 320, easing: 'cubic-bezier(.65, 0, .35, 1)' };
+function tabRunBox(btn: HTMLElement): Keyframe {
+  const cs = getComputedStyle(btn);
+  return { width: `${btn.getBoundingClientRect().width}px`, paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, borderLeftWidth: cs.borderLeftWidth, borderRightWidth: cs.borderRightWidth, marginLeft: cs.marginLeft };
+}
+const TAB_RUN_SHUT: Keyframe = { width: '0px', paddingLeft: '0px', paddingRight: '0px', borderLeftWidth: '0px', borderRightWidth: '0px', marginLeft: '0px' };
+function growTabRun(btn: HTMLElement): void {
+  if (tabMotionOff()) return;
+  const open = tabRunBox(btn);
+  btn.animate([{ ...TAB_RUN_SHUT, overflow: 'hidden', boxSizing: 'border-box' }, { ...open, overflow: 'hidden', boxSizing: 'border-box' }], TAB_RUN_GROW);
+  followTabRunFold();
+}
+// The old button stays in the strip, in its place before the split button, and narrows shut.
+function narrowAway(strip: HTMLElement, btn: HTMLElement): void {
+  if (tabMotionOff()) return;
+  btn.setAttribute('aria-hidden', 'true');
+  btn.removeAttribute('data-run-file'); btn.removeAttribute('data-preview-file');
+  btn.classList.add('ghost'); // still styled as the button, but skipped wherever the live one is looked up
+  btn.style.pointerEvents = 'none';
+  strip.insertBefore(btn, strip.querySelector('.tab-split'));
+  const out = btn.animate([{ ...tabRunBox(btn), overflow: 'hidden', boxSizing: 'border-box' }, { ...TAB_RUN_SHUT, overflow: 'hidden', boxSizing: 'border-box' }], { ...TAB_RUN_GROW, fill: 'forwards' });
+  out.onfinish = () => { btn.remove(); placeTabInk(true); };
+  setTimeout(() => { btn.remove(); placeTabInk(true); }, 400); // a hidden window runs no animations
+  followTabRunFold();
+}
+// While the button folds or unfolds the tabs beside it resize, so the line under the open tab follows each frame.
+function followTabRunFold(): void {
+  const until = performance.now() + 400;
+  const step = () => { placeTabInk(true); markCutTabNames(); if (performance.now() < until) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+// Resizing the window or a panel squeezes the tabs, so the line under the open one follows at once (no glide).
+new ResizeObserver(() => { fitTabRunBtn(); placeTabInk(true); markCutTabNames(); }).observe($('#tabs'));
+// A squeezed tab name is clipped with a fade rather than an ellipsis: an ellipsis drops whole letters, leaving a gap
+// before the extension that jumps about as the strip is resized. Only names that don't fit get the fade.
+function markCutTabNames(): void {
+  for (const b of $$<HTMLElement>('#tabs .tab .nm-base')) b.classList.toggle('cut', b.scrollWidth > b.clientWidth + 0.5);
+}
 // The blue line under the open tab is one element that glides from the last tab to the new one.
 // Tabs are re-rendered, so the line restarts from where it was drawn last and then moves.
 let inkAt: { x: number; y: number; w: number } | null = null;
-function placeTabInk(): void {
+function placeTabInk(instant = false): void {
   const tabs = $('#tabs');
   const on = tabs.querySelector<HTMLElement>('.tab.on');
   const old = tabs.querySelector<HTMLElement>('.tab-ink');
@@ -5066,6 +5249,14 @@ function placeTabInk(): void {
   const ink = old ?? tabs.appendChild(Object.assign(document.createElement('span'), { className: 'tab-ink' }));
   const next = { x: on.offsetLeft + 10, y: on.offsetTop + on.offsetHeight - 1, w: Math.max(0, on.offsetWidth - 20) };
   const draw = (p: { x: number; y: number; w: number }) => { ink.style.transform = `translate(${p.x}px, ${p.y}px)`; ink.style.width = `${p.w}px`; };
+  if (instant) {
+    ink.style.transition = 'none';
+    draw(next);
+    const _reflow = ink.offsetWidth;
+    ink.style.transition = '';
+    inkAt = next;
+    return;
+  }
   if (inkAt) {
     ink.style.transition = 'none';
     draw(inkAt);
@@ -5076,7 +5267,7 @@ function placeTabInk(): void {
   inkAt = next;
 }
 // A new tab grows in; the line follows its final width once it has.
-$('#tabs').addEventListener('animationend', e => { if ((e.target as HTMLElement).classList.contains('tab')) placeTabInk(); });
+$('#tabs').addEventListener('animationend', e => { if ((e.target as HTMLElement).classList.contains('tab')) { placeTabInk(); markCutTabNames(); } });
 $('#tabs').addEventListener('click', e => {
   if ((e.target as HTMLElement).closest('[data-run-file]')) { run('run.file'); return; }
   if ((e.target as HTMLElement).closest('[data-preview-file]')) { if (active) { void startPreview(active); } return; }
@@ -5286,6 +5477,13 @@ function closeTab(path: string): void {
       tabEl.style.maxWidth = `${w}px`;
       const _reflow = tabEl.offsetWidth;
       tabEl.classList.add('closing');
+      // The next file shows (and fades in) right away; the tab itself folds away meanwhile.
+      if (!isLastTab && active === path) {
+        const i = openTabs.indexOf(path);
+        active = openTabs[i + 1] ?? openTabs[i - 1] ?? null;
+        renderEditor();
+        fadeInEditor();
+      }
       if (isLastTab) {
         const ink = $('#tabs .tab-ink');
         if (ink) {
@@ -5302,8 +5500,10 @@ function closeTab(path: string): void {
         renderTabs(); renderEditor(); renderTree(); saveSession();
       }, 190);
     } else {
+      const wasActive = active === path;
       dropTab(path);
       renderTabs(); renderEditor(); renderTree(); saveSession();
+      if (wasActive) fadeInEditor();
     }
   };
   if (!isDirty(b)) { finish(); return; }
@@ -7562,6 +7762,9 @@ function sashGap(sash: HTMLElement): [number, number, number, number] | null {
   if (!cardEl?.offsetParent) return null;
   const kind = sash.dataset.sash;
   if (kind === 'term' && !cardEl.classList.contains('open')) return null;
+  // A closed preview keeps its (zero-width) card in the layout; its sash would sit on the editor's edge and resize
+  // nothing useful, since the editor and agents already share the sash beside the agents panel.
+  if (kind === 'preview' && !layout.previewOpen) return null;
   const card = cardEl.getBoundingClientRect();
   const half = (Number.parseFloat(getComputedStyle($('#main')).getPropertyValue('--gap')) || 6) / 2;
   return kind === 'term'
@@ -7640,6 +7843,7 @@ interface MenuItem {
   header?: User;              // a "who is signed in" row
   sub?: () => MenuItem[];     // opens a submenu on hover
   subClass?: string;          // custom css class for submenu
+  clickRuns?: boolean;        // with `sub`: a click runs the item, hovering still opens the submenu
 }
 const hasFile = () => !!activeText();
 function searchSelection(): void {
@@ -8117,9 +8321,10 @@ function menuItemHtml(it: MenuItem, i: number): string {
   return `<button class="${cls}${it.remove ? ' has-del' : ''}" role="menuitem" data-mi="${i}" data-style="--i:${i}"${disabled}${popup}>${label}${key}${del}</button>`;
 }
 // Builds a menu element at (x, y), kept inside the window.
-function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu'): HTMLElement {
+function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth = 0): HTMLElement {
   const m = document.createElement('div');
   m.className = `${cls} stagger`;
+  m.dataset.depth = String(depth);
   m.setAttribute('role', 'menu');
   m.innerHTML = items.map((it, i) => menuItemHtml(it, i)).join('');
   m.style.setProperty('--n', String(items.length)); // menus that open upwards stagger their rows from the bottom
@@ -8130,21 +8335,24 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu'): HTML
   $$('[data-mi]', m).forEach(b => {
     const it = items[Number(b.dataset.mi)];
     b.onmousedown = e => e.preventDefault(); // keep focus (and the selection) in the editor
-    b.onclick = () => (it.sub ? openSubmenu(b, it) : activateMenuItem(it));
+    b.onclick = () => (it.sub && !it.clickRuns ? openSubmenu(b, it) : activateMenuItem(it));
     const del = b.querySelector<HTMLElement>('[data-mi-del]');
     if (del && it.remove) { const remove = it.remove; holdToDelete(del, () => { closeMenu(); remove(); }); }
-    if (cls === 'menu') b.onmouseenter = () => (it.sub ? openSubmenu(b, it) : closeSubmenu());
+    // Submenus open on hover at every level; hovering a plain row closes any deeper ones.
+    if (cls === 'menu' || it.sub) b.onmouseenter = () => (it.sub ? openSubmenu(b, it) : closeSubmenu(depth + 1));
+    else if (depth) b.onmouseenter = () => closeSubmenu(depth + 1);
   });
   return m;
 }
 // Hovering an item with "›" opens its submenu beside it.
 function openSubmenu(btn: HTMLElement, it: MenuItem): void {
   if (btn.classList.contains('sub-open')) return;
-  closeSubmenu();
+  const depth = Number(btn.closest<HTMLElement>('.menu')?.dataset.depth ?? 0) + 1;
+  closeSubmenu(depth);
   btn.classList.add('sub-open');
   const r = btn.getBoundingClientRect();
   const cls = 'menu sub' + (it.subClass ? ` ${it.subClass}` : '');
-  const sub = renderMenu(r.right + 4, r.top - 5, it.sub?.() ?? [], cls);
+  const sub = renderMenu(r.right + 4, r.top - 5, it.sub?.() ?? [], cls, depth);
   if (!btn.closest('.menu')?.classList.contains('stagger')) sub.classList.remove('stagger'); // like its parent menu
   if (btn.closest('.menu.up')) {
     sub.classList.add('up');
@@ -8152,9 +8360,13 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
   }
   if (sub.getBoundingClientRect().left < r.right) sub.style.left = `${Math.max(8, r.left - sub.offsetWidth - 4)}px`; // no room on the right
 }
-function closeSubmenu(): void {
-  $$('#menuRoot .menu.sub').forEach(s => s.remove());
-  $$('#menuRoot .sub-open').forEach(b => b.classList.remove('sub-open'));
+// Closes the submenus at `depth` and deeper (1, the default, is all of them).
+function closeSubmenu(depth = 1): void {
+  for (const m of $$<HTMLElement>('#menuRoot .menu')) {
+    const d = Number(m.dataset.depth ?? 0);
+    if (d >= depth) m.remove();
+    else if (d === depth - 1) $$('.sub-open', m).forEach(b => b.classList.remove('sub-open'));
+  }
 }
 function showMenu(x: number, y: number, items: MenuItem[], viaKeyboard: boolean): void {
   cancelMenuClose();
@@ -8236,7 +8448,7 @@ document.addEventListener('keydown', e => {
   if (menuKeys(e)) return;
   if (e.key === 'Escape') {
     if (vibeOn) { exitVibe(); return; }
-    if (modalOpen()) { closeModal(); return; }
+    if (modalOpen()) { dismissModal(); return; }
     if (findOpen) { closeFind(); activeText()?.ta.focus(); return; }
   }
   if (modalOpen() || vibeOn || $('#ide').classList.contains('hidden')) return;
@@ -8547,7 +8759,7 @@ function bindSettings(m: HTMLElement): void {
   });
   on('sDiscordDetails', () => { appState.discordDetails = !appState.discordDetails; saveApp(); queueDiscord(); refreshSettings(); });
   // Sound: drag or scroll to set the level, one tick when it settles so you hear it.
-  // Near 50 the knob snaps to 50; pushing on out of the snap zone turns the snap off until the drag (or scroll) ends.
+  // Near 25 (the default) the knob snaps to 25; pushing on out of the snap zone turns the snap off until the drag (or scroll) ends.
   const vol = $<HTMLInputElement>('#sVolume', pane);
   if (vol) {
     vol.style.setProperty('--fill', `${vol.value}%`);
@@ -8560,17 +8772,18 @@ function bindSettings(m: HTMLElement): void {
       $('#sVolumeVal', pane).textContent = `${v}%`;
       void setIcon($('#sVolumeIco', pane), volumeIcon(v));
     };
-    const near = (v: number) => Math.abs(v - 50) <= SNAP;
+    const SNAP_AT = 25;
+    const near = (v: number) => Math.abs(v - SNAP_AT) <= SNAP;
     const settle = (raw: number) => {
       if (snapped && !near(raw)) { snapped = false; snapArmed = false; }
-      if (snapArmed && near(raw)) { snapped = true; raw = 50; }
+      if (snapArmed && near(raw)) { snapped = true; raw = SNAP_AT; }
       show(raw);
     };
     const rearm = () => { snapArmed = true; snapped = false; };
     vol.oninput = () => settle(+vol.value);
     vol.onchange = () => { sfx.play('tick'); rearm(); };
     // The speaker mutes, and a second press brings back the level it had.
-    let unmuteTo = 50;
+    let unmuteTo = SNAP_AT;
     on('sVolumeIco', () => {
       const cur = +vol.value;
       if (cur) unmuteTo = cur;
@@ -8581,8 +8794,8 @@ function bindSettings(m: HTMLElement): void {
       e.preventDefault();
       const cur = +vol.value;
       const next = clamp(cur + (e.deltaY < 0 || e.deltaX > 0 ? 1 : -1), 0, 100);
-      // A tick away from a snapped 50 is a push out of the snap: let it through.
-      if (snapped && cur === 50) { snapped = false; snapArmed = false; show(next); }
+      // A tick away from a snapped 25 is a push out of the snap: let it through.
+      if (snapped && cur === SNAP_AT) { snapped = false; snapArmed = false; show(next); }
       else settle(next);
       clearTimeout(wheelIdle);
       wheelIdle = window.setTimeout(() => { sfx.play('tick'); rearm(); }, 450);
@@ -8600,7 +8813,12 @@ function bindSettings(m: HTMLElement): void {
   on('sAddAcct', () => addAccount());
   on('sSignOut', () => background(signOut().then(refreshSettings)));
   // Help
-  $$('[data-set-cmd]', pane).forEach(b => b.onclick = () => { const c = b.dataset.setCmd ?? ''; closeModal(); run(c); });
+  // A command that opens a modal replaces Settings and leads back to it; setup and reload close Settings first.
+  $$('[data-set-cmd]', pane).forEach(b => b.onclick = () => {
+    const c = b.dataset.setCmd ?? '';
+    if (c === 'help.setup' || c === 'win.reload') closeModal();
+    run(c);
+  });
 }
 // Redraws the open pane when something changes elsewhere (Discord connects, a feed signs in, …).
 function refreshSettings(): void {
@@ -8915,9 +9133,7 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
   if (initialHtml) {
     setSavedHtml(tab.panel, initialHtml);
   } else if (s.name === 'box') {
-    const agent = selectedAgent();
-    const who = agent ? `Breeze Box talks to ${esc(agent.name)}. Pick another agent below.` : 'Pick an agent below to start.';
-    tab.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="56" height="56"><h4>What can I help with?</h4><div>${who}</div></div></div>`;
+    tab.panel.innerHTML = boxEmptyHtml();
   } else {
     tab.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div>Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
   }
@@ -9257,7 +9473,7 @@ function userMsg(text: string, attachments?: AgentAttachment[], tab?: AgentTabSt
     }).join('');
     imgHtml = `<div class="msg-attachments">${items}</div>`;
   }
-  const bodyText = text ? `<div>${esc(text).replaceAll('\n', '<br>')}</div>` : '';
+  const bodyText = text ? `<div>${(msgSurface.name === 'ide' ? mentionHtml(text) : esc(text)).replaceAll('\n', '<br>')}</div>` : '';
   addMsg(`<div class="msg user"><div class="meta"><b>${esc(user?.name ?? 'You')}</b> ${clockTime()}</div><div class="body">${bodyText}${imgHtml}</div></div>`, t);
 }
 
@@ -9287,12 +9503,13 @@ function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabSt
   if (lbl) swapText(lbl, label);
 }
 
-// A quiet murmur every couple of seconds for as long as any agent is still thinking.
+// A quiet murmur every couple of seconds for as long as any agent is still thinking (or writing a commit message).
 let thinkingHum: TimeoutId | undefined;
+let commitMsgPending = false;
 function humWhileThinking(): void {
   if (thinkingHum != null) return;
   thinkingHum = setInterval(() => {
-    if (!document.querySelector('.agent-tab-panel .thinking')) { clearInterval(thinkingHum); thinkingHum = undefined; return; }
+    if (!commitMsgPending && !document.querySelector('.agent-tab-panel .thinking')) { clearInterval(thinkingHum); thinkingHum = undefined; return; }
     sfx.play('hum');
   }, 1800);
 }
@@ -9307,12 +9524,147 @@ function hideThinking(tab?: AgentTabState): void {
   }
 }
 
+/* ----- Rotating prompts: a composer's placeholder changes when you point at it (and every 5 s while you do);
+   Breeze Box's greeting changes every 5 s ----- */
+// Built from parts, so each list holds over a thousand lines without writing them out one by one.
+const combine = (templates: string[], parts: string[]) => templates.flatMap(t => parts.map(p => t.replace('{x}', p)));
+// The composer's own placeholder ("Describe what you want to build") isn't one of these: it's the fixed one, and the
+// examples rotate over it.
+const IDE_PLACEHOLDERS = [
+  ...combine(['Build {x}', 'Make {x}', 'Create {x}', 'Design {x}', 'Prototype {x}', 'Scaffold {x}', 'Sketch out {x}', 'Put together {x}', 'Spin up {x}', 'Draft {x}', 'Code up {x}', 'Set up {x}'], [
+    'a landing page for a coffee shop', 'a todo app with drag and drop', 'a dark mode toggle', 'a pricing table', 'a contact form with validation',
+    'a weather widget', 'a Markdown previewer', 'a login screen', 'a REST API for notes', 'a CLI that renames photos',
+    'a Pomodoro timer', 'a chat UI', 'a settings page', 'an image gallery with a lightbox', 'a kanban board',
+    'a budget tracker', 'a quiz game', 'a snake game', 'a portfolio site', 'a blog with tags',
+    'a search bar with suggestions', 'a file uploader', 'a calendar view', 'a charts dashboard', 'a recipe finder',
+    'a URL shortener', 'a habit tracker', 'a music player UI', 'a modal dialog', 'a toast notification system',
+    'an onboarding flow', 'a 404 page', 'a signup form', 'a countdown timer', 'a color palette generator',
+    'a password generator', 'a unit converter', 'a tip calculator', 'a drawing canvas', 'a typing speed test',
+    'a product card grid', 'a sidebar navigation', 'a responsive navbar', 'a FAQ accordion', 'a star rating widget',
+    'a QR code generator', 'a weather app', 'an expense splitter', 'a mini spreadsheet', 'a memory card game',
+  ]),
+  ...combine(['Fix {x}', 'Refactor {x}', 'Speed up {x}', 'Write tests for {x}', 'Clean up {x}', 'Document {x}', 'Add types to {x}', 'Simplify {x}', 'Explain {x}', 'Restyle {x}', 'Add error handling to {x}', 'Review {x}'], [
+    'the navbar', 'the login flow', 'the checkout page', 'the API client', 'the settings screen',
+    'the search results', 'the signup form', 'the database queries', 'the build script', 'the footer',
+    'the router', 'the auth middleware', 'the image loader', 'the dashboard charts', 'the date helpers',
+    'the cart logic', 'the error page', 'the mobile layout', 'the sidebar', 'the modal',
+    'the file upload', 'the config loader', 'the test suite', 'the state store', 'the form validation',
+    'the dark theme', 'the header', 'the pagination', 'the notifications', 'the profile page',
+    'the caching layer', 'the websocket code', 'the logging', 'the main menu', 'the onboarding steps',
+    'the pricing page', 'the email templates', 'the cron jobs', 'the upload handler', 'the color tokens',
+    'the routes file', 'the landing hero', 'the data fetching', 'the drag and drop', 'the keyboard shortcuts',
+  ]),
+];
+const BOX_PLACEHOLDERS = [
+  'Ask Breeze anything',
+  ...combine(['How do I {x}?', 'Help me {x}', 'Can you {x}?', 'Show me how to {x}', 'Explain how to {x}', "What's the best way to {x}?", 'Walk me through how to {x}', 'Teach me to {x}', 'Quick: how do I {x}?', 'Is there an easy way to {x}?',
+    'I want to {x}', 'Remind me how to {x}', "What's a clean way to {x}?", 'Help me figure out how to {x}', 'Write code to {x}', 'Give me an example of how to {x}', 'Step by step, how do I {x}?', "What's the fastest way to {x}?", 'Can you help me {x}?', 'Show me the right way to {x}'], [
+    'center a div', 'set up a Python venv', 'write a regex for emails', 'deploy to Vercel', 'read a CSV file',
+    'debounce a search box', 'fix a merge conflict', 'undo my last commit', 'add dark mode', 'call an API in JavaScript',
+    'sort a list of objects', 'use async/await', 'write a SQL join', 'parse JSON safely', 'set up ESLint',
+    'speed up my page', 'write unit tests', 'build a REST API', 'handle form errors', 'resize images',
+    'use TypeScript generics', 'use CSS grid', 'make a responsive layout', 'store passwords safely', 'schedule a cron job',
+    'rename files in bulk', 'read environment variables', 'connect to Postgres', 'paginate results', 'upload files',
+    'send an email from Node', 'profile slow code', 'write a Dockerfile', 'rebase a branch', 'cache API responses',
+    'validate user input', 'animate a button', 'build a CLI', 'scrape a web page', 'use WebSockets',
+    'format dates', 'write a bash script', 'handle time zones', 'make a chart', 'lazy load images',
+    'set up GitHub Actions', 'write good commit messages', 'organize my project folders', 'find a memory leak', 'turn callbacks into promises',
+  ]),
+];
+const BOX_HEADINGS = [
+  'What can I help with?',
+  ...combine(['Ready to {x}?', "Let's {x}", 'Shall we {x}?', 'Want to {x}?', 'How about we {x}?', 'Time to {x}', "Today, let's {x}", 'What if we {x}?', 'Care to {x}?', "Let's {x} together",
+    "Ready? Let's {x}", 'Mind if we {x}?', 'Why not {x}?', 'Shall we {x} today?', 'Want to {x} today?', "Let's {x} now", 'Ready to {x} today?', 'Should we {x}?', 'Could we {x}?', "Let's {x}, shall we?"], [
+    'build something', 'ship it', 'fix that bug', 'make it faster', 'write some code', 'try an idea', 'clean things up', 'start fresh', 'make it pretty', 'learn something',
+    'squash bugs', 'plan a feature', 'sketch an app', 'tidy the code', 'write the tests', 'go further', 'dream big', 'launch it', 'make it work', 'make it right',
+    'explore an idea', 'prototype fast', 'refactor boldly', 'debug together', 'design a page', 'code something fun', 'automate a chore', 'build a game', 'polish the UI', 'solve a puzzle',
+    'start a project', 'finish that feature', 'break it down', 'make magic', 'craft an API', 'build a tool', 'write the docs', 'speed things up', 'get unstuck', 'try something new',
+    'ship today', 'cook up an app', 'fix the build', 'make a website', 'level up', 'pair up', 'brainstorm', 'untangle the mess', 'go live', 'make it shine',
+  ]),
+];
+function pickOther(list: string[], current: string): string {
+  const r = new Uint32Array(1);
+  for (;;) {
+    crypto.getRandomValues(r);
+    const next = list[r[0] % list.length];
+    if (next !== current || list.length < 2) return next;
+  }
+}
+// Blurs the old text away, then the new text in.
+function blurSwap(el: HTMLElement, text: string): void {
+  if (el.textContent === text) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !el.isConnected) { el.textContent = text; return; }
+  el.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); });
+  const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: 'blur(6px)', transform: 'translateY(-3px)' }], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  out.id = 'blurSwap';
+  out.onfinish = () => {
+    el.textContent = text;
+    out.cancel();
+    const into = el.animate([{ opacity: 0, filter: 'blur(6px)', transform: 'translateY(3px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    into.id = 'blurSwap';
+  };
+}
+// A native placeholder can't blur, so while a box shows its usual one (`home`), a layer on top draws an example from
+// the list instead. Any other placeholder (a question about a plan, say) shows as usual.
+interface PlaceholderRotator { ta: HTMLTextAreaElement; list: string[]; layer: HTMLElement }
+function rotatePlaceholder(ta: HTMLTextAreaElement, home: string, list: string[]): void {
+  const layer = document.createElement('span');
+  layer.className = 'ph-rot';
+  layer.setAttribute('aria-hidden', 'true');
+  layer.textContent = list.includes(home) ? home : pickOther(list, '');
+  ta.after(layer);
+  const place = () => {
+    const cs = getComputedStyle(ta);
+    const px = (v: string) => Number.parseFloat(v) || 0;
+    layer.style.top = `${ta.offsetTop + px(cs.borderTopWidth) + px(cs.paddingTop)}px`;
+    layer.style.left = `${ta.offsetLeft + px(cs.borderLeftWidth) + px(cs.paddingLeft)}px`;
+    layer.style.width = `${Math.max(0, ta.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight))}px`;
+    layer.style.font = cs.font;
+    layer.style.lineHeight = cs.lineHeight;
+  };
+  const sync = () => ta.classList.toggle('ph-rotating', ta.placeholder === home);
+  new ResizeObserver(place).observe(ta);
+  new MutationObserver(sync).observe(ta, { attributes: true, attributeFilter: ['placeholder'] });
+  place(); sync();
+  const r = { ta, list, layer };
+  let hoverTimer: TimeoutId | undefined;
+  ta.addEventListener('pointerenter', () => {
+    nextPlaceholder(r);
+    clearInterval(hoverTimer);
+    hoverTimer = setInterval(() => nextPlaceholder(r), 5000);
+  });
+  ta.addEventListener('pointerleave', () => { clearInterval(hoverTimer); hoverTimer = undefined; });
+  // Typing mid-swap: drop the swap so the placeholder can blur away at once.
+  ta.addEventListener('input', () => layer.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); }));
+}
+function nextPlaceholder(r: PlaceholderRotator): void {
+  if (r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
+  blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
+}
+rotatePlaceholder(SURFACES.ide.prompt, 'Describe what you want to build', IDE_PLACEHOLDERS);
+rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS[0], BOX_PLACEHOLDERS);
+setInterval(() => {
+  if (document.hidden) return;
+  for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) blurSwap(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
+}, 5000);
+
+function boxEmptyWho(): string {
+  const agent = selectedAgent();
+  return agent ? `Breeze Box talks to ${agent.name}. Pick another agent below.` : 'Pick an agent below to start.';
+}
+// The greeting is BOX_HEADINGS[0], written out: a tab can be made before that list exists.
+function boxEmptyHtml(): string {
+  return `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="56" height="56"><h4>What can I help with?</h4><div class="empty-who">${esc(boxEmptyWho())}</div></div></div>`;
+}
+// Picking another agent rewrites the line under the greeting in place, with the same blur.
+function updateBoxEmptyWho(): void {
+  for (const el of $$<HTMLElement>('#boxChat .empty-who')) blurSwap(el, boxEmptyWho());
+}
+
 function emptyChat(s: Surface = SURFACES.ide, tab?: AgentTabState): void {
   const t = tab || getActiveTab(s);
   if (s.name === 'box') {
-    const agent = selectedAgent();
-    const who = agent ? `Breeze Box talks to ${esc(agent.name)}. Pick another agent below.` : 'Pick an agent below to start.';
-    t.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="56" height="56"><h4>What can I help with?</h4><div>${who}</div></div></div>`;
+    t.panel.innerHTML = boxEmptyHtml();
     return;
   }
   t.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div>Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
@@ -9661,6 +10013,7 @@ async function attachPathToAgent(rawPath: string, isDir: boolean, s: Surface, ta
 
 async function handleAgentDrop(e: DragEvent, ag: AgentDropTargetInfo): Promise<void> {
   clearAgentDropMarks();
+
   let targetTab: AgentTabState;
   if (ag.isNewTab) {
     targetTab = createAgentTab(ag.surface, undefined, undefined, null, true);
@@ -9797,15 +10150,243 @@ function uninstalledMention(text: string): string | null {
   }
   return null;
 }
+// Where each "@Agent" for an installed agent sits in `text`, as [start, end) pairs.
+function mentionRanges(text: string): [number, number][] {
+  const names = (appState.detect?.agents ?? []).filter(a => a.found).flatMap(agentMentionNames).sort((x, y) => y.length - x.length);
+  const out: [number, number][] = [];
+  if (!names.length) return out;
+  const re = /(^|\s)@/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const at = m.index + m[1].length;
+    const rest = text.slice(at + 1).toLowerCase();
+    const hit = names.find(n => rest.startsWith(n) && !/[\w-]/.test(rest[n.length] ?? ''));
+    if (hit) out.push([at, at + 1 + hit.length]);
+  }
+  return out;
+}
+// `text` escaped, with its mentions of installed agents wrapped in <span class="mention">.
+function mentionHtml(text: string): string {
+  let html = '';
+  let from = 0;
+  for (const [a, b] of mentionRanges(text)) {
+    html += `${esc(text.slice(from, a))}<span class="mention">${esc(text.slice(a, b))}</span>`;
+    from = b;
+  }
+  return html + esc(text.slice(from));
+}
+// The prompt's text is drawn by a layer behind it (the textarea's own text is transparent), so mentions can be blue.
+const promptHl = $('#promptHl');
+// The installed agents @mentioned in `text`, once each, in the order they appear.
+function mentionedAgents(text: string): DetectedAgent[] {
+  const agents = (appState.detect?.agents ?? []).filter(a => a.found);
+  const out: DetectedAgent[] = [];
+  for (const [a, b] of mentionRanges(text)) {
+    const word = text.slice(a + 1, b).toLowerCase();
+    const ag = agents.find(x => agentMentionNames(x).includes(word));
+    if (ag && !out.includes(ag)) out.push(ag);
+  }
+  return out;
+}
+// Under the prompt: one chip per agent tagged in it, showing its model and effort; a click changes either.
+// Chips are kept between keystrokes so only a newly tagged agent slides in.
+function promptModelMenuItems(a: DetectedAgent): MenuItem[] {
+  const efforts: MenuItem[] = a.api ? [] : [
+    { sep: true },
+    { label: 'Effort', enabled: () => false },
+    ...EFFORTS.map(eff => ({
+      label: eff,
+      checked: () => agentEffort(a) === eff,
+      run: () => background(applyModelAndEffort(a, a.version || a.models?.[0] || '', eff)),
+    })),
+  ];
+  return [{ label: 'Model', enabled: () => false }, ...modelMenuItems(a), ...efforts];
+}
+function promptModelHtml(a: DetectedAgent): string {
+  const model = a.version || a.models?.[0] || '';
+  const eff = a.api ? '' : `<small class="dd-eff"> · ${esc(agentEffort(a))}</small>`;
+  return `<b>${esc(agentShortName(a))}</b><span class="pm-model">${esc(model)}</span>${eff}${svgIcon('chevronDown', 10)}`;
+}
+function renderPromptModels(): void {
+  const box = $('#promptModels');
+  const tagged = mentionedAgents(SURFACES.ide.prompt.value).filter(a => a.models?.length || a.version);
+  const ids = tagged.map(a => a.id);
+  // An untagged agent's chip fades out where it is; the box keeps its row until then (see fitPrompt), so the chip
+  // never ends up beside the one-line prompt, and only folds to one line once it's gone.
+  for (const el of $$<HTMLElement>('.prompt-model', box)) {
+    if (ids.includes(el.dataset.agent as string) || el.classList.contains('leaving')) continue;
+    el.classList.add('leaving');
+    let gone = false;
+    const done = () => {
+      if (gone) return;
+      gone = true;
+      // The box then eases down to one line instead of snapping.
+      const composer = el.closest<HTMLElement>('.composer-box');
+      const fromH = composer?.getBoundingClientRect().height ?? 0;
+      el.remove();
+      syncPromptHl();
+      if (!composer || reduceMotion.matches) return;
+      const toH = composer.getBoundingClientRect().height;
+      if (Math.abs(toH - fromH) < 1) return;
+      const frame = { boxSizing: 'border-box', overflow: 'hidden' };
+      composer.animate([{ ...frame, height: `${fromH}px` }, { ...frame, height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    };
+    el.addEventListener('animationend', done, { once: true });
+    setTimeout(done, 400);
+  }
+  let prev: HTMLElement | null = null;
+  for (const a of tagged) {
+    let el = box.querySelector<HTMLElement>(`.prompt-model[data-agent="${CSS.escape(a.id)}"]:not(.leaving)`);
+    if (!el) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      el = btn;
+      el.className = 'prompt-model';
+      el.dataset.agent = a.id;
+      el.setAttribute('aria-haspopup', 'menu');
+    }
+    const html = promptModelHtml(a);
+    if (el.innerHTML !== html) el.innerHTML = html;
+    el.setAttribute('aria-label', `${agentShortName(a)}: change model${a.api ? '' : ' or effort'}`); // no tooltip, just for screen readers
+    if (prev ? prev.nextElementSibling !== el : box.firstElementChild !== el) {
+      if (prev) prev.after(el); else box.prepend(el);
+    }
+    prev = el;
+  }
+}
+$('#promptModels').addEventListener('click', e => {
+  const chip = (e.target as HTMLElement).closest<HTMLElement>('.prompt-model:not(.leaving)');
+  const ag = chip && appState.detect?.agents.find(x => x.id === chip.dataset.agent);
+  if (!chip || !ag) return;
+  openChipMenu(chip, promptModelMenuItems(ag));
+  // The composer sits at the bottom of the window, so the menu opens upwards.
+  const m = chip.classList.contains('open') ? $('#menuRoot .menu') : null;
+  if (m) {
+    const r = chip.getBoundingClientRect();
+    m.style.left = `${Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8))}px`;
+    m.style.top = `${Math.max(8, r.top - m.offsetHeight - 4)}px`;
+    m.classList.add('up');
+  }
+});
+// The prompt grows with its text, up to a cap, then scrolls.
+const PROMPT_MAX_H = 200;
+// While no agent is tagged, the send button sits beside the prompt rather than on a row of its own.
+function fitPrompt(): void {
+  const ta = SURFACES.ide.prompt;
+  const box = ta.closest('.composer-box') as HTMLElement;
+  box.classList.toggle('compact', !$('#promptModels').querySelector('.prompt-model'));
+  ta.style.height = 'auto';
+  const need = ta.scrollHeight;
+  ta.style.height = `${Math.min(PROMPT_MAX_H, need)}px`;
+  ta.style.overflowY = need > PROMPT_MAX_H ? 'auto' : 'hidden';
+  // One line: the send button sits centred beside it. More lines: it stays level with the last one.
+  const cs = getComputedStyle(ta);
+  const lineH = Number.parseFloat(cs.lineHeight) || Number.parseFloat(cs.fontSize) * 1.5;
+  box.classList.toggle('one-line', need <= lineH * 1.5 + Number.parseFloat(cs.paddingTop) + Number.parseFloat(cs.paddingBottom));
+}
+// A new line eases the prompt to its new height. Only the text box animates: the box grows around it and the
+// send button, pinned to the bottom, never moves.
+let promptAnim: Animation | null = null;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function animatePromptHeight(ta: HTMLTextAreaElement, fromH: number): void {
+  promptAnim?.cancel(); // read the end height without it (the start was read with it)
+  const toH = ta.offsetHeight;
+  if (Math.abs(toH - fromH) < 1 || reduceMotion.matches) return;
+  promptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+}
+/* ----- Grow: when a panel is squeezed or widened and text rewraps, blocks ease to their new height instead of
+   jumping (the commit box going from one line to two, a note gaining a line). Only height animates: widths keep
+   up with the sash as it is dragged. Boxes that size themselves as you type (textareas) ease too. ----- */
+const GROW_SEL = 'textarea, button, .btn, p, h1, h2, h3, h4, label, .side-note, .scm-row, .commit, .card, .agent-card, .quick-card, .pill, .chip, .empty';
+// Things with their own size animation, or that must never lag: the agent prompt, the code editor, terminals, menus.
+const GROW_SKIP = '#prompt, .ta, #editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, [data-no-grow]';
+interface GrowState { w: number; h: number; anim?: Animation }
+const growState = new WeakMap<Element, GrowState>();
+// Dragging a sash resizes hundreds of watched blocks every frame, so this stays cheap: it reads all the new heights
+// in one layout (cancelling first, then reading, never one after the other per element), skips blocks that are off
+// screen, and starts at most GROW_PER_FRAME animations a frame. The rest just take their new size.
+const GROW_PER_FRAME = 24;
+const growRO = new ResizeObserver(entries => {
+  const pending: { el: HTMLElement; w: number; from: number; st: GrowState; running: boolean }[] = [];
+  for (const e of entries) {
+    const el = e.target as HTMLElement;
+    const size = e.borderBoxSize?.[0];
+    const w = size ? size.inlineSize : el.offsetWidth;
+    const h = size ? size.blockSize : el.offsetHeight;
+    const st = growState.get(el);
+    const running = st?.anim?.playState === 'running';
+    // Our own animation stepping the height along: not a new size.
+    if (running && st && Math.abs(w - st.w) < 0.5) continue;
+    if (!st || !st.w || !st.h || !w || !h || !el.isConnected) { growState.set(el, { w, h }); continue; }
+    const widthChanged = Math.abs(w - st.w) >= 0.5;
+    if ((!widthChanged && el.tagName !== 'TEXTAREA') || (!running && Math.abs(h - st.h) < 1)) { growState.set(el, { w, h }); continue; }
+    pending.push({ el, w, from: running ? h : st.h, st, running }); // mid-animation, it starts again from where it is
+  }
+  if (!pending.length) return;
+  for (const p of pending) if (p.running) p.st.anim?.cancel();
+  const vw = innerWidth, vh = innerHeight;
+  const sized = pending.map(p => {
+    const r = p.el.getBoundingClientRect();
+    return { ...p, to: r.height, onScreen: r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw };
+  });
+  let budget = reduceMotion.matches ? 0 : GROW_PER_FRAME;
+  // Border-box and clipped for the moment it runs, so padding counts and rewrapped text doesn't spill out.
+  const frame = { boxSizing: 'border-box', overflow: 'hidden' };
+  for (const p of sized) {
+    if (Math.abs(p.to - p.from) < 1 || !p.onScreen || budget <= 0) { growState.set(p.el, { w: p.w, h: p.to }); continue; }
+    budget--;
+    const anim = p.el.animate([{ ...frame, height: `${p.from}px` }, { ...frame, height: `${p.to}px` }], { duration: 220, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    growState.set(p.el, { w: p.w, h: p.to, anim });
+  }
+});
+// Watched: the elements above, plus every element that holds text of its own (a panel title, a label, a status
+// line), so all text that rewraps eases. Inline text has no box of its own (it always measures 0 × 0), so the
+// nearest block around it is watched instead.
+const growResolved = new WeakSet<Element>();
+function growWatch(el: Element): void {
+  if (growResolved.has(el)) return;
+  growResolved.add(el);
+  let box: Element | null = el;
+  while (box && box !== document.body && ['inline', 'contents'].includes(getComputedStyle(box).display)) box = box.parentElement;
+  if (box instanceof HTMLElement && box !== document.body && !box.closest(GROW_SKIP)) growRO.observe(box);
+}
+function watchGrow(root: Node): void {
+  if (root instanceof Text) { if (root.parentElement && root.data.trim()) growWatch(root.parentElement); return; }
+  if (!(root instanceof Element || root instanceof Document)) return;
+  if (root instanceof Element && root.matches(GROW_SEL)) growWatch(root);
+  for (const el of root.querySelectorAll(GROW_SEL)) growWatch(el);
+  const texts = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: t => (t as Text).data.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT });
+  for (let t = texts.nextNode(); t; t = texts.nextNode()) if (t.parentElement) growWatch(t.parentElement);
+}
+watchGrow(document);
+new MutationObserver(records => {
+  for (const r of records) for (const n of r.addedNodes) watchGrow(n);
+}).observe(document.body, { childList: true, subtree: true });
+function syncPromptHl(): void {
+  const ta = SURFACES.ide.prompt;
+  const fromH = ta.getBoundingClientRect().height;
+  renderPromptModels();
+  fitPrompt();
+  animatePromptHeight(ta, fromH);
+  // A trailing newline needs a character after it, or the layer is a line short.
+  promptHl.innerHTML = mentionHtml(ta.value) + (ta.value.endsWith('\n') ? ' ' : '');
+  promptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`; // clear of its scroll bar, if it shows one
+  promptHl.scrollTop = ta.scrollTop;
+}
+SURFACES.ide.prompt.addEventListener('scroll', () => { promptHl.scrollTop = SURFACES.ide.prompt.scrollTop; });
+new ResizeObserver(syncPromptHl).observe(SURFACES.ide.prompt);
+
 function mentionWarning(s: Surface): void {
+  if (s.name === 'ide') syncPromptHl();
   const warn = s.name === 'ide' ? uninstalledMention(s.prompt.value) : null;
-  let el = s.prompt.parentElement?.querySelector<HTMLElement>(':scope > .mention-warn') ?? null;
+  const anchor = s.prompt.closest<HTMLElement>('.prompt-field') ?? s.prompt;
+  let el = anchor.parentElement?.querySelector<HTMLElement>(':scope > .mention-warn') ?? null;
   if (!el) {
     if (!warn) return;
     el = document.createElement('div');
     el.className = 'mention-warn';
     el.setAttribute('role', 'status');
-    s.prompt.insertAdjacentElement('afterend', el);
+    anchor.insertAdjacentElement('afterend', el);
   }
   el.textContent = warn ?? '';
   el.classList.toggle('hidden', !warn);
@@ -10623,12 +11204,6 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 // The native <select> stays in the page (hidden) so code and forms keep reading its value.
 function updateDropdownLabel(sel: HTMLSelectElement, btn: HTMLElement): void {
   const text = sel.selectedOptions[0]?.text || sel.value || '';
-  if (sel.id === 'agentModelSelect') {
-    const eff = currentEffort();
-    btn.innerHTML = `<span class="dd-val">${esc(text)}<small class="dd-eff"> · ${esc(eff)}</small></span><svg class="dd-chev" width="10" height="10"><use href="#i-chev"/></svg>`;
-    btn.title = `${text} (${eff} effort)`;
-    return;
-  }
   btn.innerHTML = `<span class="dd-val">${esc(text)}</span><svg class="dd-chev" width="10" height="10"><use href="#i-chev"/></svg>`;
   btn.title = text;
 }
@@ -10636,25 +11211,18 @@ function openDropdown(sel: HTMLSelectElement, btn: HTMLElement): void {
   if (btn.classList.contains('open') || (justClosedTrigger === btn && Date.now() - justClosedAt < 350)) { closeMenu(); return; }
   closeMenu();
   const label = () => updateDropdownLabel(sel, btn);
-  const a = sel.id === 'agentModelSelect' ? selectedAgent() : null;
-  const items: MenuItem[] = (a?.found && a.models?.length)
-    ? modelMenuItems(a, () => {
-      sel.value = a.version || a.models?.[0] || '';
+  const items: MenuItem[] = [...sel.options].map(o => ({
+    label: o.text,
+    checked: () => o.value === sel.value,
+    enabled: () => !o.disabled,
+    run: () => {
+      sel.value = o.value;
       label();
+      if (sel.onchange) (sel.onchange as (e: Event) => void)(new Event('change'));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
       btn.focus();
-    })
-    : [...sel.options].map(o => ({
-      label: o.text,
-      checked: () => o.value === sel.value,
-      enabled: () => !o.disabled,
-      run: () => {
-        sel.value = o.value;
-        label();
-        if (sel.onchange) (sel.onchange as (e: Event) => void)(new Event('change'));
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-        btn.focus();
-      },
-    }));
+    },
+  }));
   const r = btn.getBoundingClientRect();
   btn.classList.add('open');
   btn.setAttribute('aria-expanded', 'true');
@@ -10893,6 +11461,30 @@ function updateScmGenBtn(): void {
   btn.dataset.tooltip = tip;
 }
 
+// The generated message types itself into the box, like an agent's edit to a file. Typing in the box yourself
+// (or a newer message) stops it where it is.
+let scmTypeRun = 0;
+function typeScmMsg(text: string): void {
+  const run = ++scmTypeRun;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const step = reduce ? text.length : Math.max(1, Math.ceil(text.length / 90)); // about 1.5 s at most
+  let i = 0, frames = 0, shown = '';
+  const tick = () => {
+    const msg = $<HTMLTextAreaElement>('#scmMsg'); // the panel may have redrawn the box meanwhile
+    if (run !== scmTypeRun || !msg) return;
+    if (msg.value !== shown && i > 0) return; // typed over
+    i = Math.min(text.length, i + step);
+    shown = text.slice(0, i);
+    msg.value = shown;
+    scmDraft = shown;
+    autoResizeScmMsg(msg);
+    if (document.activeElement !== msg) msg.focus();
+    msg.setSelectionRange(i, i);
+    if (++frames % 3 === 0 || i === text.length) sfx.play('key');
+    if (i < text.length) requestAnimationFrame(tick);
+  };
+  tick();
+}
 async function generateCommitMsg(): Promise<void> {
   const currentFiles = gitState.files ?? [];
   if (!currentFiles.length) {
@@ -10913,13 +11505,7 @@ async function generateCommitMsg(): Promise<void> {
   try {
     if (!activeAg?.found) {
       const fallbackMsg = heuristicCommitMsg(currentFiles);
-      const msgArea = $<HTMLTextAreaElement>('#scmMsg');
-      if (msgArea) {
-        msgArea.value = fallbackMsg;
-        scmDraft = msgArea.value;
-        autoResizeScmMsg(msgArea);
-        msgArea.focus();
-      }
+      typeScmMsg(fallbackMsg);
       toast('Commit message generated');
       return;
     }
@@ -10937,10 +11523,9 @@ async function generateCommitMsg(): Promise<void> {
     const truncated = fullDiff.length > 5000 ? fullDiff.slice(0, 5000) + '\n...(truncated)' : fullDiff;
 
     // Use currently selected model if available, otherwise lowest/available model for agent
-    const modelSel = $('#agentModelSelect') as HTMLSelectElement | null;
-    const userChosenModel = modelSel?.value?.trim() || undefined;
+    const userChosenModel = activeAg.version?.trim() || undefined;
     const { model: fallbackModel } = lowestModelFor(activeAg);
-    const chosenModel = userChosenModel || fallbackModel || activeAg.version || activeAg.models?.[0];
+    const chosenModel = userChosenModel || fallbackModel || activeAg.models?.[0];
 
     const prevCommit = gitLog.commits?.[0];
     const prevCommitContext = prevCommit
@@ -10963,6 +11548,9 @@ Instructions:
 - If there are multiple distinct changes, provide a concise summary title, followed by an empty line and short bullet points (- ...) detailing the key changes.
 - Output ONLY the commit message itself. Do NOT output code blocks, quotes, or conversational preamble.`;
 
+    commitMsgPending = true;
+    sfx.play('think');
+    humWhileThinking();
     const res = await api.git.genCommitMsg({
       agent: activeAg.id,
       prompt,
@@ -10970,26 +11558,15 @@ Instructions:
       effort: undefined, // No forced effort requirement: every model works smoothly
     });
     if (res) {
-      const msgArea = $<HTMLTextAreaElement>('#scmMsg');
-      if (msgArea) {
-        msgArea.value = res.trim();
-        scmDraft = msgArea.value;
-        autoResizeScmMsg(msgArea);
-        msgArea.focus();
-      }
+      typeScmMsg(res.trim());
       toast(`Commit message generated with ${activeAg.name}`);
     }
   } catch (err: unknown) {
     const fallbackMsg = heuristicCommitMsg(currentFiles);
-    const msgArea = $<HTMLTextAreaElement>('#scmMsg');
-    if (msgArea) {
-      msgArea.value = fallbackMsg;
-      scmDraft = msgArea.value;
-      autoResizeScmMsg(msgArea);
-      msgArea.focus();
-    }
+    typeScmMsg(fallbackMsg);
     toast(`Commit message generated (${errMsg(err)})`);
   } finally {
+    commitMsgPending = false;
     if (genBtnEl) {
       genBtnEl.disabled = false;
       genBtnEl.classList.remove('busy');
@@ -11444,6 +12021,7 @@ function branchListHtml(branches: string[], q: string): string {
 const HOLD_MS = 5000;//hold time duration
 // Fires onDone only if the button is held for the full 5 seconds; releasing, leaving the button or losing focus cancels.
 function holdToDelete(btn: HTMLElement, onDone: () => void): void {
+  btn.dataset.hold = '';
   let timer: TimeoutId | undefined
   const stop = (early: boolean) => {
     if (timer == null) return;
@@ -11631,7 +12209,7 @@ function boxAgentItems(): MenuItem[] {
         appState.agent = ag.id;
         saveApp();
         renderAgentBar();
-        if (SURFACES.box.chat.querySelector('.empty')) emptyChat(SURFACES.box);
+        updateBoxEmptyWho();
         toast(`Breeze Box now uses ${ag.name}`);
       },
     });
@@ -11896,15 +12474,21 @@ function staggerModal(m: HTMLElement): void {
   const kids = [...m.children];
   staggerIn(kids.length === 1 ? kids[0].children : kids);
 }
+// A modal opened from Settings (or from a modal that was) leads back there: it gets a "Settings" back button,
+// and dismissing it (Esc, its close or cancel button, a click outside) reopens Settings on the same page.
+let modalBackToSettings = false;
 function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () => void, place: 'center' | 'top' = 'center'): void {
+  const back = !html.includes('settings-modal') && (!!settingsRoot() || modalBackToSettings);
   closeModal();
   $$('#modalRoot .scrim.closing').forEach(x => x.remove());
   const top = place === 'top';
-  $('#modalRoot').insertAdjacentHTML('beforeend', `<div class="scrim ${top ? 'top' : ''}"><div class="modal ${top ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div></div>`);
+  const backBtn = back ? `<button type="button" class="modal-back" data-back aria-label="Back to Settings">${svgIcon('chevronLeft', 14)}<span>Settings</span></button>` : '';
+  $('#modalRoot').insertAdjacentHTML('beforeend', `<div class="scrim ${top ? 'top' : ''}"><div class="modal ${top ? 'wide' : ''}" role="dialog" aria-modal="true">${backBtn}${html}</div></div>`);
   const m = $('#modalRoot .scrim:not(.closing) .modal');
   modalOnClose = onClose ?? null;
-  $('#modalRoot .scrim:not(.closing)').onmousedown = e => { if ((e.target as HTMLElement).classList.contains('scrim')) closeModal(); };
-  $$('[data-close]', m).forEach(b => b.onclick = closeModal);
+  modalBackToSettings = back;
+  $('#modalRoot .scrim:not(.closing)').onmousedown = e => { if ((e.target as HTMLElement).classList.contains('scrim')) dismissModal(); };
+  $$('[data-close], [data-back]', m).forEach(b => b.onclick = dismissModal);
   const owner = popOwner();
   if (owner) growFrom(m, owner);
   bind?.(m);
@@ -11912,11 +12496,18 @@ function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () =
 }
 function closeModal(): void {
   const scrim = $('#modalRoot .scrim:not(.closing)');
+  modalBackToSettings = false;
   if (!scrim) return;
   // Play the closing animation on a detached copy so a new modal can open immediately.
   scrim.classList.add('closing');
   setTimeout(() => scrim.remove(), scrim.querySelector('.settings-shell') ? 460 : 380);
   const cb = modalOnClose; modalOnClose = null; cb?.();
+}
+// Closing without acting on the modal: one opened from Settings goes back there.
+function dismissModal(): void {
+  const back = modalBackToSettings;
+  closeModal();
+  if (back) openSettings($('#settingsBtn'));
 }
 function bindToasts(root: ParentNode = document): void {
   $$('[data-toast]', root).forEach(b => b.onclick = () => toast(b.dataset.toast ?? ''));
@@ -12110,6 +12701,7 @@ function endSplash(): void {
       el.addEventListener('animationend', () => el.classList.remove('app-in'), { once: true });
     });
     splash.addEventListener('animationend', () => splash.remove(), { once: true });
+    setTimeout(() => splash.remove(), 1500); // a window opened hidden runs no animations; sounds wait for this to go
     splash.classList.add('out');
     return;
   }
