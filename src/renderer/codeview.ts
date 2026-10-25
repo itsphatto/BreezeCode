@@ -82,6 +82,9 @@ class CodeSurface extends EventTarget {
       if (t) this.userEdit(this.selStart, this.selEnd, t, 'insertFromPaste');
     });
     this.root.addEventListener('pointerdown', e => this.onPointerDown(e));
+    // Block native selection and focus loss on mousedown, not pointerdown: a canceled pointerdown would
+    // suppress mousedown, and app mousedown listeners (menu closing, hiding suggestions) must still run.
+    this.root.addEventListener('mousedown', e => { if (e.button === 0) e.preventDefault(); });
     // Panel resizes change which lines are visible; repaint so no strip is left without selection or caret.
     this.resizer = new ResizeObserver(() => this.paint());
     this.resizer.observe(this.root);
@@ -172,10 +175,11 @@ class CodeSurface extends EventTarget {
     this.input.value = '';
     if (t) this.userEdit(this.selStart, this.selEnd, t, 'insertText', t);
   }
-  // A textarea's auto width comes from cols, so the visible IME box is sized to its text.
+  // A textarea's auto width comes from cols, so the visible IME box is sized to its text, measured
+  // rather than counted, since full-width (CJK) characters are wider than charWidth.
   private sizeComposing() {
-    const v = this.input.value;
-    this.input.style.width = visualCol(v, v.length) * this.opts.charWidth() + 2 + 'px';
+    this.input.style.width = '0';
+    this.input.style.width = this.input.scrollWidth + 2 + 'px';
   }
 
   private onCopy(e: ClipboardEvent, cut: boolean) {
@@ -243,7 +247,10 @@ class CodeSurface extends EventTarget {
   }
   // The range a click of the given unit picks: 0 a spot, 1 a word, 2 a whole line with its newline.
   private unitAt(off: number, unit: number): [number, number] {
-    if (unit === 1) return wordAt(this.text, this.text[off] === '\n' && off > 0 ? off - 1 : off); // past a line's end: its last word
+    if (unit === 1) { // past a line's end: its last word (an empty line keeps its own newline)
+      const t = this.text;
+      return wordAt(t, t[off] === '\n' && off > 0 && t[off - 1] !== '\n' ? off - 1 : off);
+    }
     if (unit === 2) {
       const starts = this.lines(), l = lineOfOffset(starts, off);
       return [starts[l], l + 1 < starts.length ? starts[l + 1] : this.text.length];
@@ -260,7 +267,6 @@ class CodeSurface extends EventTarget {
     if (e.button !== 0) return;
     const rect = this.root.getBoundingClientRect();
     if (e.clientX - rect.left >= this.root.clientWidth || e.clientY - rect.top >= this.root.clientHeight) return; // on a scrollbar
-    e.preventDefault();
     this.focus({ preventScroll: true });
     this.endDrag();
     const off = this.offsetAt(e.clientX, e.clientY), unit = Math.min(this.clickCount(e), 3) - 1;
