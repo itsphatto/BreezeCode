@@ -5673,14 +5673,6 @@ function measureChar(): number {
 }
 void document.fonts?.ready.then(() => { charW = 0; renderCode(); });
 
-const lineStart = (v: string, pos: number) => v.lastIndexOf('\n', pos - 1) + 1;
-const lineEnd = (v: string, pos: number) => { const i = v.indexOf('\n', pos); return i === -1 ? v.length : i; };
-// The line starts of the last text asked about, so the open file's lines are found once per edit, not per call.
-let lineMemo = { text: '', starts: [0] };
-function lineStartsOf(text: string): number[] {
-  if (lineMemo.text !== text) lineMemo = { text, starts: lineStarts(text) };
-  return lineMemo.starts;
-}
 function lineAt(v: string, pos: number): number {
   if (v.length > 20000) return lineOfOffset(lineStartsOf(v), pos);
   let n = 0;
@@ -5695,11 +5687,6 @@ function offsetOf(v: string, line: number, col: number): number {
     off = nl + 1;
   }
   return Math.min(off + col, lineEnd(v, off));
-}
-function visualCol(lineText: string, col: number): number {
-  let v = 0;
-  for (let i = 0; i < col; i++) v = lineText[i] === '\t' ? v + 4 - (v % 4) : v + 1;
-  return v;
 }
 
 function editorNote(b: EditorBuffer): string {
@@ -5884,16 +5871,6 @@ function tagBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
 // from/to are lines: the guide runs below line `from` and stops at the top of line `to`.
 interface Block { from: number; to: number; start: number; end: number; col: number; }
 const blockCache = new WeakMap<EditorBuffer, { text: string; blocks: Block[] }>();
-function lineStarts(text: string): number[] {
-  const s = [0];
-  for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) s.push(i + 1);
-  return s;
-}
-function lineOfOffset(starts: number[], off: number): number {
-  let lo = 0, hi = starts.length - 1;
-  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= off) lo = mid; else hi = mid - 1; }
-  return lo;
-}
 // Every {} [] () pair as [open, close] offsets, skipping strings and comments.
 const OPENER: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
 function bracketPairs(text: string): [number, number][] {
