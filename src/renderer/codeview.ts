@@ -11,6 +11,9 @@ interface SurfaceOpts {
   colAt?: (line: number, x: number) => number | null;
 }
 type SelDir = 'forward' | 'backward' | 'none';
+// A drag keeps the range it started on (a click's spot, a word, a line) and extends in the same unit.
+interface SurfaceDrag { unit: number; a: number; b: number; x: number; y: number; raf: number }
+const SURFACE_NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 
 class CodeSurface extends EventTarget {
   readonly root: HTMLDivElement;
@@ -27,6 +30,10 @@ class CodeSurface extends EventTarget {
   private widest = 0;           // longest line, in visual columns
   private widthTimer = 0;
   private caretAt = '';         // last painted caret spot, to restart the blink only on moves
+  private goal: number | null = null; // visual column kept across vertical moves
+  private drag: SurfaceDrag | null = null;
+  private clicks = { n: 0, t: -1e9, x: 0, y: 0 }; // last pointerdown, for double and triple clicks
+  private readonly resizer: ResizeObserver;
 
   constructor(host: HTMLElement, opts: SurfaceOpts) {
     super();
@@ -48,9 +55,36 @@ class CodeSurface extends EventTarget {
     this.input.wrap = 'off';
     this.root.append(this.spacer, this.selLayer, this.caret, this.input);
     host.append(this.root);
-    this.input.addEventListener('focus', () => this.root.classList.add('focused'));
+    this.input.addEventListener('focus', () => {
+      this.root.classList.add('focused');
+      this.dispatchEvent(new Event('selectionchange')); // so the app redraws its current line
+    });
     this.input.addEventListener('blur', () => this.root.classList.remove('focused'));
     this.root.addEventListener('scroll', () => this.paint());
+    // Bubble phase on the input itself, so app keydown listeners (capture, see addEventListener) run first.
+    this.input.addEventListener('keydown', e => this.onKey(e));
+    this.input.addEventListener('input', e => this.onInput(e as InputEvent));
+    this.input.addEventListener('compositionstart', () => { this.input.classList.add('composing'); this.sizeComposing(); });
+    this.input.addEventListener('compositionend', () => {
+      const t = this.input.value;
+      this.input.value = '';
+      this.input.classList.remove('composing');
+      this.input.style.width = '';
+      if (t) this.userEdit(this.selStart, this.selEnd, t, 'insertText', t);
+    });
+    // The app keeps the only history; the hidden input's own undo must not change anything.
+    this.input.addEventListener('beforeinput', e => { if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') e.preventDefault(); });
+    this.input.addEventListener('copy', e => this.onCopy(e, false));
+    this.input.addEventListener('cut', e => this.onCopy(e, true));
+    this.input.addEventListener('paste', e => {
+      e.preventDefault();
+      const t = e.clipboardData?.getData('text/plain').replace(/\r\n?/g, '\n');
+      if (t) this.userEdit(this.selStart, this.selEnd, t, 'insertFromPaste');
+    });
+    this.root.addEventListener('pointerdown', e => this.onPointerDown(e));
+    // Panel resizes change which lines are visible; repaint so no strip is left without selection or caret.
+    this.resizer = new ResizeObserver(() => this.paint());
+    this.resizer.observe(this.root);
     this.sizeSpacer();
     this.paint();
   }
@@ -59,6 +93,7 @@ class CodeSurface extends EventTarget {
   set value(v: string) {
     this.text = v;
     this.starts = null;
+    this.goal = null;
     clearTimeout(this.widthTimer);
     this.widest = this.measureWidest();
     this.clampSel();
@@ -77,6 +112,7 @@ class CodeSurface extends EventTarget {
     start = Math.max(0, Math.min(start, end));
     const changed = start !== this.selStart || end !== this.selEnd || dir !== this.selDir;
     this.selStart = start; this.selEnd = end; this.selDir = dir;
+    this.goal = null; // only vertical moves keep it, and they set it again after this
     this.paint();
     if (changed) this.dispatchEvent(new Event('selectionchange'));
   }
@@ -114,10 +150,161 @@ class CodeSurface extends EventTarget {
   focus(opts?: FocusOptions) { this.input.focus(opts); }
   blur() { this.input.blur(); }
   getBoundingClientRect() { return this.root.getBoundingClientRect(); }
-  remove() { clearTimeout(this.widthTimer); this.root.remove(); }
+  remove() { clearTimeout(this.widthTimer); this.endDrag(); this.resizer.disconnect(); this.root.remove(); }
 
   // After a font or metric change: re-size the spacer for the new char width and repaint.
   refresh() { this.sizeSpacer(); this.paint(); }
+
+  // Replace the selection as if the user typed `text`.
+  insertText(text: string) { this.userEdit(this.selStart, this.selEnd, text, 'insertText', text); }
+
+  // Every user edit: a cancelable 'beforeinput' (the app records history there), the change, then 'input'.
+  private userEdit(start: number, end: number, text: string, inputType: string, data: string | null = null) {
+    if (!this.dispatchEvent(new InputEvent('beforeinput', { inputType, data, cancelable: true }))) return;
+    this.setRangeText(text, start, end, 'end');
+    this.revealCaret();
+    this.dispatchEvent(new InputEvent('input', { inputType, data }));
+  }
+
+  private onInput(e: InputEvent) {
+    if (e.isComposing || this.input.classList.contains('composing')) { this.sizeComposing(); return; }
+    const t = this.input.value;
+    this.input.value = '';
+    if (t) this.userEdit(this.selStart, this.selEnd, t, 'insertText', t);
+  }
+  // A textarea's auto width comes from cols, so the visible IME box is sized to its text.
+  private sizeComposing() {
+    const v = this.input.value;
+    this.input.style.width = visualCol(v, v.length) * this.opts.charWidth() + 2 + 'px';
+  }
+
+  private onCopy(e: ClipboardEvent, cut: boolean) {
+    if (this.selStart === this.selEnd || !e.clipboardData) return; // nothing selected: copy nothing
+    e.clipboardData.setData('text/plain', this.text.slice(this.selStart, this.selEnd));
+    e.preventDefault();
+    if (cut) this.userEdit(this.selStart, this.selEnd, '', 'deleteByCut');
+  }
+
+  private anchor() { return this.selDir === 'backward' ? this.selEnd : this.selStart; }
+  private head() { return this.selDir === 'backward' ? this.selStart : this.selEnd; }
+  private select(anchor: number, head: number) {
+    if (head < anchor) this.setSelectionRange(head, anchor, 'backward');
+    else this.setSelectionRange(anchor, head, head > anchor ? 'forward' : 'none');
+  }
+
+  // Enter and Tab are the app's (editorKeys, capture phase); they only reach here when it left them alone.
+  private onKey(e: KeyboardEvent) {
+    if (e.defaultPrevented || e.isComposing || this.input.classList.contains('composing') || e.altKey) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (SURFACE_NAV_KEYS.has(e.key)) {
+      e.preventDefault();
+      const page = Math.max(1, Math.floor(this.root.clientHeight / this.opts.lineHeight) - 1);
+      const vertical = /Up|Down/.test(e.key);
+      const r = moveCaret(this.text, this.lines(), { anchor: this.anchor(), head: this.head() }, e.key as NavKey,
+        { shift: e.shiftKey, ctrl }, page, vertical ? this.goal : null);
+      this.select(r.sel.anchor, r.sel.head);
+      this.goal = r.goal;
+      this.revealCaret();
+    } else if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      const [a, b] = deleteSpan(this.text, { anchor: this.anchor(), head: this.head() }, e.key, ctrl);
+      const back = e.key === 'Backspace';
+      if (a !== b) this.userEdit(a, b, '', ctrl ? (back ? 'deleteWordBackward' : 'deleteWordForward') : (back ? 'deleteContentBackward' : 'deleteContentForward'));
+    } else if ((e.key === 'Enter' && !ctrl) || (e.key === 'Tab' && !ctrl && !e.shiftKey)) {
+      e.preventDefault();
+      this.insertText(e.key === 'Enter' ? '\n' : '\t');
+    } else if (ctrl && !e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      this.setSelectionRange(0, this.text.length);
+    }
+  }
+
+  // Scroll just enough to show the caret (and the line it sits on).
+  private revealCaret() {
+    const { lineHeight: lh, pad } = this.opts, starts = this.lines(), head = this.head();
+    const line = lineOfOffset(starts, head), y = pad.top + line * lh, x = this.xOf(line, head - starts[line]);
+    const r = this.root;
+    if (y < r.scrollTop) r.scrollTop = Math.max(0, y - pad.top);
+    else if (y + lh > r.scrollTop + r.clientHeight) r.scrollTop = y + lh + pad.bottom - r.clientHeight;
+    if (x < r.scrollLeft + pad.left) r.scrollLeft = Math.max(0, x - pad.left);
+    else if (x + 2 > r.scrollLeft + r.clientWidth) r.scrollLeft = x + 2 + pad.right - r.clientWidth;
+    this.paint(); // the scroll event comes later; paint the new spot now
+  }
+
+  // The text offset under a client point: above the first line is 0, below the last is the end.
+  private offsetAt(cx: number, cy: number): number {
+    const { lineHeight: lh, pad } = this.opts, starts = this.lines(), rect = this.root.getBoundingClientRect();
+    const x = cx - rect.left + this.root.scrollLeft, y = cy - rect.top + this.root.scrollTop;
+    const line = Math.floor((y - pad.top) / lh);
+    if (line < 0) return 0;
+    if (line >= starts.length) return this.text.length;
+    const col = this.opts.colAt?.(line, x) ?? colAtVisual(this.lineText(line), Math.round((x - pad.left) / this.opts.charWidth()));
+    return starts[line] + col;
+  }
+  // The range a click of the given unit picks: 0 a spot, 1 a word, 2 a whole line with its newline.
+  private unitAt(off: number, unit: number): [number, number] {
+    if (unit === 1) return wordAt(this.text, this.text[off] === '\n' && off > 0 ? off - 1 : off); // past a line's end: its last word
+    if (unit === 2) {
+      const starts = this.lines(), l = lineOfOffset(starts, off);
+      return [starts[l], l + 1 < starts.length ? starts[l + 1] : this.text.length];
+    }
+    return [off, off];
+  }
+  private extendTo(off: number) {
+    const d = this.drag!, [x, y] = this.unitAt(off, d.unit);
+    if (x < d.a) this.select(d.b, x);
+    else this.select(d.a, Math.max(y, d.b));
+  }
+
+  private onPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    const rect = this.root.getBoundingClientRect();
+    if (e.clientX - rect.left >= this.root.clientWidth || e.clientY - rect.top >= this.root.clientHeight) return; // on a scrollbar
+    e.preventDefault();
+    this.focus({ preventScroll: true });
+    this.endDrag();
+    const off = this.offsetAt(e.clientX, e.clientY), unit = Math.min(this.clickCount(e), 3) - 1;
+    const [a, b] = e.shiftKey ? [this.anchor(), this.anchor()] : this.unitAt(off, unit);
+    this.drag = { unit, a, b, x: e.clientX, y: e.clientY, raf: 0 };
+    this.extendTo(off);
+    try { this.root.setPointerCapture(e.pointerId); } catch { /* synthetic or already-gone pointer */ }
+    window.addEventListener('pointermove', this.onDragMove);
+    window.addEventListener('pointerup', this.endDrag);
+    window.addEventListener('pointercancel', this.endDrag);
+  }
+  // Chromium leaves pointerdown's detail at 0 (and the canceled pointerdown suppresses mousedown), so count clicks here when it does.
+  private clickCount(e: PointerEvent): number {
+    const c = this.clicks, near = Math.abs(e.clientX - c.x) < 5 && Math.abs(e.clientY - c.y) < 5;
+    c.n = e.detail || (near && e.timeStamp - c.t < 500 ? c.n + 1 : 1);
+    c.t = e.timeStamp; c.x = e.clientX; c.y = e.clientY;
+    return c.n;
+  }
+  private onDragMove = (e: PointerEvent) => {
+    const d = this.drag;
+    if (!d) return;
+    if (!(e.buttons & 1)) { this.endDrag(); return; }
+    d.x = e.clientX; d.y = e.clientY;
+    if (!d.raf) this.dragStep(); // while auto-scrolling, the next frame picks up the new spot
+  };
+  // Extend to the pointer, clamped to the viewport; outside it vertically, scroll by distance / 4 lines a frame.
+  private dragStep = () => {
+    const d = this.drag;
+    if (!d) return;
+    d.raf = 0;
+    const rect = this.root.getBoundingClientRect();
+    const dist = d.y < rect.top ? d.y - rect.top : d.y > rect.bottom ? d.y - rect.bottom : 0;
+    if (dist) this.root.scrollTop += (dist / 4) * this.opts.lineHeight;
+    this.extendTo(this.offsetAt(d.x, Math.max(rect.top, Math.min(d.y, rect.bottom - 1))));
+    if (dist) d.raf = requestAnimationFrame(this.dragStep);
+  };
+  private endDrag = () => {
+    if (!this.drag) return;
+    cancelAnimationFrame(this.drag.raf);
+    this.drag = null;
+    window.removeEventListener('pointermove', this.onDragMove);
+    window.removeEventListener('pointerup', this.endDrag);
+    window.removeEventListener('pointercancel', this.endDrag);
+  };
 
   // DOM events go to the element that really fires them; keydown in capture so app handlers beat the surface's own.
   addEventListener(type: string, fn: EventListenerOrEventListenerObject | null, opts?: boolean | AddEventListenerOptions) {
