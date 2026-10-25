@@ -1485,7 +1485,11 @@ body.resizing-h iframe {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
+  /* A clear 1px edge top and bottom keeps the hover and selected backgrounds of neighbours apart.
+     Every `background:` shorthand on a row state resets the clip, hence !important. */
+  padding: 2px 8px;
+  border-block: 1px solid transparent;
+  background-clip: padding-box !important;
   border-radius: 6px;
   color: var(--text-2);
   cursor: pointer;
@@ -3256,6 +3260,39 @@ body.resizing-h .term-body {
   caret-color: var(--text);
 }
 
+/* Sized to its text by fitPrompt(): one line when empty. */
+#prompt {
+  min-height: 0;
+  overflow-y: hidden;
+}
+
+#prompt::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* No model chips: the send button sits beside the prompt, level with its last line. */
+.composer-box.compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  column-gap: 6px;
+}
+
+.composer-box.compact > .composer-attachments {
+  flex-basis: 100%;
+}
+
+.composer-box.compact > .prompt-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer-box.compact > .row .flex-1 {
+  display: none;
+}
+
 .prompt-field textarea::placeholder {
   color: var(--text-3);
 }
@@ -3342,6 +3379,19 @@ body.resizing-h .term-body {
 #send .ico-svg,
 #boxSend .ico-svg {
   display: block;
+}
+
+/* The IDE composer's send button is one text line tall, so it lines up with the prompt. */
+#send {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border-radius: 6px;
+}
+
+#send .ico-svg {
+  width: 12px;
+  height: 12px;
 }
 
 .select {
@@ -7042,14 +7092,22 @@ body:is(.resizing, .resizing-h) .sash-line.on {
   gap: 8px;
   max-width: 320px;
   padding: 7px 14px 7px 10px;
-  border: 1px solid color-mix(in srgb, var(--blue) 55%, var(--line));
+  border: 1px solid var(--line);
   border-radius: 9px;
-  background: color-mix(in srgb, var(--blue) 14%, var(--bg-3));
+  background: color-mix(in srgb, var(--bg-3) 55%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
   color: var(--text);
   font: 600 13px var(--font-ui);
   white-space: nowrap;
-  opacity: 1;
   pointer-events: none;
+  visibility: hidden;
+  will-change: transform;
+}
+
+.drag-file-ghost.on {
+  visibility: visible;
 }
 
 .drag-file-ghost .ico {
@@ -7249,21 +7307,34 @@ button.pill:active, .pill-btn:active {
 #agentMode { font-size: 12px; height: 28px; padding: 2px 6px; }
 .menu.sub.effort-menu { min-width: 130px; }
 
-/* Models of the agents @mentioned in the prompt */
-.prompt-models { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; font-size: 12px; color: var(--text-2); }
+/* Models of the agents @mentioned in the prompt: one chip per agent, click to change model or effort */
+.prompt-models { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; font-size: 12px; color: var(--text-2); padding: 2px 0; }
 .prompt-models:empty { display: none; }
-.prompt-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.prompt-model b { font-weight: 600; color: var(--text); }
-.prompt-model .dd-eff { color: var(--text-3); font-size: 11px; }
+.prompt-model {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0; height: 24px; padding: 0 7px 0 8px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--bg-2); color: var(--text-2);
+  font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+  animation: promptModelIn .28s cubic-bezier(.22, 1, .36, 1) both;
+}
+.prompt-model:hover, .prompt-model.open { border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); background: var(--bg-3); color: var(--text); }
+.prompt-model:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.prompt-model b { font-weight: 600; color: var(--text); flex-shrink: 0; }
+.prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.prompt-model .dd-eff { color: var(--text-3); font-size: 11px; flex-shrink: 0; }
+.prompt-model svg { flex-shrink: 0; color: var(--text-3); transition: transform .15s ease; }
+.prompt-model.open svg { transform: rotate(180deg); }
+.prompt-model.leaving { animation: promptModelOut .18s ease-in both; pointer-events: none; }
+@keyframes promptModelIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+@keyframes promptModelOut { to { opacity: 0; transform: translateX(-6px); } }
+@media (prefers-reduced-motion: reduce) { .prompt-model, .prompt-model.leaving { animation-duration: .01ms; } }
 
 /* Composer attachments */
 .composer-attachments { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .attachment-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px 3px 3px; font-size: 11px; color: var(--text-2); max-width: 240px; box-sizing: border-box; overflow: hidden; animation: chipSpringIn .24s cubic-bezier(.175, .885, .32, 1.275) both; cursor: pointer; transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease; }
-.attachment-chip:hover { background: var(--bg-3); border-color: var(--blue); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
+.attachment-chip:hover { background: var(--bg-3); border-color: color-mix(in srgb, var(--text-3) 50%, var(--line)); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
 .attachment-chip.folder-chip { border-color: rgba(245, 158, 11, .3); }
 .attachment-chip.folder-chip:hover { border-color: rgba(245, 158, 11, .6); }
-.attachment-chip.file-chip { border-color: rgba(0, 94, 255, .3); }
-.attachment-chip.file-chip:hover { border-color: rgba(0, 94, 255, .6); }
 .attachment-thumb { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; border: 1px solid var(--line); background: #000; flex-shrink: 0; cursor: pointer; transition: transform .15s ease; }
 .attachment-thumb:hover { transform: scale(1.04); }
 .attachment-thumb.attachment-icon { display: inline-flex; align-items: center; justify-content: center; background: var(--bg-3); color: var(--text-2); font-size: 13px; }

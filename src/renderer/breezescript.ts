@@ -254,6 +254,12 @@ const sfx = (() => {
       master = ctx.createGain();
       master.gain.value = gainFor(volume);
       master.connect(ctx.destination);
+      // Many Windows audio devices doze after a moment of silence and swallow the first short blip that wakes
+      // them (a tab's X, a lone key). A far-below-hearing signal keeps the output awake.
+      const awake = ctx.createConstantSource();
+      awake.offset.value = 0.00002;
+      awake.connect(ctx.destination);
+      awake.start();
     } catch { ctx = null; } // no audio available
   }
   for (const t of ['pointerdown', 'keydown']) addEventListener(t, unlock, { capture: true, passive: true });
@@ -265,7 +271,8 @@ const sfx = (() => {
   // One blip: a pitch (optionally sliding) with a fast attack and a fade-out.
   function tone(freq: number, dur: number, { type = 'sine', vol = 0.1, to = freq, at = 0 }: { type?: OscillatorType; vol?: number; to?: number; at?: number } = {}): void {
     const c = ctx as AudioContext;
-    const t0 = c.currentTime + at;
+    // A little ahead of now: a note started at currentTime lands partly in the past and very short ones get lost.
+    const t0 = c.currentTime + 0.012 + at;
     const osc = c.createOscillator();
     const g = c.createGain();
     osc.type = type;
@@ -284,7 +291,7 @@ const sfx = (() => {
   const SOUNDS = {
     click: () => tone(1500 * jitter(0.06), 0.05, { to: 900, vol: 0.09 }),
     hover: () => tone(2400, 0.025, { vol: 0.025 }),
-    key: () => tone(1900 * jitter(0.25), 0.022, { type: 'triangle', vol: 0.035 }),
+    key: () => tone(1900 * jitter(0.25), 0.03, { type: 'triangle', vol: 0.035 }),
     tab: () => tone(520, 0.08, { to: 760, vol: 0.09 }),
     close: () => tone(720, 0.08, { to: 420, vol: 0.08 }),
     menu: () => tone(420, 0.09, { to: 640, type: 'triangle', vol: 0.07 }),
@@ -314,7 +321,7 @@ const sfx = (() => {
     trash: () => tone(260, 0.16, { to: 110, type: 'sawtooth', vol: 0.03 }),
     deny: () => { tone(220, 0.08, { type: 'square', vol: 0.03 }); tone(185, 0.12, { type: 'square', vol: 0.03, at: 0.08 }); },
     slide: () => tone(900 * jitter(0.1), 0.015, { type: 'triangle', vol: 0.025 }),
-    keyDel: () => tone(1300 * jitter(0.2), 0.022, { to: 1000, type: 'triangle', vol: 0.03 }),
+    keyDel: () => tone(1300 * jitter(0.2), 0.03, { to: 1000, type: 'triangle', vol: 0.03 }),
     keyEnter: () => tone(1100, 0.04, { to: 800, type: 'triangle', vol: 0.05 }),
     remove: () => { tone(900, 0.07, { to: 300, type: 'triangle', vol: 0.06 }); tone(1800, 0.03, { vol: 0.025, at: 0.01 }); },
     // Agent thinking (a soft questioning lift), answer text streaming in, and a fresh answer arriving
@@ -326,7 +333,7 @@ const sfx = (() => {
   };
   type Sound = keyof typeof SOUNDS;
   // Fast repeating sounds (typing, tool lines) are spaced out so they stay ticks and don't buzz.
-  const GAP: Partial<Record<Sound, number>> = { key: 30, keyDel: 30, keyEnter: 30, tool: 40, rowHover: 45, slide: 35, stream: 90, remove: 70 };
+  const GAP: Partial<Record<Sound, number>> = { key: 18, keyDel: 18, keyEnter: 18, tool: 40, rowHover: 45, slide: 35, stream: 90, remove: 70, trash: 200, drop: 150 };
   const last: Partial<Record<Sound, number>> = {};
 
   function play(name: Sound): void {
@@ -378,9 +385,13 @@ const sfx = (() => {
     ['a[href]', 'link'],
     ['.tree-item, .row, [role="option"], [role="menuitem"], .chat-file-chip, .card', 'row'],
     ['button, [role="button"], summary, select, label, .btn, .pill-btn, .mode-card', 'click'],
+    // Source control rows (changes, checkpoints): after buttons, so a row's own stage/discard buttons still click.
+    ['.scm-row, .commit, .commit-detail-row', 'row'],
   ];
   const kindOf = (t: EventTarget | null): Sound | null => {
     if (!(t instanceof Element)) return null;
+    // Hold-to-delete buttons make their own sound when the hold completes; the release's click stays silent.
+    if (t.closest('[data-hold]')) return null;
     for (const [sel, s] of KINDS) {
       const el = t.closest(sel);
       if (!el) continue;
@@ -409,11 +420,13 @@ const sfx = (() => {
   // Text boxes chirp on focus; dropdown pickers and sliders answer their changes.
   document.addEventListener('focusin', e => {
     const el = e.target as HTMLElement;
-    if (el.matches?.('input:not([type="range"], [type="checkbox"], [type="radio"]), textarea, [contenteditable="true"]') && performance.now() - lastAt > 120) play('focus');
+    // A box focused for you as something closes (the next file after a tab's X) stays quiet.
+    if (el.matches?.('input:not([type="range"], [type="checkbox"], [type="radio"]), textarea, [contenteditable="true"]') && performance.now() - lastAt > 120 && performance.now() - (last.remove ?? -Infinity) > 600) play('focus');
   });
   document.addEventListener('change', e => { if ((e.target as Element).matches?.('select')) play('select'); });
   document.addEventListener('input', e => { if ((e.target as Element).matches?.('input[type="range"]')) play('slide'); });
-  document.addEventListener('drop', () => play('drop'));
+  // Caught on the way down: some drop zones stop the event before it would bubble back up here.
+  document.addEventListener('drop', () => play('drop'), true);
   // Typing anywhere in Breeze ticks (the editor's own ticks fall inside the same gap, so they never double up).
   document.addEventListener('keydown', e => {
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat && e.key !== 'Backspace') return;
@@ -439,7 +452,7 @@ const sfx = (() => {
     const gone = count(records.map(r => r.removedNodes));
     if (!gone || gone <= count(records.map(r => r.addedNodes))) return;
     // The control that removed it already made its sound (a tab's X sounds on the press, before the fold-away ends).
-    if (performance.now() - lastAt < 120 || performance.now() - (last.remove ?? -Infinity) < 700) return;
+    if (performance.now() - lastAt < 120 || performance.now() - (last.remove ?? -Infinity) < 700 || performance.now() - (last.trash ?? -Infinity) < 1500) return;
     if (records.some(r => (r.target as Element).closest?.('#menuRoot, #modalRoot, .menu'))) return; // menus and dialogs have their own close sounds
     play('remove');
   });
@@ -452,7 +465,7 @@ const sfx = (() => {
     const t = e.target as Element;
     const btn = t.closest?.('.btn');
     if (btn) { if (!btn.contains(e.relatedTarget as Node | null)) play('hover'); return; }
-    const row = t.closest?.('.menu-item, [role="option"], .tree-item');
+    const row = t.closest?.('.menu-item, [role="option"], .tree-item, .scm-row, .commit, .commit-detail-row');
     if (row && !row.contains(e.relatedTarget as Node | null)) play('rowHover');
   });
 
@@ -1648,8 +1661,14 @@ function setEffort(eff: EffortLevel): void {
   store.set('breeze.effort', eff);
 }
 
+// Each agent keeps its own effort; one never picked follows the global setting.
+function agentEffort(a: DetectedAgent): EffortLevel {
+  const stored = store.get<string>(`breeze.effort.${a.id}`, '');
+  return (EFFORTS.find(e => e.toLowerCase() === stored.toLowerCase()) ?? currentEffort()) as EffortLevel;
+}
+
 async function applyModelAndEffort(a: DetectedAgent, model: string, effort: EffortLevel): Promise<void> {
-  setEffort(effort);
+  if (!a.api) store.set(`breeze.effort.${a.id}`, effort);
   if (a.id === 'codex') {
     await api.agent.setModel('codex', model, effort.toLowerCase());
     a.version = model;
@@ -1678,7 +1697,7 @@ function modelMenuItems(a: DetectedAgent, onSelect?: () => void): MenuItem[] {
     subClass: 'effort-menu',
     sub: () => EFFORTS.map(eff => ({
       label: eff,
-      checked: () => (a.version || a.models?.[0]) === m && currentEffort() === eff,
+      checked: () => (a.version || a.models?.[0]) === m && agentEffort(a) === eff,
       run: () => {
         background(applyModelAndEffort(a, m, eff).then(() => {
           onSelect?.();
@@ -1686,7 +1705,7 @@ function modelMenuItems(a: DetectedAgent, onSelect?: () => void): MenuItem[] {
       }
     })),
     run: () => {
-      background(applyModelAndEffort(a, m, currentEffort()).then(() => {
+      background(applyModelAndEffort(a, m, agentEffort(a)).then(() => {
         onSelect?.();
       }));
     }
@@ -1829,7 +1848,13 @@ $('#agentBar').addEventListener('click', e => {
   if (chip.classList.contains('chip-rest')) {
     const ids = (chip.dataset.hidden ?? '').split(',');
     const hidden = (appState.detect?.agents ?? []).filter(x => ids.includes(x.id));
-    openChipMenu(chip, hidden.map(x => ({ label: agentShortName(x), icon: brandMark('menu-ico', x.id, x.name[0]), run: () => insertMention(x) })));
+    // Each agent opens its own options (model, effort, default), the same menu as its chip's arrow.
+    openChipMenu(chip, hidden.map(x => ({ label: agentShortName(x), icon: brandMark('menu-ico', x.id, x.name[0]), run: () => insertMention(x), sub: () => agentChipMenuItems(x), clickRuns: true })));
+    const m = chip.classList.contains('open') ? $('#menuRoot .menu') : null;
+    if (m) {
+      m.style.minWidth = '160px';
+      m.style.left = `${Math.max(8, Math.min(chip.getBoundingClientRect().left, innerWidth - m.offsetWidth - 8))}px`;
+    }
     return;
   }
   const ag = appState.detect?.agents.find(x => x.id === chip.dataset.agent);
@@ -4629,7 +4654,8 @@ $('#tree').addEventListener('dragstart', e => {
     e.dataTransfer.setData('application/x-breeze-tree-path', draggedTreePath);
     e.dataTransfer.setData('application/x-breeze-is-dir', draggedTreeIsDir ? '1' : '0');
 
-    // Clean, crisp custom drag ghost preview pill
+    // The browser's own drag image is a flat bitmap, so it can't blur what's behind it. It is swapped for an
+    // empty image and a real element follows the pointer instead, with a backdrop blur.
     let ghost = document.getElementById('breezeDragGhost');
     if (!ghost) {
       ghost = document.createElement('div');
@@ -4640,19 +4666,26 @@ $('#tree').addEventListener('dragstart', e => {
     const name = draggedTreePath.split('/').pop() || draggedTreePath;
     const iconHtml = draggedTreeIsDir ? folderIcon(name, false) : fileIcon(name);
     ghost.innerHTML = `<span class="ico">${iconHtml}</span><span class="nm">${esc(name)}</span>`;
-    ghost.style.left = '0px';
-    ghost.style.top = '0px';
-    const rect = ghost.getBoundingClientRect();
-    e.dataTransfer.setDragImage(ghost, Math.min(28, rect.width / 2), Math.round(rect.height / 2));
-    setTimeout(() => {
-      if (ghost) {
-        ghost.style.left = '-9999px';
-        ghost.style.top = '-9999px';
-      }
-    }, 0);
+    e.dataTransfer.setDragImage(emptyDragImage, 0, 0);
+    moveDragGhost(e.clientX, e.clientY);
+    ghost.classList.add('on');
   }
 });
+const emptyDragImage = new Image();
+emptyDragImage.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+function moveDragGhost(x: number, y: number): void {
+  const ghost = document.getElementById('breezeDragGhost');
+  if (!ghost) return;
+  const r = ghost.getBoundingClientRect();
+  ghost.style.transform = `translate(${x - Math.min(28, r.width / 2)}px, ${y - r.height / 2}px)`;
+}
+function hideDragGhost(): void {
+  document.getElementById('breezeDragGhost')?.classList.remove('on');
+}
+document.addEventListener('dragover', e => { if (draggedTreePath) moveDragGhost(e.clientX, e.clientY); }, true);
+document.addEventListener('drop', hideDragGhost, true);
 $('#tree').addEventListener('dragend', e => {
+  hideDragGhost();
   (e.target as HTMLElement).closest<HTMLElement>('[data-path]')?.classList.remove('dragging');
   draggedTreePath = null;
   draggedTreeIsDir = false;
@@ -4992,8 +5025,13 @@ function setActive(path: string | null): void {
   if (changed && path) sfx.play('tab');
   renderTabs(); renderEditor(); renderTree(); saveSession();
   if (changed) queueDiscord();
-  if (changed) for (const el of [$('#hl'), $('#gutter')]) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160 });
+  if (changed) fadeInEditor();
   if (running && path && /\.(html?|css|js)$/i.test(path)) $('#urlText').title = path;
+}
+// Another file's code fades in rather than snapping in place of the last one.
+function fadeInEditor(): void {
+  if (!activeBuf() || activeBuf()?.kind !== 'text') return;
+  for (const el of [$('#hl'), $('#gutter')]) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
 }
 const seenTabs = new Set<string>();
 function tabHtml(n: string): string {
@@ -5275,6 +5313,13 @@ function closeTab(path: string): void {
       tabEl.style.maxWidth = `${w}px`;
       const _reflow = tabEl.offsetWidth;
       tabEl.classList.add('closing');
+      // The next file shows (and fades in) right away; the tab itself folds away meanwhile.
+      if (!isLastTab && active === path) {
+        const i = openTabs.indexOf(path);
+        active = openTabs[i + 1] ?? openTabs[i - 1] ?? null;
+        renderEditor();
+        fadeInEditor();
+      }
       if (isLastTab) {
         const ink = $('#tabs .tab-ink');
         if (ink) {
@@ -5291,8 +5336,10 @@ function closeTab(path: string): void {
         renderTabs(); renderEditor(); renderTree(); saveSession();
       }, 190);
     } else {
+      const wasActive = active === path;
       dropTab(path);
       renderTabs(); renderEditor(); renderTree(); saveSession();
+      if (wasActive) fadeInEditor();
     }
   };
   if (!isDirty(b)) { finish(); return; }
@@ -7629,6 +7676,7 @@ interface MenuItem {
   header?: User;              // a "who is signed in" row
   sub?: () => MenuItem[];     // opens a submenu on hover
   subClass?: string;          // custom css class for submenu
+  clickRuns?: boolean;        // with `sub`: a click runs the item, hovering still opens the submenu
 }
 const hasFile = () => !!activeText();
 function searchSelection(): void {
@@ -8106,9 +8154,10 @@ function menuItemHtml(it: MenuItem, i: number): string {
   return `<button class="${cls}${it.remove ? ' has-del' : ''}" role="menuitem" data-mi="${i}" data-style="--i:${i}"${disabled}${popup}>${label}${key}${del}</button>`;
 }
 // Builds a menu element at (x, y), kept inside the window.
-function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu'): HTMLElement {
+function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth = 0): HTMLElement {
   const m = document.createElement('div');
   m.className = `${cls} stagger`;
+  m.dataset.depth = String(depth);
   m.setAttribute('role', 'menu');
   m.innerHTML = items.map((it, i) => menuItemHtml(it, i)).join('');
   m.style.setProperty('--n', String(items.length)); // menus that open upwards stagger their rows from the bottom
@@ -8119,21 +8168,24 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu'): HTML
   $$('[data-mi]', m).forEach(b => {
     const it = items[Number(b.dataset.mi)];
     b.onmousedown = e => e.preventDefault(); // keep focus (and the selection) in the editor
-    b.onclick = () => (it.sub ? openSubmenu(b, it) : activateMenuItem(it));
+    b.onclick = () => (it.sub && !it.clickRuns ? openSubmenu(b, it) : activateMenuItem(it));
     const del = b.querySelector<HTMLElement>('[data-mi-del]');
     if (del && it.remove) { const remove = it.remove; holdToDelete(del, () => { closeMenu(); remove(); }); }
-    if (cls === 'menu') b.onmouseenter = () => (it.sub ? openSubmenu(b, it) : closeSubmenu());
+    // Submenus open on hover at every level; hovering a plain row closes any deeper ones.
+    if (cls === 'menu' || it.sub) b.onmouseenter = () => (it.sub ? openSubmenu(b, it) : closeSubmenu(depth + 1));
+    else if (depth) b.onmouseenter = () => closeSubmenu(depth + 1);
   });
   return m;
 }
 // Hovering an item with "›" opens its submenu beside it.
 function openSubmenu(btn: HTMLElement, it: MenuItem): void {
   if (btn.classList.contains('sub-open')) return;
-  closeSubmenu();
+  const depth = Number(btn.closest<HTMLElement>('.menu')?.dataset.depth ?? 0) + 1;
+  closeSubmenu(depth);
   btn.classList.add('sub-open');
   const r = btn.getBoundingClientRect();
   const cls = 'menu sub' + (it.subClass ? ` ${it.subClass}` : '');
-  const sub = renderMenu(r.right + 4, r.top - 5, it.sub?.() ?? [], cls);
+  const sub = renderMenu(r.right + 4, r.top - 5, it.sub?.() ?? [], cls, depth);
   if (!btn.closest('.menu')?.classList.contains('stagger')) sub.classList.remove('stagger'); // like its parent menu
   if (btn.closest('.menu.up')) {
     sub.classList.add('up');
@@ -8141,9 +8193,13 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
   }
   if (sub.getBoundingClientRect().left < r.right) sub.style.left = `${Math.max(8, r.left - sub.offsetWidth - 4)}px`; // no room on the right
 }
-function closeSubmenu(): void {
-  $$('#menuRoot .menu.sub').forEach(s => s.remove());
-  $$('#menuRoot .sub-open').forEach(b => b.classList.remove('sub-open'));
+// Closes the submenus at `depth` and deeper (1, the default, is all of them).
+function closeSubmenu(depth = 1): void {
+  for (const m of $$<HTMLElement>('#menuRoot .menu')) {
+    const d = Number(m.dataset.depth ?? 0);
+    if (d >= depth) m.remove();
+    else if (d === depth - 1) $$('.sub-open', m).forEach(b => b.classList.remove('sub-open'));
+  }
 }
 function showMenu(x: number, y: number, items: MenuItem[], viaKeyboard: boolean): void {
   cancelMenuClose();
@@ -9656,6 +9712,7 @@ async function attachPathToAgent(rawPath: string, isDir: boolean, s: Surface, ta
 
 async function handleAgentDrop(e: DragEvent, ag: AgentDropTargetInfo): Promise<void> {
   clearAgentDropMarks();
+
   let targetTab: AgentTabState;
   if (ag.isNewTab) {
     targetTab = createAgentTab(ag.surface, undefined, undefined, null, true);
@@ -9830,20 +9887,109 @@ function mentionedAgents(text: string): DetectedAgent[] {
   }
   return out;
 }
-// Under the prompt: the model (and effort) of each agent tagged in it.
+// Under the prompt: one chip per agent tagged in it, showing its model and effort; a click changes either.
+// Chips are kept between keystrokes so only a newly tagged agent slides in.
+function promptModelMenuItems(a: DetectedAgent): MenuItem[] {
+  const efforts: MenuItem[] = a.api ? [] : [
+    { sep: true },
+    { label: 'Effort', enabled: () => false },
+    ...EFFORTS.map(eff => ({
+      label: eff,
+      checked: () => agentEffort(a) === eff,
+      run: () => background(applyModelAndEffort(a, a.version || a.models?.[0] || '', eff)),
+    })),
+  ];
+  return [{ label: 'Model', enabled: () => false }, ...modelMenuItems(a), ...efforts];
+}
+function promptModelHtml(a: DetectedAgent): string {
+  const model = a.version || a.models?.[0] || '';
+  const eff = a.api ? '' : `<small class="dd-eff"> · ${esc(agentEffort(a))}</small>`;
+  return `<b>${esc(agentShortName(a))}</b><span class="pm-model">${esc(model)}</span>${eff}${svgIcon('chevronDown', 10)}`;
+}
 function renderPromptModels(): void {
   const box = $('#promptModels');
   const tagged = mentionedAgents(SURFACES.ide.prompt.value).filter(a => a.models?.length || a.version);
-  box.innerHTML = tagged.map(a => {
-    const model = a.version || a.models?.[0] || '';
-    const eff = a.api ? '' : `<small class="dd-eff"> · ${esc(currentEffort())}</small>`;
-    const name = tagged.length > 1 ? `<b>${esc(agentShortName(a))}</b> ` : '';
-    return `<span class="prompt-model" title="${escAttr(`${agentShortName(a)}: ${model}`)}">${name}${esc(model)}${eff}</span>`;
-  }).join('');
+  const ids = tagged.map(a => a.id);
+  for (const el of $$<HTMLElement>('.prompt-model', box)) {
+    if (ids.includes(el.dataset.agent as string) || el.classList.contains('leaving')) continue;
+    el.classList.add('leaving');
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+    setTimeout(() => el.remove(), 300);
+  }
+  let prev: HTMLElement | null = null;
+  for (const a of tagged) {
+    let el = box.querySelector<HTMLElement>(`.prompt-model[data-agent="${CSS.escape(a.id)}"]:not(.leaving)`);
+    if (!el) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      el = btn;
+      el.className = 'prompt-model';
+      el.dataset.agent = a.id;
+      el.setAttribute('aria-haspopup', 'menu');
+    }
+    const html = promptModelHtml(a);
+    if (el.innerHTML !== html) el.innerHTML = html;
+    el.title = `${agentShortName(a)}: change model${a.api ? '' : ' or effort'}`;
+    if (prev ? prev.nextElementSibling !== el : box.firstElementChild !== el) {
+      if (prev) prev.after(el); else box.prepend(el);
+    }
+    prev = el;
+  }
+}
+$('#promptModels').addEventListener('click', e => {
+  const chip = (e.target as HTMLElement).closest<HTMLElement>('.prompt-model:not(.leaving)');
+  const ag = chip && appState.detect?.agents.find(x => x.id === chip.dataset.agent);
+  if (!chip || !ag) return;
+  openChipMenu(chip, promptModelMenuItems(ag));
+  // The composer sits at the bottom of the window, so the menu opens upwards.
+  const m = chip.classList.contains('open') ? $('#menuRoot .menu') : null;
+  if (m) {
+    const r = chip.getBoundingClientRect();
+    m.style.left = `${Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8))}px`;
+    m.style.top = `${Math.max(8, r.top - m.offsetHeight - 4)}px`;
+    m.classList.add('up');
+  }
+});
+// The prompt grows with its text, up to a cap, then scrolls.
+const PROMPT_MAX_H = 200;
+// While no agent is tagged, the send button sits beside the prompt rather than on a row of its own.
+function fitPrompt(): void {
+  const ta = SURFACES.ide.prompt;
+  const box = ta.closest('.composer-box') as HTMLElement;
+  box.classList.toggle('compact', !$('#promptModels').querySelector('.prompt-model:not(.leaving)'));
+  ta.style.height = 'auto';
+  const need = ta.scrollHeight;
+  ta.style.height = `${Math.min(PROMPT_MAX_H, need)}px`;
+  ta.style.overflowY = need > PROMPT_MAX_H ? 'auto' : 'hidden';
+}
+// When the box grows or shrinks (a new line, a tagged agent, the send button moving rows), it eases to its
+// new height and the send button glides to its new place instead of jumping.
+let composerAnim: Animation | null = null;
+let sendAnim: Animation | null = null;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function animateComposer(box: HTMLElement, fromH: number, fromSend: DOMRect): void {
+  // Any run still going is dropped first so the end sizes are read without it (the start was read with it).
+  composerAnim?.cancel();
+  sendAnim?.cancel();
+  const toH = box.offsetHeight;
+  if (Math.abs(toH - fromH) < 1 || reduceMotion.matches) return;
+  const timing: KeyframeAnimationOptions = { duration: 220, easing: 'cubic-bezier(.22, 1, .36, 1)' };
+  box.style.overflow = 'hidden';
+  composerAnim = box.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], timing);
+  composerAnim.onfinish = composerAnim.oncancel = () => { box.style.overflow = ''; };
+  const send = $('#send');
+  const to = send.getBoundingClientRect();
+  const dx = fromSend.left - to.left, dy = fromSend.top - to.top;
+  if (dx || dy) sendAnim = send.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], timing);
 }
 function syncPromptHl(): void {
   const ta = SURFACES.ide.prompt;
+  const box = ta.closest('.composer-box') as HTMLElement;
+  const fromH = box.getBoundingClientRect().height;
+  const fromSend = $('#send').getBoundingClientRect();
   renderPromptModels();
+  fitPrompt();
+  animateComposer(box, fromH, fromSend);
   // A trailing newline needs a character after it, or the layer is a line short.
   promptHl.innerHTML = mentionHtml(ta.value) + (ta.value.endsWith('\n') ? ' ' : '');
   promptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`; // clear of its scroll bar, if it shows one
@@ -10937,6 +11083,30 @@ function updateScmGenBtn(): void {
   btn.dataset.tooltip = tip;
 }
 
+// The generated message types itself into the box, like an agent's edit to a file. Typing in the box yourself
+// (or a newer message) stops it where it is.
+let scmTypeRun = 0;
+function typeScmMsg(text: string): void {
+  const run = ++scmTypeRun;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const step = reduce ? text.length : Math.max(1, Math.ceil(text.length / 90)); // about 1.5 s at most
+  let i = 0, frames = 0, shown = '';
+  const tick = () => {
+    const msg = $<HTMLTextAreaElement>('#scmMsg'); // the panel may have redrawn the box meanwhile
+    if (run !== scmTypeRun || !msg) return;
+    if (msg.value !== shown && i > 0) return; // typed over
+    i = Math.min(text.length, i + step);
+    shown = text.slice(0, i);
+    msg.value = shown;
+    scmDraft = shown;
+    autoResizeScmMsg(msg);
+    if (document.activeElement !== msg) msg.focus();
+    msg.setSelectionRange(i, i);
+    if (++frames % 3 === 0 || i === text.length) sfx.play('key');
+    if (i < text.length) requestAnimationFrame(tick);
+  };
+  tick();
+}
 async function generateCommitMsg(): Promise<void> {
   const currentFiles = gitState.files ?? [];
   if (!currentFiles.length) {
@@ -10957,13 +11127,7 @@ async function generateCommitMsg(): Promise<void> {
   try {
     if (!activeAg?.found) {
       const fallbackMsg = heuristicCommitMsg(currentFiles);
-      const msgArea = $<HTMLTextAreaElement>('#scmMsg');
-      if (msgArea) {
-        msgArea.value = fallbackMsg;
-        scmDraft = msgArea.value;
-        autoResizeScmMsg(msgArea);
-        msgArea.focus();
-      }
+      typeScmMsg(fallbackMsg);
       toast('Commit message generated');
       return;
     }
@@ -11013,24 +11177,12 @@ Instructions:
       effort: undefined, // No forced effort requirement: every model works smoothly
     });
     if (res) {
-      const msgArea = $<HTMLTextAreaElement>('#scmMsg');
-      if (msgArea) {
-        msgArea.value = res.trim();
-        scmDraft = msgArea.value;
-        autoResizeScmMsg(msgArea);
-        msgArea.focus();
-      }
+      typeScmMsg(res.trim());
       toast(`Commit message generated with ${activeAg.name}`);
     }
   } catch (err: unknown) {
     const fallbackMsg = heuristicCommitMsg(currentFiles);
-    const msgArea = $<HTMLTextAreaElement>('#scmMsg');
-    if (msgArea) {
-      msgArea.value = fallbackMsg;
-      scmDraft = msgArea.value;
-      autoResizeScmMsg(msgArea);
-      msgArea.focus();
-    }
+    typeScmMsg(fallbackMsg);
     toast(`Commit message generated (${errMsg(err)})`);
   } finally {
     if (genBtnEl) {
@@ -11487,6 +11639,7 @@ function branchListHtml(branches: string[], q: string): string {
 const HOLD_MS = 5000;//hold time duration
 // Fires onDone only if the button is held for the full 5 seconds; releasing, leaving the button or losing focus cancels.
 function holdToDelete(btn: HTMLElement, onDone: () => void): void {
+  btn.dataset.hold = '';
   let timer: TimeoutId | undefined
   const stop = (early: boolean) => {
     if (timer == null) return;
