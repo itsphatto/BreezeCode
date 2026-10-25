@@ -1189,6 +1189,7 @@ textarea:focus-visible {
   color: #cccccc;
   text-align: left;
   white-space: nowrap;
+  transition: background-color .15s ease, color .15s ease;
 }
 
 .menu-item:hover:not(:disabled),
@@ -1485,7 +1486,11 @@ body.resizing-h iframe {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
+  /* A clear 1px edge top and bottom keeps the hover and selected backgrounds of neighbours apart.
+     Every `background:` shorthand on a row state resets the clip, hence !important. */
+  padding: 2px 8px;
+  border-block: 1px solid transparent;
+  background-clip: padding-box !important;
   border-radius: 6px;
   color: var(--text-2);
   cursor: pointer;
@@ -3256,6 +3261,71 @@ body.resizing-h .term-body {
   caret-color: var(--text);
 }
 
+/* Sized to its text by fitPrompt(): one line when empty. */
+#prompt {
+  min-height: 0;
+  overflow-y: hidden;
+}
+
+#prompt::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Rotating placeholders: a layer over the box draws them, so they can blur from one to the next. */
+textarea.ph-rotating::placeholder {
+  color: transparent !important; /* over each composer's own placeholder colour */
+}
+
+.ph-rot {
+  position: absolute;
+  overflow: hidden;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity .2s ease, filter .2s ease, transform .2s cubic-bezier(.22, 1, .36, 1);
+}
+
+textarea:not(.ph-rotating) + .ph-rot {
+  visibility: hidden;
+}
+
+/* Typing blurs the placeholder away (and clearing the box brings it back the same way). */
+textarea:not(:placeholder-shown) + .ph-rot {
+  opacity: 0;
+  filter: blur(4px);
+  transform: translateX(6px);
+}
+
+/* One line of text: the send button is centred on it, so the gaps above and below match. */
+.composer-box.compact.one-line {
+  align-items: center;
+}
+
+/* No model chips: the send button sits beside the prompt, level with its last line. */
+.composer-box.compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  column-gap: 6px;
+}
+
+.composer-box.compact > .composer-attachments {
+  flex-basis: 100%;
+}
+
+.composer-box.compact > .prompt-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer-box.compact > .row .flex-1 {
+  display: none;
+}
+
 .prompt-field textarea::placeholder {
   color: var(--text-3);
 }
@@ -3342,6 +3412,19 @@ body.resizing-h .term-body {
 #send .ico-svg,
 #boxSend .ico-svg {
   display: block;
+}
+
+/* The IDE composer's send button is one text line tall, so it lines up with the prompt. */
+#send {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border-radius: 6px;
+}
+
+#send .ico-svg {
+  width: 12px;
+  height: 12px;
 }
 
 .select {
@@ -4890,13 +4973,20 @@ body.vibing .ide {
   gap: 2px;
   margin-left: auto;
   flex-shrink: 0;
+  /* Folded to nothing until the row is hovered, so the file name gets the whole row; the row's gap is taken back
+     too. On hover the tools grow in and the name gives way smoothly. */
+  max-width: 0;
+  margin-right: -6px;
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transform: translateX(6px) scale(0.96);
-  transition: opacity .28s cubic-bezier(.16, 1, .3, 1), transform .28s cubic-bezier(.16, 1, .3, 1);
+  transition: max-width .28s cubic-bezier(.16, 1, .3, 1), margin-right .28s cubic-bezier(.16, 1, .3, 1), opacity .28s cubic-bezier(.16, 1, .3, 1), transform .28s cubic-bezier(.16, 1, .3, 1);
 }
 
 .scm-row:hover .acts {
+  max-width: 80px;
+  margin-right: 0;
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0) scale(1);
@@ -6086,6 +6176,92 @@ body.vibing .box {
   background: rgba(122, 169, 255, .12);
 }
 
+/* In a tight strip Run / Preview folds to a bare play icon (see fitTabRunBtn): the label shrinks into the icon as it
+   slides shut, and unfolding is the same grow played backwards. No fade: the label stays opaque, clipped as it closes.
+   An even ease-in-out: a strong ease-out did nearly all the fold in its first frame, so it read as a snap. */
+.tabs .tab-run {
+  transition: padding .32s cubic-bezier(.65, 0, .35, 1), border-color .32s cubic-bezier(.65, 0, .35, 1), background .15s ease;
+}
+
+/* max-width just above "Preview" (~45px), so the whole fold is visible width change rather than dead time. */
+.tabs .tab-run span {
+  display: inline-block;
+  max-width: 50px;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  transform-origin: left center;
+  transition: max-width .32s cubic-bezier(.65, 0, .35, 1), transform .32s cubic-bezier(.65, 0, .35, 1);
+}
+
+.tabs .tab-run .ico-svg {
+  transition: margin .32s cubic-bezier(.65, 0, .35, 1);
+}
+
+.tabs .tab-run.compact {
+  padding: 0 5px;
+  border-color: transparent;
+}
+
+.tabs .tab-run.compact span {
+  max-width: 0;
+  transform: scale(.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs .tab-run,
+  .tabs .tab-run * {
+    transition: none !important;
+  }
+}
+
+.tabs .tab-run.compact .ico-svg {
+  margin-right: 0;
+}
+
+/* The stand-in fitTabRunBtn measures with is laid out at its full size at once; the live button keeps animating. */
+.tabs .tab-run.probe,
+.tabs .tab-run.probe * {
+  transition: none !important;
+}
+
+/* A Run / Preview that is narrowing shut doesn't count when measuring, and no button wraps its label mid-grow. */
+.tabs.measuring .tab-run.ghost {
+  display: none;
+}
+
+.tabs .tab-run {
+  white-space: nowrap;
+}
+
+/* The pinned buttons are frosted: tabs scrolling underneath blur through instead of being cut off by a solid block.
+   #tabs, so this wins over the solid sticky background below. */
+#tabs .tab-split,
+#tabs .tab-run {
+  background: color-mix(in srgb, var(--bg-1) 45%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: none;
+}
+
+#tabs .tab-split:hover {
+  background: color-mix(in srgb, var(--bg-3) 70%, transparent);
+}
+
+#tabs .tab-run.tab-preview:hover {
+  background: rgba(122, 169, 255, .14);
+}
+
+#tabs .tab-run:not(.tab-preview):hover {
+  background: rgba(34, 197, 94, .14);
+}
+
+/* Pinned just left of the split button (the shared sticky rule above would put both at the right edge). */
+.tabs .tab-split ~ .tab-run,
+.tabs .tab-run:has(+ .tab-split) {
+  right: var(--split-w, 30px);
+}
+
 .tabs .tab-split,
 .tabs .tab-list,
 .tabs .tab-run {
@@ -6097,7 +6273,18 @@ body.vibing .box {
   box-shadow: -4px 0 0 var(--bg-1); /* covers the gap to its left, so tabs scrolling underneath don't show through */
 }
 
-/* Tabs shrink (long names ellipsize) before the strip has to scroll; icon and × never shrink. */
+/* A squeezed tab name is clipped at the exact edge and faded (see markCutTabNames), not cut letter by letter
+   with an ellipsis, so it shrinks smoothly and the extension sits right after it. */
+.tabs .tab .nm-base {
+  text-overflow: clip;
+}
+
+.tabs .tab .nm-base.cut {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+}
+
+/* Tabs shrink (long names fade out at the edge) before the strip has to scroll; icon and × never shrink. */
 .tabs .tab {
   flex: 0 1 auto;
   min-width: 120px;
@@ -7042,14 +7229,22 @@ body:is(.resizing, .resizing-h) .sash-line.on {
   gap: 8px;
   max-width: 320px;
   padding: 7px 14px 7px 10px;
-  border: 1px solid color-mix(in srgb, var(--blue) 55%, var(--line));
+  border: 1px solid var(--line);
   border-radius: 9px;
-  background: color-mix(in srgb, var(--blue) 14%, var(--bg-3));
+  background: color-mix(in srgb, var(--bg-3) 55%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
   color: var(--text);
   font: 600 13px var(--font-ui);
   white-space: nowrap;
-  opacity: 1;
   pointer-events: none;
+  visibility: hidden;
+  will-change: transform;
+}
+
+.drag-file-ghost.on {
+  visibility: visible;
 }
 
 .drag-file-ghost .ico {
@@ -7249,21 +7444,35 @@ button.pill:active, .pill-btn:active {
 #agentMode { font-size: 12px; height: 28px; padding: 2px 6px; }
 .menu.sub.effort-menu { min-width: 130px; }
 
-/* Models of the agents @mentioned in the prompt */
-.prompt-models { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; font-size: 12px; color: var(--text-2); }
+/* Models of the agents @mentioned in the prompt: one chip per agent, click to change model or effort */
+.prompt-models { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; font-size: 12px; color: var(--text-2); padding: 2px 0; }
 .prompt-models:empty { display: none; }
-.prompt-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.prompt-model b { font-weight: 600; color: var(--text); }
-.prompt-model .dd-eff { color: var(--text-3); font-size: 11px; }
+.prompt-model {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0; height: 24px; padding: 0 7px 0 8px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--bg-2); color: var(--text-2);
+  font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+  animation: promptModelIn .28s cubic-bezier(.22, 1, .36, 1) both;
+}
+.prompt-model:hover, .prompt-model.open { background: var(--bg-3); color: var(--text); }
+/* The border never changes colour: no hover, open or focus ring. */
+.prompt-model, .prompt-model:hover, .prompt-model.open, .prompt-model:focus, .prompt-model:focus-visible { border-color: var(--line); outline: none; box-shadow: none; }
+.prompt-model b { font-weight: 600; color: var(--text); flex-shrink: 0; }
+.prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.prompt-model .dd-eff { color: var(--text-3); font-size: 11px; flex-shrink: 0; }
+.prompt-model svg { flex-shrink: 0; color: var(--text-3); transition: transform .15s ease; }
+.prompt-model.open svg { transform: rotate(180deg); }
+.prompt-model.leaving { animation: promptModelOut .26s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; transform-origin: left center; }
+@keyframes promptModelIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+@keyframes promptModelOut { to { opacity: 0; transform: scale(.82) translateX(-8px); filter: blur(4px); } }
+@media (prefers-reduced-motion: reduce) { .prompt-model, .prompt-model.leaving { animation-duration: .01ms; } }
 
 /* Composer attachments */
 .composer-attachments { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .attachment-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px 3px 3px; font-size: 11px; color: var(--text-2); max-width: 240px; box-sizing: border-box; overflow: hidden; animation: chipSpringIn .24s cubic-bezier(.175, .885, .32, 1.275) both; cursor: pointer; transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease; }
-.attachment-chip:hover { background: var(--bg-3); border-color: var(--blue); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
+.attachment-chip:hover { background: var(--bg-3); border-color: color-mix(in srgb, var(--text-3) 50%, var(--line)); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
 .attachment-chip.folder-chip { border-color: rgba(245, 158, 11, .3); }
 .attachment-chip.folder-chip:hover { border-color: rgba(245, 158, 11, .6); }
-.attachment-chip.file-chip { border-color: rgba(0, 94, 255, .3); }
-.attachment-chip.file-chip:hover { border-color: rgba(0, 94, 255, .6); }
 .attachment-thumb { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; border: 1px solid var(--line); background: #000; flex-shrink: 0; cursor: pointer; transition: transform .15s ease; }
 .attachment-thumb:hover { transform: scale(1.04); }
 .attachment-thumb.attachment-icon { display: inline-flex; align-items: center; justify-content: center; background: var(--bg-3); color: var(--text-2); font-size: 13px; }
@@ -7488,7 +7697,8 @@ body.layout-animating #previewPane {
 .agent-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  /* "safe": a bar too narrow for even one chip overflows on the right, never under the "Agents" title. */
+  justify-content: safe flex-end;
   gap: 4px;
   flex: 1 1 0;
   min-width: 0;
@@ -7513,6 +7723,27 @@ body.layout-animating #previewPane {
   user-select: none;
   transition: all .15s ease;
 }
+
+/* The one chip a very tight bar still keeps shrinks its name (with an ellipsis) rather than being cut off.
+   fitAgentBar measures with .measuring on, at full size. */
+.agent-bar .agent-chip[data-agent] {
+  flex-shrink: 1;
+  min-width: 0;
+  /* Not "all": a size that animated would lag the fit (and hand fitAgentBar a stale measurement). */
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease, opacity .15s ease;
+}
+
+.agent-bar .agent-chip[data-agent] .chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-bar .agent-chip[data-agent] > :not(.chip-name),
+.agent-bar.measuring .agent-chip {
+  flex-shrink: 0;
+}
+
 
 .agent-chip.on {
   color: #7aa9ff;
@@ -9043,10 +9274,31 @@ body.layout-animating #previewPane {
   background: #000;
 }
 
-/* The blue hover row would swallow Antigravity's blue logo, so it turns to the white one there. */
+/* The blue hover row would swallow Antigravity's blue logo, so it crossfades to the white one there
+   (the white logo sits on top in the same spot, hidden until then). */
+.menu-ico.tint-antigravity .brand-img,
+.menu-ico.tint-antigravity::after {
+  grid-area: 1 / 1;
+  transition: opacity .15s ease;
+}
+
+.menu-ico.tint-antigravity::after {
+  content: "";
+  width: 100%;
+  height: 100%;
+  background: url("../../assets/icons/antigravity_white.png") center / contain no-repeat;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .menu-item:hover:not(:disabled) .menu-ico.tint-antigravity .brand-img,
 .menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico.tint-antigravity .brand-img {
-  content: url("../../assets/icons/antigravity_white.png");
+  opacity: 0;
+}
+
+.menu-item:hover:not(:disabled) .menu-ico.tint-antigravity::after,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico.tint-antigravity::after {
+  opacity: 1;
 }
 
 /* Keyboard shortcuts search with nothing found. */
@@ -9402,4 +9654,20 @@ body.layout-animating #previewPane {
 .ts-changed code {
   flex: 1 1 140px;
   min-width: 0;
+}
+
+/* Every gear grows and turns half a turn while its button is hovered (like Settings › General), and turns back
+   when the pointer leaves. An open settings gear already rests at half a turn, so hovering it only grows it. */
+:is(svg[data-icon="gear"], svg:has(> use[href="#i-gear"])) {
+  transition: transform .45s cubic-bezier(.3, .7, .2, 1), color .22s ease;
+}
+
+:is(button, a, [role="button"]):hover > :is(svg[data-icon="gear"], svg:has(> use[href="#i-gear"])) {
+  transform: rotate(180deg) scale(1.14);
+}
+
+/* The two settings gears by name too, so they turn even where the generic match above misses them. */
+#settingsBtn:hover svg,
+#boxSettings:hover svg {
+  transform: rotate(180deg) scale(1.14);
 }
