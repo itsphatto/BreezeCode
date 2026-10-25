@@ -51,6 +51,9 @@
         "nsis"
       ],
       "icon": "assets/brand/Icon.png"
+    },
+    "nsis": {
+      "artifactName": "Breeze-Code-Setup-${version}.${ext}"
     }
   },
   "dependencies": {

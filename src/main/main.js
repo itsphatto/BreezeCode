@@ -65,10 +65,28 @@ function configureAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  autoUpdater.on('error', error => {
+  // The download runs in the background: its progress shows on the taskbar button, and if it fails
+  // (network, or a release whose latest.yml doesn't match its installer) the user is told instead of left waiting.
+  let downloading = false;
+  autoUpdater.on('error', async error => {
     // An unavailable release or network issue must not prevent the IDE opening.
     console.error('[updater] Update error:', error?.message || error);
+    if (!downloading) return;
+    downloading = false;
+    win?.setProgressBar(-1);
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'error',
+      title: 'Update failed',
+      message: 'The update could not be downloaded.',
+      detail: `${error?.message || error}\n\nYou can download the installer from the releases page instead.`,
+      buttons: ['Open releases page', 'Close'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response === 0) shell.openExternal('https://github.com/itsphatto/BreezeCode/releases/latest');
   });
+  autoUpdater.on('download-progress', p => win?.setProgressBar(Math.max(0, Math.min(1, p.percent / 100))));
 
   autoUpdater.on('update-available', async info => {
     const { response } = await dialog.showMessageBox(win, {
@@ -81,10 +99,15 @@ function configureAutoUpdater() {
       cancelId: 1,
       noLink: true,
     });
-    if (response === 0) autoUpdater.downloadUpdate().catch(logError('update download'));
+    if (response !== 0) return;
+    downloading = true;
+    win?.setProgressBar(2); // indeterminate until the first progress event
+    autoUpdater.downloadUpdate().catch(logError('update download'));
   });
 
   autoUpdater.on('update-downloaded', async info => {
+    downloading = false;
+    win?.setProgressBar(-1);
     const { response } = await dialog.showMessageBox(win, {
       type: 'info',
       title: 'Update ready',
