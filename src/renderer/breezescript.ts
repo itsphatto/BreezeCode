@@ -4646,8 +4646,16 @@ function createSurface(b: EditorBuffer): CodeSurface {
 // The editor records its own history, so edits made by commands (indent, comment, move line…) undo
 // exactly like typing. Typing groups into words; a pause of a second starts a new step.
 const GROUPED = new Set(['type', 'deleteContentBackward', 'deleteContentForward']);
-function remember(b: EditorBuffer, kind: string): void {
-  const ta = b.ta;
+// The editor with keyboard focus: the split's pair while its input has focus, otherwise the active file's.
+function focusedEditor(): { b: EditorBuffer; ta: CodeSurface } | undefined {
+  if (document.activeElement === splitTa.input) {
+    const b = splitBuf();
+    if (b) return { b, ta: splitTa };
+  }
+  const b = activeText();
+  return b ? { b, ta: b.ta } : undefined;
+}
+function remember(b: EditorBuffer, kind: string, ta: CodeSurface | null = b.ta): void {
   if (!ta) return;
   const now = Date.now();
   const grouped = GROUPED.has(kind) && b.lastEdit?.kind === kind && now - b.lastEdit.at < 1000;
@@ -4659,17 +4667,16 @@ function remember(b: EditorBuffer, kind: string): void {
   while (b.undo.length > keep) b.undo.shift();
   b.redo = [];
 }
-function beforeEdit(b: EditorBuffer, e: InputEvent): void {
+function beforeEdit(b: EditorBuffer, e: InputEvent, ta: CodeSurface | null = b.ta): void {
   if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
     e.preventDefault();
-    stepHistory(b, e.inputType === 'historyUndo');
+    stepHistory(b, e.inputType === 'historyUndo', ta);
     return;
   }
   const word = e.inputType === 'insertText' && !!e.data && !/\s/.test(e.data);
-  remember(b, word ? 'type' : e.inputType);
+  remember(b, word ? 'type' : e.inputType, ta);
 }
-function stepHistory(b: EditorBuffer, back: boolean): void {
-  const ta = b.ta;
+function stepHistory(b: EditorBuffer, back: boolean, ta: CodeSurface | null = b.ta): void {
   const [from, to] = back ? [b.undo, b.redo] : [b.redo, b.undo];
   const snap = from.pop();
   if (!ta || !snap) return;
@@ -4678,7 +4685,7 @@ function stepHistory(b: EditorBuffer, back: boolean): void {
   ta.value = snap.text;
   ta.setSelectionRange(snap.sel[0], snap.sel[1]);
   ta.dispatchEvent(new Event('input'));
-  revealOffset(b, snap.sel[0]);
+  revealOffset(b, snap.sel[0], ta);
 }
 
 /* ================= Explorer ================= */
@@ -5804,7 +5811,7 @@ function renderEditor(): void {
   empty.classList.remove('enter');
   if (findOpen) runFind(false);
   renderCode();
-  if (document.activeElement === document.body || document.activeElement?.classList.contains('ta')) b.ta?.focus({ preventScroll: true });
+  if (document.activeElement === document.body || (document.activeElement?.classList.contains('ta') && document.activeElement !== splitTa.input)) b.ta?.focus({ preventScroll: true });
 }
 const fileNoteHtml = (path: string, note: string) => `<div><h4>${esc(baseName(path))}</h4><div>${esc(note)}</div></div>`;
 function fmtSize(n: number): string {
@@ -6290,6 +6297,7 @@ splitTa.addEventListener('input', () => {
   paintSplit(); saveSession(); scheduleLint(b);
   $('#splitDirty').classList.toggle('hidden', !isDirty(b));
 });
+splitTa.addEventListener('beforeinput', e => { const b = splitBuf(); if (b) beforeEdit(b, e as InputEvent, splitTa); });
 splitTa.addEventListener('selectionchange', paintSplit);
 splitTa.addEventListener('keydown', (e: Event) => {
   const k = e as KeyboardEvent;
@@ -6377,21 +6385,21 @@ function nextProblem(): void {
   b.ta.setSelectionRange(off, off);
   revealOffset(b, off);
 }
-function revealOffset(b: EditorBuffer, off: number): void {
-  if (!b.ta) return;
+function revealOffset(b: EditorBuffer, off: number, ta: CodeSurface | null = b.ta): void {
+  if (!ta) return;
   const top = lineAt(b.text, off) * LINE_H;
-  const ta = b.ta;
   if (top < ta.scrollTop || top > ta.scrollTop + ta.clientHeight - LINE_H * 3) ta.scrollTop = Math.max(0, top - ta.clientHeight / 3);
   const ls = lineStart(b.text, off);
   const x = visualCol(b.text.slice(ls, lineEnd(b.text, ls)), off - ls) * measureChar();
   if (x < ta.scrollLeft || x > ta.scrollLeft + ta.clientWidth - 80) ta.scrollLeft = Math.max(0, x - ta.clientWidth / 2);
+  if (ta === splitTa) { syncSplitScroll(); return; }
   syncScroll(); updateCaret();
 }
 
 // Replaces a range as one undoable step.
 function replaceRange(ta: CodeSurface, start: number, end: number, text: string, selStart?: number, selEnd?: number): void {
-  const b = textareaOwner.get(ta.input);
-  if (b) remember(b, 'command');
+  const b = ta === splitTa ? splitBuf() : textareaOwner.get(ta.input);
+  if (b) remember(b, 'command', ta);
   ta.focus();
   ta.setRangeText(text, start, end, 'end');
   if (selStart != null) ta.setSelectionRange(selStart, selEnd ?? selStart);
@@ -6529,11 +6537,11 @@ function uncommentLine(l: string, open: string, close: string): string {
   return l.slice(0, indent) + body;
 }
 function toggleComment(): void {
-  const b = activeText();
-  if (!b) return;
+  const fe = focusedEditor();
+  if (!fe) return;
+  const { b, ta } = fe;
   const c = COMMENT[langOf(b.path)[0]];
   if (!c) { toast('No comment syntax for this file type'); return; }
-  const ta = b.ta;
   const [ls, le] = selectedLines(ta);
   const lines = ta.value.slice(ls, le).split('\n');
   const [open, close] = c;
@@ -6548,9 +6556,9 @@ function toggleComment(): void {
   replaceRange(ta, ls, le, out, ls, ls + out.length);
 }
 function moveLines(dir: -1 | 1): void {
-  const b = activeText();
-  if (!b) return;
-  const ta = b.ta, v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
+  const ta = focusedEditor()?.ta;
+  if (!ta) return;
+  const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
   const [ls, le] = selectedLines(ta);
   const block = v.slice(ls, le);
   if (dir < 0) {
@@ -6566,20 +6574,20 @@ function moveLines(dir: -1 | 1): void {
   }
 }
 function duplicateLines(): void {
-  const b = activeText();
-  if (!b) return;
-  const ta = b.ta, s = ta.selectionStart, en = ta.selectionEnd;
+  const ta = focusedEditor()?.ta;
+  if (!ta) return;
+  const s = ta.selectionStart, en = ta.selectionEnd;
   const [ls, le] = selectedLines(ta);
   const block = ta.value.slice(ls, le);
   replaceRange(ta, le, le, `\n${block}`, s + block.length + 1, en + block.length + 1);
 }
 function selectLine(): void {
-  const b = activeText();
-  if (!b) return;
-  const [ls, le] = selectedLines(b.ta);
-  b.ta.focus();
-  b.ta.setSelectionRange(ls, Math.min(le + 1, b.ta.value.length));
-  updateCaret();
+  const ta = focusedEditor()?.ta;
+  if (!ta) return;
+  const [ls, le] = selectedLines(ta);
+  ta.focus();
+  ta.setSelectionRange(ls, Math.min(le + 1, ta.value.length));
+  if (ta !== splitTa) updateCaret();
 }
 
 /* ----- Find in file ----- */
@@ -8149,7 +8157,8 @@ function run(act: string): void {
 }
 // Undo and redo in the code editor use its own history; everything else goes to the focused field.
 function editRole(role: string): void {
-  const b = activeText();
+  const fe = focusedEditor();
+  const b = fe?.b;
   const topAction = actionUndoStack.at(-1);
   const isRecentTreeAction = topAction && topAction.type.startsWith('tree-') &&
     ((topAction as any).timestamp ?? 0) > (lastUserTypeAt || 0);
@@ -8160,8 +8169,8 @@ function editRole(role: string): void {
       return;
     }
     if (b && b.undo.length > 0) {
-      stepHistory(b, true);
-      b.ta.focus();
+      stepHistory(b, true, fe.ta);
+      fe.ta.focus();
       return;
     }
     if (actionUndoStack.length > 0) {
@@ -8169,8 +8178,8 @@ function editRole(role: string): void {
       return;
     }
     if (b) {
-      stepHistory(b, true);
-      b.ta.focus();
+      stepHistory(b, true, fe.ta);
+      fe.ta.focus();
       return;
     }
   }
@@ -8182,8 +8191,8 @@ function editRole(role: string): void {
       return;
     }
     if (b && b.redo.length > 0) {
-      stepHistory(b, false);
-      b.ta.focus();
+      stepHistory(b, false, fe.ta);
+      fe.ta.focus();
       return;
     }
     if (actionRedoStack.length > 0) {
@@ -8191,19 +8200,19 @@ function editRole(role: string): void {
       return;
     }
     if (b) {
-      stepHistory(b, false);
-      b.ta.focus();
+      stepHistory(b, false, fe.ta);
+      fe.ta.focus();
       return;
     }
   }
   // The surface's text isn't in the DOM, so the native select-all would only select its hidden input.
-  if (role === 'selectAll' && b) {
-    b.ta.focus();
-    b.ta.setSelectionRange(0, b.ta.value.length);
+  if (role === 'selectAll' && fe) {
+    fe.ta.focus();
+    fe.ta.setSelectionRange(0, fe.ta.value.length);
     return;
   }
   // Copy, cut and paste: Electron fires the clipboard event on the focused hidden input, which the surface handles.
-  b?.ta.focus();
+  fe?.ta.focus();
   background(api.win.edit(role));
 }
 function cycleTab(d: number): void {
@@ -8641,8 +8650,11 @@ document.addEventListener('keydown', e => {
         void undoAppAction();
         return;
       }
-      const b = activeText();
+      const fe = focusedEditor();
+      const b = fe?.b;
       if (b && b.undo.length > 0) {
+        // The split has no editorKeys handler, so step its history here.
+        if (fe.ta === splitTa) { e.preventDefault(); e.stopPropagation(); stepHistory(b, true, fe.ta); }
         return;
       }
     }
@@ -8675,8 +8687,10 @@ document.addEventListener('keydown', e => {
         void redoAppAction();
         return;
       }
-      const b = activeText();
+      const fe = focusedEditor();
+      const b = fe?.b;
       if (b && b.redo.length > 0) {
+        if (fe.ta === splitTa) { e.preventDefault(); e.stopPropagation(); stepHistory(b, false, fe.ta); }
         return;
       }
     }
