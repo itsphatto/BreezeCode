@@ -12,6 +12,12 @@ const LANGS: Record<string, [lexer: string, name: string]> = {
   c: ['cpp', 'C'], h: ['cpp', 'C/C++ Header'],
   cpp: ['cpp', 'C++'], cc: ['cpp', 'C++'], cxx: ['cpp', 'C++'], hpp: ['cpp', 'C++ Header'], hh: ['cpp', 'C++ Header'], hxx: ['cpp', 'C++ Header'],
   cs: ['cs', 'C#'], csx: ['cs', 'C# Script'], csproj: ['html', 'C# Project'],
+  yml: ['yaml', 'YAML'], yaml: ['yaml', 'YAML'], toml: ['toml', 'TOML'],
+  sh: ['sh', 'Shell Script'], bash: ['sh', 'Bash'], zsh: ['sh', 'Zsh'], ksh: ['sh', 'Shell Script'],
+  bashrc: ['sh', 'Bash'], bash_profile: ['sh', 'Bash'], bash_aliases: ['sh', 'Bash'], zshrc: ['sh', 'Zsh'], zprofile: ['sh', 'Zsh'],
+  ps1: ['ps', 'PowerShell'], psm1: ['ps', 'PowerShell Module'], psd1: ['ps', 'PowerShell Data'],
+  bat: ['bat', 'Batch'], cmd: ['bat', 'Batch'],
+  dockerfile: ['docker', 'Dockerfile'], env: ['env', 'Environment'],
   png: ['', 'PNG Image'], jpg: ['', 'JPEG Image'], jpeg: ['', 'JPEG Image'], gif: ['', 'GIF Image'], webp: ['', 'WebP Image'],
   avif: ['', 'AVIF Image'], bmp: ['', 'Bitmap Image'], ico: ['', 'Icon'],
   gitignore: ['ignore', 'Ignore'], dockerignore: ['ignore', 'Ignore'], npmignore: ['ignore', 'Ignore'],
@@ -19,7 +25,9 @@ const LANGS: Record<string, [lexer: string, name: string]> = {
 };
 const extOf = (path: string) => { const n = baseName(path).toLowerCase(); return n.includes('.') ? n.slice(n.lastIndexOf('.') + 1) : ''; };
 function langOf(path: string): [lexer: string, name: string] {
-  if (baseName(path).toLowerCase().startsWith('.env')) return ['py', 'Environment'];
+  const n = baseName(path).toLowerCase();
+  if (n.startsWith('.env')) return ['env', 'Environment'];
+  if (n === 'dockerfile' || n === 'containerfile' || n.startsWith('dockerfile.')) return ['docker', 'Dockerfile'];
   return LANGS[extOf(path)] ?? ['', 'Plain Text'];
 }
 
@@ -34,6 +42,15 @@ const JAVA_KW = 'abstract assert boolean break byte case catch char class const 
 const RS_KW = 'as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize f32 f64 bool char str String Vec Option Some None Result Ok Err Box';
 const CPP_KW = 'alignas alignof auto bool break case catch char char8_t char16_t char32_t class const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable namespace new noexcept nullptr operator private protected public register reinterpret_cast requires return short signed sizeof static static_assert static_cast struct switch template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile wchar_t while concept override final NULL size_t std string vector';
 const PY_KW = 'and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield self';
+const SH_KW = 'if then else elif fi case esac for select while until do done in function return local export readonly declare typeset unset shift break continue exit source alias trap eval exec set';
+const PS_KW = 'begin break catch class continue data do dynamicparam else elseif end enum exit filter finally for foreach function hidden if in param process return static switch throw trap try until using while workflow';
+const PS_OP = 'eq ne gt ge lt le like notlike match notmatch contains notcontains in notin replace split join and or not xor is isnot as band bor bxor f ieq ine ceq cne ilike clike imatch cmatch ireplace creplace';
+const BAT_KW = 'echo set if else goto call exit for in do not exist defined errorlevel equ neq lss leq gtr geq setlocal endlocal enabledelayedexpansion enableextensions shift pause cd chdir pushd popd start title cls copy del move mkdir md rmdir rd type nul off on';
+const DOCKER_KW = 'FROM RUN CMD LABEL MAINTAINER EXPOSE ENV ADD COPY ENTRYPOINT VOLUME USER WORKDIR ARG ONBUILD STOPSIGNAL HEALTHCHECK SHELL';
+// A shell word that isn't part of a longer name, variable or flag (do-thing, $done, --exit-code).
+const shellWords = (list: string) => new RegExp(String.raw`(?<![\w$-])(?:${list.replaceAll(' ', '|')})(?![\w-])`);
+// A YAML scalar that is the whole value (after 'key:', '- ', '[' or ','), so 18.x or "yes please" stay plain text.
+const yamlValue = (p: RegExp) => new RegExp(String.raw`(?<=(?:[:[,]|(?:^|\n)[ \t]*-)[ \t]*)(?:${p.source})(?=[ \t]*(?:[#,\]}]|\n|$))`);
 const LINE_COMMENT = /\/\/[^\n]*/;
 const BLOCK_COMMENT = /\/\*[\s\S]*?(?:\*\/|$)/;
 const QUOTED = /"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?/;
@@ -80,6 +97,61 @@ const LEXERS: Record<string, RegExp> = {
     ['attr', either(/\*\*[^*\n]+\*\*/, /\[[^[\]\n]*\]\([^()\n]*\)/)],
   ]),
   html: lexer([['com', /<!--[\s\S]*?(?:-->|$)/], ['tagblock', /<[!/]?[A-Za-z][^>]*>?/]]),
+  // YAML: keys before ':' (also after list dashes), &anchors *aliases !tags, --- document markers, # comments after a space.
+  yaml: lexer([
+    ['com', /(?<=^|\s)#[^\n]*/], ['str', QUOTED],
+    ['prop', /(?<=(?:^|\n)[ \t]*(?:-[ \t]+)*)[^\s#:'"[\]{},&*!|>%@`-][^\n#:]*?(?=[ \t]*:(?:\s|$))/],
+    ['attr', /(?<=^|[\s[{,])(?:[&*][\w-]+|!!?[\w-]*)/],
+    ['kw', either(/(?<=^|\n)(?:---|\.\.\.)(?=\s|$)/, yamlValue(/true|false|yes|no|on|off|null|True|False|Null|TRUE|FALSE|NULL|~/))],
+    ['num', yamlValue(/[-+]?(?:0x[\da-fA-F]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?|\.inf|\.nan)/)],
+  ]),
+  // TOML: [tables] and [[arrays of tables]] on their own line, bare keys before '=', """multi-line""" strings and dates.
+  toml: lexer([
+    ['com', /#[^\n]*/], ['str', either(/"""[\s\S]*?(?:"""|$)/, /'''[\s\S]*?(?:'''|$)/, QUOTED)],
+    ['tag', /(?<=(?:^|\n)[ \t]*)\[\[?[^\]\n]*\]\]?(?=[ \t]*(?:#|\n|$))/],
+    ['prop', /(?<=(?:^|\n|[{,])[ \t]*)[\w.-]+(?=[ \t]*=)/],
+    ['kw', /\b(?:true|false|inf|nan)\b/],
+    ['num', either(/\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:\d{2})?/, /[+-]?\b0[xob][\da-fA-F_]+\b/, /[+-]?\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?\b/)],
+  ]),
+  // Shell: # comments only where a word starts ($# is a variable), strings that may span lines, $vars and ${…},
+  // NAME= assignments and the command that starts each line or pipeline step.
+  sh: lexer([
+    ['com', /(?<=^|[\s;|&(])#[^\n]*/], ['str', either(/"(?:\\[\s\S]|[^"\\])*"?/, /'[^']*'?/)],
+    ['attr', /\$(?:\{[^}\n]*\}?|[A-Za-z_]\w*|[\d#?$!@*-])/],
+    ['kw', shellWords(SH_KW)],
+    ['prop', either(/\b[A-Za-z_]\w*(?==)/, /(?<=(?:^|\n|[;|&(]|(?<![\w-])(?:then|do|else)[ \t])[ \t]*)[A-Za-z_][\w.-]*(?=[ \t;|&)]|\n|$)/)],
+    ['num', /(?<![\w.$-])\d+(?![\w.])/],
+  ]),
+  // PowerShell (case-insensitive): <# block #> comments, @"here-strings"@, $vars like $env:PATH, -eq operators,
+  // -Parameters, [types] and Verb-Noun cmdlets (ForEach-Object is a cmdlet, not the foreach keyword).
+  ps: lexer([
+    ['com', either(/<#[\s\S]*?(?:#>|$)/, /#[^\n]*/)],
+    ['str', either(/@"[\s\S]*?(?:\n"@|$)/, /@'[\s\S]*?(?:\n'@|$)/, /"(?:`[\s\S]|""|[^"`])*"?/, /'(?:''|[^'])*'?/)],
+    ['kw', either(/\$(?:true|false|null)\b/, new RegExp(String.raw`-(?:${PS_OP.replaceAll(' ', '|')})\b`), new RegExp(keywords(PS_KW).source + '(?!-)'))],
+    ['prop', either(/\b[A-Za-z]+-[A-Za-z]\w*/, CALL)],
+    ['attr', either(/\$(?:\{[^}\n]*\}?|(?:\w+:)?\w+|[?^$])/, /(?<![\w-])-[A-Za-z]\w*/)],
+    ['tag', /\[[A-Za-z_][\w.]*(?:\[\])?\]/],
+    ['num', either(/\b0x[\da-f]+\b/, /\b\d+(?:\.\d+)?(?:[kmgtp]b)?\b/)],
+  ], 'gi'),
+  // Batch (case-insensitive): REM and :: comments, :labels, %vars% %~dp0 %%i and !delayed! variables.
+  bat: lexer([
+    ['com', /(?<=(?:^|\n|&)[ \t]*@?)(?:rem\b[^\n]*|::[^\n]*)/], ['tag', /(?<=(?:^|\n)[ \t]*):[A-Za-z_][\w.-]*/],
+    ['str', /"[^"\n]*"?/], ['attr', /%%~?[a-z]|%~[a-z]*\d|%\d|%[^%\s]+%|![^!\s]+!/],
+    ['kw', keywords(BAT_KW)], ['num', /\b\d+\b/],
+  ], 'gi'),
+  // Dockerfile (case-insensitive): instructions start a line (and FROM … AS name), # comments only at the start of a line,
+  // $VARS and --flags.
+  docker: lexer([
+    ['com', /(?<=(?:^|\n)[ \t]*)#[^\n]*/],
+    ['kw', either(new RegExp(String.raw`(?<=(?:^|\n)[ \t]*)(?:${DOCKER_KW.replaceAll(' ', '|')})\b`), /(?<=(?:^|\n)[ \t]*FROM\b[^\n]*[ \t])AS\b/)],
+    ['str', QUOTED], ['attr', /\$(?:\{[^}\n]*\}?|[A-Za-z_]\w*)/], ['prop', /(?<=[ \t])--[\w-]+/], ['num', NUMBER],
+  ], 'gi'),
+  // .env: KEY=value lines (optionally after export), # comments after a space (a#b is a value), quotes and ${VAR} references.
+  env: lexer([
+    ['com', /(?<=^|\s)#[^\n]*/], ['kw', /(?<=(?:^|\n)[ \t]*)export\b/],
+    ['prop', /(?<=(?:^|\n)[ \t]*(?:export[ \t]+)?)[A-Za-z_][\w.-]*(?=[ \t]*=)/],
+    ['str', QUOTED], ['attr', /\$\{[^}\n]*\}?|\$[A-Za-z_]\w*/],
+  ]),
   // .gitignore and friends: # comments (only at the start of a line), ! negations and * / ** globs.
   ignore: lexer([['com', /(?<=^|\n)[ \t]*#[^\n]*/], ['kw', /(?<=^|\n)!/], ['attr', /\*\*?|\?/]]),
 };
@@ -163,7 +235,7 @@ function fullToks(text: string, lexerName: string): HlToks {
 }
 // Lexers whose tokens depend only on the text around them (not HTML's embedded blocks or CSS's selector depth),
 // so an edit is re-lexed from just above it until the tokens fall back in step with the old ones.
-const INCREMENTAL = new Set(['js', 'json', 'cs', 'py', 'java', 'rs', 'cpp', 'md', 'ignore']);
+const INCREMENTAL = new Set(['js', 'json', 'cs', 'py', 'java', 'rs', 'cpp', 'md', 'ignore', 'yaml', 'toml', 'sh', 'ps', 'bat', 'docker', 'env']);
 // The lengths of the unchanged head and tail of an edit, compared a chunk at a time first (string === is a native compare).
 function editSpan(old: string, text: string): [head: number, tail: number] {
   const min = Math.min(old.length, text.length);
@@ -237,7 +309,7 @@ function lineHtmlOf(d: HlDoc, i: number): string {
   }
   return d.html[i] = h;
 }
-const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
+const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], yaml: ['# ', ''], toml: ['# ', ''], sh: ['# ', ''], ps: ['# ', ''], docker: ['# ', ''], env: ['# ', ''], bat: ['REM ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
 
 /* ================= Syntax checks (red error lines) ================= */
 // Quick structural checks that work everywhere: brackets, strings, comments, tags, JSON, Python blocks.

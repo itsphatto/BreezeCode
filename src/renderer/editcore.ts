@@ -3,7 +3,8 @@
 interface Sel { anchor: number; head: number }
 type NavKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown' | 'Home' | 'End' | 'PageUp' | 'PageDown';
 
-const lineStart = (v: string, pos: number) => v.lastIndexOf('\n', pos - 1) + 1;
+// (lastIndexOf clamps -1 to 0, so offset 0 would find a leading '\n' and say line 2.)
+const lineStart = (v: string, pos: number) => (pos > 0 ? v.lastIndexOf('\n', pos - 1) + 1 : 0);
 const lineEnd = (v: string, pos: number) => { const i = v.indexOf('\n', pos); return i === -1 ? v.length : i; };
 // The line starts of the last text asked about, so the open file's lines are found once per edit, not per call.
 let lineMemo = { text: '', starts: [0] };
