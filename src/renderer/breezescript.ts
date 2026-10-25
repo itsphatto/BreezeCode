@@ -9,7 +9,6 @@ type IntervalId = ReturnType<typeof setInterval>;
 type AgentKey = 'assistant' | 'planner' | 'builder';
 type AgentStatus = 'idle' | 'working' | 'waiting' | 'done';
 
-
 interface Agent {
   name: string;
   letter: string;
@@ -2136,6 +2135,12 @@ const LEXERS: Record<string, RegExp> = {
 };
 const HTML_TAG = lexer([['tag', /^<[!/]?[\w:-]+|\/?>$/], ['str', /"[^"]*"?|'[^']*'?/], ['attr', /[^\s="'<>/]+/]]);
 
+// The named group that matched: the token's kind.
+function tokKind(m: RegExpExecArray): string | null {
+  const groups = m.groups;
+  for (const k in groups) if (groups[k] !== undefined) return k;
+  return null;
+}
 function lex(text: string, re: RegExp): Tok[] {
   const out: Tok[] = [];
   let last = 0;
@@ -2143,8 +2148,7 @@ function lex(text: string, re: RegExp): Tok[] {
   for (let m = re.exec(text); m; m = re.exec(text)) {
     if (!m[0]) { re.lastIndex++; continue; }
     if (m.index > last) out.push([null, text.slice(last, m.index)]);
-    const groups = m.groups ?? {};
-    const kind = Object.keys(groups).find(k => groups[k] !== undefined) ?? null;
+    const kind = tokKind(m);
     if (kind === 'tagblock') out.push(...lex(m[0], HTML_TAG)); // lex() resets lastIndex of the inner regex only
     else out.push([kind, m[0]]);
     last = m.index + m[0].length;
@@ -2187,18 +2191,79 @@ function htmlToks(text: string): Tok[] {
   out.push(...lex(text.slice(last), LEXERS.html));
   return out;
 }
-// Highlight a whole document and return one HTML string per line (tokens can span lines).
-function highlightLines(text: string, lexerName: string): string[] {
-  if (!LEXERS[lexerName] || text.length > 400000) return text.split('\n').map(esc);
-  const lines: string[] = [''];
-  const toks = lexerName === 'html' ? htmlToks(text) : lex(text, LEXERS[lexerName]);
-  for (const [cls, t] of lexerName === 'css' ? markSelectors(toks) : toks) {
-    t.split('\n').forEach((part, i) => {
-      if (i > 0) lines.push('');
-      if (part) lines[lines.length - 1] += cls ? `<span class="tk-${cls}">${esc(part)}</span>` : esc(part);
-    });
+// A highlighted document is a flat token stream: token k runs from starts[k] to starts[k + 1] (or the end).
+// Lines are turned into HTML only when they are drawn, so a 10,000-line file costs the same as the lines in view.
+interface HlDoc { text: string; lexer: string; starts: number[]; kinds: (string | null)[]; lines: number[]; html: (string | undefined)[]; }
+type HlToks = Pick<HlDoc, 'starts' | 'kinds'>;
+const HL_MAX = 400000;
+function fullToks(text: string, lexerName: string): HlToks {
+  const starts: number[] = [], kinds: (string | null)[] = [];
+  if (LEXERS[lexerName] && text.length <= HL_MAX) {
+    const toks = lexerName === 'html' ? htmlToks(text) : lex(text, LEXERS[lexerName]);
+    let at = 0;
+    for (const [cls, t] of lexerName === 'css' ? markSelectors(toks) : toks) {
+      if (t) { starts.push(at); kinds.push(cls); at += t.length; }
+    }
   }
-  return lines;
+  if (!starts.length) { starts.push(0); kinds.push(null); }
+  return { starts, kinds };
+}
+// Lexers whose tokens depend only on the text around them (not HTML's embedded blocks or CSS's selector depth),
+// so an edit is re-lexed from just above it until the tokens fall back in step with the old ones.
+const INCREMENTAL = new Set(['js', 'json', 'cs', 'py', 'java', 'rs', 'cpp', 'md', 'ignore']);
+function relex(prev: HlDoc, text: string): HlToks {
+  const old = prev.text, re = LEXERS[prev.lexer];
+  const min = Math.min(old.length, text.length);
+  // The unchanged head and tail, compared a chunk at a time first (string === is a native compare).
+  const CH = 2048;
+  let p = 0;
+  while (p + CH <= min && old.slice(p, p + CH) === text.slice(p, p + CH)) p += CH;
+  while (p < min && old.charCodeAt(p) === text.charCodeAt(p)) p++;
+  let s = 0;
+  while (s + CH <= min - p && old.slice(old.length - s - CH, old.length - s) === text.slice(text.length - s - CH, text.length - s)) s += CH;
+  while (s < min - p && old.charCodeAt(old.length - 1 - s) === text.charCodeAt(text.length - 1 - s)) s++;
+  const delta = text.length - old.length;
+  // Start two lines above the edit (a lookahead can reach past a line break), at the token found there.
+  let from = lineStart(text, p);
+  for (let n = 0; n < 2 && from > 0; n++) from = lineStart(text, from - 1);
+  const k = lineOfOffset(prev.starts, from), at = prev.starts[k];
+  const starts = prev.starts.slice(0, k), kinds = prev.kinds.slice(0, k);
+  // Below the line the edit ends on nothing can see it: a token starting where an old one did means the rest is unchanged.
+  const settle = lineEnd(text, text.length - s) + 1;
+  const push = (kind: string | null, start: number): boolean => {
+    if (start >= settle) {
+      const j = lineOfOffset(prev.starts, start - delta);
+      if (prev.starts[j] === start - delta && prev.kinds[j] === kind) {
+        const n = starts.length, rest = prev.starts.length - j;
+        starts.length = kinds.length = n + rest;
+        for (let i = 0; i < rest; i++) { starts[n + i] = prev.starts[j + i] + delta; kinds[n + i] = prev.kinds[j + i]; }
+        return true;
+      }
+    }
+    starts.push(start); kinds.push(kind);
+    return false;
+  };
+  let last = at;
+  re.lastIndex = at;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    if (m.index > last && push(null, last)) return { starts, kinds };
+    if (push(tokKind(m), m.index)) return { starts, kinds };
+    last = m.index + m[0].length;
+  }
+  if (last < text.length || !starts.length) push(null, last);
+  return { starts, kinds };
+}
+function lineHtmlOf(d: HlDoc, i: number): string {
+  const done = d.html[i];
+  if (done !== undefined) return done;
+  const from = d.lines[i], to = i + 1 < d.lines.length ? d.lines[i + 1] - 1 : d.text.length;
+  let h = '';
+  for (let k = lineOfOffset(d.starts, from); k < d.starts.length && d.starts[k] < to; k++) {
+    const part = d.text.slice(Math.max(d.starts[k], from), Math.min(d.starts[k + 1] ?? to, to));
+    if (part) h += d.kinds[k] ? `<span class="tk-${d.kinds[k]}">${esc(part)}</span>` : esc(part);
+  }
+  return d.html[i] = h;
 }
 const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
 
@@ -4498,7 +4563,7 @@ function scheduleLint(b: EditorBuffer, delay = 450): void {
   b.lintTimer = setTimeout(() => void lintBuffer(b), delay);
 }
 // V8 has the final word on JavaScript/TypeScript: it is exact, and clean code clears any false alarm.
-// When both find something, the structural messages win on shared lines (they say more).
+// When both find something, the structural messages win on shared lines (they say more). 
 function mergeSyntax(diags: Diag[], r: SyntaxResult): Diag[] {
   if (!r) return diags;
   if ('ok' in r) return [];
@@ -4570,7 +4635,9 @@ function remember(b: EditorBuffer, kind: string): void {
   b.lastEdit = { kind, at: now };
   if (grouped) return;
   b.undo.push({ text: ta.value, sel: [ta.selectionStart, ta.selectionEnd] });
-  if (b.undo.length > 500) b.undo.shift();
+  // Each step is a copy of the file, so big files keep fewer of them (about 80 MB of history at most).
+  const keep = clamp(Math.floor(40_000_000 / Math.max(1, ta.value.length)), 50, 500);
+  while (b.undo.length > keep) b.undo.shift();
   b.redo = [];
 }
 function beforeEdit(b: EditorBuffer, e: InputEvent): void {
@@ -5608,7 +5675,14 @@ void document.fonts?.ready.then(() => { charW = 0; renderCode(); });
 
 const lineStart = (v: string, pos: number) => v.lastIndexOf('\n', pos - 1) + 1;
 const lineEnd = (v: string, pos: number) => { const i = v.indexOf('\n', pos); return i === -1 ? v.length : i; };
+// The line starts of the last text asked about, so the open file's lines are found once per edit, not per call.
+let lineMemo = { text: '', starts: [0] };
+function lineStartsOf(text: string): number[] {
+  if (lineMemo.text !== text) lineMemo = { text, starts: lineStarts(text) };
+  return lineMemo.starts;
+}
 function lineAt(v: string, pos: number): number {
+  if (v.length > 20000) return lineOfOffset(lineStartsOf(v), pos);
   let n = 0;
   for (let i = v.indexOf('\n'); i !== -1 && i < pos; i = v.indexOf('\n', i + 1)) n++;
   return n;
@@ -5726,8 +5800,10 @@ function box(cls: string, top: number, left: number, width?: number): HTMLElemen
 function findBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
   if (!findOpen || !findLen) return [];
   const vis = findHits.length > 3000 ? findHits.slice(Math.max(0, findIdx - 1500), findIdx + 1500) : findHits;
-  return vis.map(off => {
-    const ln = lineAt(b.text, off), ls = lineStart(b.text, off);
+  // Only the hits in the drawn window get a box.
+  const starts = lineStartsOf(b.text);
+  return vis.filter(off => { const ln = lineOfOffset(starts, off); return ln >= winFirst && ln < winLast; }).map(off => {
+    const ln = lineOfOffset(starts, off), ls = starts[ln];
     const lt = b.text.slice(ls, lineEnd(b.text, ls));
     const x = visualCol(lt, off - ls) * cw, w = (visualCol(lt, off - ls + findLen) * cw) - x;
     return box(off === findHits[findIdx] ? 'hit cur' : 'hit', ln * LINE_H, x, Math.max(w, 2));
@@ -5746,9 +5822,9 @@ function visibleDiags(b: EditorBuffer, lineCount: number): Map<number, Diag> {
 }
 function squiggles(b: EditorBuffer, lineCount: number, cw: number): HTMLElement[] {
   if (!b.diags?.length || b.diagLines !== lineCount) return [];
-  const raw = b.text.split('\n');
+  const text = b.text, starts = lineStartsOf(text);
   return b.diags.map(d => {
-    const ln = Math.min(d.line, raw.length - 1), lt = raw[ln];
+    const ln = Math.min(d.line, starts.length - 1), lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
     const from = Math.min(d.col, lt.length), to = Math.min(lt.length, d.col + d.len);
     const x = visualCol(lt, from) * cw;
     return box('squig', ln * LINE_H + 15, x, Math.max(visualCol(lt, to) * cw - x, cw));
@@ -5776,14 +5852,23 @@ function tagPairs(text: string, xml: boolean): [TagSpan, TagSpan][] {
   }
   return pairs;
 }
+// The buffer's tag pairs, found again only when its text changes (the caret moving doesn't rescan the file).
+const tagCache = new WeakMap<EditorBuffer, { text: string; pairs: [TagSpan, TagSpan][] }>();
+function tagPairsOf(b: EditorBuffer): [TagSpan, TagSpan][] {
+  const c = tagCache.get(b);
+  if (c?.text === b.text) return c.pairs;
+  const pairs = tagPairs(b.text, ['xml', 'svg', 'jsx', 'tsx'].includes(extOf(b.path)));
+  tagCache.set(b, { text: b.text, pairs });
+  return pairs;
+}
 // The two tags around the caret as offset ranges to mark: exactly the tag names, so the boxes hug the letters.
 function tagMarks(b: EditorBuffer): [number, number][] {
-  const lexer = langOf(b.path)[0], ext = b.path.split('.').pop()?.toLowerCase() ?? '';
+  const lexer = langOf(b.path)[0], ext = extOf(b.path);
   if ((lexer !== 'html' && ext !== 'jsx' && ext !== 'tsx') || b.text.length > 200000) return [];
   if (!b.ta) return [];
   const caret = b.ta.selectionStart;
   const hit = (t: TagSpan, strict: boolean) => (strict ? t.start < caret && caret < t.end : t.start <= caret && caret <= t.end);
-  const pairs = tagPairs(b.text, ext === 'xml' || ext === 'svg' || ext === 'jsx' || ext === 'tsx');
+  const pairs = tagPairsOf(b);
   const pair = pairs.find(p => p.some(t => hit(t, true))) ?? pairs.find(p => p.some(t => hit(t, false)));
   return pair ? pair.map(t => [t.nameStart, t.nameEnd] as [number, number]) : [];
 }
@@ -5855,7 +5940,7 @@ function blocksOf(b: EditorBuffer): Block[] {
   const text = b.text, lexer = langOf(b.path)[0], ext = extOf(b.path);
   const blocks: Block[] = [];
   if (text.length <= 200000) {
-    const starts = lineStarts(text);
+    const starts = lineStartsOf(text);
     const indentOf = (ln: number) => {
       const lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
       return visualCol(lt, lt.length - lt.trimStart().length);
@@ -5865,7 +5950,7 @@ function blocksOf(b: EditorBuffer): Block[] {
       if (to - from >= 2) blocks.push({ from, to, start: open, end: close + 1, col: Math.min(indentOf(from), indentOf(to)) });
     };
     if (lexer === 'html' || ext === 'jsx' || ext === 'tsx') {
-      for (const [o, cl] of tagPairs(text, lexer !== 'html' || ext === 'xml' || ext === 'svg')) add(o.start, cl.start);
+      for (const [o, cl] of tagPairsOf(b)) add(o.start, cl.start);
     }
     if (['js', 'css', 'json', 'java', 'rs', 'cs'].includes(lexer)) for (const [o, cl] of bracketPairs(text)) add(o, cl);
     if (lexer === 'py') {
@@ -5913,15 +5998,18 @@ function gutterHtml(i: number, d: Diag | undefined): string {
 
 const OVERSCAN = 40;
 let winFirst = 0, winLast = 0, winTotal = 1;
-const hlCache = new WeakMap<EditorBuffer, { text: string; lexer: string; lines: string[] }>();
-// Re-lexes only when the text changed, so scrolling never re-highlights.
-function highlighted(b: EditorBuffer): string[] {
+const hlCache = new WeakMap<EditorBuffer, HlDoc>();
+// Re-lexes only when the text changed (and then only around the edit), so scrolling never re-highlights.
+function highlighted(b: EditorBuffer): HlDoc {
   const lexer = langOf(b.path)[0];
   const c = hlCache.get(b);
-  if (c?.text === b.text && c.lexer === lexer) return c.lines;
-  const lines = highlightLines(b.text, lexer);
-  hlCache.set(b, { text: b.text, lexer, lines });
-  return lines;
+  if (c?.text === b.text && c.lexer === lexer) return c;
+  const text = b.text;
+  const toks = c && c.lexer === lexer && INCREMENTAL.has(lexer) && LEXERS[lexer] && text.length <= HL_MAX && c.text.length <= HL_MAX
+    ? relex(c, text) : fullToks(text, lexer);
+  const d: HlDoc = { text, lexer, ...toks, lines: lineStartsOf(text), html: [] };
+  hlCache.set(b, d);
+  return d;
 }
 function visibleLines(ta: HTMLTextAreaElement, total: number): [number, number] {
   const first = clamp(Math.floor((ta.scrollTop - 10) / LINE_H), 0, total - 1);
@@ -5931,27 +6019,28 @@ function visibleLines(ta: HTMLTextAreaElement, total: number): [number, number] 
 function renderCode(): void {
   const b = activeText();
   if (!b) return;
-  const lines = highlighted(b);
-  winTotal = lines.length;
-  curLine = lineAt(b.text, b.ta.selectionStart);
+  const doc = highlighted(b);
+  const count = doc.lines.length;
+  winTotal = count;
+  curLine = lineOfOffset(doc.lines, b.ta.selectionStart);
   const cw = measureChar();
-  const errAt = visibleDiags(b, lines.length);
+  const errAt = visibleDiags(b, count);
   const add = added[b.path];
-  const [vf, vl] = visibleLines(b.ta, lines.length);
+  const [vf, vl] = visibleLines(b.ta, count);
   winFirst = Math.max(0, vf - OVERSCAN);
-  winLast = Math.min(lines.length, vl + OVERSCAN);
+  winLast = Math.min(count, vl + OVERSCAN);
   const rows: string[] = [], nums: string[] = [];
   for (let i = winFirst; i < winLast; i++) {
-    rows.push(lineHtml(lines[i], i, add, errAt.get(i)));
+    rows.push(lineHtml(lineHtmlOf(doc, i), i, add, errAt.get(i)));
     nums.push(gutterHtml(i, errAt.get(i)));
   }
   hlLines.innerHTML = rows.join('');
   hlLines.style.top = `${winFirst * LINE_H}px`;
   gutLines.innerHTML = nums.join('');
   gutLines.style.top = `${winFirst * LINE_H}px`;
-  hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, lines.length, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
+  hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
   tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
-  $('#gutter').style.width = `${Math.max(3, String(lines.length).length) * 8 + 32}px`;
+  $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 32}px`;
   syncScroll();
   updateStatus();
 }
@@ -6094,19 +6183,20 @@ function renderSplit(): void {
 function paintSplit(): void {
   const b = splitBuf();
   if (!b) return;
-  const lines = highlighted(b);
-  const cur = lineAt(b.text, splitTa.selectionStart);
-  const [vf, vl] = visibleLines(splitTa, lines.length);
-  splitWin = { first: Math.max(0, vf - OVERSCAN), last: Math.min(lines.length, vl + OVERSCAN), total: lines.length };
+  const doc = highlighted(b);
+  const count = doc.lines.length;
+  const cur = lineOfOffset(doc.lines, splitTa.selectionStart);
+  const [vf, vl] = visibleLines(splitTa, count);
+  splitWin = { first: Math.max(0, vf - OVERSCAN), last: Math.min(count, vl + OVERSCAN), total: count };
   const rows: string[] = [], nums: string[] = [];
   for (let i = splitWin.first; i < splitWin.last; i++) {
-    rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lines[i]}</div>`);
+    rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lineHtmlOf(doc, i)}</div>`);
     nums.push(`<div${i === cur ? ' class="cur"' : ''}>${i + 1}</div>`);
   }
   splitLines.innerHTML = rows.join('');
   splitLines.style.top = splitGutLines.style.top = `${splitWin.first * LINE_H}px`;
   splitGutLines.innerHTML = nums.join('');
-  $('#splitGutter').style.width = `${Math.max(3, String(lines.length).length) * 8 + 32}px`;
+  $('#splitGutter').style.width = `${Math.max(3, String(count).length) * 8 + 32}px`;
   splitInner.querySelectorAll('.guide').forEach(g => g.remove());
   splitInner.append(...guideBoxes(b, splitTa.selectionStart, measureChar(), splitWin.first, splitWin.last));
   syncSplitScroll();
@@ -6200,7 +6290,8 @@ function updateStatus(): void {
   $('#sbEol').textContent = b?.kind === 'text' ? `${eol} · UTF-8` : '';
   $('#sbEol').classList.toggle('hidden', b?.kind !== 'text');
   const problems = tb?.diags?.length ?? 0;
-  $('#sbProblems').innerHTML = `${svgIcon('circleX', 12)}<span>${plural(problems, 'problem')}</span>`;
+  const problemsHtml = `${svgIcon('circleX', 12)}<span>${plural(problems, 'problem')}</span>`;
+  if ($('#sbProblems').dataset.html !== problemsHtml) { $('#sbProblems').innerHTML = problemsHtml; $('#sbProblems').dataset.html = problemsHtml; }
   $('#sbProblems').classList.toggle('hidden', !problems);
   if (!tb) return;
   const { selectionStart: s, selectionEnd: e } = tb.ta;
@@ -7543,7 +7634,8 @@ const EDITOR_WORDS: Record<string, string[]> = {
 const wordCache = new WeakMap<EditorBuffer, { at: number; counts: Map<string, number> }>();
 function fileWords(b: EditorBuffer): Map<string, number> {
   const cached = wordCache.get(b);
-  if (cached && Date.now() - cached.at < 1500) return cached.counts;
+  // Big files are counted less often: the count takes longer and a few new words barely change it.
+  if (cached && Date.now() - cached.at < Math.max(1500, b.text.length / 50)) return cached.counts;
   const counts = new Map<string, number>();
   for (const m of b.text.slice(0, LINT_MAX).matchAll(/[A-Za-z_$][\w$-]{2,}/g)) counts.set(m[0], (counts.get(m[0]) ?? 0) + 1);
   wordCache.set(b, { at: Date.now(), counts });
