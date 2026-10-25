@@ -6069,7 +6069,7 @@ function highlighted(b: EditorBuffer): HlDoc {
   hlCache.set(b, d);
   return d;
 }
-function visibleLines(ta: CodeSurface | HTMLTextAreaElement, total: number): [number, number] {
+function visibleLines(ta: CodeSurface, total: number): [number, number] {
   const first = clamp(Math.floor((ta.scrollTop - 10) / LINE_H), 0, total - 1);
   const last = clamp(Math.ceil((ta.scrollTop + (ta.clientHeight || 800)) / LINE_H), 0, total);
   return [first, last];
@@ -6164,7 +6164,6 @@ vTrack.addEventListener('pointerdown', e => {
 
 /* ----- Split editor: a second text file on the right, editing the same buffer as its tab ----- */
 let splitPath: string | null = null;
-const splitTa = $<HTMLTextAreaElement>('#splitTa');
 const splitLines = document.createElement('div');
 splitLines.style.position = 'relative';
 const splitInner = document.createElement('div');
@@ -6178,6 +6177,12 @@ splitGutInner.append(splitGutLines);
 $('#splitGutter').appendChild(splitGutInner);
 let splitWin = { first: 0, last: 0, total: 1 };
 const splitBuf = () => { const b = splitPath ? buffers.get(splitPath) : undefined; return b?.kind === 'text' ? b : undefined; };
+// Measures against the surface's own text; the constructor paints before `splitTa` is assigned, hence the empty text then.
+let splitSelf: CodeSurface | null = null;
+const splitTa: CodeSurface = splitSelf = new CodeSurface($('.split-editor .code'), {
+  lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: 'Right split editor',
+  ...lineMeasurer(splitLines, () => splitWin.first, () => splitSelf?.value ?? ''),
+});
 const textTabs = () => openTabs.filter(p => buffers.get(p)?.kind === 'text');
 
 function openSplit(path: string | null = active, exact = false): void {
@@ -6285,14 +6290,16 @@ splitTa.addEventListener('input', () => {
   paintSplit(); saveSession(); scheduleLint(b);
   $('#splitDirty').classList.toggle('hidden', !isDirty(b));
 });
-for (const ev of ['click', 'keyup', 'select'] as const) splitTa.addEventListener(ev, paintSplit);
-splitTa.addEventListener('keydown', e => {
+splitTa.addEventListener('selectionchange', paintSplit);
+splitTa.addEventListener('keydown', (e: Event) => {
+  const k = e as KeyboardEvent;
+  if (k.isComposing) return;
   const b = splitBuf();
   if (!b) return;
   // Ctrl+S goes through file.save, which saves this side's file while it has focus.
-  if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
-    e.preventDefault();
-    document.execCommand('insertText', false, INDENT);
+  if (k.key === 'Tab' && !k.ctrlKey && !k.altKey) {
+    k.preventDefault();
+    splitTa.insertText(INDENT);
   }
 });
 $<HTMLSelectElement>('#splitFile').onchange = e => { splitPath = (e.target as HTMLSelectElement).value; splitTa.value = ''; renderSplit(); splitTa.scrollTop = 0; };
@@ -8020,7 +8027,7 @@ const commands: Record<string, () => unknown> = {
   'file.newFolder': () => newEntry(targetDir(), true),
   'file.openFolder': openFolderCmd,
   'file.openRecent': openRecentPicker,
-  'file.save': () => saveFile(focused() === splitTa ? splitPath : active).then(ok => { if (ok) sfx.play('save'); }),
+  'file.save': () => saveFile(focused() === splitTa.input ? splitPath : active).then(ok => { if (ok) sfx.play('save'); }),
   'file.saveAll': saveAll,
   'file.closeEditor': () => { if (active) closeTab(active); },
   'file.closeFolder': closeFolderCmd,
