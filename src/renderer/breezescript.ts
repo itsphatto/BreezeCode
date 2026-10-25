@@ -9,7 +9,6 @@ type IntervalId = ReturnType<typeof setInterval>;
 type AgentKey = 'assistant' | 'planner' | 'builder';
 type AgentStatus = 'idle' | 'working' | 'waiting' | 'done';
 
-
 interface Agent {
   name: string;
   letter: string;
@@ -574,6 +573,15 @@ async function demoReplay(id: number, mode: AgentMode): Promise<void> {
 // Browser preview: clipboard and selection commands act on the focused field.
 async function demoEdit(role: string): Promise<void> {
   const el = document.activeElement;
+  // The code editor's text lives in its surface, not in the hidden input that has focus.
+  const surface = surfaceOf(el);
+  if (surface) {
+    const [s, e] = [surface.selectionStart, surface.selectionEnd];
+    if (role === 'copy' || role === 'cut') await navigator.clipboard.writeText(surface.value.slice(s, e));
+    if (role === 'cut' && e > s) replaceRange(surface, s, e, '');
+    else if (role === 'paste') replaceRange(surface, s, e, (await navigator.clipboard.readText()).replace(/\r\n?/g, '\n'));
+    return;
+  }
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
   const [s, e] = [el.selectionStart ?? 0, el.selectionEnd ?? 0];
   if (role === 'selectAll') el.select();
@@ -2136,6 +2144,12 @@ const LEXERS: Record<string, RegExp> = {
 };
 const HTML_TAG = lexer([['tag', /^<[!/]?[\w:-]+|\/?>$/], ['str', /"[^"]*"?|'[^']*'?/], ['attr', /[^\s="'<>/]+/]]);
 
+// The named group that matched: the token's kind.
+function tokKind(m: RegExpExecArray): string | null {
+  const groups = m.groups;
+  for (const k in groups) if (groups[k] !== undefined) return k;
+  return null;
+}
 function lex(text: string, re: RegExp): Tok[] {
   const out: Tok[] = [];
   let last = 0;
@@ -2143,8 +2157,7 @@ function lex(text: string, re: RegExp): Tok[] {
   for (let m = re.exec(text); m; m = re.exec(text)) {
     if (!m[0]) { re.lastIndex++; continue; }
     if (m.index > last) out.push([null, text.slice(last, m.index)]);
-    const groups = m.groups ?? {};
-    const kind = Object.keys(groups).find(k => groups[k] !== undefined) ?? null;
+    const kind = tokKind(m);
     if (kind === 'tagblock') out.push(...lex(m[0], HTML_TAG)); // lex() resets lastIndex of the inner regex only
     else out.push([kind, m[0]]);
     last = m.index + m[0].length;
@@ -2187,18 +2200,101 @@ function htmlToks(text: string): Tok[] {
   out.push(...lex(text.slice(last), LEXERS.html));
   return out;
 }
-// Highlight a whole document and return one HTML string per line (tokens can span lines).
-function highlightLines(text: string, lexerName: string): string[] {
-  if (!LEXERS[lexerName] || text.length > 400000) return text.split('\n').map(esc);
-  const lines: string[] = [''];
-  const toks = lexerName === 'html' ? htmlToks(text) : lex(text, LEXERS[lexerName]);
-  for (const [cls, t] of lexerName === 'css' ? markSelectors(toks) : toks) {
-    t.split('\n').forEach((part, i) => {
-      if (i > 0) lines.push('');
-      if (part) lines[lines.length - 1] += cls ? `<span class="tk-${cls}">${esc(part)}</span>` : esc(part);
-    });
+// A highlighted document is a flat token stream: token k runs from starts[k] to starts[k + 1] (or the end).
+// Lines are turned into HTML only when they are drawn, so a 10,000-line file costs the same as the lines in view.
+interface HlDoc { text: string; lexer: string; starts: number[]; kinds: (string | null)[]; lines: number[]; html: (string | undefined)[]; }
+type HlToks = Pick<HlDoc, 'starts' | 'kinds'>;
+// Every file Breeze opens is coloured (main.js opens up to 5 MB). HTML and CSS past HL_EXACT_MAX are lexed in full
+// only once typing pauses, since they can't be re-lexed near an edit.
+const HL_MAX = 5 * 1024 * 1024;
+const HL_EXACT_MAX = 400000;
+function fullToks(text: string, lexerName: string): HlToks {
+  const starts: number[] = [], kinds: (string | null)[] = [];
+  if (LEXERS[lexerName] && text.length <= HL_MAX) {
+    const toks = lexerName === 'html' ? htmlToks(text) : lex(text, LEXERS[lexerName]);
+    let at = 0;
+    for (const [cls, t] of lexerName === 'css' ? markSelectors(toks) : toks) {
+      if (t) { starts.push(at); kinds.push(cls); at += t.length; }
+    }
   }
-  return lines;
+  if (!starts.length) { starts.push(0); kinds.push(null); }
+  return { starts, kinds };
+}
+// Lexers whose tokens depend only on the text around them (not HTML's embedded blocks or CSS's selector depth),
+// so an edit is re-lexed from just above it until the tokens fall back in step with the old ones.
+const INCREMENTAL = new Set(['js', 'json', 'cs', 'py', 'java', 'rs', 'cpp', 'md', 'ignore']);
+// The lengths of the unchanged head and tail of an edit, compared a chunk at a time first (string === is a native compare).
+function editSpan(old: string, text: string): [head: number, tail: number] {
+  const min = Math.min(old.length, text.length);
+  const CH = 2048;
+  let p = 0;
+  while (p + CH <= min && old.slice(p, p + CH) === text.slice(p, p + CH)) p += CH;
+  while (p < min && old.charCodeAt(p) === text.charCodeAt(p)) p++;
+  let s = 0;
+  while (s + CH <= min - p && old.slice(old.length - s - CH, old.length - s) === text.slice(text.length - s - CH, text.length - s)) s += CH;
+  while (s < min - p && old.charCodeAt(old.length - 1 - s) === text.charCodeAt(text.length - 1 - s)) s++;
+  return [p, s];
+}
+// Big HTML and CSS can't be re-lexed near an edit (embedded blocks, selector depth), so while typing the old
+// tokens are kept around the edit and moved along with the text after it; the exact colours follow on a pause.
+function shiftToks(prev: HlDoc, text: string): HlToks {
+  const [p, s] = editSpan(prev.text, text);
+  const delta = text.length - prev.text.length, oldEnd = prev.text.length - s;
+  const k = lineOfOffset(prev.starts, p);
+  const starts = prev.starts.slice(0, k + 1), kinds = prev.kinds.slice(0, k + 1);
+  for (let j = lineOfOffset(prev.starts, oldEnd); j < prev.starts.length; j++) {
+    const at = Math.max(prev.starts[j], oldEnd) + delta;
+    if (at <= starts[starts.length - 1]) { starts.pop(); kinds.pop(); }
+    if (at < text.length) { starts.push(at); kinds.push(prev.kinds[j]); }
+  }
+  if (!starts.length) { starts.push(0); kinds.push(null); }
+  return { starts, kinds };
+}
+function relex(prev: HlDoc, text: string): HlToks {
+  const old = prev.text, re = LEXERS[prev.lexer];
+  const [p, s] = editSpan(old, text);
+  const delta = text.length - old.length;
+  // Start two lines above the edit (a lookahead can reach past a line break), at the token found there.
+  let from = lineStart(text, p);
+  for (let n = 0; n < 2 && from > 0; n++) from = lineStart(text, from - 1);
+  const k = lineOfOffset(prev.starts, from), at = prev.starts[k];
+  const starts = prev.starts.slice(0, k), kinds = prev.kinds.slice(0, k);
+  // Below the line the edit ends on nothing can see it: a token starting where an old one did means the rest is unchanged.
+  const settle = lineEnd(text, text.length - s) + 1;
+  const push = (kind: string | null, start: number): boolean => {
+    if (start >= settle) {
+      const j = lineOfOffset(prev.starts, start - delta);
+      if (prev.starts[j] === start - delta && prev.kinds[j] === kind) {
+        const n = starts.length, rest = prev.starts.length - j;
+        starts.length = kinds.length = n + rest;
+        for (let i = 0; i < rest; i++) { starts[n + i] = prev.starts[j + i] + delta; kinds[n + i] = prev.kinds[j + i]; }
+        return true;
+      }
+    }
+    starts.push(start); kinds.push(kind);
+    return false;
+  };
+  let last = at;
+  re.lastIndex = at;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    if (m.index > last && push(null, last)) return { starts, kinds };
+    if (push(tokKind(m), m.index)) return { starts, kinds };
+    last = m.index + m[0].length;
+  }
+  if (last < text.length || !starts.length) push(null, last);
+  return { starts, kinds };
+}
+function lineHtmlOf(d: HlDoc, i: number): string {
+  const done = d.html[i];
+  if (done !== undefined) return done;
+  const from = d.lines[i], to = i + 1 < d.lines.length ? d.lines[i + 1] - 1 : d.text.length;
+  let h = '';
+  for (let k = lineOfOffset(d.starts, from); k < d.starts.length && d.starts[k] < to; k++) {
+    const part = d.text.slice(Math.max(d.starts[k], from), Math.min(d.starts[k + 1] ?? to, to));
+    if (part) h += d.kinds[k] ? `<span class="tk-${d.kinds[k]}">${esc(part)}</span>` : esc(part);
+  }
+  return d.html[i] = h;
 }
 const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
 
@@ -2793,7 +2889,7 @@ interface EditorBuffer {
   saved: string;
   eol: '\n' | '\r\n';
   size: number;
-  ta: HTMLTextAreaElement | null;
+  ta: CodeSurface | null;
   url?: string;          // images: where the picture loads from
   diags?: Diag[];        // syntax errors from the last check
   diagLines?: number;    // line count the errors were found at (they're hidden while it differs)
@@ -2811,7 +2907,9 @@ let rootInfo: RootInfo | null = null;
 const dirCache = new Map<string, DirEntry[]>();
 const expanded = new Set<string>();
 const buffers = new Map<string, EditorBuffer>();
+// Keyed by each surface's hidden input, the element key events and focus land on.
 const textareaOwner = new WeakMap<HTMLTextAreaElement, EditorBuffer>();
+const surfaceOf = (el: EventTarget | null): CodeSurface | undefined => textareaOwner.get(el as HTMLTextAreaElement)?.ta ?? undefined;
 const isDirty = (b?: EditorBuffer) => !!b && b.kind === 'text' && b.text !== b.saved;
 let sessionTimer: TimeoutId | undefined;
 let openTabs: string[] = [];
@@ -2866,7 +2964,8 @@ function flushSession(): void {
   if (!rootInfo) return;
   clearTimeout(sessionTimer);
   const pos: Session['pos'] = {};
-  for (const b of buffers.values()) if (b.ta) pos[b.path] = [b.ta.selectionStart, b.ta.scrollTop];
+  // A hidden surface reads scrollTop 0; a restored offset still waiting to be applied is the real one.
+  for (const b of buffers.values()) if (b.ta) pos[b.path] = [b.ta.selectionStart, pendingScroll.get(b) ?? b.ta.scrollTop];
   store.set(sessionKey(), { tabs: openTabs, active, expanded: [...expanded], pos } as Session);
   // Hot exit: unsaved edits survive a reload or a crash.
   const dirty: Record<string, string> = {};
@@ -4419,7 +4518,15 @@ document.addEventListener('drop', e => {
 function restoreBuffer(b: EditorBuffer, s: Session, dirty: Record<string, string>): void {
   if (b.kind === 'text' && dirty[b.path] != null) { b.text = dirty[b.path]; if (b.ta) b.ta.value = b.text; }
   const pos = s.pos[b.path];
-  if (b.ta && pos) { b.ta.setSelectionRange(pos[0], pos[0]); b.ta.scrollTop = pos[1]; }
+  if (b.ta && pos) { b.ta.setSelectionRange(pos[0], pos[0]); b.ta.scrollTop = pos[1]; pendingScroll.set(b, pos[1]); }
+}
+// A hidden (display:none) surface ignores scrollTop, so a restored offset waits until the surface is laid out.
+const pendingScroll = new WeakMap<EditorBuffer, number>();
+function applyPendingScroll(b: EditorBuffer & { ta: CodeSurface }): void {
+  const top = pendingScroll.get(b);
+  if (top == null || !b.ta.clientHeight) return;
+  b.ta.scrollTop = top;
+  pendingScroll.delete(b);
 }
 async function loadWorkspace(info: RootInfo): Promise<void> {
   if (rootInfo) { flushSession(); resetWorkspace(); }
@@ -4487,7 +4594,7 @@ async function loadBuffer(path: string): Promise<EditorBuffer | null> {
   };
   b.saved = b.text;
   if (b.kind === 'image') b.url = await api.fs.fileUrl(path).catch(() => '');
-  if (b.kind === 'text') { b.ta = createTextarea(b); scheduleLint(b, 0); }
+  if (b.kind === 'text') { b.ta = createSurface(b); scheduleLint(b, 0); }
   buffers.set(path, b);
   return b;
 }
@@ -4498,7 +4605,7 @@ function scheduleLint(b: EditorBuffer, delay = 450): void {
   b.lintTimer = setTimeout(() => void lintBuffer(b), delay);
 }
 // V8 has the final word on JavaScript/TypeScript: it is exact, and clean code clears any false alarm.
-// When both find something, the structural messages win on shared lines (they say more).
+// When both find something, the structural messages win on shared lines (they say more). 
 function mergeSyntax(diags: Diag[], r: SyntaxResult): Diag[] {
   if (!r) return diags;
   if ('ok' in r) return [];
@@ -4525,18 +4632,19 @@ async function lintBuffer(b: EditorBuffer): Promise<void> {
   if (b.path === active) renderCode();
 }
 
-// Each open file keeps its own textarea (and history) across tab switches.
-function createTextarea(b: EditorBuffer): HTMLTextAreaElement {
-  const ta = document.createElement('textarea');
-  ta.className = 'ta hidden';
-  ta.spellcheck = false;
-  ta.wrap = 'off';
-  ta.setAttribute('autocapitalize', 'off');
-  ta.setAttribute('autocomplete', 'off');
-  ta.setAttribute('aria-label', `Editing ${b.path}`);
+// Each open file keeps its own surface (and history) across tab switches.
+function createSurface(b: EditorBuffer): CodeSurface {
+  // Measure against the surface's own text: mid-edit it is ahead of b.text (the input handler updates that after).
+  // The constructor paints before `ta` is assigned, hence the empty text then.
+  let self: CodeSurface | null = null;
+  const ta = self = new CodeSurface($('#editor .code'), {
+    lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: `Editing ${b.path}`,
+    ...lineMeasurer(hlLines, () => winFirst, () => self?.value ?? ''),
+  });
+  ta.classList.add('hidden');
   ta.value = b.text;
-  textareaOwner.set(ta, b);
-  ta.addEventListener('beforeinput', e => beforeEdit(b, e));
+  textareaOwner.set(ta.input, b);
+  ta.addEventListener('beforeinput', e => beforeEdit(b, e as InputEvent));
   ta.addEventListener('input', () => {
     lastUserTypeAt = Date.now();
     const wasDirty = isDirty(b);
@@ -4550,11 +4658,10 @@ function createTextarea(b: EditorBuffer): HTMLTextAreaElement {
   });
   ta.addEventListener('blur', hideSuggest);
   ta.addEventListener('mousedown', hideSuggest);
-  ta.addEventListener('scroll', () => { if (suggest?.owner === ta) editorSuggest(b); }); // follow the caret
+  ta.addEventListener('scroll', () => { if (suggest?.owner === ta.input) editorSuggest(b); }); // follow the caret
   ta.addEventListener('scroll', syncScroll);
-  ta.addEventListener('keydown', editorKeys);
-  for (const ev of ['keyup', 'mouseup', 'select', 'selectionchange', 'focus']) ta.addEventListener(ev, updateCaret);
-  $('#editor .code').appendChild(ta);
+  ta.addEventListener('keydown', e => editorKeys(e as KeyboardEvent));
+  ta.addEventListener('selectionchange', updateCaret); // also fires on focus
   return ta;
 }
 
@@ -4562,28 +4669,37 @@ function createTextarea(b: EditorBuffer): HTMLTextAreaElement {
 // The editor records its own history, so edits made by commands (indent, comment, move line…) undo
 // exactly like typing. Typing groups into words; a pause of a second starts a new step.
 const GROUPED = new Set(['type', 'deleteContentBackward', 'deleteContentForward']);
-function remember(b: EditorBuffer, kind: string): void {
-  const ta = b.ta;
+// The editor with keyboard focus: the split's pair while its input has focus, otherwise the active file's.
+function focusedEditor(): { b: EditorBuffer; ta: CodeSurface } | undefined {
+  if (document.activeElement === splitTa.input) {
+    const b = splitBuf();
+    if (b) return { b, ta: splitTa };
+  }
+  const b = activeText();
+  return b ? { b, ta: b.ta } : undefined;
+}
+function remember(b: EditorBuffer, kind: string, ta: CodeSurface | null = b.ta): void {
   if (!ta) return;
   const now = Date.now();
   const grouped = GROUPED.has(kind) && b.lastEdit?.kind === kind && now - b.lastEdit.at < 1000;
   b.lastEdit = { kind, at: now };
   if (grouped) return;
   b.undo.push({ text: ta.value, sel: [ta.selectionStart, ta.selectionEnd] });
-  if (b.undo.length > 500) b.undo.shift();
+  // Each step is a copy of the file, so big files keep fewer of them (about 80 MB of history at most).
+  const keep = clamp(Math.floor(40_000_000 / Math.max(1, ta.value.length)), 50, 500);
+  while (b.undo.length > keep) b.undo.shift();
   b.redo = [];
 }
-function beforeEdit(b: EditorBuffer, e: InputEvent): void {
+function beforeEdit(b: EditorBuffer, e: InputEvent, ta: CodeSurface | null = b.ta): void {
   if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
     e.preventDefault();
-    stepHistory(b, e.inputType === 'historyUndo');
+    stepHistory(b, e.inputType === 'historyUndo', ta);
     return;
   }
   const word = e.inputType === 'insertText' && !!e.data && !/\s/.test(e.data);
-  remember(b, word ? 'type' : e.inputType);
+  remember(b, word ? 'type' : e.inputType, ta);
 }
-function stepHistory(b: EditorBuffer, back: boolean): void {
-  const ta = b.ta;
+function stepHistory(b: EditorBuffer, back: boolean, ta: CodeSurface | null = b.ta): void {
   const [from, to] = back ? [b.undo, b.redo] : [b.redo, b.undo];
   const snap = from.pop();
   if (!ta || !snap) return;
@@ -4592,7 +4708,7 @@ function stepHistory(b: EditorBuffer, back: boolean): void {
   ta.value = snap.text;
   ta.setSelectionRange(snap.sel[0], snap.sel[1]);
   ta.dispatchEvent(new Event('input'));
-  revealOffset(b, snap.sel[0]);
+  revealOffset(b, snap.sel[0], ta);
 }
 
 /* ================= Explorer ================= */
@@ -5590,9 +5706,9 @@ let curLine = -1;//variable
 let renderQueued = false;//variable
 
 const activeBuf = (): EditorBuffer | undefined => (active ? buffers.get(active) : undefined);
-function activeText(): (EditorBuffer & { ta: HTMLTextAreaElement }) | undefined {
+function activeText(): (EditorBuffer & { ta: CodeSurface }) | undefined {
   const b = activeBuf();
-  return b?.kind === 'text' && b.ta ? b as EditorBuffer & { ta: HTMLTextAreaElement } : undefined;
+  return b?.kind === 'text' && b.ta ? b as EditorBuffer & { ta: CodeSurface } : undefined;
 }
 function measureChar(): number {
   if (charW) return charW;
@@ -5600,15 +5716,79 @@ function measureChar(): number {
   s.textContent = 'x'.repeat(200);
   s.style.visibility = 'hidden';
   hlInner.appendChild(s);
-  charW = s.getBoundingClientRect().width / 200 || 7.8;
+  const w = s.getBoundingClientRect().width / 200;
   s.remove();
-  return charW;
+  // Hidden (#ide not shown yet) measures 0, and before the code font loads it measures the fallback font:
+  // use either for now, but measure again next time.
+  if (w > 0 && (!document.fonts || document.fonts.check('12px "Google Sans Code"') || document.fonts.status === 'loaded')) charW = w;
+  return w || 7.8;
 }
-void document.fonts?.ready.then(() => { charW = 0; renderCode(); });
+void document.fonts?.ready.then(() => { charW = 0; renderCode(); activeText()?.ta.refresh(); splitTa.refresh(); });
 
-const lineStart = (v: string, pos: number) => v.lastIndexOf('\n', pos - 1) + 1;
-const lineEnd = (v: string, pos: number) => { const i = v.indexOf('\n', pos); return i === -1 ? v.length : i; };
+// The caret stops of a line: 0, each grapheme's end. Remembered for the last line asked about (clicks and drags repeat it).
+const graphemeSeg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+let graphemeMemo = { text: '', cuts: [0] };
+function graphemeCuts(text: string): number[] {
+  if (graphemeMemo.text !== text) {
+    const cuts = [0];
+    for (const g of graphemeSeg.segment(text)) cuts.push(g.index + g.segment.length);
+    graphemeMemo = { text, cuts };
+  }
+  return graphemeMemo.cuts;
+}
+
+// Where the caret goes on lines the char grid can't place (Thai marks, CJK, emoji): measured on the drawn
+// line itself. Pure-ASCII lines, and lines not drawn or drawn from other text, return null (the grid is exact there).
+function lineMeasurer(lines: HTMLElement, first: () => number, text: () => string): Pick<SurfaceOpts, 'xAt' | 'colAt'> {
+  const lineText = (line: number): string | null => {
+    const t = text(), starts = lineStartsOf(t); // memoized, and shared with the rest of the editor
+    return line < starts.length ? t.slice(starts[line], lineEnd(t, starts[line])) : null;
+  };
+  // The drawn line's text nodes, without the error message drawn after it; null unless it shows exactly `want`.
+  const nodesOf = (line: number, want: string): Text[] | null => {
+    const el = lines.children[line - first()];
+    if (!el) return null;
+    const out: Text[] = [], walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let drawn = '';
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (n.parentElement?.closest('.diag-msg')) continue;
+      out.push(n as Text); drawn += (n as Text).data;
+    }
+    return drawn === want ? out : null;
+  };
+  const measure = (nodes: Text[], col: number): number => {
+    let n = 0;
+    while (n < nodes.length - 1 && col > nodes[n].length) col -= nodes[n++].length;
+    const r = document.createRange();
+    r.setStart(nodes[n], Math.min(col, nodes[n].length));
+    return r.getBoundingClientRect().left - lines.getBoundingClientRect().left + 4; // 4 = pad.left
+  };
+  const measured = (line: number): Text[] | null => {
+    const t = lineText(line);
+    return t != null && /[^\x00-\x7f]/.test(t) ? nodesOf(line, t) : null;
+  };
+  return {
+    xAt(line, col) {
+      const nodes = measured(line);
+      return nodes ? measure(nodes, col) : null;
+    },
+    colAt(line, x) {
+      const nodes = measured(line);
+      if (!nodes) return null;
+      // Only grapheme boundaries: a caret inside an emoji's surrogate pair or a Thai mark's cluster would split it.
+      const cuts = graphemeCuts(lineText(line)!);
+      let lo = 0, hi = cuts.length - 1;
+      while (lo < hi) { // the first boundary at or right of x
+        const mid = (lo + hi) >> 1;
+        if (measure(nodes, cuts[mid]) < x) lo = mid + 1; else hi = mid;
+      }
+      return lo > 0 && x - measure(nodes, cuts[lo - 1]) < measure(nodes, cuts[lo]) - x ? cuts[lo - 1] : cuts[lo];
+    },
+  };
+}
+
 function lineAt(v: string, pos: number): number {
+  if (v.length > 20000) return lineOfOffset(lineStartsOf(v), pos);
   let n = 0;
   for (let i = v.indexOf('\n'); i !== -1 && i < pos; i = v.indexOf('\n', i + 1)) n++;
   return n;
@@ -5621,11 +5801,6 @@ function offsetOf(v: string, line: number, col: number): number {
     off = nl + 1;
   }
   return Math.min(off + col, lineEnd(v, off));
-}
-function visualCol(lineText: string, col: number): number {
-  let v = 0;
-  for (let i = 0; i < col; i++) v = lineText[i] === '\t' ? v + 4 - (v % 4) : v + 1;
-  return v;
 }
 
 function editorNote(b: EditorBuffer): string {
@@ -5654,6 +5829,7 @@ function renderEditor(): void {
       empty.addEventListener('animationend', () => empty.classList.remove('enter'), { once: true });
     }
     hlLines.replaceChildren(); hlBoxes.replaceChildren(); gutLines.replaceChildren();
+    updateVSlider();
     closeFind();
     updateStatus();
     return;
@@ -5662,7 +5838,7 @@ function renderEditor(): void {
   empty.classList.remove('enter');
   if (findOpen) runFind(false);
   renderCode();
-  if (document.activeElement === document.body || document.activeElement?.classList.contains('ta')) b.ta?.focus({ preventScroll: true });
+  if (document.activeElement === document.body || (document.activeElement?.classList.contains('ta') && document.activeElement !== splitTa.input)) b.ta?.focus({ preventScroll: true });
 }
 const fileNoteHtml = (path: string, note: string) => `<div><h4>${esc(baseName(path))}</h4><div>${esc(note)}</div></div>`;
 function fmtSize(n: number): string {
@@ -5726,8 +5902,10 @@ function box(cls: string, top: number, left: number, width?: number): HTMLElemen
 function findBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
   if (!findOpen || !findLen) return [];
   const vis = findHits.length > 3000 ? findHits.slice(Math.max(0, findIdx - 1500), findIdx + 1500) : findHits;
-  return vis.map(off => {
-    const ln = lineAt(b.text, off), ls = lineStart(b.text, off);
+  // Only the hits in the drawn window get a box.
+  const starts = lineStartsOf(b.text);
+  return vis.filter(off => { const ln = lineOfOffset(starts, off); return ln >= winFirst && ln < winLast; }).map(off => {
+    const ln = lineOfOffset(starts, off), ls = starts[ln];
     const lt = b.text.slice(ls, lineEnd(b.text, ls));
     const x = visualCol(lt, off - ls) * cw, w = (visualCol(lt, off - ls + findLen) * cw) - x;
     return box(off === findHits[findIdx] ? 'hit cur' : 'hit', ln * LINE_H, x, Math.max(w, 2));
@@ -5746,9 +5924,9 @@ function visibleDiags(b: EditorBuffer, lineCount: number): Map<number, Diag> {
 }
 function squiggles(b: EditorBuffer, lineCount: number, cw: number): HTMLElement[] {
   if (!b.diags?.length || b.diagLines !== lineCount) return [];
-  const raw = b.text.split('\n');
+  const text = b.text, starts = lineStartsOf(text);
   return b.diags.map(d => {
-    const ln = Math.min(d.line, raw.length - 1), lt = raw[ln];
+    const ln = Math.min(d.line, starts.length - 1), lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
     const from = Math.min(d.col, lt.length), to = Math.min(lt.length, d.col + d.len);
     const x = visualCol(lt, from) * cw;
     return box('squig', ln * LINE_H + 15, x, Math.max(visualCol(lt, to) * cw - x, cw));
@@ -5776,14 +5954,23 @@ function tagPairs(text: string, xml: boolean): [TagSpan, TagSpan][] {
   }
   return pairs;
 }
+// The buffer's tag pairs, found again only when its text changes (the caret moving doesn't rescan the file).
+const tagCache = new WeakMap<EditorBuffer, { text: string; pairs: [TagSpan, TagSpan][] }>();
+function tagPairsOf(b: EditorBuffer): [TagSpan, TagSpan][] {
+  const c = tagCache.get(b);
+  if (c?.text === b.text) return c.pairs;
+  const pairs = tagPairs(b.text, ['xml', 'svg', 'jsx', 'tsx'].includes(extOf(b.path)));
+  tagCache.set(b, { text: b.text, pairs });
+  return pairs;
+}
 // The two tags around the caret as offset ranges to mark: exactly the tag names, so the boxes hug the letters.
 function tagMarks(b: EditorBuffer): [number, number][] {
-  const lexer = langOf(b.path)[0], ext = b.path.split('.').pop()?.toLowerCase() ?? '';
+  const lexer = langOf(b.path)[0], ext = extOf(b.path);
   if ((lexer !== 'html' && ext !== 'jsx' && ext !== 'tsx') || b.text.length > 200000) return [];
   if (!b.ta) return [];
   const caret = b.ta.selectionStart;
   const hit = (t: TagSpan, strict: boolean) => (strict ? t.start < caret && caret < t.end : t.start <= caret && caret <= t.end);
-  const pairs = tagPairs(b.text, ext === 'xml' || ext === 'svg' || ext === 'jsx' || ext === 'tsx');
+  const pairs = tagPairsOf(b);
   const pair = pairs.find(p => p.some(t => hit(t, true))) ?? pairs.find(p => p.some(t => hit(t, false)));
   return pair ? pair.map(t => [t.nameStart, t.nameEnd] as [number, number]) : [];
 }
@@ -5799,16 +5986,6 @@ function tagBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
 // from/to are lines: the guide runs below line `from` and stops at the top of line `to`.
 interface Block { from: number; to: number; start: number; end: number; col: number; }
 const blockCache = new WeakMap<EditorBuffer, { text: string; blocks: Block[] }>();
-function lineStarts(text: string): number[] {
-  const s = [0];
-  for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) s.push(i + 1);
-  return s;
-}
-function lineOfOffset(starts: number[], off: number): number {
-  let lo = 0, hi = starts.length - 1;
-  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= off) lo = mid; else hi = mid - 1; }
-  return lo;
-}
 // Every {} [] () pair as [open, close] offsets, skipping strings and comments.
 const OPENER: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
 function bracketPairs(text: string): [number, number][] {
@@ -5855,7 +6032,7 @@ function blocksOf(b: EditorBuffer): Block[] {
   const text = b.text, lexer = langOf(b.path)[0], ext = extOf(b.path);
   const blocks: Block[] = [];
   if (text.length <= 200000) {
-    const starts = lineStarts(text);
+    const starts = lineStartsOf(text);
     const indentOf = (ln: number) => {
       const lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
       return visualCol(lt, lt.length - lt.trimStart().length);
@@ -5865,7 +6042,7 @@ function blocksOf(b: EditorBuffer): Block[] {
       if (to - from >= 2) blocks.push({ from, to, start: open, end: close + 1, col: Math.min(indentOf(from), indentOf(to)) });
     };
     if (lexer === 'html' || ext === 'jsx' || ext === 'tsx') {
-      for (const [o, cl] of tagPairs(text, lexer !== 'html' || ext === 'xml' || ext === 'svg')) add(o.start, cl.start);
+      for (const [o, cl] of tagPairsOf(b)) add(o.start, cl.start);
     }
     if (['js', 'css', 'json', 'java', 'rs', 'cs'].includes(lexer)) for (const [o, cl] of bracketPairs(text)) add(o, cl);
     if (lexer === 'py') {
@@ -5913,17 +6090,35 @@ function gutterHtml(i: number, d: Diag | undefined): string {
 
 const OVERSCAN = 40;
 let winFirst = 0, winLast = 0, winTotal = 1;
-const hlCache = new WeakMap<EditorBuffer, { text: string; lexer: string; lines: string[] }>();
-// Re-lexes only when the text changed, so scrolling never re-highlights.
-function highlighted(b: EditorBuffer): string[] {
+const hlCache = new WeakMap<EditorBuffer, HlDoc>();
+// Re-lexes only when the text changed (and then only around the edit), so scrolling never re-highlights.
+function highlighted(b: EditorBuffer): HlDoc {
   const lexer = langOf(b.path)[0];
   const c = hlCache.get(b);
-  if (c?.text === b.text && c.lexer === lexer) return c.lines;
-  const lines = highlightLines(b.text, lexer);
-  hlCache.set(b, { text: b.text, lexer, lines });
-  return lines;
+  if (c?.text === b.text && c.lexer === lexer) return c;
+  const text = b.text;
+  const prev = c && c.lexer === lexer && LEXERS[lexer] && text.length <= HL_MAX && c.text.length <= HL_MAX ? c : undefined;
+  let toks: HlToks;
+  if (prev && INCREMENTAL.has(lexer)) toks = relex(prev, text);
+  else if (prev && text.length > HL_EXACT_MAX) { toks = shiftToks(prev, text); exactLater(b); }
+  else toks = fullToks(text, lexer);
+  const d: HlDoc = { text, lexer, ...toks, lines: lineStartsOf(text), html: [] };
+  hlCache.set(b, d);
+  return d;
 }
-function visibleLines(ta: HTMLTextAreaElement, total: number): [number, number] {
+// After a pause in typing, a big HTML or CSS file gets its exact colours back.
+const exactTimers = new WeakMap<EditorBuffer, TimeoutId>();
+function exactLater(b: EditorBuffer): void {
+  clearTimeout(exactTimers.get(b));
+  exactTimers.set(b, setTimeout(() => {
+    const c = hlCache.get(b);
+    if (!c || c.text !== b.text) return; // highlighted() runs again on the next draw
+    hlCache.set(b, { ...c, ...fullToks(c.text, c.lexer), html: [] });
+    if (b.path === active) queueRender();
+    if (b.path === splitPath) paintSplit();
+  }, 400));
+}
+function visibleLines(ta: CodeSurface, total: number): [number, number] {
   const first = clamp(Math.floor((ta.scrollTop - 10) / LINE_H), 0, total - 1);
   const last = clamp(Math.ceil((ta.scrollTop + (ta.clientHeight || 800)) / LINE_H), 0, total);
   return [first, last];
@@ -5931,27 +6126,31 @@ function visibleLines(ta: HTMLTextAreaElement, total: number): [number, number] 
 function renderCode(): void {
   const b = activeText();
   if (!b) return;
-  const lines = highlighted(b);
-  winTotal = lines.length;
-  curLine = lineAt(b.text, b.ta.selectionStart);
+  applyPendingScroll(b);
+  const doc = highlighted(b);
+  const count = doc.lines.length;
+  winTotal = count;
+  curLine = lineOfOffset(doc.lines, b.ta.selectionStart);
   const cw = measureChar();
-  const errAt = visibleDiags(b, lines.length);
+  const errAt = visibleDiags(b, count);
   const add = added[b.path];
-  const [vf, vl] = visibleLines(b.ta, lines.length);
+  const [vf, vl] = visibleLines(b.ta, count);
   winFirst = Math.max(0, vf - OVERSCAN);
-  winLast = Math.min(lines.length, vl + OVERSCAN);
+  winLast = Math.min(count, vl + OVERSCAN);
   const rows: string[] = [], nums: string[] = [];
   for (let i = winFirst; i < winLast; i++) {
-    rows.push(lineHtml(lines[i], i, add, errAt.get(i)));
+    rows.push(lineHtml(lineHtmlOf(doc, i), i, add, errAt.get(i)));
     nums.push(gutterHtml(i, errAt.get(i)));
   }
   hlLines.innerHTML = rows.join('');
   hlLines.style.top = `${winFirst * LINE_H}px`;
   gutLines.innerHTML = nums.join('');
   gutLines.style.top = `${winFirst * LINE_H}px`;
-  hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, lines.length, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
+  hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
   tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
-  $('#gutter').style.width = `${Math.max(3, String(lines.length).length) * 8 + 32}px`;
+  $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 32}px`;
+  // The surface painted before these lines were drawn; repaint so carets on measured (non-ASCII) lines match them.
+  b.ta.refresh();
   syncScroll();
   updateStatus();
 }
@@ -5966,55 +6165,64 @@ function syncScroll(): void {
   updateVSlider(b.ta);
 }
 
-/* ----- Vertical scroll slider on the right edge of the editor (native scrollbars are hidden) ----- */
-const vTrack = document.createElement('div');
-vTrack.className = 'v-slider';
-const vThumb = document.createElement('div');
-vThumb.className = 'v-slider-thumb';
-vTrack.append(vThumb);
-$('#editor').append(vTrack);
-function updateVSlider(ta: HTMLTextAreaElement): void {
-  const room = vTrack.clientHeight;
-  const overflow = ta.scrollHeight - ta.clientHeight;
-  vTrack.classList.toggle('on', overflow > 0 && room > 0);
-  if (overflow <= 0 || room <= 0) return;
-  const h = Math.max(32, room * ta.clientHeight / ta.scrollHeight);
-  vThumb.style.height = `${h}px`;
-  vThumb.style.transform = `translateY(${(room - h) * ta.scrollTop / overflow}px)`;
+/* ----- Vertical scroll slider on the right edge of an editor (native scrollbars are hidden) ----- */
+// Returns the function that brings the slider up to date with its surface. The track fills its editor
+// top to bottom, so its room is the editor's height (the track itself measures 0 while it is hidden).
+function vSlider(host: HTMLElement, surface: () => CodeSurface | undefined): (ta?: CodeSurface) => void {
+  const track = document.createElement('div');
+  track.className = 'v-slider';
+  const thumb = document.createElement('div');
+  thumb.className = 'v-slider-thumb';
+  track.append(thumb);
+  host.append(track);
+  const update = (ta = surface()): void => {
+    const room = host.clientHeight;
+    const overflow = ta ? ta.scrollHeight - ta.clientHeight : 0;
+    track.classList.toggle('on', !!ta && overflow > 0 && room > 0);
+    if (!ta || overflow <= 0 || room <= 0) return;
+    const h = Math.max(32, room * ta.clientHeight / ta.scrollHeight);
+    thumb.style.height = `${h}px`;
+    thumb.style.transform = `translateY(${(room - h) * ta.scrollTop / overflow}px)`;
+  };
+  thumb.addEventListener('pointerdown', e => {
+    const ta = surface();
+    if (!ta || e.button !== 0) return;
+    const startY = e.clientY, startTop = ta.scrollTop;
+    try { thumb.setPointerCapture(e.pointerId); } catch { /* pointer already gone: the drag still follows moves over the thumb */ }
+    track.classList.add('drag');
+    const move = (ev: PointerEvent): void => {
+      const travel = host.clientHeight - thumb.offsetHeight;
+      if (travel > 0) ta.scrollTop = startTop + (ev.clientY - startY) * (ta.scrollHeight - ta.clientHeight) / travel;
+    };
+    const up = (): void => {
+      track.classList.remove('drag');
+      thumb.removeEventListener('pointermove', move);
+      thumb.removeEventListener('pointerup', up);
+      thumb.removeEventListener('pointercancel', up);
+    };
+    thumb.addEventListener('pointermove', move);
+    thumb.addEventListener('pointerup', up);
+    thumb.addEventListener('pointercancel', up);
+    e.preventDefault();
+  });
+  // Clicking the track jumps there, centred on the click.
+  track.addEventListener('pointerdown', e => {
+    const ta = surface();
+    if (e.target !== track || !ta || e.button !== 0) return;
+    const r = track.getBoundingClientRect();
+    ta.scrollTop = (e.clientY - r.top) / r.height * ta.scrollHeight - ta.clientHeight / 2;
+    e.preventDefault();
+  });
+  // A panel resize changes the room without a scroll.
+  new ResizeObserver(() => update()).observe(host);
+  return update;
 }
-vThumb.addEventListener('pointerdown', e => {
-  const b = activeText();
-  if (!b) return;
-  const ta = b.ta;
-  const startY = e.clientY, startTop = ta.scrollTop;
-  vThumb.setPointerCapture(e.pointerId);
-  vTrack.classList.add('drag');
-  const move = (ev: PointerEvent): void => {
-    const travel = vTrack.clientHeight - vThumb.offsetHeight;
-    if (travel > 0) ta.scrollTop = startTop + (ev.clientY - startY) * (ta.scrollHeight - ta.clientHeight) / travel;
-  };
-  const up = (): void => {
-    vTrack.classList.remove('drag');
-    vThumb.removeEventListener('pointermove', move);
-    vThumb.removeEventListener('pointerup', up);
-  };
-  vThumb.addEventListener('pointermove', move);
-  vThumb.addEventListener('pointerup', up);
-  e.preventDefault();
-});
-vTrack.addEventListener('pointerdown', e => {
-  if (e.target !== vTrack) return;
-  const b = activeText();
-  if (!b) return;
-  const r = vTrack.getBoundingClientRect();
-  b.ta.scrollTop = (e.clientY - r.top) / r.height * (b.ta.scrollHeight - b.ta.clientHeight);
-});
+const updateVSlider = vSlider($('#editor'), () => activeText()?.ta);
 
 
 
 /* ----- Split editor: a second text file on the right, editing the same buffer as its tab ----- */
 let splitPath: string | null = null;
-const splitTa = $<HTMLTextAreaElement>('#splitTa');
 const splitLines = document.createElement('div');
 splitLines.style.position = 'relative';
 const splitInner = document.createElement('div');
@@ -6028,6 +6236,12 @@ splitGutInner.append(splitGutLines);
 $('#splitGutter').appendChild(splitGutInner);
 let splitWin = { first: 0, last: 0, total: 1 };
 const splitBuf = () => { const b = splitPath ? buffers.get(splitPath) : undefined; return b?.kind === 'text' ? b : undefined; };
+// Measures against the surface's own text; the constructor paints before `splitTa` is assigned, hence the empty text then.
+let splitSelf: CodeSurface | null = null;
+const splitTa: CodeSurface = splitSelf = new CodeSurface($('.split-editor .code'), {
+  lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: 'Right split editor',
+  ...lineMeasurer(splitLines, () => splitWin.first, () => splitSelf?.value ?? ''),
+});
 const textTabs = () => openTabs.filter(p => buffers.get(p)?.kind === 'text');
 
 function openSplit(path: string | null = active, exact = false): void {
@@ -6094,29 +6308,33 @@ function renderSplit(): void {
 function paintSplit(): void {
   const b = splitBuf();
   if (!b) return;
-  const lines = highlighted(b);
-  const cur = lineAt(b.text, splitTa.selectionStart);
-  const [vf, vl] = visibleLines(splitTa, lines.length);
-  splitWin = { first: Math.max(0, vf - OVERSCAN), last: Math.min(lines.length, vl + OVERSCAN), total: lines.length };
+  const doc = highlighted(b);
+  const count = doc.lines.length;
+  const cur = lineOfOffset(doc.lines, splitTa.selectionStart);
+  const [vf, vl] = visibleLines(splitTa, count);
+  splitWin = { first: Math.max(0, vf - OVERSCAN), last: Math.min(count, vl + OVERSCAN), total: count };
   const rows: string[] = [], nums: string[] = [];
   for (let i = splitWin.first; i < splitWin.last; i++) {
-    rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lines[i]}</div>`);
+    rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lineHtmlOf(doc, i)}</div>`);
     nums.push(`<div${i === cur ? ' class="cur"' : ''}>${i + 1}</div>`);
   }
   splitLines.innerHTML = rows.join('');
   splitLines.style.top = splitGutLines.style.top = `${splitWin.first * LINE_H}px`;
   splitGutLines.innerHTML = nums.join('');
-  $('#splitGutter').style.width = `${Math.max(3, String(lines.length).length) * 8 + 32}px`;
+  $('#splitGutter').style.width = `${Math.max(3, String(count).length) * 8 + 32}px`;
   splitInner.querySelectorAll('.guide').forEach(g => g.remove());
   splitInner.append(...guideBoxes(b, splitTa.selectionStart, measureChar(), splitWin.first, splitWin.last));
   syncSplitScroll();
+  splitTa.refresh(); // the caret was placed against the lines drawn before; measure it against these
 }
 function syncSplitScroll(): void {
   const [vf, vl] = visibleLines(splitTa, splitWin.total);
   if (vf < splitWin.first || vl > splitWin.last) { paintSplit(); return; }
   splitInner.style.transform = `translate(${-splitTa.scrollLeft}px, ${-splitTa.scrollTop}px)`;
   splitGutInner.style.transform = `translateY(${-splitTa.scrollTop}px)`;
+  updateSplitSlider();
 }
+const updateSplitSlider = vSlider($('.split-editor'), () => (splitBuf() ? splitTa : undefined));
 splitTa.addEventListener('scroll', syncSplitScroll);
 splitTa.addEventListener('input', () => {
   const b = splitBuf();
@@ -6134,14 +6352,17 @@ splitTa.addEventListener('input', () => {
   paintSplit(); saveSession(); scheduleLint(b);
   $('#splitDirty').classList.toggle('hidden', !isDirty(b));
 });
-for (const ev of ['click', 'keyup', 'select'] as const) splitTa.addEventListener(ev, paintSplit);
-splitTa.addEventListener('keydown', e => {
+splitTa.addEventListener('beforeinput', e => { const b = splitBuf(); if (b) beforeEdit(b, e as InputEvent, splitTa); });
+splitTa.addEventListener('selectionchange', paintSplit);
+splitTa.addEventListener('keydown', (e: Event) => {
+  const k = e as KeyboardEvent;
+  if (k.isComposing) return;
   const b = splitBuf();
   if (!b) return;
   // Ctrl+S goes through file.save, which saves this side's file while it has focus.
-  if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
-    e.preventDefault();
-    document.execCommand('insertText', false, INDENT);
+  if (k.key === 'Tab' && !k.ctrlKey && !k.altKey) {
+    k.preventDefault();
+    splitTa.insertText(INDENT);
   }
 });
 $<HTMLSelectElement>('#splitFile').onchange = e => { splitPath = (e.target as HTMLSelectElement).value; splitTa.value = ''; renderSplit(); splitTa.scrollTop = 0; };
@@ -6200,7 +6421,8 @@ function updateStatus(): void {
   $('#sbEol').textContent = b?.kind === 'text' ? `${eol} · UTF-8` : '';
   $('#sbEol').classList.toggle('hidden', b?.kind !== 'text');
   const problems = tb?.diags?.length ?? 0;
-  $('#sbProblems').innerHTML = `${svgIcon('circleX', 12)}<span>${plural(problems, 'problem')}</span>`;
+  const problemsHtml = `${svgIcon('circleX', 12)}<span>${plural(problems, 'problem')}</span>`;
+  if ($('#sbProblems').dataset.html !== problemsHtml) { $('#sbProblems').innerHTML = problemsHtml; $('#sbProblems').dataset.html = problemsHtml; }
   $('#sbProblems').classList.toggle('hidden', !problems);
   if (!tb) return;
   const { selectionStart: s, selectionEnd: e } = tb.ta;
@@ -6218,31 +6440,31 @@ function nextProblem(): void {
   b.ta.setSelectionRange(off, off);
   revealOffset(b, off);
 }
-function revealOffset(b: EditorBuffer, off: number): void {
-  if (!b.ta) return;
+function revealOffset(b: EditorBuffer, off: number, ta: CodeSurface | null = b.ta): void {
+  if (!ta) return;
   const top = lineAt(b.text, off) * LINE_H;
-  const ta = b.ta;
   if (top < ta.scrollTop || top > ta.scrollTop + ta.clientHeight - LINE_H * 3) ta.scrollTop = Math.max(0, top - ta.clientHeight / 3);
   const ls = lineStart(b.text, off);
   const x = visualCol(b.text.slice(ls, lineEnd(b.text, ls)), off - ls) * measureChar();
   if (x < ta.scrollLeft || x > ta.scrollLeft + ta.clientWidth - 80) ta.scrollLeft = Math.max(0, x - ta.clientWidth / 2);
+  if (ta === splitTa) { syncSplitScroll(); return; }
   syncScroll(); updateCaret();
 }
 
 // Replaces a range as one undoable step.
-function replaceRange(ta: HTMLTextAreaElement, start: number, end: number, text: string, selStart?: number, selEnd?: number): void {
-  const b = textareaOwner.get(ta);
-  if (b) remember(b, 'command');
+function replaceRange(ta: CodeSurface, start: number, end: number, text: string, selStart?: number, selEnd?: number): void {
+  const b = ta === splitTa ? splitBuf() : textareaOwner.get(ta.input);
+  if (b) remember(b, 'command', ta);
   ta.focus();
   ta.setRangeText(text, start, end, 'end');
   if (selStart != null) ta.setSelectionRange(selStart, selEnd ?? selStart);
   ta.dispatchEvent(new Event('input'));
 }
-function selectedLines(ta: HTMLTextAreaElement): [number, number] {
+function selectedLines(ta: CodeSurface): [number, number] {
   const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
   return [lineStart(v, s), lineEnd(v, e > s && v[e - 1] === '\n' ? e - 1 : e)];
 }
-function indentKey(ta: HTMLTextAreaElement, outdent: boolean): void {
+function indentKey(ta: CodeSurface, outdent: boolean): void {
   const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
   if (!outdent && !v.slice(s, en).includes('\n')) { replaceRange(ta, s, en, INDENT); return; }
   const [ls, le] = selectedLines(ta);
@@ -6259,7 +6481,7 @@ function endsWithOpenTag(before: string): boolean {
   const tag = before.slice(lt);
   return /^<[A-Za-z]/.test(tag) && !tag.endsWith('/>');
 }
-function enterKey(ta: HTMLTextAreaElement): void {
+function enterKey(ta: CodeSurface): void {
   const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
   const before = v.slice(lineStart(v, s), s);
   const indent = /^[ \t]*/.exec(before)?.[0] ?? '';
@@ -6275,7 +6497,7 @@ const plainKey = (e: KeyboardEvent) => !e.ctrlKey && !e.altKey && !e.metaKey;
 // Backspace inside an empty pair removes both, and a selection gets wrapped.
 const AUTO_PAIRS: Record<string, string> = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'", '`': '`' };
 const AUTO_CLOSERS = new Set(Object.values(AUTO_PAIRS));
-function pairKey(e: KeyboardEvent, ta: HTMLTextAreaElement): boolean {
+function pairKey(e: KeyboardEvent, ta: CodeSurface): boolean {
   if (!plainKey(e) || e.isComposing) return false;
   const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd, ch = e.key;
   if (ch === 'Backspace') {
@@ -6296,13 +6518,16 @@ function pairKey(e: KeyboardEvent, ta: HTMLTextAreaElement): boolean {
   return true;
 }
 function editorKeys(e: KeyboardEvent): void {
-  const ta = e.target as HTMLTextAreaElement;
-  const b = textareaOwner.get(ta);
+  // Mid-composition keys belong to the IME; no shortcut may act on them.
+  if (e.isComposing || e.keyCode === 229) return;
+  const ta = surfaceOf(e.target);
+  if (!ta) return;
+  const b = textareaOwner.get(ta.input);
   const k = e.key.toLowerCase();
   if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter')) {
     lastUserTypeAt = Date.now(); // the tick itself comes from sfx's typing listener
   }
-  if (suggestKeys(e, ta)) return;
+  if (suggestKeys(e, ta.input)) return;
   if (b && pairKey(e, ta)) { e.preventDefault(); return; }
   if (b && e.ctrlKey && e.key === ' ') { e.preventDefault(); editorSuggest(b, true); return; }
   if (b && (e.ctrlKey || e.metaKey) && !e.altKey && (k === 'z' || k === 'y')) {
@@ -6367,11 +6592,11 @@ function uncommentLine(l: string, open: string, close: string): string {
   return l.slice(0, indent) + body;
 }
 function toggleComment(): void {
-  const b = activeText();
-  if (!b) return;
+  const fe = focusedEditor();
+  if (!fe) return;
+  const { b, ta } = fe;
   const c = COMMENT[langOf(b.path)[0]];
   if (!c) { toast('No comment syntax for this file type'); return; }
-  const ta = b.ta;
   const [ls, le] = selectedLines(ta);
   const lines = ta.value.slice(ls, le).split('\n');
   const [open, close] = c;
@@ -6386,9 +6611,9 @@ function toggleComment(): void {
   replaceRange(ta, ls, le, out, ls, ls + out.length);
 }
 function moveLines(dir: -1 | 1): void {
-  const b = activeText();
-  if (!b) return;
-  const ta = b.ta, v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
+  const ta = focusedEditor()?.ta;
+  if (!ta) return;
+  const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
   const [ls, le] = selectedLines(ta);
   const block = v.slice(ls, le);
   if (dir < 0) {
@@ -6404,20 +6629,20 @@ function moveLines(dir: -1 | 1): void {
   }
 }
 function duplicateLines(): void {
-  const b = activeText();
-  if (!b) return;
-  const ta = b.ta, s = ta.selectionStart, en = ta.selectionEnd;
+  const ta = focusedEditor()?.ta;
+  if (!ta) return;
+  const s = ta.selectionStart, en = ta.selectionEnd;
   const [ls, le] = selectedLines(ta);
   const block = ta.value.slice(ls, le);
   replaceRange(ta, le, le, `\n${block}`, s + block.length + 1, en + block.length + 1);
 }
 function selectLine(): void {
-  const b = activeText();
-  if (!b) return;
-  const [ls, le] = selectedLines(b.ta);
-  b.ta.focus();
-  b.ta.setSelectionRange(ls, Math.min(le + 1, b.ta.value.length));
-  updateCaret();
+  const ta = focusedEditor()?.ta;
+  if (!ta) return;
+  const [ls, le] = selectedLines(ta);
+  ta.focus();
+  ta.setSelectionRange(ls, Math.min(le + 1, ta.value.length));
+  if (ta !== splitTa) updateCaret();
 }
 
 /* ----- Find in file ----- */
@@ -7543,7 +7768,8 @@ const EDITOR_WORDS: Record<string, string[]> = {
 const wordCache = new WeakMap<EditorBuffer, { at: number; counts: Map<string, number> }>();
 function fileWords(b: EditorBuffer): Map<string, number> {
   const cached = wordCache.get(b);
-  if (cached && Date.now() - cached.at < 1500) return cached.counts;
+  // Big files are counted less often: the count takes longer and a few new words barely change it.
+  if (cached && Date.now() - cached.at < Math.max(1500, b.text.length / 50)) return cached.counts;
   const counts = new Map<string, number>();
   for (const m of b.text.slice(0, LINT_MAX).matchAll(/[A-Za-z_$][\w$-]{2,}/g)) counts.set(m[0], (counts.get(m[0]) ?? 0) + 1);
   wordCache.set(b, { at: Date.now(), counts });
@@ -7563,7 +7789,7 @@ function editorCandidates(b: EditorBuffer, prefix: string): Suggestion[] {
     .map(([w, n]) => ({ text: w, hint: n >= 1000 ? 'keyword' : '' }));
 }
 // The word (letters, digits, _ $ and -) that ends at the caret.
-function wordBefore(ta: HTMLTextAreaElement): string {
+function wordBefore(ta: CodeSurface): string {
   const v = ta.value, end = ta.selectionStart;
   let i = end;
   while (i > 0 && end - i < 60 && /[\w$-]/.test(v[i - 1])) i--;
@@ -7590,7 +7816,7 @@ function editorSuggest(b: EditorBuffer, force = false): void {
     editorGhost.style.top = `${top}px`;
   };
   showSuggest({
-    owner: ta, items: editorCandidates(b, prefix), sel: 0, typed: prefix.length,
+    owner: ta.input, items: editorCandidates(b, prefix), sel: 0, typed: prefix.length,
     accept: s => { hideSuggest(); replaceRange(ta, pos - prefix.length, ta.selectionStart, s.text); },
     onRender: ghost,
   }, x - 8, top + LINE_H + 2, top - 2);
@@ -7864,7 +8090,7 @@ const commands: Record<string, () => unknown> = {
   'file.newFolder': () => newEntry(targetDir(), true),
   'file.openFolder': openFolderCmd,
   'file.openRecent': openRecentPicker,
-  'file.save': () => saveFile(focused() === splitTa ? splitPath : active).then(ok => { if (ok) sfx.play('save'); }),
+  'file.save': () => saveFile(focused() === splitTa.input ? splitPath : active).then(ok => { if (ok) sfx.play('save'); }),
   'file.saveAll': saveAll,
   'file.closeEditor': () => { if (active) closeTab(active); },
   'file.closeFolder': closeFolderCmd,
@@ -7986,7 +8212,8 @@ function run(act: string): void {
 }
 // Undo and redo in the code editor use its own history; everything else goes to the focused field.
 function editRole(role: string): void {
-  const b = activeText();
+  const fe = focusedEditor();
+  const b = fe?.b;
   const topAction = actionUndoStack.at(-1);
   const isRecentTreeAction = topAction && topAction.type.startsWith('tree-') &&
     ((topAction as any).timestamp ?? 0) > (lastUserTypeAt || 0);
@@ -7997,8 +8224,8 @@ function editRole(role: string): void {
       return;
     }
     if (b && b.undo.length > 0) {
-      stepHistory(b, true);
-      b.ta.focus();
+      stepHistory(b, true, fe.ta);
+      fe.ta.focus();
       return;
     }
     if (actionUndoStack.length > 0) {
@@ -8006,8 +8233,8 @@ function editRole(role: string): void {
       return;
     }
     if (b) {
-      stepHistory(b, true);
-      b.ta.focus();
+      stepHistory(b, true, fe.ta);
+      fe.ta.focus();
       return;
     }
   }
@@ -8019,8 +8246,8 @@ function editRole(role: string): void {
       return;
     }
     if (b && b.redo.length > 0) {
-      stepHistory(b, false);
-      b.ta.focus();
+      stepHistory(b, false, fe.ta);
+      fe.ta.focus();
       return;
     }
     if (actionRedoStack.length > 0) {
@@ -8028,12 +8255,19 @@ function editRole(role: string): void {
       return;
     }
     if (b) {
-      stepHistory(b, false);
-      b.ta.focus();
+      stepHistory(b, false, fe.ta);
+      fe.ta.focus();
       return;
     }
   }
-  b?.ta.focus();
+  // The surface's text isn't in the DOM, so the native select-all would only select its hidden input.
+  if (role === 'selectAll' && fe) {
+    fe.ta.focus();
+    fe.ta.setSelectionRange(0, fe.ta.value.length);
+    return;
+  }
+  // Copy, cut and paste: Electron fires the clipboard event on the focused hidden input, which the surface handles.
+  fe?.ta.focus();
   background(api.win.edit(role));
 }
 function cycleTab(d: number): void {
@@ -8471,10 +8705,15 @@ document.addEventListener('keydown', e => {
         void undoAppAction();
         return;
       }
-      const b = activeText();
+      const fe = focusedEditor();
+      const b = fe?.b;
       if (b && b.undo.length > 0) {
+        // The split has no editorKeys handler, so step its history here.
+        if (fe.ta === splitTa) { e.preventDefault(); e.stopPropagation(); stepHistory(b, true, fe.ta); }
         return;
       }
+      // The split's history is its own: with none left, Ctrl+Z must not fall through to the left file.
+      if (fe?.ta === splitTa) { e.preventDefault(); return; }
     }
     if (actionUndoStack.length > 0) {
       e.preventDefault();
@@ -8505,10 +8744,13 @@ document.addEventListener('keydown', e => {
         void redoAppAction();
         return;
       }
-      const b = activeText();
+      const fe = focusedEditor();
+      const b = fe?.b;
       if (b && b.redo.length > 0) {
+        if (fe.ta === splitTa) { e.preventDefault(); e.stopPropagation(); stepHistory(b, false, fe.ta); }
         return;
       }
+      if (fe?.ta === splitTa) { e.preventDefault(); return; } // nor redo
     }
     if (actionRedoStack.length > 0) {
       e.preventDefault();

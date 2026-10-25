@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>CodeSurface harness</title>
+  <style>
+    :root { --text: #f5f5f7; --panel: #18181b; }
+    body { margin: 0; background: #0f0f11; color: var(--text); font: 13px/21px Consolas, monospace; }
+    /* Copied from src/renderer/breeze.css */
+    .code { position: relative; flex: 1; min-width: 0; }
+    .code-scroll { position: absolute; inset: 0; overflow: auto; cursor: text; }
+    .code-spacer { position: relative; }
+    .code-sel { position: absolute; height: 21px; background: rgba(0, 94, 255, .4); pointer-events: none; }
+    .code-caret { position: absolute; width: 2px; height: 19px; margin-top: 1px; background: var(--text); pointer-events: none; animation: caret-blink 1.06s steps(1) infinite; }
+    .code-scroll:not(.focused) .code-caret { display: none; }
+    @keyframes caret-blink { 50% { opacity: 0; } }
+    .ta.code-input { position: absolute; inset: auto; width: 1px; height: 21px; padding: 0; border: 0; outline: 0; resize: none; opacity: 0; overflow: hidden; white-space: pre; font: inherit; caret-color: transparent; background: transparent; color: transparent; }
+    .ta.code-input.composing { width: auto; min-width: 1px; opacity: 1; z-index: 3; background: var(--panel, #18181b); color: var(--text); box-shadow: 0 1px 0 var(--text); }
+  </style>
+</head>
+
+<body>
+  <div id="host" class="code" style="width: 900px; height: 600px; flex: none;"></div>
+  <script src="../../src/renderer/editcore.js"></script>
+  <script src="../../src/renderer/codeview.js"></script>
+  <script>
+    window.SAMPLE = Array.from({ length: 10000 }, (_, n) => `const value = compute(index) + 1; // line ${String(n).padStart(5, '0')}`).join('\n');
+    // Measured once, like breezescript's measureChar.
+    const probe = document.createElement('span');
+    probe.textContent = 'x'.repeat(200);
+    document.body.append(probe);
+    const cw = probe.getBoundingClientRect().width / 200;
+    probe.remove();
+    const host = document.getElementById('host');
+    window.s = new CodeSurface(host, { lineHeight: 21, charWidth: () => cw, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: 'Harness' });
+    s.value = SAMPLE;
+  </script>
+</body>
+
+</html>
