@@ -573,6 +573,15 @@ async function demoReplay(id: number, mode: AgentMode): Promise<void> {
 // Browser preview: clipboard and selection commands act on the focused field.
 async function demoEdit(role: string): Promise<void> {
   const el = document.activeElement;
+  // The code editor's text lives in its surface, not in the hidden input that has focus.
+  const surface = surfaceOf(el);
+  if (surface) {
+    const [s, e] = [surface.selectionStart, surface.selectionEnd];
+    if (role === 'copy' || role === 'cut') await navigator.clipboard.writeText(surface.value.slice(s, e));
+    if (role === 'cut' && e > s) replaceRange(surface, s, e, '');
+    else if (role === 'paste') replaceRange(surface, s, e, (await navigator.clipboard.readText()).replace(/\r\n?/g, '\n'));
+    return;
+  }
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
   const [s, e] = [el.selectionStart ?? 0, el.selectionEnd ?? 0];
   if (role === 'selectAll') el.select();
@@ -2858,7 +2867,7 @@ interface EditorBuffer {
   saved: string;
   eol: '\n' | '\r\n';
   size: number;
-  ta: HTMLTextAreaElement | null;
+  ta: CodeSurface | null;
   url?: string;          // images: where the picture loads from
   diags?: Diag[];        // syntax errors from the last check
   diagLines?: number;    // line count the errors were found at (they're hidden while it differs)
@@ -2876,7 +2885,9 @@ let rootInfo: RootInfo | null = null;
 const dirCache = new Map<string, DirEntry[]>();
 const expanded = new Set<string>();
 const buffers = new Map<string, EditorBuffer>();
+// Keyed by each surface's hidden input, the element key events and focus land on.
 const textareaOwner = new WeakMap<HTMLTextAreaElement, EditorBuffer>();
+const surfaceOf = (el: EventTarget | null): CodeSurface | undefined => textareaOwner.get(el as HTMLTextAreaElement)?.ta ?? undefined;
 const isDirty = (b?: EditorBuffer) => !!b && b.kind === 'text' && b.text !== b.saved;
 let sessionTimer: TimeoutId | undefined;
 let openTabs: string[] = [];
@@ -4552,7 +4563,7 @@ async function loadBuffer(path: string): Promise<EditorBuffer | null> {
   };
   b.saved = b.text;
   if (b.kind === 'image') b.url = await api.fs.fileUrl(path).catch(() => '');
-  if (b.kind === 'text') { b.ta = createTextarea(b); scheduleLint(b, 0); }
+  if (b.kind === 'text') { b.ta = createSurface(b); scheduleLint(b, 0); }
   buffers.set(path, b);
   return b;
 }
@@ -4590,18 +4601,16 @@ async function lintBuffer(b: EditorBuffer): Promise<void> {
   if (b.path === active) renderCode();
 }
 
-// Each open file keeps its own textarea (and history) across tab switches.
-function createTextarea(b: EditorBuffer): HTMLTextAreaElement {
-  const ta = document.createElement('textarea');
-  ta.className = 'ta hidden';
-  ta.spellcheck = false;
-  ta.wrap = 'off';
-  ta.setAttribute('autocapitalize', 'off');
-  ta.setAttribute('autocomplete', 'off');
-  ta.setAttribute('aria-label', `Editing ${b.path}`);
+// Each open file keeps its own surface (and history) across tab switches.
+function createSurface(b: EditorBuffer): CodeSurface {
+  const ta = new CodeSurface($('#editor .code'), {
+    lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: `Editing ${b.path}`,
+    ...lineMeasurer(hlLines, () => winFirst, () => b.text),
+  });
+  ta.classList.add('hidden');
   ta.value = b.text;
-  textareaOwner.set(ta, b);
-  ta.addEventListener('beforeinput', e => beforeEdit(b, e));
+  textareaOwner.set(ta.input, b);
+  ta.addEventListener('beforeinput', e => beforeEdit(b, e as InputEvent));
   ta.addEventListener('input', () => {
     lastUserTypeAt = Date.now();
     const wasDirty = isDirty(b);
@@ -4615,11 +4624,10 @@ function createTextarea(b: EditorBuffer): HTMLTextAreaElement {
   });
   ta.addEventListener('blur', hideSuggest);
   ta.addEventListener('mousedown', hideSuggest);
-  ta.addEventListener('scroll', () => { if (suggest?.owner === ta) editorSuggest(b); }); // follow the caret
+  ta.addEventListener('scroll', () => { if (suggest?.owner === ta.input) editorSuggest(b); }); // follow the caret
   ta.addEventListener('scroll', syncScroll);
-  ta.addEventListener('keydown', editorKeys);
-  for (const ev of ['keyup', 'mouseup', 'select', 'selectionchange', 'focus']) ta.addEventListener(ev, updateCaret);
-  $('#editor .code').appendChild(ta);
+  ta.addEventListener('keydown', e => editorKeys(e as KeyboardEvent));
+  ta.addEventListener('selectionchange', updateCaret); // also fires on focus
   return ta;
 }
 
@@ -5657,9 +5665,9 @@ let curLine = -1;//variable
 let renderQueued = false;//variable
 
 const activeBuf = (): EditorBuffer | undefined => (active ? buffers.get(active) : undefined);
-function activeText(): (EditorBuffer & { ta: HTMLTextAreaElement }) | undefined {
+function activeText(): (EditorBuffer & { ta: CodeSurface }) | undefined {
   const b = activeBuf();
-  return b?.kind === 'text' && b.ta ? b as EditorBuffer & { ta: HTMLTextAreaElement } : undefined;
+  return b?.kind === 'text' && b.ta ? b as EditorBuffer & { ta: CodeSurface } : undefined;
 }
 function measureChar(): number {
   if (charW) return charW;
@@ -5671,7 +5679,55 @@ function measureChar(): number {
   s.remove();
   return charW;
 }
-void document.fonts?.ready.then(() => { charW = 0; renderCode(); });
+void document.fonts?.ready.then(() => { charW = 0; renderCode(); activeText()?.ta.refresh(); });
+
+// Where the caret goes on lines the char grid can't place (Thai marks, CJK, emoji): measured on the drawn
+// line itself. Pure-ASCII lines, and lines not drawn or drawn from other text, return null (the grid is exact there).
+function lineMeasurer(lines: HTMLElement, first: () => number, text: () => string): Pick<SurfaceOpts, 'xAt' | 'colAt'> {
+  const lineText = (line: number): string | null => {
+    const t = text(), starts = lineStartsOf(t); // memoized, and shared with the rest of the editor
+    return line < starts.length ? t.slice(starts[line], lineEnd(t, starts[line])) : null;
+  };
+  // The drawn line's text nodes, without the error message drawn after it; null unless it shows exactly `want`.
+  const nodesOf = (line: number, want: string): Text[] | null => {
+    const el = lines.children[line - first()];
+    if (!el) return null;
+    const out: Text[] = [], walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let drawn = '';
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (n.parentElement?.closest('.diag-msg')) continue;
+      out.push(n as Text); drawn += (n as Text).data;
+    }
+    return drawn === want ? out : null;
+  };
+  const measure = (nodes: Text[], col: number): number => {
+    let n = 0;
+    while (n < nodes.length - 1 && col > nodes[n].length) col -= nodes[n++].length;
+    const r = document.createRange();
+    r.setStart(nodes[n], Math.min(col, nodes[n].length));
+    return r.getBoundingClientRect().left - lines.getBoundingClientRect().left + 4; // 4 = pad.left
+  };
+  const measured = (line: number): Text[] | null => {
+    const t = lineText(line);
+    return t != null && /[^\x00-\x7f]/.test(t) ? nodesOf(line, t) : null;
+  };
+  return {
+    xAt(line, col) {
+      const nodes = measured(line);
+      return nodes ? measure(nodes, col) : null;
+    },
+    colAt(line, x) {
+      const nodes = measured(line);
+      if (!nodes) return null;
+      let lo = 0, hi = nodes.reduce((s, n) => s + n.length, 0);
+      while (lo < hi) { // the first boundary at or right of x
+        const mid = (lo + hi) >> 1;
+        if (measure(nodes, mid) < x) lo = mid + 1; else hi = mid;
+      }
+      return lo > 0 && x - measure(nodes, lo - 1) < measure(nodes, lo) - x ? lo - 1 : lo;
+    },
+  };
+}
 
 function lineAt(v: string, pos: number): number {
   if (v.length > 20000) return lineOfOffset(lineStartsOf(v), pos);
@@ -5988,7 +6044,7 @@ function highlighted(b: EditorBuffer): HlDoc {
   hlCache.set(b, d);
   return d;
 }
-function visibleLines(ta: HTMLTextAreaElement, total: number): [number, number] {
+function visibleLines(ta: CodeSurface | HTMLTextAreaElement, total: number): [number, number] {
   const first = clamp(Math.floor((ta.scrollTop - 10) / LINE_H), 0, total - 1);
   const last = clamp(Math.ceil((ta.scrollTop + (ta.clientHeight || 800)) / LINE_H), 0, total);
   return [first, last];
@@ -6018,6 +6074,8 @@ function renderCode(): void {
   hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
   tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
   $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 32}px`;
+  // The surface painted before these lines were drawn; repaint so carets on measured (non-ASCII) lines match them.
+  b.ta.refresh();
   syncScroll();
   updateStatus();
 }
@@ -6039,7 +6097,7 @@ const vThumb = document.createElement('div');
 vThumb.className = 'v-slider-thumb';
 vTrack.append(vThumb);
 $('#editor').append(vTrack);
-function updateVSlider(ta: HTMLTextAreaElement): void {
+function updateVSlider(ta: CodeSurface): void {
   const room = vTrack.clientHeight;
   const overflow = ta.scrollHeight - ta.clientHeight;
   vTrack.classList.toggle('on', overflow > 0 && room > 0);
@@ -6298,19 +6356,19 @@ function revealOffset(b: EditorBuffer, off: number): void {
 }
 
 // Replaces a range as one undoable step.
-function replaceRange(ta: HTMLTextAreaElement, start: number, end: number, text: string, selStart?: number, selEnd?: number): void {
-  const b = textareaOwner.get(ta);
+function replaceRange(ta: CodeSurface, start: number, end: number, text: string, selStart?: number, selEnd?: number): void {
+  const b = textareaOwner.get(ta.input);
   if (b) remember(b, 'command');
   ta.focus();
   ta.setRangeText(text, start, end, 'end');
   if (selStart != null) ta.setSelectionRange(selStart, selEnd ?? selStart);
   ta.dispatchEvent(new Event('input'));
 }
-function selectedLines(ta: HTMLTextAreaElement): [number, number] {
+function selectedLines(ta: CodeSurface): [number, number] {
   const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
   return [lineStart(v, s), lineEnd(v, e > s && v[e - 1] === '\n' ? e - 1 : e)];
 }
-function indentKey(ta: HTMLTextAreaElement, outdent: boolean): void {
+function indentKey(ta: CodeSurface, outdent: boolean): void {
   const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
   if (!outdent && !v.slice(s, en).includes('\n')) { replaceRange(ta, s, en, INDENT); return; }
   const [ls, le] = selectedLines(ta);
@@ -6327,7 +6385,7 @@ function endsWithOpenTag(before: string): boolean {
   const tag = before.slice(lt);
   return /^<[A-Za-z]/.test(tag) && !tag.endsWith('/>');
 }
-function enterKey(ta: HTMLTextAreaElement): void {
+function enterKey(ta: CodeSurface): void {
   const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
   const before = v.slice(lineStart(v, s), s);
   const indent = /^[ \t]*/.exec(before)?.[0] ?? '';
@@ -6343,7 +6401,7 @@ const plainKey = (e: KeyboardEvent) => !e.ctrlKey && !e.altKey && !e.metaKey;
 // Backspace inside an empty pair removes both, and a selection gets wrapped.
 const AUTO_PAIRS: Record<string, string> = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'", '`': '`' };
 const AUTO_CLOSERS = new Set(Object.values(AUTO_PAIRS));
-function pairKey(e: KeyboardEvent, ta: HTMLTextAreaElement): boolean {
+function pairKey(e: KeyboardEvent, ta: CodeSurface): boolean {
   if (!plainKey(e) || e.isComposing) return false;
   const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd, ch = e.key;
   if (ch === 'Backspace') {
@@ -6364,13 +6422,16 @@ function pairKey(e: KeyboardEvent, ta: HTMLTextAreaElement): boolean {
   return true;
 }
 function editorKeys(e: KeyboardEvent): void {
-  const ta = e.target as HTMLTextAreaElement;
-  const b = textareaOwner.get(ta);
+  // Mid-composition keys belong to the IME; no shortcut may act on them.
+  if (e.isComposing || e.keyCode === 229) return;
+  const ta = surfaceOf(e.target);
+  if (!ta) return;
+  const b = textareaOwner.get(ta.input);
   const k = e.key.toLowerCase();
   if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter')) {
     lastUserTypeAt = Date.now(); // the tick itself comes from sfx's typing listener
   }
-  if (suggestKeys(e, ta)) return;
+  if (suggestKeys(e, ta.input)) return;
   if (b && pairKey(e, ta)) { e.preventDefault(); return; }
   if (b && e.ctrlKey && e.key === ' ') { e.preventDefault(); editorSuggest(b, true); return; }
   if (b && (e.ctrlKey || e.metaKey) && !e.altKey && (k === 'z' || k === 'y')) {
@@ -7632,7 +7693,7 @@ function editorCandidates(b: EditorBuffer, prefix: string): Suggestion[] {
     .map(([w, n]) => ({ text: w, hint: n >= 1000 ? 'keyword' : '' }));
 }
 // The word (letters, digits, _ $ and -) that ends at the caret.
-function wordBefore(ta: HTMLTextAreaElement): string {
+function wordBefore(ta: CodeSurface): string {
   const v = ta.value, end = ta.selectionStart;
   let i = end;
   while (i > 0 && end - i < 60 && /[\w$-]/.test(v[i - 1])) i--;
@@ -7659,7 +7720,7 @@ function editorSuggest(b: EditorBuffer, force = false): void {
     editorGhost.style.top = `${top}px`;
   };
   showSuggest({
-    owner: ta, items: editorCandidates(b, prefix), sel: 0, typed: prefix.length,
+    owner: ta.input, items: editorCandidates(b, prefix), sel: 0, typed: prefix.length,
     accept: s => { hideSuggest(); replaceRange(ta, pos - prefix.length, ta.selectionStart, s.text); },
     onRender: ghost,
   }, x - 8, top + LINE_H + 2, top - 2);
@@ -8102,6 +8163,13 @@ function editRole(role: string): void {
       return;
     }
   }
+  // The surface's text isn't in the DOM, so the native select-all would only select its hidden input.
+  if (role === 'selectAll' && b) {
+    b.ta.focus();
+    b.ta.setSelectionRange(0, b.ta.value.length);
+    return;
+  }
+  // Copy, cut and paste: Electron fires the clipboard event on the focused hidden input, which the surface handles.
   b?.ta.focus();
   background(api.win.edit(role));
 }

@@ -2048,8 +2048,7 @@ svg.ico-svg:active {
   min-width: 0;
 }
 
-.hl,
-.ta {
+.hl {
   margin: 0;
   padding: 10px 24px 10px 4px;
   font: inherit;
@@ -2157,25 +2156,6 @@ svg.ico-svg:active {
   box-shadow: 0 0 0 1px #f59e0b;
 }
 
-.ta {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  resize: none;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--text);
-  overflow: auto;
-}
-
-.ta::selection {
-  background: rgba(0, 94, 255, .4);
-  color: transparent;
-}
-
 /* CodeSurface: a scroller sized by a spacer, with only the visible caret and selection painted. */
 .code-scroll {
   position: absolute;
@@ -2215,7 +2195,7 @@ svg.ico-svg:active {
   }
 }
 
-/* The 1px focus and IME target that sits at the caret; it overrides the full-editor .ta rules above. */
+/* The 1px focus and IME target that sits at the caret. */
 .ta.code-input {
   position: absolute;
   inset: auto;
