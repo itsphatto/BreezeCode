@@ -11,6 +11,7 @@ breeze.config.json
 dist/
 src/renderer/breezescript.js
 src/renderer/editcore.js
+src/renderer/codeview.js
 *.tsbuildinfo
 
 # Logs

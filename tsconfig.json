@@ -10,5 +10,5 @@
     "rootDir": "src",
     "outDir": "src"
   },
-  "files": ["src/renderer/editcore.ts", "src/renderer/breezescript.ts", "src/main/antigravityAgentService.ts"]
+  "files": ["src/renderer/editcore.ts", "src/renderer/codeview.ts","src/renderer/breezescript.ts", "src/main/antigravityAgentService.ts"]
 }
