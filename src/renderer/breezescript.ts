@@ -241,7 +241,8 @@ const sfx = (() => {
   }
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
-  let lastAt = -Infinity; // when any sound last played, so a button that makes its own sound doesn't also click
+  let lastAt = -Infinity; // when a control's sound last played, so a button that makes its own sound doesn't also click
+  let anyAt = -Infinity; // when any sound at all last played
 
   // 25 plays twice as loud as the old fixed level did; the top of the slider is four times that.
   const gainFor = (v: number) => v / 25;
@@ -335,9 +336,13 @@ const sfx = (() => {
   // Fast repeating sounds (typing, tool lines) are spaced out so they stay ticks and don't buzz.
   const GAP: Partial<Record<Sound, number>> = { key: 18, keyDel: 18, keyEnter: 18, tool: 40, rowHover: 45, slide: 35, stream: 90, remove: 70, trash: 200, drop: 150 };
   const last: Partial<Record<Sound, number>> = {};
+  const AMBIENT = new Set<Sound>(['key', 'keyDel', 'keyEnter', 'stream', 'hum', 'tool', 'rowHover', 'hover', 'slide']);
 
   function play(name: Sound): void {
     if (!on || !volume || document.hidden) return;
+    // Silent while the loading screen is up: start-up restores tabs and focuses the editor behind it, which would
+    // otherwise tick and chirp before anything is on screen.
+    if (document.getElementById('splash')) return;
     if (!ctx) unlock(); // a sound asked for before the first gesture (or after the context was lost)
     if (!ctx) return;
     const now = performance.now();
@@ -346,7 +351,10 @@ const sfx = (() => {
       if (now - (last[name] ?? -Infinity) < gap) return;
       last[name] = now;
     }
-    lastAt = now;
+    // Background sounds (typing, streaming, the thinking hum, hovers) don't count as a control's own sound, or a
+    // click or focus landing next to one would stay silent.
+    if (!AMBIENT.has(name)) lastAt = now;
+    anyAt = now;
     // Chromium suspends an idle context (and Windows can interrupt one when the audio device changes). Notes
     // scheduled while it is paused would land in the past and be dropped, so they wait for it to run again.
     if (ctx.state !== 'running') {
@@ -400,20 +408,24 @@ const sfx = (() => {
     }
     return null;
   };
-  let pending: Sound | null = null;
-  let pendingAt = 0;
+  // What was pressed, read on the press: a control that redraws itself under the pointer hands the click to its
+  // parent, which would otherwise make no sound.
+  let downKind: Sound | null = null;
+  let downAt = -Infinity;
   document.addEventListener('click', e => {
-    pending = kindOf(e.target);
-    pendingAt = performance.now();
+    const kind = kindOf(e.target) ?? (performance.now() - downAt < 800 ? downKind : null);
+    downKind = null;
+    if (!kind) return;
     // Close buttons often stop the click from bubbling, so a removal sounds right here instead of after.
-    if (pending === 'remove') { play('remove'); pending = null; }
+    if (kind === 'remove') { play('remove'); return; }
+    // Played once the click has been handled (many handlers stop it bubbling, so this can't wait for it to come
+    // back up), unless the control made its own sound meanwhile.
+    const at = performance.now();
+    setTimeout(() => { if (lastAt < at) play(kind); }, 0);
   }, true);
-  document.addEventListener('click', () => {
-    if (pending && lastAt < pendingAt) play(pending);
-    pending = null;
-  });
   // Disabled buttons swallow clicks, so they're caught on the press instead.
   document.addEventListener('pointerdown', e => {
+    if (e.button === 0) { downKind = kindOf(e.target); downAt = performance.now(); }
     const el = (e.target as Element).closest?.('button:disabled, [aria-disabled="true"]');
     if (el && e.button === 0) play('deny');
   }, true);
@@ -452,16 +464,20 @@ const sfx = (() => {
     const gone = count(records.map(r => r.removedNodes));
     if (!gone || gone <= count(records.map(r => r.addedNodes))) return;
     // The control that removed it already made its sound (a tab's X sounds on the press, before the fold-away ends).
-    if (performance.now() - lastAt < 120 || performance.now() - (last.remove ?? -Infinity) < 700 || performance.now() - (last.trash ?? -Infinity) < 1500) return;
+    if (performance.now() - anyAt < 120 || performance.now() - (last.remove ?? -Infinity) < 700 || performance.now() - (last.trash ?? -Infinity) < 1500) return;
     if (records.some(r => (r.target as Element).closest?.('#menuRoot, #modalRoot, .menu'))) return; // menus and dialogs have their own close sounds
     play('remove');
   });
   addEventListener('DOMContentLoaded', () => removals.observe(document.body, { childList: true, subtree: true }));
   if (document.body) removals.observe(document.body, { childList: true, subtree: true });
   document.addEventListener('copy', () => play('copy'));
-  // Buttons hover like the website's; menu rows and list rows give a fainter tick.
+  // Buttons hover like the website's; menu rows and list rows give a fainter tick. Only when the pointer itself
+  // moved onto them: the page appearing under a still pointer (at start-up, behind the loading screen) or a menu
+  // opening beneath it fires the same event, and stays quiet.
+  let movedAt = -Infinity;
+  document.addEventListener('pointermove', e => { if (e.movementX || e.movementY) movedAt = performance.now(); }, { capture: true, passive: true });
   document.addEventListener('pointerover', e => {
-    if (e.pointerType !== 'mouse') return;
+    if (e.pointerType !== 'mouse' || performance.now() - movedAt > 120) return;
     const t = e.target as Element;
     const btn = t.closest?.('.btn');
     if (btn) { if (!btn.contains(e.relatedTarget as Node | null)) play('hover'); return; }
@@ -1771,17 +1787,68 @@ function agentChipHtml(a: DetectedAgent, on: boolean): string {
   return `<button type="button" class="agent-chip${on ? ' on' : ''}" data-agent="${escAttr(a.id)}" aria-label="Mention @${escAttr(short)}" aria-pressed="${on}">${logo}<span class="chip-name">${esc(short)}</span><span class="chip-more" role="button" aria-label="Options for ${escAttr(short)}" aria-haspopup="menu">${svgIcon('chevronDown', 10)}</span></button>`;
 }
 
-// Chips that do not fit the bar move into a trailing "+N" chip.
+// Chips that do not fit the bar move into a trailing "+N" chip. As the bar is squeezed or widened, a chip that
+// folds away shrinks out where it stood, one that comes back grows in, and the "+N" chip grows in or pops its count.
+let agentBarFolded = new Set<string>();
+let agentBarRest = 0; // the "+N" count last shown, 0 for none
 function fitAgentBar(): void {
   const bar = $('#agentBar');
+  const before = new Map($$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar).map(c => [c.dataset.agent as string, c]));
+  const rects = new Map([...before].map(([id, c]) => [id, c.getBoundingClientRect()]));
+  layoutAgentBar(bar);
+  bar.classList.remove('measuring');
+  const nowFolded = new Set($$<HTMLElement>('.agent-chip[data-agent].hidden', bar).map(c => c.dataset.agent as string));
+  const rest = bar.querySelector<HTMLElement>('.chip-rest');
+  const restCount = rest ? nowFolded.size : 0;
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches && bar.offsetParent) {
+    const grow = { duration: 260, easing: 'cubic-bezier(.175, .885, .32, 1.275)' };
+    for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
+      if (agentBarFolded.has(c.dataset.agent as string)) c.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
+    }
+    for (const id of nowFolded) {
+      const from = before.get(id), r = rects.get(id);
+      if (from && r && !agentBarFolded.has(id)) shrinkOut(bar, from, r);
+    }
+    if (rest && !agentBarRest) rest.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
+    else if (rest && restCount !== agentBarRest) rest.animate([{ transform: 'scale(1.12)' }, { transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
+  agentBarFolded = nowFolded;
+  agentBarRest = restCount;
+}
+// A copy of the chip, left in the bar where it stood, shrinks and fades while the real one is already folded away.
+// It stays inside the bar so it keeps the bar's chip styles, and drops data-agent so the bar never counts it.
+function shrinkOut(bar: HTMLElement, chip: HTMLElement, r: DOMRect): void {
+  const ghost = chip.cloneNode(true) as HTMLElement;
+  ghost.classList.remove('hidden', 'open');
+  ghost.classList.add('chip-ghost');
+  ghost.removeAttribute('data-agent');
+  ghost.setAttribute('aria-hidden', 'true');
+  if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
+  const b = bar.getBoundingClientRect();
+  Object.assign(ghost.style, { position: 'absolute', left: `${r.left - b.left + bar.scrollLeft}px`, top: `${r.top - b.top + bar.scrollTop}px`, width: `${r.width}px`, height: `${r.height}px`, margin: '0', pointerEvents: 'none' });
+  bar.append(ghost);
+  ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 200, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' }).onfinish = () => ghost.remove();
+  setTimeout(() => ghost.remove(), 300); // a hidden window doesn't run animations, so a timer makes sure it goes
+}
+function layoutAgentBar(bar: HTMLElement): void {
   bar.querySelector('.chip-rest')?.remove();
   const chips = $$('.agent-chip[data-agent]', bar);
   chips.forEach(c => c.classList.remove('hidden'));
+  // Measured at full size: in a tight bar the kept chip may shrink (see .agent-bar), which mustn't skew the fit.
+  bar.classList.add('measuring');
+  const _reflow = bar.offsetWidth;
   const avail = bar.clientWidth;
   if (chips.length < 2 || avail <= 0) return;
   const gap = Number.parseFloat(getComputedStyle(bar).columnGap) || 0;
   const widths = chips.map(c => c.offsetWidth);
   if (widths.reduce((sum, w) => sum + w, 0) + gap * (chips.length - 1) <= avail) return;
+  // A chip still fits if its logo, arrow and a few letters of its name do: the chips then shrink their names
+  // (with an ellipsis) to share the room, rather than folding one away while there's space for most of it.
+  const minWidths = chips.map((c, i) => {
+    const name = c.querySelector<HTMLElement>('.chip-name');
+    return name ? widths[i] - name.scrollWidth + Math.min(name.scrollWidth, 30) : widths[i];
+  });
+  if (minWidths.reduce((sum, w) => sum + w, 0) + gap * (chips.length - 1) <= avail) return;
   const rest = document.createElement('button');
   rest.type = 'button';
   rest.className = 'agent-chip chip-rest';
@@ -1790,7 +1857,7 @@ function fitAgentBar(): void {
   bar.append(rest);
   let used = rest.offsetWidth;
   let keep = 0;
-  for (const w of widths) {
+  for (const w of minWidths) {
     if (used + gap + w > avail) break;
     used += gap + w;
     keep++;
@@ -3397,6 +3464,23 @@ function renderFluidFrame(state: FluidCanvasState): void {
       { stop: 1, color: 'rgba(30, 27, 75, 0)' }
     ]
   } });
+
+  // The haze runs right up to the panel's edge, where the dots thin out, so the last few pixels read as a hard cyan
+  // line along the border. Erase a soft band there so the glow fades out before the edge.
+  // A blurred stroke fades the band in; a hard one clears the outermost pixels the blur can't fully reach.
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.strokeStyle = '#000';
+  ctx.beginPath();
+  if (typeof (ctx as any).roundRect === 'function' && rawR > 0.5) (ctx as any).roundRect(0, 0, w, h, Math.min(rawR, w / 2, h / 2));
+  else ctx.rect(0, 0, w, h);
+  ctx.filter = 'blur(3px)';
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  ctx.filter = 'none';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.restore();
 
   // 3. Stippled Wave Dot Grid (Gemini-style undulating micro-dot matrix with chromatic crests and increased density)
   drawFluidDotGrid({ ctx, w, h, rawR, gx, gy, t, maxEnergy });
@@ -5051,41 +5135,113 @@ function renderTabs(): void {
   if (tabDrag?.moved) { tabDrag.stale = true; return; }
   const tabsEl = $('#tabs');
   const hasTabs = openTabs.length > 0;
+  let growNew: HTMLElement | null = null;
   tabsEl.classList.toggle('hidden', !hasTabs);
   if (!hasTabs) {
     tabsEl.innerHTML = '';
   } else {
     let runBtn = '';
     if (runnable(active)) {
-      runBtn = `<button class="tab-run" data-run-file="1" title="Run File (F5)">${svgIcon('play', 12)}<span>Run</span></button>`;
+      runBtn = `<button class="tab-run${tabRunCompact ? ' compact' : ''}" data-run-file="1" title="Run File (F5)">${svgIcon('play', 12)}<span>Run</span></button>`;
     } else if (isHtml(active)) {
-      runBtn = `<button class="tab-run tab-preview" data-preview-file="1" title="Preview this page (F5)">${svgIcon('play', 12)}<span>Preview</span></button>`;
+      runBtn = `<button class="tab-run tab-preview${tabRunCompact ? ' compact' : ''}" data-preview-file="1" title="Preview this page (F5)">${svgIcon('play', 12)}<span>Preview</span></button>`;
     }
     const splitTitle = splitPath ? 'Close Split' : 'Split Editor Right';
     const splitBtn = `<button class="icon-btn tab-split${splitPath ? ' on' : ''}" data-split="1" title="${splitTitle} ${String.raw`(Ctrl\)`}">${svgIcon('columns', 14)}</button>`;
-    tabsEl.innerHTML = openTabs.map(tabHtml).join('') + runBtn + splitBtn;
+    const oldRun = tabsEl.querySelector<HTMLElement>('.tab-run:not(.ghost)');
+    const oldKind = oldRun?.title ?? '';
+    const runTitle = /title="([^"]*)"/.exec(runBtn)?.[1] ?? '';
+    // The same Run / Preview, and any old one still narrowing shut, stay put rather than being rebuilt: the strip
+    // re-renders often (git status, saves), and a fresh button would cut its grow, fold or shrink short.
+    const keep = oldRun && oldKind === runTitle ? oldRun : null;
+    for (const c of [...tabsEl.children]) if (c !== keep && !c.classList.contains('ghost')) c.remove();
+    tabsEl.insertAdjacentHTML('afterbegin', openTabs.map(tabHtml).join(''));
+    tabsEl.insertAdjacentHTML('beforeend', (keep ? '' : runBtn) + splitBtn);
+    // Run / Preview grows open when a file that has one opens, and narrows shut in place when it no longer does.
+    const newRun = tabsEl.querySelector<HTMLElement>('.tab-run:not(.ghost)');
+    if (oldRun && oldKind !== (newRun?.title ?? '')) narrowAway(tabsEl, oldRun);
+    if (newRun && oldKind !== newRun.title) growNew = newRun;
   }
-  placeTabInk();
+  // Run / Preview first: hiding it widens the tabs, so the line under the open tab is placed after.
   fitTabRunBtn();
+  if (growNew) growTabRun(growNew); // after the fit, so it grows to its folded or unfolded size
+  placeTabInk();
+  markCutTabNames();
   if (!running) renderPreviewEmpty();
   renderSplit();
 }
-// Run / Preview is sticky at the right edge, so on a narrow editor it would cover the file name. Hide it when the tabs and button don't both fit.
+// Run / Preview is sticky at the right edge, so on a narrow editor it would cover the file name. Tabs shrink to make
+// room for it; once they can't shrink any more, it folds to just its play icon (its tooltip still names it), its
+// label sliding away. The state outlives re-renders, so switching tabs doesn't replay the fold.
+let tabRunCompact = false;
 function fitTabRunBtn(): void {
   const tabs = $('#tabs');
-  const btn = tabs.querySelector<HTMLElement>('.tab-run');
+  const btn = tabs.querySelector<HTMLElement>('.tab-run:not(.ghost)');
   if (!btn) return;
-  btn.style.display = '';
-  const split = tabs.querySelector<HTMLElement>('.tab-split');
-  let need = (split ? split.offsetWidth + 4 : 0) + btn.offsetWidth + 16;
-  tabs.querySelectorAll<HTMLElement>('.tab').forEach((t) => { need += t.offsetWidth + 4; });
-  if (need > tabs.clientWidth) btn.style.display = 'none';
+  // Measured with an unfolded stand-in in the button's place. Unfolding the live button to measure would cancel its
+  // fold every frame of a window or panel resize (this runs on each one), and the fold would snap instead of animate.
+  const probe = btn.cloneNode(true) as HTMLElement;
+  probe.classList.remove('compact');
+  probe.classList.add('probe');
+  btn.style.position = 'absolute'; btn.style.visibility = 'hidden'; // out of the flow; its transitions keep running
+  btn.after(probe);
+  tabs.classList.add('measuring');
+  const compact = tabs.scrollWidth > tabs.clientWidth + 1;
+  tabs.classList.remove('measuring');
+  probe.remove();
+  btn.style.position = ''; btn.style.visibility = '';
+  if (compact === tabRunCompact) return;
+  tabRunCompact = compact;
+  btn.classList.toggle('compact', compact);
+  followTabRunFold();
 }
-new ResizeObserver(() => fitTabRunBtn()).observe($('#tabs'));
+// Read live (not the shared reduceMotion constant): tabs can render before that line of the script has run.
+const tabMotionOff = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Grow, not pop: the button's width opens from nothing (or closes to nothing) and the tabs beside it make room as it
+// does, with no scaling or overshoot.
+// An even ease-in-out: a strong ease-out opened most of the width in the first frame, so the grow read as a pop.
+const TAB_RUN_GROW = { duration: 320, easing: 'cubic-bezier(.65, 0, .35, 1)' };
+function tabRunBox(btn: HTMLElement): Keyframe {
+  const cs = getComputedStyle(btn);
+  return { width: `${btn.getBoundingClientRect().width}px`, paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, borderLeftWidth: cs.borderLeftWidth, borderRightWidth: cs.borderRightWidth, marginLeft: cs.marginLeft };
+}
+const TAB_RUN_SHUT: Keyframe = { width: '0px', paddingLeft: '0px', paddingRight: '0px', borderLeftWidth: '0px', borderRightWidth: '0px', marginLeft: '0px' };
+function growTabRun(btn: HTMLElement): void {
+  if (tabMotionOff()) return;
+  const open = tabRunBox(btn);
+  btn.animate([{ ...TAB_RUN_SHUT, overflow: 'hidden', boxSizing: 'border-box' }, { ...open, overflow: 'hidden', boxSizing: 'border-box' }], TAB_RUN_GROW);
+  followTabRunFold();
+}
+// The old button stays in the strip, in its place before the split button, and narrows shut.
+function narrowAway(strip: HTMLElement, btn: HTMLElement): void {
+  if (tabMotionOff()) return;
+  btn.setAttribute('aria-hidden', 'true');
+  btn.removeAttribute('data-run-file'); btn.removeAttribute('data-preview-file');
+  btn.classList.add('ghost'); // still styled as the button, but skipped wherever the live one is looked up
+  btn.style.pointerEvents = 'none';
+  strip.insertBefore(btn, strip.querySelector('.tab-split'));
+  const out = btn.animate([{ ...tabRunBox(btn), overflow: 'hidden', boxSizing: 'border-box' }, { ...TAB_RUN_SHUT, overflow: 'hidden', boxSizing: 'border-box' }], { ...TAB_RUN_GROW, fill: 'forwards' });
+  out.onfinish = () => { btn.remove(); placeTabInk(true); };
+  setTimeout(() => { btn.remove(); placeTabInk(true); }, 400); // a hidden window runs no animations
+  followTabRunFold();
+}
+// While the button folds or unfolds the tabs beside it resize, so the line under the open tab follows each frame.
+function followTabRunFold(): void {
+  const until = performance.now() + 400;
+  const step = () => { placeTabInk(true); markCutTabNames(); if (performance.now() < until) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+// Resizing the window or a panel squeezes the tabs, so the line under the open one follows at once (no glide).
+new ResizeObserver(() => { fitTabRunBtn(); placeTabInk(true); markCutTabNames(); }).observe($('#tabs'));
+// A squeezed tab name is clipped with a fade rather than an ellipsis: an ellipsis drops whole letters, leaving a gap
+// before the extension that jumps about as the strip is resized. Only names that don't fit get the fade.
+function markCutTabNames(): void {
+  for (const b of $$<HTMLElement>('#tabs .tab .nm-base')) b.classList.toggle('cut', b.scrollWidth > b.clientWidth + 0.5);
+}
 // The blue line under the open tab is one element that glides from the last tab to the new one.
 // Tabs are re-rendered, so the line restarts from where it was drawn last and then moves.
 let inkAt: { x: number; y: number; w: number } | null = null;
-function placeTabInk(): void {
+function placeTabInk(instant = false): void {
   const tabs = $('#tabs');
   const on = tabs.querySelector<HTMLElement>('.tab.on');
   const old = tabs.querySelector<HTMLElement>('.tab-ink');
@@ -5093,6 +5249,14 @@ function placeTabInk(): void {
   const ink = old ?? tabs.appendChild(Object.assign(document.createElement('span'), { className: 'tab-ink' }));
   const next = { x: on.offsetLeft + 10, y: on.offsetTop + on.offsetHeight - 1, w: Math.max(0, on.offsetWidth - 20) };
   const draw = (p: { x: number; y: number; w: number }) => { ink.style.transform = `translate(${p.x}px, ${p.y}px)`; ink.style.width = `${p.w}px`; };
+  if (instant) {
+    ink.style.transition = 'none';
+    draw(next);
+    const _reflow = ink.offsetWidth;
+    ink.style.transition = '';
+    inkAt = next;
+    return;
+  }
   if (inkAt) {
     ink.style.transition = 'none';
     draw(inkAt);
@@ -5103,7 +5267,7 @@ function placeTabInk(): void {
   inkAt = next;
 }
 // A new tab grows in; the line follows its final width once it has.
-$('#tabs').addEventListener('animationend', e => { if ((e.target as HTMLElement).classList.contains('tab')) placeTabInk(); });
+$('#tabs').addEventListener('animationend', e => { if ((e.target as HTMLElement).classList.contains('tab')) { placeTabInk(); markCutTabNames(); } });
 $('#tabs').addEventListener('click', e => {
   if ((e.target as HTMLElement).closest('[data-run-file]')) { run('run.file'); return; }
   if ((e.target as HTMLElement).closest('[data-preview-file]')) { if (active) { void startPreview(active); } return; }
@@ -7598,6 +7762,9 @@ function sashGap(sash: HTMLElement): [number, number, number, number] | null {
   if (!cardEl?.offsetParent) return null;
   const kind = sash.dataset.sash;
   if (kind === 'term' && !cardEl.classList.contains('open')) return null;
+  // A closed preview keeps its (zero-width) card in the layout; its sash would sit on the editor's edge and resize
+  // nothing useful, since the editor and agents already share the sash beside the agents panel.
+  if (kind === 'preview' && !layout.previewOpen) return null;
   const card = cardEl.getBoundingClientRect();
   const half = (Number.parseFloat(getComputedStyle($('#main')).getPropertyValue('--gap')) || 6) / 2;
   return kind === 'term'
@@ -8966,9 +9133,7 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
   if (initialHtml) {
     setSavedHtml(tab.panel, initialHtml);
   } else if (s.name === 'box') {
-    const agent = selectedAgent();
-    const who = agent ? `Breeze Box talks to ${esc(agent.name)}. Pick another agent below.` : 'Pick an agent below to start.';
-    tab.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="56" height="56"><h4>What can I help with?</h4><div>${who}</div></div></div>`;
+    tab.panel.innerHTML = boxEmptyHtml();
   } else {
     tab.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div>Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
   }
@@ -9338,12 +9503,13 @@ function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabSt
   if (lbl) swapText(lbl, label);
 }
 
-// A quiet murmur every couple of seconds for as long as any agent is still thinking.
+// A quiet murmur every couple of seconds for as long as any agent is still thinking (or writing a commit message).
 let thinkingHum: TimeoutId | undefined;
+let commitMsgPending = false;
 function humWhileThinking(): void {
   if (thinkingHum != null) return;
   thinkingHum = setInterval(() => {
-    if (!document.querySelector('.agent-tab-panel .thinking')) { clearInterval(thinkingHum); thinkingHum = undefined; return; }
+    if (!commitMsgPending && !document.querySelector('.agent-tab-panel .thinking')) { clearInterval(thinkingHum); thinkingHum = undefined; return; }
     sfx.play('hum');
   }, 1800);
 }
@@ -9358,12 +9524,146 @@ function hideThinking(tab?: AgentTabState): void {
   }
 }
 
+/* ----- Rotating prompts: a composer's placeholder changes when you point at it (and every 5 s while you do);
+   Breeze Box's greeting changes every 5 s ----- */
+// Built from parts, so each list holds over a thousand lines without writing them out one by one.
+const combine = (templates: string[], parts: string[]) => templates.flatMap(t => parts.map(p => t.replace('{x}', p)));
+const IDE_PLACEHOLDERS = [
+  'Describe what you want to build',
+  ...combine(['Build {x}', 'Make {x}', 'Create {x}', 'Design {x}', 'Prototype {x}', 'Scaffold {x}', 'Sketch out {x}', 'Put together {x}', 'Spin up {x}', 'Draft {x}', 'Code up {x}', 'Set up {x}'], [
+    'a landing page for a coffee shop', 'a todo app with drag and drop', 'a dark mode toggle', 'a pricing table', 'a contact form with validation',
+    'a weather widget', 'a Markdown previewer', 'a login screen', 'a REST API for notes', 'a CLI that renames photos',
+    'a Pomodoro timer', 'a chat UI', 'a settings page', 'an image gallery with a lightbox', 'a kanban board',
+    'a budget tracker', 'a quiz game', 'a snake game', 'a portfolio site', 'a blog with tags',
+    'a search bar with suggestions', 'a file uploader', 'a calendar view', 'a charts dashboard', 'a recipe finder',
+    'a URL shortener', 'a habit tracker', 'a music player UI', 'a modal dialog', 'a toast notification system',
+    'an onboarding flow', 'a 404 page', 'a signup form', 'a countdown timer', 'a color palette generator',
+    'a password generator', 'a unit converter', 'a tip calculator', 'a drawing canvas', 'a typing speed test',
+    'a product card grid', 'a sidebar navigation', 'a responsive navbar', 'a FAQ accordion', 'a star rating widget',
+    'a QR code generator', 'a weather app', 'an expense splitter', 'a mini spreadsheet', 'a memory card game',
+  ]),
+  ...combine(['Fix {x}', 'Refactor {x}', 'Speed up {x}', 'Write tests for {x}', 'Clean up {x}', 'Document {x}', 'Add types to {x}', 'Simplify {x}', 'Explain {x}', 'Restyle {x}', 'Add error handling to {x}', 'Review {x}'], [
+    'the navbar', 'the login flow', 'the checkout page', 'the API client', 'the settings screen',
+    'the search results', 'the signup form', 'the database queries', 'the build script', 'the footer',
+    'the router', 'the auth middleware', 'the image loader', 'the dashboard charts', 'the date helpers',
+    'the cart logic', 'the error page', 'the mobile layout', 'the sidebar', 'the modal',
+    'the file upload', 'the config loader', 'the test suite', 'the state store', 'the form validation',
+    'the dark theme', 'the header', 'the pagination', 'the notifications', 'the profile page',
+    'the caching layer', 'the websocket code', 'the logging', 'the main menu', 'the onboarding steps',
+    'the pricing page', 'the email templates', 'the cron jobs', 'the upload handler', 'the color tokens',
+    'the routes file', 'the landing hero', 'the data fetching', 'the drag and drop', 'the keyboard shortcuts',
+  ]),
+];
+const BOX_PLACEHOLDERS = [
+  'Ask Breeze anything',
+  ...combine(['How do I {x}?', 'Help me {x}', 'Can you {x}?', 'Show me how to {x}', 'Explain how to {x}', "What's the best way to {x}?", 'Walk me through how to {x}', 'Teach me to {x}', 'Quick: how do I {x}?', 'Is there an easy way to {x}?',
+    'I want to {x}', 'Remind me how to {x}', "What's a clean way to {x}?", 'Help me figure out how to {x}', 'Write code to {x}', 'Give me an example of how to {x}', 'Step by step, how do I {x}?', "What's the fastest way to {x}?", 'Can you help me {x}?', 'Show me the right way to {x}'], [
+    'center a div', 'set up a Python venv', 'write a regex for emails', 'deploy to Vercel', 'read a CSV file',
+    'debounce a search box', 'fix a merge conflict', 'undo my last commit', 'add dark mode', 'call an API in JavaScript',
+    'sort a list of objects', 'use async/await', 'write a SQL join', 'parse JSON safely', 'set up ESLint',
+    'speed up my page', 'write unit tests', 'build a REST API', 'handle form errors', 'resize images',
+    'use TypeScript generics', 'use CSS grid', 'make a responsive layout', 'store passwords safely', 'schedule a cron job',
+    'rename files in bulk', 'read environment variables', 'connect to Postgres', 'paginate results', 'upload files',
+    'send an email from Node', 'profile slow code', 'write a Dockerfile', 'rebase a branch', 'cache API responses',
+    'validate user input', 'animate a button', 'build a CLI', 'scrape a web page', 'use WebSockets',
+    'format dates', 'write a bash script', 'handle time zones', 'make a chart', 'lazy load images',
+    'set up GitHub Actions', 'write good commit messages', 'organize my project folders', 'find a memory leak', 'turn callbacks into promises',
+  ]),
+];
+const BOX_HEADINGS = [
+  'What can I help with?',
+  ...combine(['Ready to {x}?', "Let's {x}", 'Shall we {x}?', 'Want to {x}?', 'How about we {x}?', 'Time to {x}', "Today, let's {x}", 'What if we {x}?', 'Care to {x}?', "Let's {x} together",
+    "Ready? Let's {x}", 'Mind if we {x}?', 'Why not {x}?', 'Shall we {x} today?', 'Want to {x} today?', "Let's {x} now", 'Ready to {x} today?', 'Should we {x}?', 'Could we {x}?', "Let's {x}, shall we?"], [
+    'build something', 'ship it', 'fix that bug', 'make it faster', 'write some code', 'try an idea', 'clean things up', 'start fresh', 'make it pretty', 'learn something',
+    'squash bugs', 'plan a feature', 'sketch an app', 'tidy the code', 'write the tests', 'go further', 'dream big', 'launch it', 'make it work', 'make it right',
+    'explore an idea', 'prototype fast', 'refactor boldly', 'debug together', 'design a page', 'code something fun', 'automate a chore', 'build a game', 'polish the UI', 'solve a puzzle',
+    'start a project', 'finish that feature', 'break it down', 'make magic', 'craft an API', 'build a tool', 'write the docs', 'speed things up', 'get unstuck', 'try something new',
+    'ship today', 'cook up an app', 'fix the build', 'make a website', 'level up', 'pair up', 'brainstorm', 'untangle the mess', 'go live', 'make it shine',
+  ]),
+];
+function pickOther(list: string[], current: string): string {
+  const r = new Uint32Array(1);
+  for (;;) {
+    crypto.getRandomValues(r);
+    const next = list[r[0] % list.length];
+    if (next !== current || list.length < 2) return next;
+  }
+}
+// Blurs the old text away, then the new text in.
+function blurSwap(el: HTMLElement, text: string): void {
+  if (el.textContent === text) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !el.isConnected) { el.textContent = text; return; }
+  el.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); });
+  const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: 'blur(6px)', transform: 'translateY(-3px)' }], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  out.id = 'blurSwap';
+  out.onfinish = () => {
+    el.textContent = text;
+    out.cancel();
+    const into = el.animate([{ opacity: 0, filter: 'blur(6px)', transform: 'translateY(3px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    into.id = 'blurSwap';
+  };
+}
+// A native placeholder can't blur, so while a box shows its usual one, a layer on top draws it instead.
+// Any other placeholder (a question about a plan, say) shows as usual.
+interface PlaceholderRotator { ta: HTMLTextAreaElement; list: string[]; layer: HTMLElement }
+function rotatePlaceholder(ta: HTMLTextAreaElement, list: string[]): void {
+  const layer = document.createElement('span');
+  layer.className = 'ph-rot';
+  layer.setAttribute('aria-hidden', 'true');
+  layer.textContent = list[0];
+  ta.after(layer);
+  const place = () => {
+    const cs = getComputedStyle(ta);
+    const px = (v: string) => Number.parseFloat(v) || 0;
+    layer.style.top = `${ta.offsetTop + px(cs.borderTopWidth) + px(cs.paddingTop)}px`;
+    layer.style.left = `${ta.offsetLeft + px(cs.borderLeftWidth) + px(cs.paddingLeft)}px`;
+    layer.style.width = `${Math.max(0, ta.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight))}px`;
+    layer.style.font = cs.font;
+    layer.style.lineHeight = cs.lineHeight;
+  };
+  const sync = () => ta.classList.toggle('ph-rotating', ta.placeholder === list[0]);
+  new ResizeObserver(place).observe(ta);
+  new MutationObserver(sync).observe(ta, { attributes: true, attributeFilter: ['placeholder'] });
+  place(); sync();
+  const r = { ta, list, layer };
+  let hoverTimer: TimeoutId | undefined;
+  ta.addEventListener('pointerenter', () => {
+    nextPlaceholder(r);
+    clearInterval(hoverTimer);
+    hoverTimer = setInterval(() => nextPlaceholder(r), 5000);
+  });
+  ta.addEventListener('pointerleave', () => { clearInterval(hoverTimer); hoverTimer = undefined; });
+  // Typing mid-swap: drop the swap so the placeholder can blur away at once.
+  ta.addEventListener('input', () => layer.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); }));
+}
+function nextPlaceholder(r: PlaceholderRotator): void {
+  if (r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
+  blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
+}
+rotatePlaceholder(SURFACES.ide.prompt, IDE_PLACEHOLDERS);
+rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS);
+setInterval(() => {
+  if (document.hidden) return;
+  for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) blurSwap(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
+}, 5000);
+
+function boxEmptyWho(): string {
+  const agent = selectedAgent();
+  return agent ? `Breeze Box talks to ${agent.name}. Pick another agent below.` : 'Pick an agent below to start.';
+}
+// The greeting is BOX_HEADINGS[0], written out: a tab can be made before that list exists.
+function boxEmptyHtml(): string {
+  return `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="56" height="56"><h4>What can I help with?</h4><div class="empty-who">${esc(boxEmptyWho())}</div></div></div>`;
+}
+// Picking another agent rewrites the line under the greeting in place, with the same blur.
+function updateBoxEmptyWho(): void {
+  for (const el of $$<HTMLElement>('#boxChat .empty-who')) blurSwap(el, boxEmptyWho());
+}
+
 function emptyChat(s: Surface = SURFACES.ide, tab?: AgentTabState): void {
   const t = tab || getActiveTab(s);
   if (s.name === 'box') {
-    const agent = selectedAgent();
-    const who = agent ? `Breeze Box talks to ${esc(agent.name)}. Pick another agent below.` : 'Pick an agent below to start.';
-    t.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="56" height="56"><h4>What can I help with?</h4><div>${who}</div></div></div>`;
+    t.panel.innerHTML = boxEmptyHtml();
     return;
   }
   t.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div>Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
@@ -9910,11 +10210,28 @@ function renderPromptModels(): void {
   const box = $('#promptModels');
   const tagged = mentionedAgents(SURFACES.ide.prompt.value).filter(a => a.models?.length || a.version);
   const ids = tagged.map(a => a.id);
+  // An untagged agent's chip fades out where it is; the box keeps its row until then (see fitPrompt), so the chip
+  // never ends up beside the one-line prompt, and only folds to one line once it's gone.
   for (const el of $$<HTMLElement>('.prompt-model', box)) {
     if (ids.includes(el.dataset.agent as string) || el.classList.contains('leaving')) continue;
     el.classList.add('leaving');
-    el.addEventListener('animationend', () => el.remove(), { once: true });
-    setTimeout(() => el.remove(), 300);
+    let gone = false;
+    const done = () => {
+      if (gone) return;
+      gone = true;
+      // The box then eases down to one line instead of snapping.
+      const composer = el.closest<HTMLElement>('.composer-box');
+      const fromH = composer?.getBoundingClientRect().height ?? 0;
+      el.remove();
+      syncPromptHl();
+      if (!composer || reduceMotion.matches) return;
+      const toH = composer.getBoundingClientRect().height;
+      if (Math.abs(toH - fromH) < 1) return;
+      const frame = { boxSizing: 'border-box', overflow: 'hidden' };
+      composer.animate([{ ...frame, height: `${fromH}px` }, { ...frame, height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    };
+    el.addEventListener('animationend', done, { once: true });
+    setTimeout(done, 400);
   }
   let prev: HTMLElement | null = null;
   for (const a of tagged) {
@@ -9929,7 +10246,7 @@ function renderPromptModels(): void {
     }
     const html = promptModelHtml(a);
     if (el.innerHTML !== html) el.innerHTML = html;
-    el.title = `${agentShortName(a)}: change model${a.api ? '' : ' or effort'}`;
+    el.setAttribute('aria-label', `${agentShortName(a)}: change model${a.api ? '' : ' or effort'}`); // no tooltip, just for screen readers
     if (prev ? prev.nextElementSibling !== el : box.firstElementChild !== el) {
       if (prev) prev.after(el); else box.prepend(el);
     }
@@ -9956,40 +10273,100 @@ const PROMPT_MAX_H = 200;
 function fitPrompt(): void {
   const ta = SURFACES.ide.prompt;
   const box = ta.closest('.composer-box') as HTMLElement;
-  box.classList.toggle('compact', !$('#promptModels').querySelector('.prompt-model:not(.leaving)'));
+  box.classList.toggle('compact', !$('#promptModels').querySelector('.prompt-model'));
   ta.style.height = 'auto';
   const need = ta.scrollHeight;
   ta.style.height = `${Math.min(PROMPT_MAX_H, need)}px`;
   ta.style.overflowY = need > PROMPT_MAX_H ? 'auto' : 'hidden';
+  // One line: the send button sits centred beside it. More lines: it stays level with the last one.
+  const cs = getComputedStyle(ta);
+  const lineH = Number.parseFloat(cs.lineHeight) || Number.parseFloat(cs.fontSize) * 1.5;
+  box.classList.toggle('one-line', need <= lineH * 1.5 + Number.parseFloat(cs.paddingTop) + Number.parseFloat(cs.paddingBottom));
 }
-// When the box grows or shrinks (a new line, a tagged agent, the send button moving rows), it eases to its
-// new height and the send button glides to its new place instead of jumping.
-let composerAnim: Animation | null = null;
-let sendAnim: Animation | null = null;
+// A new line eases the prompt to its new height. Only the text box animates: the box grows around it and the
+// send button, pinned to the bottom, never moves.
+let promptAnim: Animation | null = null;
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-function animateComposer(box: HTMLElement, fromH: number, fromSend: DOMRect): void {
-  // Any run still going is dropped first so the end sizes are read without it (the start was read with it).
-  composerAnim?.cancel();
-  sendAnim?.cancel();
-  const toH = box.offsetHeight;
+function animatePromptHeight(ta: HTMLTextAreaElement, fromH: number): void {
+  promptAnim?.cancel(); // read the end height without it (the start was read with it)
+  const toH = ta.offsetHeight;
   if (Math.abs(toH - fromH) < 1 || reduceMotion.matches) return;
-  const timing: KeyframeAnimationOptions = { duration: 220, easing: 'cubic-bezier(.22, 1, .36, 1)' };
-  box.style.overflow = 'hidden';
-  composerAnim = box.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], timing);
-  composerAnim.onfinish = composerAnim.oncancel = () => { box.style.overflow = ''; };
-  const send = $('#send');
-  const to = send.getBoundingClientRect();
-  const dx = fromSend.left - to.left, dy = fromSend.top - to.top;
-  if (dx || dy) sendAnim = send.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], timing);
+  promptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
 }
+/* ----- Grow: when a panel is squeezed or widened and text rewraps, blocks ease to their new height instead of
+   jumping (the commit box going from one line to two, a note gaining a line). Only height animates: widths keep
+   up with the sash as it is dragged. Boxes that size themselves as you type (textareas) ease too. ----- */
+const GROW_SEL = 'textarea, button, .btn, p, h1, h2, h3, h4, label, .side-note, .scm-row, .commit, .card, .agent-card, .quick-card, .pill, .chip, .empty';
+// Things with their own size animation, or that must never lag: the agent prompt, the code editor, terminals, menus.
+const GROW_SKIP = '#prompt, .ta, #editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, [data-no-grow]';
+interface GrowState { w: number; h: number; anim?: Animation }
+const growState = new WeakMap<Element, GrowState>();
+// Dragging a sash resizes hundreds of watched blocks every frame, so this stays cheap: it reads all the new heights
+// in one layout (cancelling first, then reading, never one after the other per element), skips blocks that are off
+// screen, and starts at most GROW_PER_FRAME animations a frame. The rest just take their new size.
+const GROW_PER_FRAME = 24;
+const growRO = new ResizeObserver(entries => {
+  const pending: { el: HTMLElement; w: number; from: number; st: GrowState; running: boolean }[] = [];
+  for (const e of entries) {
+    const el = e.target as HTMLElement;
+    const size = e.borderBoxSize?.[0];
+    const w = size ? size.inlineSize : el.offsetWidth;
+    const h = size ? size.blockSize : el.offsetHeight;
+    const st = growState.get(el);
+    const running = st?.anim?.playState === 'running';
+    // Our own animation stepping the height along: not a new size.
+    if (running && st && Math.abs(w - st.w) < 0.5) continue;
+    if (!st || !st.w || !st.h || !w || !h || !el.isConnected) { growState.set(el, { w, h }); continue; }
+    const widthChanged = Math.abs(w - st.w) >= 0.5;
+    if ((!widthChanged && el.tagName !== 'TEXTAREA') || (!running && Math.abs(h - st.h) < 1)) { growState.set(el, { w, h }); continue; }
+    pending.push({ el, w, from: running ? h : st.h, st, running }); // mid-animation, it starts again from where it is
+  }
+  if (!pending.length) return;
+  for (const p of pending) if (p.running) p.st.anim?.cancel();
+  const vw = innerWidth, vh = innerHeight;
+  const sized = pending.map(p => {
+    const r = p.el.getBoundingClientRect();
+    return { ...p, to: r.height, onScreen: r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw };
+  });
+  let budget = reduceMotion.matches ? 0 : GROW_PER_FRAME;
+  // Border-box and clipped for the moment it runs, so padding counts and rewrapped text doesn't spill out.
+  const frame = { boxSizing: 'border-box', overflow: 'hidden' };
+  for (const p of sized) {
+    if (Math.abs(p.to - p.from) < 1 || !p.onScreen || budget <= 0) { growState.set(p.el, { w: p.w, h: p.to }); continue; }
+    budget--;
+    const anim = p.el.animate([{ ...frame, height: `${p.from}px` }, { ...frame, height: `${p.to}px` }], { duration: 220, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    growState.set(p.el, { w: p.w, h: p.to, anim });
+  }
+});
+// Watched: the elements above, plus every element that holds text of its own (a panel title, a label, a status
+// line), so all text that rewraps eases. Inline text has no box of its own (it always measures 0 × 0), so the
+// nearest block around it is watched instead.
+const growResolved = new WeakSet<Element>();
+function growWatch(el: Element): void {
+  if (growResolved.has(el)) return;
+  growResolved.add(el);
+  let box: Element | null = el;
+  while (box && box !== document.body && ['inline', 'contents'].includes(getComputedStyle(box).display)) box = box.parentElement;
+  if (box instanceof HTMLElement && box !== document.body && !box.closest(GROW_SKIP)) growRO.observe(box);
+}
+function watchGrow(root: Node): void {
+  if (root instanceof Text) { if (root.parentElement && root.data.trim()) growWatch(root.parentElement); return; }
+  if (!(root instanceof Element || root instanceof Document)) return;
+  if (root instanceof Element && root.matches(GROW_SEL)) growWatch(root);
+  for (const el of root.querySelectorAll(GROW_SEL)) growWatch(el);
+  const texts = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: t => (t as Text).data.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT });
+  for (let t = texts.nextNode(); t; t = texts.nextNode()) if (t.parentElement) growWatch(t.parentElement);
+}
+watchGrow(document);
+new MutationObserver(records => {
+  for (const r of records) for (const n of r.addedNodes) watchGrow(n);
+}).observe(document.body, { childList: true, subtree: true });
 function syncPromptHl(): void {
   const ta = SURFACES.ide.prompt;
-  const box = ta.closest('.composer-box') as HTMLElement;
-  const fromH = box.getBoundingClientRect().height;
-  const fromSend = $('#send').getBoundingClientRect();
+  const fromH = ta.getBoundingClientRect().height;
   renderPromptModels();
   fitPrompt();
-  animateComposer(box, fromH, fromSend);
+  animatePromptHeight(ta, fromH);
   // A trailing newline needs a character after it, or the layer is a line short.
   promptHl.innerHTML = mentionHtml(ta.value) + (ta.value.endsWith('\n') ? ' ' : '');
   promptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`; // clear of its scroll bar, if it shows one
@@ -11170,6 +11547,9 @@ Instructions:
 - If there are multiple distinct changes, provide a concise summary title, followed by an empty line and short bullet points (- ...) detailing the key changes.
 - Output ONLY the commit message itself. Do NOT output code blocks, quotes, or conversational preamble.`;
 
+    commitMsgPending = true;
+    sfx.play('think');
+    humWhileThinking();
     const res = await api.git.genCommitMsg({
       agent: activeAg.id,
       prompt,
@@ -11185,6 +11565,7 @@ Instructions:
     typeScmMsg(fallbackMsg);
     toast(`Commit message generated (${errMsg(err)})`);
   } finally {
+    commitMsgPending = false;
     if (genBtnEl) {
       genBtnEl.disabled = false;
       genBtnEl.classList.remove('busy');
@@ -11827,7 +12208,7 @@ function boxAgentItems(): MenuItem[] {
         appState.agent = ag.id;
         saveApp();
         renderAgentBar();
-        if (SURFACES.box.chat.querySelector('.empty')) emptyChat(SURFACES.box);
+        updateBoxEmptyWho();
         toast(`Breeze Box now uses ${ag.name}`);
       },
     });
@@ -12319,6 +12700,7 @@ function endSplash(): void {
       el.addEventListener('animationend', () => el.classList.remove('app-in'), { once: true });
     });
     splash.addEventListener('animationend', () => splash.remove(), { once: true });
+    setTimeout(() => splash.remove(), 1500); // a window opened hidden runs no animations; sounds wait for this to go
     splash.classList.add('out');
     return;
   }
