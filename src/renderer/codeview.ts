@@ -1,5 +1,5 @@
 /* ================= Code surface: a virtualized, textarea-shaped editor ================= */
-// Shared global scope with editcore.ts and breezescript.ts: no imports or exports here.
+// Shared global scope with editcore.ts and the breeze/ files: no imports or exports here.
 // A full-file <textarea> re-lays out every line per keystroke; this keeps a 1px input for focus and IME
 // and paints only the caret and selection boxes near the viewport.
 interface SurfaceOpts {

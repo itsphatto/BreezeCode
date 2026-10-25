@@ -10,5 +10,18 @@
     "rootDir": "src",
     "outDir": "src"
   },
-  "files": ["src/renderer/editcore.ts", "src/renderer/codeview.ts","src/renderer/breezescript.ts", "src/main/antigravityAgentService.ts"]
+  "files": [
+    "src/renderer/editcore.ts", "src/renderer/codeview.ts",
+    "src/renderer/breeze/core.ts", "src/renderer/breeze/sound.ts", "src/renderer/breeze/platform.ts",
+    "src/renderer/breeze/onboarding.ts", "src/renderer/breeze/sync.ts", "src/renderer/breeze/setup.ts",
+    "src/renderer/breeze/languages.ts", "src/renderer/breeze/workspace.ts", "src/renderer/breeze/drop.ts",
+    "src/renderer/breeze/buffers.ts", "src/renderer/breeze/explorer.ts", "src/renderer/breeze/tabs.ts",
+    "src/renderer/breeze/editor.ts", "src/renderer/breeze/preview.ts", "src/renderer/breeze/terminal.ts",
+    "src/renderer/breeze/autofill.ts", "src/renderer/breeze/layout.ts", "src/renderer/breeze/commands.ts",
+    "src/renderer/breeze/settings.ts", "src/renderer/breeze/agents.ts", "src/renderer/breeze/history.ts",
+    "src/renderer/breeze/mentions.ts", "src/renderer/breeze/teams.ts", "src/renderer/breeze/dropdowns.ts",
+    "src/renderer/breeze/git.ts", "src/renderer/breeze/views.ts", "src/renderer/breeze/vibe.ts",
+    "src/renderer/breeze/discord.ts", "src/renderer/breeze/ui.ts", "src/renderer/breeze/init.ts",
+    "src/main/antigravityAgentService.ts"
+  ]
 }

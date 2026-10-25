@@ -1,5 +1,5 @@
 /* ================= Editor core: pure position logic (no DOM) ================= */
-// Shared global scope with breezescript.ts: no imports or exports here.
+// Shared global scope with the breeze/ files: no imports or exports here.
 interface Sel { anchor: number; head: number }
 type NavKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown' | 'Home' | 'End' | 'PageUp' | 'PageDown';
 

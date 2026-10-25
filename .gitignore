@@ -9,7 +9,7 @@ breeze.config.json
 
 # Build output
 dist/
-src/renderer/breezescript.js
+src/renderer/breeze/*.js
 src/renderer/editcore.js
 src/renderer/codeview.js
 *.tsbuildinfo

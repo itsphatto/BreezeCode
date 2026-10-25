@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-starting>
 
 <head>
   <meta charset="utf-8">
@@ -13,11 +13,6 @@
 </head>
 
 <body>
-  <!-- Opening animation: a blue glow rises, then the logo fades up. It is pure CSS so it plays from the first frame. -->
-  <div class="splash" id="splash" aria-hidden="true"><img class="splash-logo" src="../../assets/brand/Agent.png" alt="Breeze Code Logo">
-    <div class="splash-loader"></div>
-  </div>
-
   <!-- Shared SVG symbols -->
   <svg class="sprite" width="0" height="0" aria-hidden="true">
     <symbol id="i-swirl" viewBox="0 0 24 24">
@@ -171,12 +166,14 @@
   <!-- ================= ONBOARDING ================= -->
   <div class="onboard" id="onboard">
     <div class="drag-strip"></div>
+    <div class="ob-bg" id="obBg" aria-hidden="true"></div>
+    <div class="ob-wave" id="obWave" aria-hidden="true"></div>
     <!-- Welcome -->
     <section class="ob-step ob-await" data-step="0">
       <img class="ob-logo" src="../../assets/brand/Agent.png" width="72" height="72" alt="Breeze Code Logo">
       <h1>Breeze Code</h1>
-      <p class="lead">Smooth as a breeze.</p>
-      <button class="btn btn-primary btn-lg" data-next>Start breezing</button>
+      <p class="lead">Imagination to Reality.</p>
+      <button class="btn btn-primary btn-lg" id="obStart">Start breezing</button>
     </section>
 
     <!-- 1 · Login -->
@@ -582,10 +579,40 @@
   <div id="modalRoot"></div>
   <div id="toastRoot"></div>
 
-  <!-- Compiled from breezescript.ts — run `npm run build` after editing the .ts -->
+  <!-- Compiled from the .ts files beside them — run `npm run build` after editing a .ts. The breeze/ files run in this
+       order and share one global scope (see breeze/core.ts); a new file goes where its load-time code has what it needs. -->
   <script src="editcore.js" defer></script>
   <script src="codeview.js" defer></script>
-  <script src="breezescript.js" defer></script>
+  <script src="breeze/core.js" defer></script>
+  <script src="breeze/sound.js" defer></script>
+  <script src="breeze/platform.js" defer></script>
+  <script src="breeze/onboarding.js" defer></script>
+  <script src="breeze/sync.js" defer></script>
+  <script src="breeze/setup.js" defer></script>
+  <script src="breeze/languages.js" defer></script>
+  <script src="breeze/workspace.js" defer></script>
+  <script src="breeze/drop.js" defer></script>
+  <script src="breeze/buffers.js" defer></script>
+  <script src="breeze/explorer.js" defer></script>
+  <script src="breeze/tabs.js" defer></script>
+  <script src="breeze/editor.js" defer></script>
+  <script src="breeze/preview.js" defer></script>
+  <script src="breeze/terminal.js" defer></script>
+  <script src="breeze/autofill.js" defer></script>
+  <script src="breeze/layout.js" defer></script>
+  <script src="breeze/commands.js" defer></script>
+  <script src="breeze/settings.js" defer></script>
+  <script src="breeze/agents.js" defer></script>
+  <script src="breeze/history.js" defer></script>
+  <script src="breeze/mentions.js" defer></script>
+  <script src="breeze/teams.js" defer></script>
+  <script src="breeze/dropdowns.js" defer></script>
+  <script src="breeze/git.js" defer></script>
+  <script src="breeze/views.js" defer></script>
+  <script src="breeze/vibe.js" defer></script>
+  <script src="breeze/discord.js" defer></script>
+  <script src="breeze/ui.js" defer></script>
+  <script src="breeze/init.js" defer></script>
 </body>
 
 </html>

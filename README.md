@@ -116,7 +116,7 @@ npm install
 npm start
 ```
 
-`npm start` compiles `src/renderer/breezescript.ts` and launches the app. `src/renderer/breezescript.js` is build output and isn't committed, so run `npm run build` once before opening `src/renderer/breeze.html` in a browser for a demo of the UI with a sample project and canned agent runs.
+`npm start` compiles the renderer's TypeScript (`src/renderer/breeze/*.ts`, `editcore.ts`, `codeview.ts`) and launches the app. The compiled `.js` files are build output and aren't committed, so run `npm run build` once before opening `src/renderer/breeze.html` in a browser for a demo of the UI with a sample project and canned agent runs.
 
 | Script | What it does |
 | --- | --- |
@@ -174,7 +174,8 @@ This runs `scripts/write-config.js`, which writes `breeze.config.json` from your
 | `src/main/discord.js` | Discord Rich Presence client |
 | `src/main/guard.js`, `pathguard.js` | Path and command safety checks |
 | `src/renderer/breeze.html`, `breeze.css` | UI |
-| `src/renderer/breezescript.ts` | Renderer logic (compiled to `breezescript.js`) |
+| `src/renderer/breeze/` | Renderer logic, one file per feature (settings, git, terminal and so on), loaded in order by `breeze.html` |
+| `src/renderer/editcore.ts`, `codeview.ts` | The code editor's position logic and its virtualized text surface |
 | `assets/brand/` | App icon, logos and wordmarks |
 | `assets/fonts/` | Bundled fonts |
 | `assets/icons/` | Agent and feed logos |
