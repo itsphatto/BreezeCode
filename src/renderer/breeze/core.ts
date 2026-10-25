@@ -23,6 +23,7 @@ interface Agent {
   status: AgentStatus;
   task: string;
   used: number;
+  agentId?: string;   // the agent (Codex, Claude Code…) that last took this role; the card wears its name and logo
 }
 interface User { name: string; provider: string; login?: string; email?: string | null; avatar?: string | null; }
 type AgentMode = 'plan' | 'build' | 'ask';

@@ -9,17 +9,25 @@ const TEAM_LINE: Record<string, string> = {
   build: '1 agent on this: <b>Builder</b> makes the changes',
   plan: '2 agents on this: <b>Planner</b> writes a plan, then <b>Builder</b> builds it once you approve',
 };
-// Planner, Builder and Assistant wear the logo of the agent doing the work (Codex, Claude Code…).
-function roleMark(k: AgentKey): { letter: string; tint: string } {
-  const chosen = selectedAgent();
+// The agent doing the work: the one a run was given to (@Claude in a chat whose default is Codex), else the default.
+function responder(agentId?: string | null): DetectedAgent | null {
+  if (!agentId) return selectedAgent();
+  return appState.detect?.agents.find(a => a.id === agentId && a.found) ?? selectedAgent();
+}
+// Planner, Builder and Assistant wear the logo and name of the agent doing the work (Codex, Claude Code…).
+function roleMark(k: AgentKey, agentId?: string | null): { letter: string; tint: string } {
+  const chosen = responder(agentId);
   if (!chosen) return { letter: agentsDef[k].letter, tint: agentsDef[k].tint };
   return AGENT_STYLE[chosen.id] ?? { letter: chosen.name[0], tint: chosen.id };
 }
-function teamLineHtml(mode: string): string {
-  const chosen = selectedAgent();
+function teamLineHtml(mode: string, agentId?: string | null): string {
+  const chosen = responder(agentId);
   const agentName = chosen?.name ?? 'Assistant';
   if (mode === 'ask') {
     return `1 agent on this: <b>${esc(agentName)}</b> answers without changing files`;
+  }
+  if (mode === 'build' && chosen) {
+    return `1 agent on this: <b>${esc(agentName)}</b> makes the changes`;
   }
   return TEAM_LINE[mode] ?? '';
 }
@@ -29,10 +37,11 @@ function renderAgents(): void {
   cards.classList.toggle('hidden', !team.length);
   cards.innerHTML = team.map(k => {
     const a = agentsDef[k];
-    const m = roleMark(k);
+    const m = roleMark(k, a.agentId);
+    const who = a.agentId ? responder(a.agentId) : null;
     return `<div class="agent ${a.status}${shown.has(k) ? '' : ' enter'}" data-agent-card="${k}">
       ${brandMark('ava', m.tint, m.letter)}
-      <div><span class="name">${a.name}</span> <span class="fs-11 text-3">${esc(a.model)}</span></div>
+      <div><span class="name">${esc(who?.name ?? a.name)}</span> <span class="fs-11 text-3">${esc(who ? modelLabel(who) : a.model)}</span></div>
       <div class="row gap-4"><span class="status ${a.status}">${statusLabel[a.status]}</span>
         ${a.status === 'working' ? `<button class="icon-btn" title="Stop" data-act="agent.stop">${svgIcon('stop')}</button>` : ''}</div>
       <div class="task">${esc(a.task)}</div>
@@ -58,13 +67,14 @@ function resetTeam(): void {
   setAgent('assistant', 'idle', 'Waiting for a question', 0);
   setAgent('planner', 'idle', 'Waiting for a prompt', 0);
   setAgent('builder', 'idle', 'Waiting for a plan', 0);
+  for (const a of Object.values(agentsDef)) a.agentId = undefined;
 }
 function setAgent(k: AgentKey, status: AgentStatus, task: string, used?: number): void {
   Object.assign(agentsDef[k], { status, task });
   if (used != null) agentsDef[k].used = used;
   renderAgents(); vibeTick(); queueDiscord();
   const curTab = surfaceTabs[surface.name]?.find(t => t.id === activeTabId[surface.name]);
-  if (status === 'working' && curTab?.run?.phase === k) showThinking(thinkingLabel(k), k, curTab);
+  if (status === 'working' && curTab?.run?.phase === k) showThinking(thinkingLabel(k, curTab.run.agent), k, curTab, curTab.run.agent);
 }
 
 type AttachmentKind = 'image' | 'file' | 'folder';
@@ -527,18 +537,19 @@ function addMsg(html: string, tab?: AgentTabState): HTMLElement {
 
 const clockTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-function speaker(k: AgentKey, s: Surface = msgSurface): { name: string; letter: string; tint: string } {
-  const chosen = selectedAgent();
-  if (chosen && (s.name === 'box' || k === 'assistant')) {
+// Whoever answers signs the message with their own name and logo, whichever role (Assistant, Planner, Builder) they hold.
+function speaker(k: AgentKey, agentId?: string | null): { name: string; letter: string; tint: string } {
+  const chosen = responder(agentId);
+  if (chosen) {
     const st = AGENT_STYLE[chosen.id] ?? { letter: chosen.name[0], tint: chosen.id };
     return { name: chosen.name, ...st };
   }
   return { name: agentsDef[k].name, ...roleMark(k) };
 }
 
-function agentMsg(k: AgentKey, html: string, tab?: AgentTabState): HTMLElement {
+function agentMsg(k: AgentKey, html: string, tab?: AgentTabState, agentId?: string | null): HTMLElement {
   const t = tab || getActiveTab(msgSurface);
-  const { name, letter, tint } = speaker(k, SURFACES[t.surfaceName]);
+  const { name, letter, tint } = speaker(k, agentId);
   sfx.play('answer');
   // In a team the agent's badge (added by addMsg) names the speaker instead.
   const who = labelAgent ? '' : `${brandMark('avatar mini', tint, letter)}<b>${esc(name)}</b> `;
@@ -567,13 +578,13 @@ function userMsg(text: string, attachments?: AgentAttachment[], tab?: AgentTabSt
   addMsg(`<div class="msg user"><div class="meta"><b>${esc(user?.name ?? 'You')}</b> ${clockTime()}</div><div class="body">${bodyText}${imgHtml}</div></div>`, t);
 }
 
-function thinkingLabel(k: AgentKey): string {
-  const who = speaker(k).name;
+function thinkingLabel(k: AgentKey, agentId?: string | null): string {
+  const who = speaker(k, agentId).name;
   const task = agentsDef[k].task;
   return msgSurface.name === 'box' || !task ? `${who} is thinking` : `${who} · ${task}`;
 }
 
-function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabState): void {
+function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabState, agentId?: string | null): void {
   const t = tab || getActiveTab(msgSurface);
   let el = t.panel.querySelector<HTMLElement>('.thinking');
   if (!el) {
@@ -586,7 +597,7 @@ function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabSt
     humWhileThinking();
     if (t.id === activeTabId[t.surfaceName]) scrollChat(SURFACES[t.surfaceName]);
   }
-  const { letter, tint } = speaker(k, SURFACES[t.surfaceName]);
+  const { letter, tint } = speaker(k, agentId);
   const avatar = $('.avatar', el);
   if (avatar) avatar.outerHTML = brandMark('avatar mini', tint, letter);
   const lbl = $('.lbl', el);

@@ -353,10 +353,11 @@ function onTeamDone(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 
 async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, uiMode: string, tab: AgentTabState, announce = false): Promise<void> {
   const phase = phaseFor(mode);
-  showThinking(`${speaker(phase).name} is reading your message`, phase, tab);
+  showThinking(`${speaker(phase, agentId).name} is reading your message`, phase, tab, agentId);
   tab.agentId = agentId;
   tab.uiMode = uiMode;
   agentsDef[phase].used = 0;
+  agentsDef[phase].agentId = agentId;
 
   try {
     const box = tab.surfaceName === 'box';
@@ -435,7 +436,7 @@ function onFirstReply(r: Run, tab: AgentTabState): void {
   r.replied = true;
   if (r.announce) teamNeed = TEAM_SIZE[r.uiMode] ?? 1;
   joinTeam(r.phase);
-  if (r.announce && tab.surfaceName === 'ide') addMsg(`<div class="team-line">${teamLineHtml(r.uiMode || r.mode)}</div>`, tab);
+  if (r.announce && tab.surfaceName === 'ide') addMsg(`<div class="team-line">${teamLineHtml(r.uiMode || r.mode, r.agent)}</div>`, tab);
 }
 
 const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab: AgentTabState) => void>> = {
@@ -459,7 +460,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
       }
     }
     r.lastText = ev.text;
-    r.lastMsg = agentMsg(r.phase, md(ev.text), tab);
+    r.lastMsg = agentMsg(r.phase, md(ev.text), tab, r.agent);
   },
   tool: (r, ev, tab) => {
     r.lastMsg = undefined;
