@@ -315,8 +315,11 @@ async function setRoot(dir) {
   if (root !== dir) { stopLiveServer(); stopTeams(); }
   root = dir;
   termCwd = dir;
-  const recent = [dir, ...(loadState().recent || []).filter(r => r !== dir)].slice(0, 10);
-  saveState({ lastRoot: dir, recent });
+  const saved = loadState();
+  const recent = [dir, ...(saved.recent || []).filter(r => r !== dir)].slice(0, 10);
+  // When each recent folder was last opened, for the Home screen's "2h ago".
+  const recentAt = Object.fromEntries(recent.map(r => [r, r === dir ? Date.now() : saved.recentAt?.[r] ?? null]));
+  saveState({ lastRoot: dir, recent, recentAt });
   startWatching();
   return { root: dir, name: path.basename(dir) };
 }
@@ -509,7 +512,17 @@ handle('fs:closeFolder', () => {
   root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); saveState({ lastRoot: null });
 });
 
-handle('fs:recent', () => (loadState().recent || []).map(p => ({ path: p, name: path.basename(p) })));
+handle('fs:recent', () => {
+  const st = loadState();
+  return (st.recent || []).map(p => ({ path: p, name: path.basename(p), openedAt: st.recentAt?.[p] ?? null, missing: !fs.existsSync(p) }));
+});
+
+handle('fs:forgetRecent', (_e, dir) => {
+  const st = loadState();
+  const recentAt = { ...st.recentAt };
+  delete recentAt[dir];
+  saveState({ recent: (st.recent || []).filter(r => r !== dir), recentAt });
+});
 
 handle('fs:openRecent', async (_e, dir) => {
   if (!(loadState().recent || []).includes(dir)) throw new Error('Unknown folder');
@@ -936,7 +949,7 @@ const AGENTS = [
     paths: () => isWin ? [path.join(APPDATA, 'npm', 'codex.cmd')] : ['/usr/local/bin/codex', '/opt/homebrew/bin/codex'],
   },
   {
-    id: 'claude', name: 'Claude Code', vendor: 'Anthropic', commands: ['claude'],
+    id: 'claude', name: 'Claude', vendor: 'Anthropic', commands: ['claude'],
     url: 'https://claude.com/claude-code',
     paths: () => isWin ? [
       path.join(HOME, '.local', 'bin', 'claude.exe'),
@@ -1462,7 +1475,7 @@ function dropSettingsFile(run) {
   if (run.settingsFile) fs.rm(run.settingsFile, { force: true }, () => { /* best effort */ });
   run.settingsFile = null;
 }
-const NO_BLOCK_NOTE = 'Claude Code can\'t be blocked from teammates\' files on this computer, so Breeze will undo any edit it makes to them instead.';
+const NO_BLOCK_NOTE = 'Claude can\'t be blocked from teammates\' files on this computer, so Breeze will undo any edit it makes to them instead.';
 // What each Claude Code tool call looks like in the chat.
 const CLAUDE_TOOLS = {
   Read: i => ['read', `Read ${relOut(i.file_path)}`],
@@ -1572,7 +1585,7 @@ async function startRun(runId, { agent, mode, prompt, session, box, team }) {
     if (!retried && agent === 'claude' && session && NO_SESSION.test(errText)) {
       retried = true;
       session = null;
-      emit(runId, { t: 'note', text: 'Claude Code couldn’t find the earlier conversation, so this message starts a new one.' });
+      emit(runId, { t: 'note', text: 'Claude couldn’t find the earlier conversation, so this message starts a new one.' });
       return relaunch();
     }
     const model = !retried && agent === 'codex' ? codexFallback(errText) : null;
@@ -2177,7 +2190,7 @@ function codexCommitMsg(base, prompt, model, effort) {
 }
 function claudeCommitMsg(base, prompt, model) {
   const bin = agentBins.get('claude');
-  if (!bin) throw new Error('Claude Code was not found');
+  if (!bin) throw new Error('Claude was not found');
   const targetModel = CLAUDE_MODELS.includes(model) && model !== 'default' ? model : 'haiku';
   const args = ['-p', '--output-format', 'json', '--model', targetModel, '--disallowedTools', ...CLAUDE_WRITE_TOOLS];
   const finish = out => {

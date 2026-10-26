@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('breeze', {
     closeFolder: () => invoke('fs:closeFolder'),
     recent: () => invoke('fs:recent'),
     openRecent: dir => invoke('fs:openRecent', dir),
+    forgetRecent: dir => invoke('fs:forgetRecent', dir),
     readDir: rel => invoke('fs:readDir', rel),
     readFile: rel => invoke('fs:readFile', rel),
     writeFile: (rel, text) => invoke('fs:writeFile', rel, text),

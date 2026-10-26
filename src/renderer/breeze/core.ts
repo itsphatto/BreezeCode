@@ -56,6 +56,7 @@ interface DetectedTool { id: string; name: string; found: boolean; version: stri
 interface Detection { agents: DetectedAgent[]; tools: DetectedTool[]; platform: string; demo?: boolean; }
 interface Rect { x: number; y: number; width: number; height: number; }
 interface DiscordActivity { details?: string; state?: string; start?: number; }
+interface RecentFolder { path: string; name: string; openedAt?: number | null; missing?: boolean; }
 interface LiveStatus { available: boolean; running: boolean; url: string; }
 
 interface BreezeApi {
@@ -65,8 +66,9 @@ interface BreezeApi {
     createFolder(): Promise<RootInfo | null>;
     restore(): Promise<RootInfo | null>;
     closeFolder(): Promise<void>;
-    recent(): Promise<{ path: string; name: string }[]>;
+    recent(): Promise<RecentFolder[]>;
     openRecent(dir: string): Promise<RootInfo>;
+    forgetRecent(dir: string): Promise<void>;
     readDir(rel: string): Promise<DirEntry[]>;
     readFile(rel: string): Promise<FileRead>;
     writeFile(rel: string, text: string): Promise<void>;

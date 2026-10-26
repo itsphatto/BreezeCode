@@ -142,9 +142,16 @@ function localAgentHtml(a: DetectedAgent, on: boolean, mark: string): string {
     <span class="sub" title="${escAttr(a.path ?? '')}">${esc(a.path ?? '')}</span>
     <div class="key-row"><select class="select" data-llm-model aria-label="Model">${options}</select></div></div>`;
 }
+// A version number reads "v2.1.4"; a one-word model alias ("haiku") reads as a name, "Haiku". Anything else
+// ("gpt-5.5-codex") is shown as it is.
+function versionLabel(v: string | null | undefined): string {
+  if (!v) return '';
+  if (/^\d/.test(v)) return `v${v}`;
+  return /^[a-z]+$/.test(v) ? v[0].toUpperCase() + v.slice(1) : v;
+}
 function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean): string {
   const where = a.path ?? (demo ? 'browser preview' : '');
-  const version = a.version ? 'v' + a.version : 'Installed';
+  const version = versionLabel(a.version) || 'Installed';
   const sub = a.found ? [version, where].filter(Boolean).join(' · ') : a.vendor + ' · not installed';
   const label = on ? 'Selected' : 'Detected';
   const side = a.found
@@ -305,6 +312,7 @@ function renderDetection(): void {
   const summary = d.tools.filter(t => t.found || !t.optional).map(t => `${t.name.replace('.js', '').replace('C/C++', 'C')} ${t.found ? 'ready' : 'missing'}`).join(' · ');
   $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;
   renderAgentBar();
+  renderHomeAgent();
 }
 $('#rescan').onclick = () => { detectTools(true).catch(() => { /* the agent card shows the error */ }); };
 
@@ -341,13 +349,13 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
     a.version = model;
     saveApp();
     renderAgentBar();
-    toast(`Codex model set to ${model} (${effort} effort)`);
+    toast(`Codex model set to ${versionLabel(model)} (${effort} effort)`);
   } else if (a.id === 'antigravity' || a.id === 'claude') {
     await api.agent.setModel(a.id, model, effort.toLowerCase());
     a.version = model;
     saveApp();
     renderAgentBar();
-    toast(`${a.name} model set to ${model} (${effort} effort)`);
+    toast(`${a.name} model set to ${versionLabel(model)} (${effort} effort)`);
   } else if (a.api) {
     await api.llm.setModel(model);
     a.version = model;
@@ -359,7 +367,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
 
 function modelMenuItems(a: DetectedAgent, onSelect?: () => void): MenuItem[] {
   return (a.models ?? []).map(m => ({
-    label: m,
+    label: versionLabel(m),
     checked: () => (a.version || a.models?.[0]) === m,
     subClass: 'effort-menu',
     sub: () => EFFORTS.map(eff => ({
@@ -615,32 +623,168 @@ function openAgentPicker(): void {
   });
 }
 
-/* ----- Mode: IDE or Breeze Box, and the project to start with ----- */
-function renderModeChoice(): void {
-  $$('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === appState.mode));
-  $('#projFolder').textContent = rootInfo ? rootInfo.root : 'No folder yet';
-  $('#projFolder').title = rootInfo?.root ?? '';
-  swapText($('#startBuilding'), appState.mode === 'box' ? 'Open Breeze Box' : 'Open Breeze Code');
+/* ----- Home: jump back into a recent project, or start one ----- */
+// null until the first list arrives, so Home shows placeholder rows instead of flashing its empty layout.
+let homeRecent: RecentFolder[] | null = null;
+let homeSeq = 0;
+// A steady colour per project, so each folder is recognisable at a glance.
+const projectHue = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+// Long paths keep their end, the part that tells two projects apart.
+const shortPath = (p: string, max = 52) => p.length > max ? `…${p.slice(-(max - 1))}` : p;
+function renderHome(): void {
+  $('#homeLead').textContent = appState.onboarded ? 'Pick up where you left off, or start something new.' : 'Open a project to start building.';
+  renderHomeProfile();
+  renderHomeAgent();
+  renderRecentList();
+  const seq = ++homeSeq;
+  background(api.fs.recent().catch(() => [] as RecentFolder[]).then(list => {
+    if (seq !== homeSeq) return;
+    homeRecent = list;
+    renderRecentList();
+  }));
 }
-$$('[data-mode]').forEach(b => b.onclick = () => {
-  appState.mode = b.dataset.mode === 'box' ? 'box' : 'ide';
-  saveApp();
-  renderModeChoice();
+function recentRowHtml(r: RecentFolder, i: number): string {
+  const when = r.missing ? 'Folder not found' : r.openedAt ? timeAgo(r.openedAt) : '';
+  // The most recent project leads, with its own Continue button.
+  const lead = i === 0 && !r.missing;
+  const cls = ['recent-row', lead ? 'lead' : '', r.missing ? 'missing' : ''].filter(Boolean).join(' ');
+  return `<div class="${cls}" role="listitem" data-hue="${projectHue(r.name)}">
+    <button class="recent-open" data-open="${escAttr(r.path)}" title="${escAttr(r.path)}">
+      <span class="proj-badge" aria-hidden="true">${esc((r.name[0] ?? '?').toUpperCase())}</span>
+      <span class="recent-txt">${lead ? `<span class="eyebrow">Last opened${when ? ` · ${esc(when)}` : ''}</span>` : ''}<span class="nm">${esc(r.name)}</span><span class="path">${esc(shortPath(r.path))}</span></span>
+      ${lead ? `<span class="recent-go">Continue${svgIcon('chevronRight', 14)}</span>` : `<span class="when">${esc(when)}</span>`}
+    </button>
+    <button class="icon-btn recent-forget" data-forget="${escAttr(r.path)}" title="Remove from this list" aria-label="Remove ${escAttr(r.name)} from recent projects">${svgIcon('x', 13)}</button>
+  </div>`;
+}
+function renderRecentList(): void {
+  const list = homeRecent;
+  const el = $('#homeRecent');
+  $('#homeRecentCount').textContent = list?.length ? String(list.length) : '';
+  const empty = `<div class="recent-empty">${svgIcon('folder', 20)}<span>Projects you open show up here, so you can jump straight back in.</span></div>`;
+  el.innerHTML = !list ? skeletonRows(4) : list.length ? list.map(recentRowHtml).join('') : empty;
+  // Set here, not in the markup: the page's CSP blocks inline style attributes.
+  $$('.recent-row', el).forEach((row, i) => {
+    row.style.setProperty('--hue', row.dataset.hue ?? '210');
+    row.style.setProperty('--i', String(i));
+  });
+}
+// Every agent found on this computer: picking a row makes it the default (as "Make default" on its chip does),
+// and each row's dropdown picks that agent's model and effort.
+function homeAgentRowHtml(a: DetectedAgent): string {
+  const on = a.id === appState.agent;
+  const st = AGENT_STYLE[a.id] ?? { letter: a.name[0], tint: a.id };
+  const model = a.version || a.models?.[0];
+  const value = !model ? '' : a.api ? model : versionLabel(model);
+  // A local server has no effort setting, and its vendor line (every server it can talk to) is too long for a row.
+  const about = a.api ? 'Runs on this computer' : `${a.vendor} · ${agentEffort(a)} effort`;
+  const picker = a.models?.length
+    ? `<button class="model-dd" data-model-for="${escAttr(a.id)}" aria-haspopup="menu" aria-label="${escAttr(`${a.name} model: ${value}`)}"><span>${esc(value)}</span>${svgIcon('chevronDown', 14)}</button>`
+    : value ? `<span class="model-fixed">${esc(value)}</span>` : '';
+  return `<div class="agent-row${on ? ' on' : ''}" role="radio" aria-checked="${on}" tabindex="${on ? 0 : -1}" data-agent="${escAttr(a.id)}">
+    ${brandMark('start-ico agent-mark', st.tint, st.letter)}
+    <span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${on ? '<b>Default</b> · ' : ''}${esc(about)}</span></span>
+    ${picker}
+  </div>`;
+}
+function renderHomeAgent(): void {
+  const el = $('#homeAgents');
+  if (!appState.detect) { el.innerHTML = skeletonRows(2); return; }
+  const found = appState.detect.agents.filter(a => a.found);
+  el.innerHTML = found.length
+    ? found.map(homeAgentRowHtml).join('')
+    : `<div class="recent-empty">${svgIcon('sparkles', 20)}<span>No AI agents found on this computer yet.</span><button class="btn btn-sm" data-act-agents>Set up an agent</button></div>`;
+  // Keyboard focus lands on the default; with none picked yet, on the first row.
+  const rows = $$('.agent-row', el);
+  if (rows.length && !rows.some(r => r.tabIndex === 0)) rows[0].tabIndex = 0;
+}
+// Opens a Home picker's menu under it, at least as wide as the picker.
+function openHomeMenu(anchor: HTMLElement, items: MenuItem[]): void {
+  openChipMenu(anchor, items);
+  const m = anchor.classList.contains('open') ? $('#menuRoot .menu') : null;
+  if (m) m.style.minWidth = `${anchor.offsetWidth}px`;
+}
+function pickHomeAgent(id: string): void {
+  const ag = appState.detect?.agents.find(a => a.id === id && a.found);
+  if (!ag || ag.id === appState.agent) return;
+  makeDefaultAgent(ag);
+  renderHomeAgent();
+  $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`).focus();
+}
+$('#homeAgents').addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  if (t.closest('[data-act-agents]')) { openAgentPicker(); return; }
+  // Clicking a model picks it at the current effort; hovering opens its effort levels, as on the agent chips.
+  const dd = t.closest<HTMLElement>('[data-model-for]');
+  const ag = dd && appState.detect?.agents.find(a => a.id === dd.dataset.modelFor);
+  if (dd && ag) { openHomeMenu(dd, modelMenuItems(ag, renderHomeAgent).map(it => ({ ...it, clickRuns: true }))); return; }
+  const row = t.closest<HTMLElement>('.agent-row');
+  if (row) pickHomeAgent(row.dataset.agent ?? '');
+});
+// A radio group: the arrows move the default, Enter or Space picks the focused row.
+$('#homeAgents').addEventListener('keydown', e => {
+  const row = (e.target as HTMLElement).closest<HTMLElement>('.agent-row');
+  if (!row || e.target !== row) return;
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickHomeAgent(row.dataset.agent ?? ''); return; }
+  const d = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+  if (!d) return;
+  e.preventDefault();
+  const rows = $$('.agent-row', $('#homeAgents'));
+  pickHomeAgent(rows[(rows.indexOf(row) + d + rows.length) % rows.length].dataset.agent ?? '');
+});
+$('#homeManageAgents').onclick = openAgentPicker;
+function leaveHome(): void {
+  enterMode(appState.mode);
+}
+function goHome(): void {
+  closeMenu();
+  swapScreen('#onboard');
+  goStep(STEP.home);
+}
+async function openFromHome(dir: string, row: HTMLElement): Promise<void> {
+  const r = homeRecent?.find(x => x.path === dir);
+  if (r?.missing) { toast(`${r.name} was moved or deleted. Remove it with ×.`); return; }
+  if (rootInfo?.root !== dir) {
+    if (!(await confirmDiscard())) return;
+    row.classList.add('busy');
+    try { await loadWorkspace(await api.fs.openRecent(dir)); } catch (e) { row.classList.remove('busy'); toast(errMsg(e)); renderHome(); return; }
+  }
+  leaveHome();
+}
+$('#homeRecent').addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  const forget = t.closest<HTMLElement>('[data-forget]');
+  if (forget) {
+    const dir = forget.dataset.forget ?? '';
+    const name = homeRecent?.find(x => x.path === dir)?.name ?? dir;
+    homeRecent = (homeRecent ?? []).filter(x => x.path !== dir);
+    renderRecentList();
+    background(api.fs.forgetRecent(dir).then(() => toast(`Removed ${name} from recent projects`)));
+    return;
+  }
+  const open = t.closest<HTMLElement>('[data-open]');
+  if (open) background(openFromHome(open.dataset.open ?? '', open.parentElement as HTMLElement));
+});
+// Up and down move between projects, like a menu.
+$('#homeRecent').addEventListener('keydown', e => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const rows = $$('.recent-open', $('#homeRecent'));
+  const i = rows.indexOf(document.activeElement as HTMLElement);
+  if (i < 0) return;
+  e.preventDefault();
+  rows[(i + (e.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length].focus();
 });
 // "Open folder" picks an existing folder; "Create new" makes a new, empty project folder. Both open it.
 async function chooseProject(create: boolean): Promise<void> {
+  if (!(await confirmDiscard())) return;
   const r = await (create ? api.fs.createFolder() : api.fs.openFolder());
   if (!r) return;
   await loadWorkspace(r);
-  renderModeChoice();
   toast(create ? `Created ${r.name}` : `Opened ${r.name}`);
+  leaveHome();
 }
 $('#pickFolder').onclick = () => background(chooseProject(false));
 $('#createFolder').onclick = () => background(chooseProject(true));
-$('#startBuilding').onclick = () => {
-  appState.onboarded = true; saveApp();
-  enterMode(appState.mode);
-};
 // Switching between the onboarding, the IDE and Breeze Box: the old screen fades back, the new one rises in.
 let swapTimer: TimeoutId | undefined;
 let booted = false;

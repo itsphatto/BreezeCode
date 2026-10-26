@@ -12,16 +12,20 @@ const appState: AppState = {
 };
 const saveApp = () => store.set('breeze.app', appState);
 
-/* ================= Onboarding: welcome → login → agent → mode ================= */
-const STEP = { welcome: 0, signIn: 1, agent: 2, mode: 3 };
-let step = Math.min(appState.step, STEP.mode);
+/* ================= Onboarding: welcome → login → agent → home ================= */
+// Home is also where every later launch lands (see init.ts).
+const STEP = { welcome: 0, signIn: 1, agent: 2, home: 3 };
+let step = Math.min(appState.step, STEP.home);
 let user: User | null = appState.user;
 function goStep(n: number): void {
   step = n; appState.step = n; saveApp();
   $$('.ob-step').forEach(s => s.classList.toggle('hidden', Number(s.dataset.step) !== n));
   $$('.ob-dots span').forEach((d, i) => { d.classList.toggle('on', i === n); d.classList.toggle('back', i < n); });
   if (n === STEP.agent) detectTools().catch(() => { /* the agent card shows the error */ });
-  if (n === STEP.mode) renderModeChoice();
+  if (n === STEP.home) renderHome();
+  // Once set up, Home is a screen of its own rather than a setup step, so the progress dots go.
+  $('#onboard').classList.toggle('settled', appState.onboarded);
+  $('#homeProfile').classList.toggle('hidden', n !== STEP.home);
   // Past the welcome the photo stays up for the rest of setup (also after a restart mid-setup).
   if (n > STEP.welcome) revealBackdrop();
 }
@@ -78,6 +82,19 @@ function renderUser(): void {
   $('#avatars').innerHTML = avatarHtml(user, title);
   $('#boxAvatar').innerHTML = avatarHtml(user, title);
   $('#userChip').textContent = user ? `● ${user.name} · ${user.provider}` : 'Not signed in';
+  renderHomeProfile();
+}
+// Home's account button (picture, name and provider, or an invitation to sign in) and its greeting.
+function renderHomeProfile(): void {
+  const first = user?.name.split(/\s+/)[0];
+  $('#homeTitle').textContent = !appState.onboarded ? "You're all set" : first ? `Welcome back, ${first}` : 'Welcome back';
+  const btn = $('#homeProfile');
+  btn.innerHTML = user
+    ? `${avatarHtml(user, '')}<span class="hp-txt"><span class="nm">${esc(user.name)}</span><span class="sub">${esc(user.provider)}</span></span>${svgIcon('chevronDown', 14)}`
+    : `<span class="hp-ico">${svgIcon('user', 15)}</span><span class="hp-txt"><span class="nm">Sign in</span></span>`;
+  btn.title = user ? `${user.name} · ${user.provider}` : 'Sign in with GitHub or Google';
+  // Signed in it opens the account menu; signed out it goes straight to signing in.
+  btn.setAttribute('aria-haspopup', user ? 'menu' : 'dialog');
 }
 let accounts: Accounts = { accounts: [], active: null };
 const accountKey = (u: User) => `${u.provider}:${u.login ?? ''}`;
@@ -133,9 +150,10 @@ function openAccountMenu(anchor: HTMLElement): void {
     m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
   }
 }
-for (const id of ['#avatars', '#boxAvatar']) {
+for (const id of ['#avatars', '#boxAvatar', '#homeProfile']) {
   $(id).onclick = e => {
     const anchor = e.currentTarget as HTMLElement;
+    if (anchor.id === 'homeProfile' && !user) { closeMenu(); addAccount(); return; }
     if (anchor.classList.contains('open') || (justClosedTrigger === anchor && Date.now() - justClosedAt < 350)) {
       closeMenu();
       return;
@@ -185,7 +203,10 @@ function bindSignin(root: HTMLElement): void {
 bindSignin(onboardSignin);
 $('#signinSkip').onclick = () => goStep(STEP.agent);
 function addAccount(): void {
-  openModal(`<h3>Add an account</h3><p class="sub">Sign in with another GitHub or Google account. Switch between accounts from your picture in the title bar.</p><div class="signin-modal">${SIGNIN_PANEL}</div>`, m => {
+  const intro = user
+    ? '<h3>Add an account</h3><p class="sub">Sign in with another GitHub or Google account. Switch between accounts from your picture in the title bar.</p>'
+    : `<h3>Sign in to Breeze</h3><p class="sub">Your browser opens to finish signing in, then you're back here.</p>`;
+  openModal(`${intro}<div class="signin-modal">${SIGNIN_PANEL}</div>`, m => {
     signinRoot = $('.signin-modal', m);
     bindSignin(signinRoot);
   }, () => {

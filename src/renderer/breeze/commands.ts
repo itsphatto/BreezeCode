@@ -21,6 +21,7 @@ function backToOnboarding(n: number): void {
   goStep(n);
 }
 const commands: Record<string, () => unknown> = {
+  'app.home': goHome,
   'file.newFile': () => newEntry(targetDir(), false),
   'file.newFolder': () => newEntry(targetDir(), true),
   'file.openFolder': openFolderCmd,
@@ -255,6 +256,8 @@ interface Menu { name: string; items: MenuItem[]; }
 const MENUS: Menu[] = [
   {
     name: 'File', items: [
+      { label: 'Home', act: 'app.home' },
+      { sep: true },
       { label: 'New File', act: 'file.newFile', key: 'Ctrl+N' },
       { label: 'New Folder', act: 'file.newFolder' },
       { sep: true },
@@ -349,6 +352,7 @@ const MENUS: Menu[] = [
       { label: 'Vibe Mode Feeds', act: 'vibe.feeds' },
       { label: 'Sound Effects', act: 'sound.toggle', checked: () => sfx.on },
       { sep: true },
+      { label: 'Home', act: 'app.home' },
       { label: 'Breeze Code', act: 'mode.ide', checked: () => appState.mode === 'ide' },
       { label: 'Breeze Box', act: 'mode.box', checked: () => appState.mode === 'box' },
       { sep: true },
