@@ -5,111 +5,252 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy Policy | Breeze Code</title>
-  <meta name="description" content="How Breeze Code handles your information.">
+  <meta name="description" content="How Breeze Code and its website handle personal data under the Thai PDPA and other privacy laws.">
   <meta name="theme-color" content="#000000">
   <link rel="canonical" href="https://breezecode.itsphatto.site/privacy.html">
-  <link rel="icon" href="/favicon.ico" sizes="48x48">
-  <link rel="icon" type="image/png" href="/favicon-192.png" sizes="192x192">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Inter:wght@400;500;600&family=B612+Mono&display=swap"
-    rel="stylesheet">
+  <link rel="icon" href="favicon.ico" sizes="48x48">
+  <link rel="icon" type="image/png" href="favicon-48.png" sizes="48x48">
+  <link rel="icon" type="image/png" href="favicon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
+  <script src="assets/vendor/lenis.min.js" defer></script>
+  <script src="site.js" defer></script>
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
   <script defer src="/_vercel/insights/script.js"></script>
   <script>window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script>
   <script defer src="/_vercel/speed-insights/script.js"></script>
 </head>
 
-<body>
+<body class="glow">
   <a class="skip" href="#content">Skip to content</a>
 
-  <header class="topbar">
-    <a class="brand" href="index.html" aria-label="Breeze Code home"><img src="assets/brand/BreezeCode.png" alt="Breeze Code"
-        height="34" width="202"></a>
-  </header>
 
-  <main class="wrap legal" id="content">
-    <a class="legal-back" href="index.html">← Back to home</a>
+  <main class="page" id="content">
     <h1>Privacy Policy</h1>
-    <p class="legal-meta">Last updated: October 22, 2026</p>
+    <p class="page-meta">Effective date: October 26, 2026 · Last updated: October 26, 2026</p>
 
-    <article class="legal-body">
-      <p>Breeze Code is a desktop app that runs on your computer. There is no Breeze Code account server and no
-        Breeze Code cloud: your code, settings and sign-in details stay on your machine. This page explains what the
-        app and this website do with your information, and which outside services are involved.</p>
+    <article class="prose">
+      <p>This Privacy Policy explains how personal data is handled when you use the Breeze Code desktop application
+        (the <b>"App"</b>) and the website at breezecode.itsphatto.site (the <b>"Website"</b>), together the
+        <b>"Services"</b>. It is written to meet the Personal Data Protection Act B.E. 2562 (2019) of Thailand
+        (the <b>"PDPA"</b>) and, where they apply to you, other privacy laws such as the EU and UK General Data
+        Protection Regulation (the <b>"GDPR"</b>).</p>
+      <p>The short version: the App runs on your computer, and your code, settings, keys and sign-in details stay
+        there. We do not run a Breeze Code account server or cloud, we do not receive your projects, and we do not
+        collect telemetry or crash reports from the App.</p>
 
-      <h2>Your code and files</h2>
-      <p>Breeze Code opens, edits and runs files directly on your computer. We never receive, upload or store your
-        projects. Checkpoints are saved with Git in your own project folder.</p>
+      <nav class="toc" aria-label="Contents">
+        <ol>
+          <li><a href="#who">Who we are</a></li>
+          <li><a href="#scope">Scope</a></li>
+          <li><a href="#not-collected">Data we do not collect</a></li>
+          <li><a href="#app">Data the App handles on your device</a></li>
+          <li><a href="#website">Data processed through the Website</a></li>
+          <li><a href="#third-parties">Third-party services</a></li>
+          <li><a href="#bases">Purposes and legal bases</a></li>
+          <li><a href="#retention">Retention</a></li>
+          <li><a href="#security">Security</a></li>
+          <li><a href="#transfers">International transfers</a></li>
+          <li><a href="#rights">Your rights</a></li>
+          <li><a href="#cookies">Cookies and tracking</a></li>
+          <li><a href="#children">Children</a></li>
+          <li><a href="#changes">Changes to this policy</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ol>
+      </nav>
 
-      <h2>Signing in</h2>
-      <p>Signing in is optional. If you choose <b>Continue with GitHub</b> or <b>Continue with Google</b>, the app
-        talks directly to GitHub or Google to sign you in. It receives your name, username or email address and
-        profile picture, and shows them in the app.</p>
-      <p>The sign-in token is encrypted with Windows' built-in protection (the same keychain the app uses for API
-        keys) and saved on your computer. Signing out deletes it. We don't receive any of this information.</p>
+      <h2 id="who">1. Who we are</h2>
+      <p>The Services are provided by the developer of Breeze Code, known as <b>@itsphatto</b> (<b>"we"</b>,
+        <b>"us"</b> or <b>"our"</b>), based in Thailand. Where we decide why and how personal data is processed
+        through the Website or in messages you send us, we act as the data controller under the PDPA. You can reach
+        us at <a href="mailto:BreezeCodeSupport@gmail.com">BreezeCodeSupport@gmail.com</a>.</p>
 
-      <h2>AI agents and API keys</h2>
-      <p>Agents only run when you ask them to.</p>
+      <h2 id="scope">2. Scope</h2>
+      <p>This policy covers the App and the Website. It does not cover services run by other companies that you
+        choose to use with the App, such as AI agents, model providers, GitHub, Google, Discord or Meta. Those
+        companies handle your data under their own privacy policies, and we encourage you to read them. See
+        <a href="#third-parties">section 6</a>.</p>
+
+      <h2 id="not-collected">3. Data we do not collect</h2>
+      <p>We do not receive, store or have access to:</p>
       <ul>
-        <li><b>Local models</b> (Ollama, LM Studio or another server on your computer): your prompts and code stay
-          on your machine.</li>
-        <li><b>Cloud agents</b> (Claude Code CLI, Codex, Antigravity or an online OpenAI-compatible server): the agent
-          sends your prompt and the parts of your project it needs for the task to its provider. What happens to
-          that data is covered by the provider's own privacy policy and terms.</li>
-        <li><b>API keys</b> you add are encrypted with Windows' built-in protection and stored only on your
-          computer.</li>
+        <li>your source code, project files, or the content of your prompts and chats;</li>
+        <li>API keys, sign-in tokens or passwords you use in the App;</li>
+        <li>usage analytics, telemetry or crash reports from the App;</li>
+        <li>your contacts, precise location or device identifiers.</li>
+      </ul>
+      <p>We do not sell personal data, share it for cross-context behavioural advertising, or show ads.</p>
+
+      <h2 id="app">4. Data the App handles on your device</h2>
+      <p>The App processes the data below locally on your computer to provide its features. Unless this section says
+        otherwise, this data is not sent to us. Because it never reaches us, we cannot access, correct or delete it
+        for you; you control it on your own device.</p>
+
+      <h3>4.1 Files and projects</h3>
+      <p>The App opens, edits and runs files in folders you choose. Checkpoints are saved with Git inside your own
+        project folder. Running code uses compilers and runtimes already installed on your computer.</p>
+
+      <h3>4.2 Settings</h3>
+      <p>Preferences such as your chosen agent, model server address and feature toggles are stored in the App's
+        settings folder on your computer.</p>
+
+      <h3>4.3 Optional sign-in with GitHub or Google</h3>
+      <p>Signing in is optional. If you choose <b>Continue with GitHub</b> or <b>Continue with Google</b>, the App
+        connects directly to that provider, which asks for your permission. The App then receives your name,
+        username or email address and profile picture, and shows them in the App. The resulting sign-in token is
+        encrypted with Windows' built-in data protection and stored on your computer. Signing out deletes it. The
+        provider processes your sign-in under its own privacy policy; we do not receive the token or your profile
+        data.</p>
+
+      <h3>4.4 API keys</h3>
+      <p>API keys and access tokens you add are encrypted with Windows' built-in data protection and stored only on
+        your computer. They are sent only to the provider they belong to, when the App calls that provider on your
+        behalf.</p>
+
+      <h3>4.5 AI agents and models</h3>
+      <p>Agents run only when you ask them to.</p>
+      <ul>
+        <li><b>Local models</b> (for example Ollama, LM Studio or another server on your own computer or network):
+          your prompts and code are sent only to that server.</li>
+        <li><b>Cloud agents and models</b> (for example Claude Code, Codex, Antigravity or an online
+          OpenAI-compatible server): the agent sends your prompt and the parts of your project it needs for the task
+          to its provider. That provider is responsible for this data under its own terms and privacy policy,
+          including whether it is stored or used to train models. Check those terms before you use a cloud agent
+          with confidential or personal data.</li>
       </ul>
 
-      <h2>Optional features</h2>
+      <h3>4.6 Discord presence (optional)</h3>
+      <p>Discord presence is off by default. When you turn it on, the App tells the Discord app running on your
+        computer that you are coding in Breeze Code. With extra detail turned on, it can also share the name of the
+        open file and project. Discord may show this to other users and processes it under its own privacy
+        policy.</p>
+
+      <h3>4.7 Vibe Code Mode (optional)</h3>
+      <p>Vibe Code Mode shows Instagram or Facebook Reels in a separate browser session inside the App. If you sign in
+        to those sites, their cookies and session data are stored on your computer in that session. Meta processes
+        your use of its services under its own policies.</p>
+
+      <h3>4.8 Update checks</h3>
+      <p>The App checks the official GitHub releases page for new versions and downloads an update only after you
+        agree. Like any download, this sends a standard request to GitHub, which includes your IP address and basic
+        technical information about your device.</p>
+
+      <h2 id="website">5. Data processed through the Website</h2>
+      <h3>5.1 Hosting</h3>
+      <p>The Website is hosted by Vercel Inc. When you visit, Vercel processes technical request data, such as your IP
+        address, browser type, the page requested and the time of the request, to deliver the page and keep the
+        service secure.</p>
+
+      <h3>5.2 Analytics</h3>
+      <p>We use Vercel Web Analytics and Vercel Speed Insights to count page visits and measure loading speed. Vercel
+        states that these tools do not use cookies and do not track you across websites. We only see aggregated
+        statistics, such as page views, referring sites, country and device type, and cannot identify individual
+        visitors from them.</p>
+
+      <h3>5.3 Latest release lookup</h3>
+      <p>The download section asks GitHub's public API for the latest version number and installer size. Your browser
+        makes this request directly, so GitHub receives your IP address and browser information.</p>
+
+      <h3>5.4 Emails you send us</h3>
+      <p>If you email us, we receive your email address, your name if you include it, and the content of your
+        message. We use them only to reply and to keep a record of the request.</p>
+
+      <h2 id="third-parties">6. Third-party services</h2>
+      <p>Depending on the features you use, the following companies may receive data directly from your device. Each
+        acts under its own terms and privacy policy, and we are not responsible for their practices.</p>
       <ul>
-        <li><b>Discord presence</b> is off until you turn it on. When it's on, the app tells the Discord app on your
-          computer that you're coding in Breeze Code. With extra detail turned on, it can also show the open file
-          and project name.</li>
-        <li><b>Vibe Mode</b> shows Instagram or Facebook Reels in a separate browser session inside the app. If you
-          sign in to those sites, their cookies are kept on your computer, and your use of them is covered by Meta's
-          own policies.</li>
+        <li><b>AI providers</b> you choose, such as Anthropic (Claude Code), OpenAI (Codex), Google (Antigravity) or
+          the operator of any OpenAI-compatible server you connect.</li>
+        <li><b>GitHub</b>, for update checks, release downloads, the Website's version lookup and optional
+          sign-in.</li>
+        <li><b>Google</b>, for optional sign-in.</li>
+        <li><b>Discord</b>, for optional presence.</li>
+        <li><b>Meta</b> (Instagram and Facebook), in Vibe Code Mode.</li>
+        <li><b>Vercel</b>, for Website hosting, analytics and performance measurement.</li>
       </ul>
 
-      <h2>Updates</h2>
-      <p>The app checks the
-        <a href="https://github.com/itsphatto/BreezeCode/releases" rel="noopener">GitHub releases page</a> for new
-        versions and downloads an update only when you agree. GitHub sees a standard request from your computer,
-        like any download.</p>
-
-      <h2>This website</h2>
+      <h2 id="bases">7. Purposes and legal bases</h2>
+      <p>Where we process personal data ourselves, we rely on the following legal bases under the PDPA and, where it
+        applies, the GDPR:</p>
       <ul>
-        <li>We use <b>Vercel Web Analytics</b> and <b>Speed Insights</b> to count page visits and measure loading
-          speed. They don't use cookies and report only combined numbers, not who you are.</li>
-        <li>Fonts load from <b>Google Fonts</b>, and the download section asks <b>GitHub</b> for the latest version
-          number. Both services see your IP address when your browser loads them.</li>
-        <li>The live demo on the home page runs entirely in your browser. Nothing you type in it is sent anywhere.</li>
+        <li><b>Legitimate interests</b>, to operate, secure and improve the Website and to understand in aggregate how
+          it is used. Because the data involved is minimal and aggregated, we have assessed that these interests are
+          not overridden by your rights.</li>
+        <li><b>Contract</b>, or steps you ask us to take before entering into one, to answer your messages and
+          support requests.</li>
+        <li><b>Consent</b>, for optional features you switch on yourself. You can withdraw consent at any time by
+          turning the feature off or signing out.</li>
+        <li><b>Legal obligation</b>, where we must keep or disclose information to comply with the law.</li>
       </ul>
 
-      <h2>What we don't do</h2>
-      <p>We don't sell your data, show ads, or collect telemetry or crash reports from the app.</p>
+      <h2 id="retention">8. Retention</h2>
+      <ul>
+        <li>Data stored by the App on your computer stays there until you delete it, sign out or uninstall the
+          App.</li>
+        <li>Website analytics are kept only in aggregated form. Vercel keeps its own logs for its own retention
+          periods.</li>
+        <li>Support emails are kept for as long as needed to handle the request and for up to two years after that,
+          unless the law requires us to keep them longer.</li>
+      </ul>
 
-      <h2>Children</h2>
-      <p>Breeze Code isn't directed at children under 13, and we don't knowingly collect information from them.</p>
+      <h2 id="security">9. Security</h2>
+      <p>The App encrypts sign-in tokens and API keys with Windows' built-in data protection, and the Website is served
+        only over HTTPS. No method of storage or transmission is completely secure, so we cannot guarantee absolute
+        security. Protect your Windows account with a password, and download the App only from the official GitHub
+        releases page.</p>
 
-      <h2>Changes and contact</h2>
-      <p>If this policy changes, we'll update this page and the date at the top. Questions? Open an issue on
-        <a href="https://github.com/itsphatto/BreezeCode/issues" rel="noopener">GitHub</a>.</p>
+      <h2 id="transfers">10. International transfers</h2>
+      <p>Our service providers, including Vercel and GitHub, may process data in countries outside Thailand, such as
+        the United States, whose data protection laws may differ from Thailand's. Where the PDPA or the GDPR requires
+        it, these transfers rely on safeguards recognised by law, such as the provider's standard contractual
+        clauses, or on another lawful basis.</p>
+
+      <h2 id="rights">11. Your rights</h2>
+      <p>Under the PDPA, and subject to its conditions and exceptions, you have the right to:</p>
+      <ul>
+        <li>access your personal data and obtain a copy of it;</li>
+        <li>receive your data in a commonly used electronic format, or have it sent to another controller;</li>
+        <li>object to processing that is based on legitimate interests;</li>
+        <li>ask us to delete, destroy or anonymise your data;</li>
+        <li>ask us to restrict the use of your data;</li>
+        <li>ask us to correct inaccurate or incomplete data;</li>
+        <li>withdraw your consent at any time, without affecting processing that took place before; and</li>
+        <li>lodge a complaint with the Office of the Personal Data Protection Committee of Thailand.</li>
+      </ul>
+      <p>If the GDPR or another privacy law applies to you, you may have similar rights under that law, including the
+        right to complain to your local data protection authority.</p>
+      <p>To exercise a right, email <a href="mailto:BreezeCodeSupport@gmail.com">BreezeCodeSupport@gmail.com</a>. We
+        may need to verify your identity, and we will respond within 30 days. Because most App data never reaches us,
+        many requests are best handled directly on your device or with the third-party provider involved.</p>
+
+      <h2 id="cookies">12. Cookies and tracking</h2>
+      <p>The Website does not set cookies and does not use advertising or cross-site tracking technologies. Because
+        we do not track you across sites, we do not change our practices in response to Do Not Track signals.</p>
+
+      <h2 id="children">13. Children</h2>
+      <p>The Services are not directed at children under 13, and we do not knowingly collect personal data from them.
+        If you are under the age of majority where you live (20 in Thailand), please use the Services with the
+        permission of a parent or guardian. If you believe a child has sent us personal data, contact us and we will
+        delete it.</p>
+
+      <h2 id="changes">14. Changes to this policy</h2>
+      <p>We may update this policy as the Services or the law change. We will post the new version on this page and
+        update the date at the top. If a change materially affects how we handle your personal data, we will give
+        notice on the Website or in the App's release notes before the change takes effect.</p>
+
+      <h2 id="contact">15. Contact</h2>
+      <p>For questions about this policy or your personal data, contact @itsphatto at
+        <a href="mailto:BreezeCodeSupport@gmail.com">BreezeCodeSupport@gmail.com</a>.</p>
     </article>
   </main>
 
   <footer class="footer">
     <div class="wrap footer-in">
-      <a class="brand" href="index.html" aria-label="Breeze Code home"><img src="assets/brand/BreezeCode.png" alt="Breeze Code"
-          height="26" width="155" loading="lazy"></a>
-      <nav class="footer-nav" aria-label="Footer">
-        <a href="https://github.com/itsphatto/BreezeCode" rel="noopener">GitHub</a>
-        <a href="FAQ.html">FAQ</a>
-        <a href="privacy.html" aria-current="page">Privacy</a>
-        <a href="terms.html">Terms of Service</a>
+      <a class="logo" href="index.html" aria-label="Breeze Code home"><img src="favicon-192.png" alt="" width="24"
+          height="24" loading="lazy">Breeze Code</a>
+      <nav aria-label="Footer">
+        <a href="terms.html" target="_blank" rel="noopener">Terms of Service<span class="skip"> (opens in a new tab)</span></a>
+        <a href="FAQ.html" target="_blank" rel="noopener">FAQ<span class="skip"> (opens in a new tab)</span></a>
       </nav>
     </div>
   </footer>
