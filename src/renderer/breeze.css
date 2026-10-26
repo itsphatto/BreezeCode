@@ -663,7 +663,7 @@ button {
   --bg-3: rgba(28, 28, 33, .8);
 }
 
-.onboard :is(.setup-card, .mode-card, .device-code),
+.onboard :is(.setup-card, .start-tile, .device-code),
 .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) {
   backdrop-filter: blur(18px) saturate(1.2);
 }
@@ -681,8 +681,9 @@ button {
   background: rgba(36, 36, 42, .5);
 }
 
-.onboard .project-card:focus-within {
-  background: rgba(26, 26, 31, .84);
+/* Hovered start tiles warm up in blue over the photo. */
+.onboard .start-tile:hover {
+  background: rgba(14, 30, 60, .82);
 }
 
 .ob-step[data-step="0"] h1 {
@@ -3858,7 +3859,8 @@ textarea:not(:placeholder-shown) + .ph-rot {
   backdrop-filter: blur(6px);
   display: grid;
   place-items: center;
-  z-index: 40;
+  /* Above Home and setup (50), so "Sign in" and "Manage agents" open over them; below menus (70) and toasts. */
+  z-index: 55;
   animation: fade .35s cubic-bezier(.16, 1, .3, 1);
 }
 
@@ -5633,132 +5635,504 @@ body.vibing .ide {
   }
 }
 
-/* ================= Onboarding: mode step ================= */
-.ob-step.mode-step {
-  width: min(640px, calc(100vw - 32px));
+/* ================= Home: jump back in, or start a project ================= */
+.ob-step.home-step {
+  width: min(920px, calc(100vw - 48px));
+  text-align: left;
 }
 
-.mode-grid {
+/* Once set up, Home is its own screen rather than a setup step: no progress dots. */
+.onboard.settled .ob-dots {
+  display: none;
+}
+
+.home-head {
+  text-align: center;
+  margin-bottom: 26px;
+}
+
+.home-head h2 {
+  font-size: 28px;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, .55);
+}
+
+.home-head p.lead {
+  margin: 0;
+  color: rgba(255, 255, 255, .8);
+  text-shadow: 0 1px 14px rgba(0, 0, 0, .7);
+}
+
+.home-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.home-recent {
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.home-recent header {
+  padding: 4px 6px 8px;
+}
+
+.recent-list {
+  display: grid;
+  gap: 2px;
+  max-height: min(300px, 40vh);
+  overflow: auto;
+}
+
+.recent-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 26px 18px 30px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.recent-empty .ico-svg {
+  color: var(--text-3);
+}
+
+.recent-row {
+  position: relative;
+  animation: rise .35s cubic-bezier(.2, .8, .2, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+
+.recent-open {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 12px;
+  padding: 9px 42px 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  transition: background-color .15s, border-color .15s, opacity .2s;
+}
+
+.recent-open:hover {
+  background: rgba(255, 255, 255, .05);
+}
+
+.recent-open:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+  background: rgba(255, 255, 255, .05);
+}
+
+/* A coloured initial per project (--hue comes from its name). */
+.proj-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font: 700 14px var(--font-display);
+  color: hsl(var(--hue) 85% 78%);
+  background: hsl(var(--hue) 55% 45% / .22);
+  border: 1px solid hsl(var(--hue) 60% 60% / .25);
+}
+
+.recent-txt {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.recent-txt .nm,
+.recent-txt .path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-txt .nm {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.recent-txt .path {
+  font: 11.5px var(--font-code);
+  color: var(--text-3);
+}
+
+.recent-row .when {
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.recent-forget {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity .15s;
+}
+
+.recent-row:hover .recent-forget,
+.recent-forget:focus-visible {
+  opacity: 1;
+}
+
+/* The project opened last leads the list, bigger and with its own Continue button. */
+.recent-row.lead {
+  margin-bottom: 8px;
+}
+
+.recent-row.lead .recent-open {
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 14px 46px 14px 14px;
+  border-color: rgba(255, 255, 255, .08);
+  background: linear-gradient(120deg, hsl(var(--hue) 60% 40% / .16), transparent 70%);
+}
+
+.recent-row.lead .recent-open:hover {
+  border-color: rgba(255, 255, 255, .16);
+}
+
+.recent-row.lead .recent-open:focus-visible {
+  border-color: var(--blue);
+}
+
+.recent-row.lead .proj-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 19px;
+}
+
+.recent-row.lead .nm {
+  font: 700 16px var(--font-display);
+  letter-spacing: -.01em;
+}
+
+.recent-txt .eyebrow {
+  margin-bottom: 3px;
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.recent-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 9px 7px 14px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: box-shadow .2s;
+}
+
+.recent-go .ico-svg {
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.recent-open:hover .recent-go {
+  box-shadow: 0 6px 20px rgba(0, 94, 255, .35);
+}
+
+.recent-open:hover .recent-go .ico-svg {
+  transform: translateX(2px);
+}
+
+.recent-row.missing .recent-open {
+  opacity: .55;
+}
+
+.recent-row.missing .when {
+  color: var(--warn);
+}
+
+.recent-row.busy {
+  pointer-events: none;
+}
+
+.recent-row.busy .recent-open {
+  opacity: .6;
+}
+
+/* Start a project: the two ways in, side by side across the top. */
+.home-start {
   margin-bottom: 14px;
 }
 
-.mode-card {
+.start-row {
   display: grid;
-  gap: 4px;
-  justify-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.start-tile {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
   padding: 14px;
   text-align: left;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--bg-2);
   color: var(--text);
-  transition: border-color .25s cubic-bezier(.2, .8, .2, 1), background-color .25s cubic-bezier(.2, .8, .2, 1), box-shadow .25s cubic-bezier(.2, .8, .2, 1), transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: border-color .2s cubic-bezier(.2, .8, .2, 1), background-color .2s cubic-bezier(.2, .8, .2, 1), transform .2s cubic-bezier(.2, .8, .2, 1);
 }
 
-.mode-card:hover {
-  border-color: #3a3a42;
+.start-tile:hover {
+  border-color: var(--blue);
   transform: translateY(-1px);
 }
 
-.mode-card:active {
+.start-tile:active {
   transform: translateY(0);
 }
 
-.mode-card.on {
-  border-color: var(--blue);
+.start-tile:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.start-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
   background: var(--blue-soft);
+  color: #6ea0ff;
 }
 
-.mode-card .nm {
-  font: 700 15px var(--font-display);
-  margin-top: 8px;
+.start-txt {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
-.mode-card .sub {
+.start-txt .nm {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.start-txt .sub {
   color: var(--text-2);
   font-size: 12.5px;
 }
 
-/* Tiny drawings of each mode. */
-.mode-art {
-  width: 100%;
-  height: 72px;
-  border-radius: 9px;
-  background: var(--bg);
-  border: 1px solid var(--line);
+/* Default agent: every agent found on this computer, one row each with its own model dropdown. The rows are
+   part of the card, not cards of their own, so it keeps the same see-through glass as the tiles above. */
+.home-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.home-agent header {
+  padding: 4px 2px 0 6px;
+  margin: 0;
+}
+
+.home-agent .muted {
+  margin: 0 6px 6px;
+}
+
+/* Pinned to the card's foot, so the card lines up with Jump back in beside it. */
+.home-agent .home-tip {
+  margin: auto 6px 4px;
+  padding-top: 12px;
+  color: var(--text-3);
+}
+
+.agent-rows {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  max-height: min(300px, 40vh);
+  overflow: auto;
+}
+
+.agent-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s;
+}
+
+.agent-row:hover {
+  background: rgba(255, 255, 255, .05);
+}
+
+.agent-row:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.agent-row.on {
+  border-color: var(--blue);
+  background: rgba(0, 94, 255, .08);
+}
+
+.agent-row .start-txt .sub b {
+  color: #6ea0ff;
+  font-weight: 600;
+}
+
+.model-dd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 170px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+  transition: background-color .15s, border-color .15s;
+}
+
+.model-dd span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-dd:hover {
+  background: rgba(255, 255, 255, .06);
+}
+
+.model-dd.open,
+.model-dd:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.model-dd .ico-svg {
+  flex: none;
+  color: var(--text-3);
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.model-dd.open .ico-svg {
+  transform: rotate(180deg);
+}
+
+.model-fixed {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.agent-mark {
+  font: 700 13px var(--font-display);
+  color: var(--tint, var(--text));
+  background: color-mix(in srgb, var(--tint, #7aa9ff) 18%, transparent);
+}
+
+.agent-mark.has-img {
   padding: 6px;
+  background: rgba(255, 255, 255, .06) !important;
 }
 
-.mode-art i {
-  border-radius: 4px;
-  background: var(--bg-3);
-}
-
-.ide-art {
-  grid-template-columns: 1fr 3fr 1.4fr;
-}
-
-.ide-art i:nth-child(2) {
-  background: linear-gradient(180deg, var(--bg-3) 0 18%, #15151a 18%);
-}
-
-.ide-art i:nth-child(3) {
-  background: rgba(0, 94, 255, .25);
-}
-
-.box-art {
-  grid-template-rows: 1fr 18px;
-  padding: 8px 22%;
-}
-
-.box-art i:first-child {
-  background: repeating-linear-gradient(180deg, var(--bg-3) 0 9px, transparent 9px 15px);
-}
-
-.box-art i:last-child {
-  background: rgba(0, 94, 255, .35);
-  border-radius: 6px;
-}
-
-.project-card {
-  text-align: left;
-  margin-bottom: 18px;
-  transition: border-color .15s, background-color .15s, box-shadow .2s;
-}
-
-.project-card:hover,
-.project-card:focus-within {
-  border-color: #3a3a42;
-  background: #1a1a1f;
-}
-
-.project-card .seg button {
-  transition: border-color .15s, background-color .15s, color .15s;
+/* Home's account button, top right just under the window buttons. */
+.home-profile {
+  position: absolute;
+  top: 50px;
+  right: 22px;
+  z-index: 2;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px;
+  gap: 9px;
+  padding: 5px 10px 5px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  /* The same glass as the Home tiles (it sits outside .ob-step, so it can't use their --bg-2). */
+  background: rgba(19, 19, 22, .78);
+  backdrop-filter: blur(18px) saturate(1.2);
   color: var(--text);
+  animation: fade .35s ease;
+  transition: border-color .15s, background-color .15s;
 }
 
-.project-card .seg button:hover {
-  border-color: var(--blue);
+.home-profile:hover,
+.home-profile.open {
+  border-color: #3a3a42;
+}
+
+.home-profile:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.home-profile .avatar {
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  border: 0;
+  font-size: 12px;
+}
+
+.home-profile .hp-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
   background: var(--blue-soft);
+  color: #6ea0ff;
 }
 
-.project-card .folder-path {
-  max-width: 60%;
-  text-align: right;
+.hp-txt {
+  display: grid;
+  text-align: left;
+  line-height: 1.2;
 }
 
-.mode-actions {
-  gap: 12px;
+.hp-txt .nm {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hp-txt .sub {
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.home-profile > .ico-svg {
+  color: var(--text-3);
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.home-profile.open > .ico-svg {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 760px) {
+  .home-grid,
+  .start-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .signin {

@@ -19,8 +19,7 @@ async function boot(): Promise<void> {
   const signed = await api.auth.user().catch(() => null);
   if (signed || isDesktop) { user = signed; appState.user = signed; saveApp(); }
   await refreshAccounts();
-  if (appState.onboarded) enterMode(appState.mode);
-  else goStep(step);
+  if (!appState.onboarded) goStep(step);
   booted = true;
   updateActIndicator(true);
   const info = await api.fs.restore().catch(() => null);
@@ -28,7 +27,7 @@ async function boot(): Promise<void> {
   if (info) await loadWorkspace(info);
   else { term.cwd = await api.term.cwd(); renderPs(); }
   renderTree(); renderScm();
-  if (step === STEP.mode) renderModeChoice();
+  if (step === STEP.home) renderHome();
   renderBoxFolder();
   // Refresh the tool and agent status in the background; the cached result shows meanwhile.
   if (appState.onboarded) detectTools().catch(() => { /* shown in the setup card */ });
@@ -45,11 +44,11 @@ async function boot(): Promise<void> {
   // One frame so the last renders are painted before start-up counts as done.
   await new Promise(r => { requestAnimationFrame(() => r(undefined)); setTimeout(r, 100); }); // a hidden window has no frames
 }
-// No loading screen: the window opens straight onto the remembered screen, so a returning user never sees the
+// No loading screen: every launch after setup opens straight onto Home, so a returning user never sees the
 // welcome flash by. A first run's welcome rises in; sounds stay off until start-up has settled (8s at most).
 {
+  if (appState.onboarded) goStep(STEP.home);
   const welcome = $('.ob-step[data-step="0"]');
-  if (appState.onboarded) swapScreen(appState.mode === 'box' ? '#box' : '#ide');
   welcome.classList.remove('ob-await');
   if (welcome.getClientRects().length) welcome.classList.add('ob-intro');
   const starting = boot();

@@ -163,7 +163,7 @@ const sfx = (() => {
     ['[data-copy], .copy-btn', 'copy'],
     ['a[href]', 'link'],
     ['.tree-item, .row, [role="option"], [role="menuitem"], .chat-file-chip, .card', 'row'],
-    ['button, [role="button"], summary, select, label, .btn, .pill-btn, .mode-card', 'click'],
+    ['button, [role="button"], summary, select, label, .btn, .pill-btn', 'click'],
     // Source control rows (changes, checkpoints): after buttons, so a row's own stage/discard buttons still click.
     ['.scm-row, .commit, .commit-detail-row', 'row'],
   ];

@@ -168,6 +168,8 @@
     <div class="drag-strip"></div>
     <div class="ob-bg" id="obBg" aria-hidden="true"></div>
     <div class="ob-wave" id="obWave" aria-hidden="true"></div>
+    <!-- Home only: who is signed in, top right under the window buttons -->
+    <button class="home-profile hidden" id="homeProfile" aria-haspopup="menu" title="Account"></button>
     <!-- Welcome -->
     <section class="ob-step ob-await" data-step="0">
       <img class="ob-logo" src="../../assets/brand/Agent.png" width="72" height="72" alt="Breeze Code Logo">
@@ -231,37 +233,39 @@
       </div>
     </section>
 
-    <!-- 3 · Mode -->
-    <section class="ob-step mode-step hidden" data-step="3">
-      <h2>How do you want to work?</h2>
-      <p class="lead">Switch between them any time from Settings.</p>
-      <div class="mode-grid">
-        <button class="mode-card on" data-mode="ide">
-          <span class="mode-art ide-art" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span class="nm">Breeze Code</span>
-          <span class="sub">Files, code, terminal, preview and agents all in one view.</span>
-        </button>
-        <button class="mode-card" data-mode="box">
-          <span class="mode-art box-art" aria-hidden="true"><i></i><i></i></span>
-          <span class="nm">Breeze Box</span>
-          <span class="sub">Talk to any available agent without opening the editor.</span>
-        </button>
-      </div>
-      <div class="setup-card project-card" id="projectCard">
-        <header>
-          <h3>Start a project</h3><span class="folder-path" id="projFolder">No folder yet</span>
-        </header>
-        <div class="seg">
-          <button id="pickFolder"><svg width="16" height="16">
-              <use href="#i-newdir" />
-            </svg> Open folder</button>
-          <button id="createFolder"><svg width="16" height="16">
-              <use href="#i-newfile" />
-            </svg> Create new folder</button>
+    <!-- 3 · Home: where every launch lands, and the last step of first-run setup -->
+    <section class="ob-step home-step hidden" data-step="3" aria-labelledby="homeTitle">
+      <header class="home-head">
+        <h2 id="homeTitle">Welcome back</h2>
+        <p class="lead" id="homeLead">Pick up where you left off, or start something new.</p>
+      </header>
+      <section class="home-start" aria-label="Start a project">
+        <div class="start-row">
+          <button class="start-tile" id="pickFolder">
+            <span class="start-ico"><svg data-i="folder" data-size="18"></svg></span>
+            <span class="start-txt"><span class="nm">Open folder</span><span class="sub">Work on a project that's already on this computer.</span></span>
+          </button>
+          <button class="start-tile" id="createFolder">
+            <span class="start-ico"><svg data-i="plus" data-size="18"></svg></span>
+            <span class="start-txt"><span class="nm">Create new folder</span><span class="sub">Start fresh in an empty project folder.</span></span>
+          </button>
         </div>
-      </div>
-      <div class="row center mode-actions">
-        <button class="btn btn-primary btn-lg" id="startBuilding">Open Breeze Code</button>
+      </section>
+      <div class="home-grid">
+        <section class="setup-card home-recent" aria-labelledby="homeRecentTitle">
+          <header>
+            <h3 id="homeRecentTitle">Jump back in</h3><span class="pill" id="homeRecentCount"></span>
+          </header>
+          <div class="recent-list" id="homeRecent" role="list"></div>
+        </section>
+        <section class="setup-card home-agent" aria-labelledby="homeAgentTitle">
+          <header>
+            <h3 id="homeAgentTitle">Default agent</h3><button class="btn btn-ghost btn-sm" id="homeManageAgents">Manage</button>
+          </header>
+          <p class="muted">Pick the agent new chats and plans go to, and the model each one uses.</p>
+          <div class="agent-rows" id="homeAgents" role="radiogroup" aria-labelledby="homeAgentTitle"></div>
+          <p class="muted home-tip">Type @ and an agent's name in a prompt to hand that one task to another agent.</p>
+        </section>
       </div>
     </section>
 
