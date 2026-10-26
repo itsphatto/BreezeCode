@@ -672,6 +672,15 @@ button {
   background: rgba(36, 36, 42, .86);
 }
 
+/* The GitHub and Google buttons are see-through so the photo shows behind them. */
+.onboard .signin-btns .btn:not(.btn-ghost) {
+  background: rgba(28, 28, 33, .35);
+}
+
+.onboard .signin-btns .btn:not(.btn-ghost):hover {
+  background: rgba(36, 36, 42, .5);
+}
+
 .onboard .project-card:focus-within {
   background: rgba(26, 26, 31, .84);
 }
