@@ -48,8 +48,10 @@
     radial-gradient(120% 70% at 50% 100%, rgba(0, 94, 255, .62), rgba(64, 72, 210, .26) 38%, rgba(167, 139, 250, .08) 58%, transparent 78%),
     radial-gradient(60% 40% at 18% 100%, rgba(56, 189, 248, .22), transparent 70%),
     radial-gradient(60% 40% at 82% 100%, rgba(167, 139, 250, .22), transparent 70%);
-  /* Hero atmosphere built from the app's own blue, builder and planner colours. */
-  --aurora: linear-gradient(180deg, #000 0%, #030b1f 28%, #08245f 48%, #0a3fb0 64%, #005EFF 78%, #4f9dff 90%, #b3a4f7 100%);
+  /* Hero atmosphere: Pattaya bay under a dark scrim so the headline stays readable. */
+  --aurora:
+    linear-gradient(180deg, rgba(0, 0, 0, .62) 0%, rgba(3, 11, 31, .48) 40%, rgba(3, 11, 31, .3) 70%, rgba(0, 0, 0, .5) 100%),
+    url("assets/Background/pattayacityview.png") center 40% / cover no-repeat #030b1f;
 }
 
 * { box-sizing: border-box; }
@@ -115,6 +117,28 @@ p, li, dd { text-wrap: pretty; }
 .btn-lg { padding: 12px 24px; font-size: 15px; border-radius: 10px; }
 .btn svg { width: 16px; height: 16px; flex: none; }
 
+/* Sound toggle (sfx.js): a small glass button pinned to the bottom-left corner. */
+.sfx-toggle {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--glass-line);
+  border-radius: 50%;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.sfx-toggle:hover { color: var(--text); border-color: rgba(255, 255, 255, .22); }
+
 /* ---------- nav ---------- */
 .nav { position: sticky; top: 12px; z-index: 50; display: flex; justify-content: center; padding: 0 16px; margin-top: 12px; }
 
@@ -169,34 +193,41 @@ p, li, dd { text-wrap: pretty; }
   text-align: center;
 }
 
+/* A faint dark halo behind the hero copy so it reads over the photo. */
+.hero h1, .lede, .hero-meta { text-shadow: 0 1px 3px rgba(0, 0, 0, .55), 0 2px 18px rgba(0, 0, 0, .5); }
+/* A soft dark pool behind the words, fading out well before the edges. */
+.hero-copy { background: radial-gradient(ellipse 46% 42% at 50% 50%, rgba(0, 0, 0, .5), rgba(0, 0, 0, .28) 55%, transparent 100%); }
+
 .hero h1 {
-  max-width: 920px;
+  max-width: 1104px;
   margin: 0 auto;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(32px, 5.4vw, 58px);
+  font-size: clamp(38.4px, 6.48vw, 69.6px);
   line-height: 1.08;
   letter-spacing: -.035em;
   text-wrap: balance;
 }
 
 .lede {
-  max-width: 620px;
+  max-width: 744px;
   margin: 20px auto 0;
   color: rgba(245, 245, 247, .74);
-  font-size: clamp(16px, 1.6vw, 18px);
+  font-size: clamp(19.2px, 1.92vw, 21.6px);
   text-wrap: pretty;
 }
 
 .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 32px; }
-.hero-meta { margin: 14px 0 0; color: rgba(245, 245, 247, .62); font-size: 13px; }
+.hero-meta { margin: 14px 0 0; color: rgba(245, 245, 247, .62); font-size: 15.6px; }
+.cta .btn-lg { padding: 14.4px 28.8px; font-size: 18px; }
+.cta .btn svg { width: 19.2px; height: 19.2px; }
 
 .hero-shot {
-  max-width: 1040px;
-  aspect-ratio: 1920 / 820;
+  max-width: 1280px;
+  aspect-ratio: 16 / 9;
   margin: clamp(40px, 6vw, 64px) auto 0;
   overflow: hidden;
-  border-radius: 12px 12px 0 0;
+  border-radius: 12px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .14), 0 30px 80px rgba(0, 0, 0, .5);
 }
 
@@ -225,7 +256,7 @@ p, li, dd { text-wrap: pretty; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--nav-h, 62px) 24px 20vh;
+  padding: 24px; /* centred on the screen */
   opacity: calc(1 - var(--e, 0) * 1.9);
   transform: translateY(calc(var(--e, 0) * -9vh)) scale(calc(1 + var(--e, 0) * .07));
   will-change: transform, opacity;
@@ -237,10 +268,10 @@ p, li, dd { text-wrap: pretty; }
   position: absolute;
   top: 50%;
   left: 50%;
-  width: min(1120px, 86vw, 140vh);
+  width: calc(min(1600px, 94vw, (100vh - 48px) * 16 / 9) - 10px); /* nearly as big as the screen allows */
   max-width: none;
   margin: 0;
-  aspect-ratio: 1920 / 1030;
+  aspect-ratio: 16 / 9; /* the interactive window's own shape (ide-demo.css) */
   border-radius: 12px;
   transform: translate(-50%, calc(-50% + (1 - var(--e, 0)) * (31vh + 50%))) scale(calc(.9 + var(--e, 0) * .1));
   will-change: transform;

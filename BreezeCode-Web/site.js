@@ -1,6 +1,6 @@
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const nav = document.querySelector('.nav'); // only the landing page has one
-if (nav) document.documentElement.style.setProperty('--nav-h', `${nav.offsetHeight + parseFloat(getComputedStyle(nav).marginTop)}px`);
+const nav = document.querySelector('.nav'); // no page has one right now; the pinned layouts then sit flush to the top
+document.documentElement.style.setProperty('--nav-h', nav ? `${nav.offsetHeight + parseFloat(getComputedStyle(nav).marginTop)}px` : '0px');
 
 // Pinned hero: while the first ~1.6 screens scroll past, the hero holds still and plays its reveal (styles.css).
 // shortcut: decided once at load, so crossing the size breakpoint needs a reload; fine for a landing page.

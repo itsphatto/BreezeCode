@@ -41,11 +41,14 @@
   <link rel="preload" href="assets/fonts/Unbounded.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/Inter-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="ide-demo.css">
   <script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches) document.documentElement.classList.add('anim');</script>
   <script src="assets/vendor/lenis.min.js" defer></script>
   <script src="assets/vendor/gsap.min.js" defer></script>
   <script src="assets/vendor/ScrollTrigger.min.js" defer></script>
   <script src="assets/vendor/SplitText.min.js" defer></script>
+  <script src="sfx.js" defer></script>
+  <script src="ide-demo.js" defer></script>
   <script src="site.js" defer></script>
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
   <script defer src="/_vercel/insights/script.js"></script>
@@ -55,18 +58,6 @@
 
 <body>
   <a class="skip" href="#content">Skip to content</a>
-
-  <header class="nav">
-    <div class="nav-in">
-      <a class="logo" href="#content" aria-label="Breeze Code home"><img src="favicon-192.png" alt="" width="24"
-          height="24">Breeze Code</a>
-      <nav class="nav-links" aria-label="Main">
-        <a href="#why">Why Breeze</a>
-        <a href="#features">Features</a>
-      </nav>
-      <a class="btn btn-primary" href="#download">Download</a>
-    </div>
-  </header>
 
   <main id="content">
     <!-- 1. Introduction -->
@@ -90,8 +81,10 @@
           <p class="hero-meta">Free · Windows 10 and 11, 64&#8209;bit · About 110 MB</p>
         </div>
         <div class="hero-shot">
-          <img src="assets/screens/ide-hero.jpg" width="1920" height="1030" fetchpriority="high"
-            alt="Breeze Code with styles.css open, a live preview of a coffee shop page, and the agents panel after Claude Code finished the change">
+          <!-- ide-demo.js builds a working copy of the editor here; the screenshot stays for visitors without JavaScript -->
+          <div class="bz" id="bzDemo" data-assets="assets/"></div>
+          <noscript><img src="assets/screens/ide-hero.jpg" width="1920" height="1030"
+            alt="Breeze Code with styles.css open, a live preview of a coffee shop page, and the agents panel after Claude Code finished the change"></noscript>
         </div>
       </div>
     </section>
