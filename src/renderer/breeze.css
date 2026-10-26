@@ -6887,11 +6887,12 @@ body.vibing .box {
   display: none;
 }
 
+/* A soft, blurred dotted line; the 6px tiles centre one dot across the 2px line in either direction. */
 .sash-line {
   position: fixed;
   z-index: 39;
-  border-radius: 2px;
-  background: var(--blue);
+  background: radial-gradient(circle, var(--blue) 0 1px, transparent 1.2px) center / 6px 6px;
+  filter: blur(.5px);
   opacity: 0;
   pointer-events: none;
   transition: opacity .15s;
