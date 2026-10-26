@@ -9,132 +9,252 @@
     content="Answers to common questions about Breeze Code: price, system requirements, supported AI agents, privacy and updates.">
   <meta name="theme-color" content="#000000">
   <link rel="canonical" href="https://breezecode.itsphatto.site/FAQ.html">
-  <link rel="icon" href="/favicon.ico" sizes="48x48">
-  <link rel="icon" type="image/png" href="/favicon-48.png" sizes="48x48">
-  <link rel="icon" type="image/png" href="/favicon-192.png" sizes="192x192">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Inter:wght@400;500;600&family=B612+Mono&display=swap"
-    rel="stylesheet">
+  <link rel="icon" href="favicon.ico" sizes="48x48">
+  <link rel="icon" type="image/png" href="favicon-48.png" sizes="48x48">
+  <link rel="icon" type="image/png" href="favicon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
+  <script src="assets/vendor/lenis.min.js" defer></script>
+  <script src="site.js" defer></script>
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
   <script defer src="/_vercel/insights/script.js"></script>
   <script>window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script>
   <script defer src="/_vercel/speed-insights/script.js"></script>
 </head>
 
-<body>
+<body class="glow">
   <a class="skip" href="#content">Skip to content</a>
 
-  <header class="topbar">
-    <a class="brand" href="index.html" aria-label="Breeze Code home"><img src="assets/brand/BreezeCode.png" alt="Breeze Code"
-        height="34" width="202"></a>
-  </header>
 
-  <main class="wrap legal faq" id="content">
-    <a class="legal-back" href="index.html">← Back to home</a>
+  <main class="page" id="content">
     <h1>Frequently asked questions</h1>
-    <p class="legal-meta">Everything you might want to know before you download.</p>
+    <p class="page-meta">Everything you might want to know before you download.</p>
 
-    <div class="faq-list">
-      <details class="faq-item" open>
-        <summary>Is Breeze Code free?</summary>
-        <div class="faq-a">
-          <p>Yes. Breeze Code is free and open source under the MIT license. The full source code is on
-            <a href="https://github.com/itsphatto/BreezeCode" rel="noopener">GitHub</a>.</p>
-        </div>
-      </details>
+    <h2 class="faq-group">Getting started</h2>
 
-      <details class="faq-item">
-        <summary>What do I need to run it?</summary>
-        <div class="faq-a">
-          <p>A PC running Windows 10 or Windows 11 (64-bit). The installer is around 110 MB.</p>
-          <p>To run code, Breeze uses the tools already on your computer, such as Python, Node.js or a C/C++ compiler.
-            If something is missing, it tells you what to install.</p>
-        </div>
-      </details>
+    <details class="faq" open>
+      <summary>Is Breeze Code free?</summary>
+      <div class="faq-a">
+        <p>Yes. Breeze Code is free to download and use, with no plan or credits. If you pick a paid AI agent, that
+          agent's provider bills you for it.</p>
+      </div>
+    </details>
 
-      <details class="faq-item">
-        <summary>Is there a Mac or Linux version?</summary>
-        <div class="faq-a">
-          <p>Not yet. Breeze Code is Windows-only for now.</p>
-        </div>
-      </details>
+    <details class="faq">
+      <summary>What do I need to run it?</summary>
+      <div class="faq-a">
+        <p>A PC running Windows 10 or Windows 11 (64-bit). The installer is around 110 MB.</p>
+        <p>To run code, Breeze uses the tools already on your computer, such as Python, Node.js or a C/C++ compiler.
+          If something is missing, it tells you what to install.</p>
+      </div>
+    </details>
 
-      <details class="faq-item">
-        <summary>Windows says "Windows protected your PC". Is it safe?</summary>
-        <div class="faq-a">
-          <p>The installer isn't code-signed yet, so Windows SmartScreen shows a warning for it. Click
-            <b>More info</b>, then <b>Run anyway</b> to continue.</p>
-          <p>Only download Breeze Code from the official
-            <a href="https://github.com/itsphatto/BreezeCode/releases/latest" rel="noopener">GitHub releases page</a>.</p>
-        </div>
-      </details>
+    <details class="faq">
+      <summary>Is there a Mac or Linux version?</summary>
+      <div class="faq-a">
+        <p>Not yet. Breeze Code is Windows-only for now.</p>
+      </div>
+    </details>
 
-      <details class="faq-item">
-        <summary>Which AI agents does it work with?</summary>
-        <div class="faq-a">
-          <p>During setup, Breeze looks for <b>Codex</b> and <b>Antigravity</b> on your computer. You can also run a
-            local model through <b>Ollama</b>, <b>LM Studio</b> or any OpenAI-compatible server.</p>
-          <p>You can switch agents at any time in Settings.</p>
-        </div>
-      </details>
+    <details class="faq">
+      <summary>Windows says "Windows protected your PC". Is it safe?</summary>
+      <div class="faq-a">
+        <p>The installer isn't code-signed yet, so Windows SmartScreen shows a warning for it. Click
+          <b>More info</b>, then <b>Run anyway</b> to continue.
+        </p>
+        <p>Only download Breeze Code from the official
+          <a href="https://github.com/itsphatto/BreezeCode/releases/latest">GitHub releases page</a>.
+        </p>
+      </div>
+    </details>
 
-      <details class="faq-item">
-        <summary>Do I need an AI agent to use it?</summary>
-        <div class="faq-a">
-          <p>No. The editor, terminal, Git tools and live preview all work on their own. Agents are there when you
-            want them.</p>
-        </div>
-      </details>
+    <details class="faq">
+      <summary>I've never used an AI agent. Is Breeze for me?</summary>
+      <div class="faq-a">
+        <p>Yes. An AI agent is a program that can read your project, write code and run commands for you when you ask
+          in plain words. Breeze shows every file it reads, every edit and every command as it happens, so you can
+          follow along and learn from what it does.</p>
+      </div>
+    </details>
 
-      <details class="faq-item">
-        <summary>Does my code leave my computer?</summary>
-        <div class="faq-a">
-          <p>Your files stay on your machine. With a local model, nothing leaves your computer at all.</p>
-          <p>If you use a cloud agent like Codex or Antigravity, that agent sends what it needs for a task to its
-            provider, under that provider's terms. API keys you add are encrypted with the Windows keychain.</p>
-        </div>
-      </details>
+    <details class="faq">
+      <summary>Do I need to sign in or make an account?</summary>
+      <div class="faq-a">
+        <p>No. Signing in with GitHub or Google is optional, and there is no Breeze Code account. If you do sign in,
+          your sign-in details are encrypted and stay on your computer.</p>
+      </div>
+    </details>
 
-      <details class="faq-item">
-        <summary>Which languages can I run?</summary>
-        <div class="faq-a">
-          <p>Press F5 to run Python, C, C++ and C# files. JavaScript runs on Node in the integrated terminal, and HTML
-            and CSS get a live preview beside the editor.</p>
-          <p>Java and Rust support is on the way.</p>
-        </div>
-      </details>
+    <details class="faq">
+      <summary>Do I need Git or Node.js?</summary>
+      <div class="faq-a">
+        <p>First-run setup checks whether they are installed. Git powers checkpoints and Source Control, and Node.js
+          runs JavaScript. You can install them later if you need those features.</p>
+      </div>
+    </details>
 
-      <details class="faq-item">
-        <summary>How do updates work?</summary>
-        <div class="faq-a">
-          <p>Breeze checks for a new version when it starts and asks before downloading anything. Once downloaded,
-            the update installs when you close the app, or right away if you choose to restart.</p>
-        </div>
-      </details>
+    <h2 class="faq-group">AI agents</h2>
 
-      <details class="faq-item">
-        <summary>Where can I report a bug or ask for a feature?</summary>
-        <div class="faq-a">
-          <p>Open an issue on <a href="https://github.com/itsphatto/BreezeCode/issues" rel="noopener">GitHub</a>.
-            Please include your Breeze version and what you were doing when it happened.</p>
-        </div>
-      </details>
-    </div>
+    <details class="faq">
+      <summary>Which AI agents does it work with?</summary>
+      <div class="faq-a">
+        <p>During setup, Breeze looks for <b>Claude Code</b>, <b>Codex</b> and <b>Antigravity</b> on your computer. You
+          can also run a local model through <b>Ollama</b>, <b>LM Studio</b> or any OpenAI-compatible server.</p>
+        <p>You can switch agents at any time in Settings.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Do I need an AI agent to use it?</summary>
+      <div class="faq-a">
+        <p>No. The editor, terminal, Git tools and live preview all work on their own. Agents are there when you
+          want them.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>How do I use a local model?</summary>
+      <div class="faq-a">
+        <p>Start Ollama, LM Studio or another OpenAI-compatible server on your computer, then pick it during setup or
+          in Settings. With a local model, your prompts and code never leave your machine.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Can I use more than one agent on the same task?</summary>
+      <div class="faq-a">
+        <p>Yes. @mention different agents in one prompt, even from different companies, and give each one part of the
+          task. Each agent claims its files, you settle any overlap, and then they build at the same time.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>What if two agents try to edit the same file?</summary>
+      <div class="faq-a">
+        <p>If one agent edits a file another agent owns, Breeze puts the file back and tells you, so one agent can't
+          quietly overwrite another's work.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Can I undo what an agent did?</summary>
+      <div class="faq-a">
+        <p>Yes. Git checkpoints let you step back from a change you don't like. Always review an agent's changes
+          before you rely on them, and keep backups of work that matters.</p>
+      </div>
+    </details>
+
+    <h2 class="faq-group">Privacy and safety</h2>
+
+    <details class="faq">
+      <summary>Does my code leave my computer?</summary>
+      <div class="faq-a">
+        <p>Your files stay on your machine. With a local model, nothing leaves your computer at all.</p>
+        <p>If you use a cloud agent like Claude Code, Codex or Antigravity, that agent sends what it needs for a task
+          to its provider, under that provider's terms.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Where are my API keys stored?</summary>
+      <div class="faq-a">
+        <p>API keys and sign-in tokens are encrypted with Windows' built-in protection and saved only on your
+          computer. They are sent only to the provider they belong to.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Does Breeze Code collect telemetry?</summary>
+      <div class="faq-a">
+        <p>No. The app doesn't send usage data or crash reports, and there are no ads. Read the
+          <a href="privacy.html">Privacy Policy</a> for the full details.
+        </p>
+      </div>
+    </details>
+
+    <h2 class="faq-group">Features</h2>
+
+    <details class="faq">
+      <summary>Which languages can I run?</summary>
+      <div class="faq-a">
+        <p>Press F5 to run Python, C, C++ and C# files. JavaScript runs on Node in the integrated terminal, and HTML
+          and CSS get a live preview beside the editor.</p>
+        <p>Java and Rust support is on the way.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>What is Vibe Code Mode?</summary>
+      <div class="faq-a">
+        <p>Agents can take a few minutes. In Vibe Code Mode, the IDE fades and an Instagram or Facebook Reels feed plays
+          while the agent works. A card tells you when your code is ready, and you decide when to leave.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>What is Breeze Box?</summary>
+      <div class="faq-a">
+        <p>Breeze Box is just a prompt and a chat, with no editor. Code in a reply becomes an artifact card that you can
+          copy or download in one click.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Is it heavy on my computer?</summary>
+      <div class="faq-a">
+        <p>Breeze is built to be light, not a heavy IDE. By our rough estimate it can use up to 12× less memory than
+          heavier AI editors, though your numbers will depend on your projects and agents. The editor draws only the
+          lines on screen, so large files stay quick to scroll and edit.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Can I use it without an internet connection?</summary>
+      <div class="faq-a">
+        <p>The editor, terminal, Git tools and live preview work offline, and so do local models. Cloud agents, update
+          checks and sign-in need an internet connection.</p>
+      </div>
+    </details>
+
+    <h2 class="faq-group">Updates and help</h2>
+
+    <details class="faq">
+      <summary>How do updates work?</summary>
+      <div class="faq-a">
+        <p>Breeze checks for a new version when it starts and asks before downloading anything. Once downloaded,
+          the update installs when you close the app, or right away if you choose to restart.</p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Can I use Breeze Code for work or school?</summary>
+      <div class="faq-a">
+        <p>Yes. The code you write is yours, and Breeze is free for personal, school and commercial use. The
+          <a href="terms.html">Terms of Service</a> cover the details.
+        </p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Where can I report a bug or ask for a feature?</summary>
+      <div class="faq-a">
+        <p>Open an issue on <a href="https://github.com/itsphatto/BreezeCode/issues">GitHub</a>. Please include your
+          Breeze version and what you were doing when it happened.</p>
+        <p>For privacy or legal questions, email
+          <a href="mailto:BreezeCodeSupport@gmail.com">BreezeCodeSupport@gmail.com</a>.
+        </p>
+      </div>
+    </details>
   </main>
 
   <footer class="footer">
     <div class="wrap footer-in">
-      <a class="brand" href="index.html" aria-label="Breeze Code home"><img src="assets/brand/BreezeCode.png" alt="Breeze Code"
-          height="26" width="155" loading="lazy"></a>
-      <nav class="footer-nav" aria-label="Footer">
-        <a href="https://github.com/itsphatto/BreezeCode" rel="noopener">GitHub</a>
-        <a href="FAQ.html" aria-current="page">FAQ</a>
-        <a href="privacy.html">Privacy</a>
-        <a href="terms.html">Terms of Service</a>
+      <a class="logo" href="index.html" aria-label="Breeze Code home"><img src="favicon-192.png" alt="" width="24"
+          height="24" loading="lazy">Breeze Code</a>
+      <nav aria-label="Footer">
+        <a href="privacy.html" target="_blank" rel="noopener">Privacy<span class="skip"> (opens in a new tab)</span></a>
+        <a href="terms.html" target="_blank" rel="noopener">Terms of Service<span class="skip"> (opens in a new
+            tab)</span></a>
       </nav>
     </div>
   </footer>

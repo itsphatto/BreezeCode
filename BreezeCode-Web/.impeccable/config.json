@@ -15,6 +15,15 @@
         "value": "inter",
         "createdAt": "2026-10-17T16:11:11.704Z",
         "reason": "Breeze IDE app design system uses Inter"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-10-25T14:49:12.794Z",
+        "reason": "Claude: only hit is .hero-card, whose screenshot bleeds off the bottom edge on purpose (DESIGN.md hero composition); the flush child is an image, not text"
       }
     ]
   },

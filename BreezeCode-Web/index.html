@@ -4,9 +4,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Breeze Code | Lightweight Blazing Fast Code Editor</title>
+  <title>Breeze Code</title>
   <meta name="description"
-    content="Breeze Code is a lightweight desktop editor where Codex or a local model plan, build and show their work right next to your code.">
+    content="Breeze Code is a free, light desktop code editor for Windows. Claude Code, Codex or a local model build right next to your code, and you see every step.">
   <meta name="theme-color" content="#000000">
   <link rel="canonical" href="https://breezecode.itsphatto.site/">
   <meta property="og:type" content="website">
@@ -14,38 +14,38 @@
   <meta property="og:url" content="https://breezecode.itsphatto.site/">
   <meta property="og:title" content="Breeze Code">
   <meta property="og:description"
-    content="A lightweight desktop editor where your AI agents plan, build and show their work.">
-  <meta property="og:image" content="https://breezecode.itsphatto.site/assets/screens/ide.jpg">
-  <meta property="og:image:alt" content="Breeze Code editor window with the explorer, an open file and the status bar">
+    content="A light desktop code editor where your AI agents build and you see every step.">
+  <meta property="og:image" content="https://breezecode.itsphatto.site/assets/screens/ide-hero.jpg">
+  <meta property="og:image:alt"
+    content="Breeze Code with the explorer, editor, live preview and the agents panel after a finished run">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:image" content="https://breezecode.itsphatto.site/assets/screens/ide.jpg">
+  <meta name="twitter:image" content="https://breezecode.itsphatto.site/assets/screens/ide-hero.jpg">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Breeze Code",
     "url": "https://breezecode.itsphatto.site/",
-    "description": "A lightweight desktop code editor where AI agents plan, build and show their work right next to your code.",
+    "description": "A light desktop code editor where AI agents build right next to your code and show every step.",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Windows",
-    "image": "https://breezecode.itsphatto.site/assets/screens/ide.jpg",
+    "image": "https://breezecode.itsphatto.site/assets/screens/ide-hero.jpg",
     "downloadUrl": "https://github.com/itsphatto/BreezeCode/releases/latest",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
   }
   </script>
-  <link rel="icon" href="/favicon.ico" sizes="48x48">
-  <link rel="icon" type="image/png" href="/favicon-48.png" sizes="48x48">
-  <link rel="icon" type="image/png" href="/favicon-192.png" sizes="192x192">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Inter:wght@400;500;600&family=B612+Mono&display=swap"
-    rel="stylesheet">
+  <link rel="icon" href="favicon.ico" sizes="48x48">
+  <link rel="icon" type="image/png" href="favicon-48.png" sizes="48x48">
+  <link rel="icon" type="image/png" href="favicon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preload" href="assets/fonts/Unbounded.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/Inter-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="ide-demo.css">
-  <script src="sfx.js" defer></script>
-  <script src="ide-demo.js" defer></script>
+  <script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches) document.documentElement.classList.add('anim');</script>
+  <script src="assets/vendor/lenis.min.js" defer></script>
+  <script src="assets/vendor/gsap.min.js" defer></script>
+  <script src="assets/vendor/ScrollTrigger.min.js" defer></script>
+  <script src="assets/vendor/SplitText.min.js" defer></script>
   <script src="site.js" defer></script>
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
   <script defer src="/_vercel/insights/script.js"></script>
@@ -54,227 +54,322 @@
 </head>
 
 <body>
-  <a class="skip" href="#intro">Skip to content</a>
+  <a class="skip" href="#content">Skip to content</a>
 
-  <svg class="city-defs" width="0" height="0" aria-hidden="true" focusable="false">
-    <filter id="ripple-warp" x="-5%" y="-5%" width="110%" height="110%">
-      <feTurbulence type="turbulence" baseFrequency="0.006 0.011" numOctaves="2" seed="7" result="noise" />
-      <feDisplacementMap id="ripple-map" in="SourceGraphic" in2="noise" scale="0" xChannelSelector="R"
-        yChannelSelector="G" />
-    </filter>
-  </svg>
-
-  <!-- Top bar: the page's four steps, in order, with the one in view lit up -->
-  <header class="topbar">
-    <a class="brand" href="#intro" aria-label="Breeze Code home"><img src="assets/brand/BreezeCode.png" alt="Breeze Code"
-        height="34" width="202"></a>
+  <header class="nav">
+    <div class="nav-in">
+      <a class="logo" href="#content" aria-label="Breeze Code home"><img src="favicon-192.png" alt="" width="24"
+          height="24">Breeze Code</a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="#why">Why Breeze</a>
+        <a href="#features">Features</a>
+      </nav>
+      <a class="btn btn-primary" href="#download">Download</a>
+    </div>
   </header>
 
-  <main>
-    <!-- Introduction -->
-    <section class="hero" id="intro" data-section>
-      <!-- Bangkok at night behind the first screen, darkened so the headline reads -->
-      <div class="hero-bg" aria-hidden="true"></div>
-      <div class="wrap hero-copy">
-      
-        <h1 class="reveal">Code at <span class="hero-accent">blazing speed.</span> Turn ideas into reality.</h1>
-        <p class="lead reveal">A lightweight blazing fast desktop code editor, where your AI agents Plan and build directly in your codebase.</p>
-        <div class="cta reveal">
-          <a class="btn btn-primary btn-lg" data-download href="https://github.com/itsphatto/BreezeCode/releases/latest"
-            rel="noopener">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-              <path class="fill" d="M3 5.5 10.5 4.5V11.5H3ZM11.5 4.4 21 3V11.5H11.5ZM3 12.5H10.5V19.5L3 18.5ZM11.5 12.5H21V21L11.5 19.6Z" />
-            </svg>
-            Download for Windows
-          </a>
-          <a class="btn btn-lg" href="#agents">See what it does</a>
-        </div>
-        <div class="works reveal" aria-label="Works with">
-          <span class="works-label">Works with</span>
-          <span class="chip"><img src="assets/agents/claude.svg" alt="" width="18" height="18">Claude Code CLI</span>
-          <span class="chip"><img src="assets/agents/codex.png" alt="" width="18" height="18">Codex</span>
-          <span class="chip"><img src="assets/agents/antigravity.png" alt="" width="18" height="18">Antigravity</span>
-          <span class="chip"><img src="assets/agents/ollama.svg" alt="" width="18" height="18">Ollama</span>
-        </div>
-      </div>
-      <!-- The window stays centred on screen for a stretch of scrolling, then moves on with the page. -->
-      <div class="hero-pin">
-        <figure class="wrap shot hero-shot reveal">
-          <!-- Backdrop that ripples in from black once the window locks in, then settles into a card behind it -->
-          <div class="city-stage" aria-hidden="true">
-            <div class="city"><img src="assets/screens/pattayacityview.png" alt="" width="1366" height="768"></div>
-            <div class="city-rings"><i></i><i></i><i></i></div>
-          </div>
-          <div class="frame">
-            <!-- ide-demo.js builds a working copy of the editor here; the screenshot stays for visitors without JavaScript -->
-            <div class="bz" id="bzDemo" data-assets="assets/"></div>
-            <noscript><img src="assets/screens/ide.jpg" width="1366" height="768"
-              alt="Breeze Code editor window: the explorer, launch.json in the editor, and the status bar showing Git, Node and Python ready"></noscript>
-          </div>
-        </figure>
-      </div>
-    </section>
-
-    <!-- Agents: one showcase with the plan screenshot, then three cards -->
-    <section class="section" id="agents" data-section>
-      <div class="wrap">
-        <div class="showcase reveal">
-          <div class="showcase-copy">
-            <h2>Agents that plan & build with you</h2>
-            <p>Hand a task to an AI agent that plans the work, makes the code changes, runs commands, and iterates until the job is done.</p>
-            <p>Ask in plain English, approve the plan, and watch the Builder carry it out, with every change in front of you.</p>
-            <a class="showcase-link" href="#download">Get started with Breeze Code</a>
-          </div>
-          <figure class="showcase-shot">
-            <div class="frame"><img src="assets/screens/ide-plan-crop.jpg" data-full="assets/screens/ide-plan.jpg"
-                width="1156" height="600" loading="lazy"
-                alt="The agents panel with a three-step plan and Approve and build and Change something buttons"
-                data-zoom></div>
-          </figure>
-        </div>
-        <ul class="cards">
-          <li class="card reveal">
-            <h3>Bring your own agent</h3>
-            <p>Connect with Codex, or run local models through Ollama, or any OpenAI-compatible server.</p>
-          </li>
-          <li class="card reveal">
-            <h3>Lightweight and local</h3>
-            <p>Your files stay on your machine. API keys stay encrypted in the OS keychain without cloud lock-in.</p>
-          </li>
-          <li class="card reveal">
-            <h3>Consistent updates</h3>
-            <p>New features, fixes, and agent support arrive in regular releases, so Breeze Code keeps getting better.</p>
-          </li>
-        </ul>
-
-        <!-- Languages: copy beside a grid of language cards -->
-        <div class="langs">
-          <div class="showcase-copy reveal">
-            <h2>Multi-language support</h2>
-            <p>Write, run, and preview code in the languages you use every day, and let your agents work across all of them.</p>
-          </div>
-          <ul class="lang-grid">
-          <li class="lang reveal">
-            <span class="lang-ico" aria-hidden="true"><img src="assets/langs/python.svg" alt="" width="40" height="40"></span>
-            <b>Python</b><span>Run scripts with F5 in the integrated terminal.</span>
-          </li>
-          <li class="lang reveal">
-            <span class="lang-ico" aria-hidden="true"><img src="assets/langs/c.svg" alt="" width="40" height="40"></span>
-            <b>C</b><span>Compile and run with a single F5.</span>
-          </li>
-          <li class="lang reveal">
-            <span class="lang-ico" aria-hidden="true"><img src="assets/langs/cplusplus.svg" alt="" width="40" height="40"></span>
-            <b>C++</b><span>Compile and run with a single F5.</span>
-          </li>
-          <li class="lang reveal">
-            <span class="lang-ico" aria-hidden="true"><img src="assets/langs/csharp.svg" alt="" width="40" height="40"></span>
-            <b>C#</b><span>Build and run on .NET with a single F5.</span>
-          </li>
-          <li class="lang reveal">
-            <span class="lang-ico" aria-hidden="true"><img src="assets/langs/javascript.svg" alt="" width="40" height="40"></span>
-            <b>JavaScript</b><span>Run scripts on Node, right from the terminal.</span>
-          </li>
-          <li class="lang reveal">
-            <span class="lang-ico" aria-hidden="true"><img src="assets/langs/typescript.svg" alt="" width="40" height="40"></span>
-            <b>TypeScript</b><span>Syntax checks as you type.</span>
-          </li>
-          <li class="lang reveal">
-            <span class="lang-ico pair" aria-hidden="true"><img src="assets/langs/html5.svg" alt="" width="26" height="26"><img src="assets/langs/css3.svg" alt="" width="26" height="26"></span>
-            <b>HTML &amp; CSS</b><span>Live preview beside the editor with instant reload.</span>
-          </li>
-          <li class="lang reveal">
-            <span class="lang-ico" aria-hidden="true"><img src="assets/langs/java.svg" alt="" width="40" height="40"></span>
-            <b>Java</b><span>Compile and run with a single F5.</span>
-          </li>
-          <li class="lang reveal">
-            <span class="lang-ico" aria-hidden="true"><img src="assets/langs/rust.svg" alt="" width="40" height="40"></span>
-            <b>Rust</b><span>Build and run with Cargo in the terminal.</span>
-          </li>
-          </ul>
-        </div>
-      </div>
-    </section>
-
-    <!-- Why Breeze Code: the slogan and the memory claim as a picture -->
-    <section class="section" id="why" data-section>
-      <div class="wrap">
-        <header class="section-head reveal">
-          <h2>Smooth as a <span class="word-breeze">breeze</span>, fast as <span class="word-bolt">lightning</span>.</h2>
-          <p class="sub">Uses up to 12× less memory than a typical code editor, so your machine stays free for the work itself.</p>
-        </header>
-        <div class="why-body">
-          <!-- The 12x claim as a resource monitor: the typical editor fills the whole bar, Breeze Code a twelfth of it -->
-          <figure class="monitor reveal">
-            <dl class="mem">
-              <div class="mem-row">
-                <dt>Typical code editor <span class="mem-mb" data-mem="1800-1900">(1850 MB)</span></dt>
-                <dd><span class="bar" aria-hidden="true"><i style="--w: 100%"></i></span><span class="mem-val">Baseline</span></dd>
-              </div>
-              <div class="mem-row mem-us">
-                <dt>Breeze Code <span class="mem-mb" data-mem="190-300">(240 MB)</span></dt>
-                <dd><span class="bar" aria-hidden="true"><i style="--w: 8.33%"></i></span><span class="mem-val">Up to 12× less</span></dd>
-              </div>
-            </dl>
-            <figcaption>Starts in a moment and stays light, even with an agent, a terminal and a live preview all open.</figcaption>
-          </figure>
-        </div>
-      </div>
-    </section>
-
-    <!-- Download -->
-    <section class="section download" id="download" data-section>
-      <!-- Bangkok from above, wiped in from left to right once the section scrolls into view -->
-      <div class="download-bg" aria-hidden="true"></div>
-      <div class="wrap">
-        <div class="download-card reveal">
-          <img class="download-icon" src="assets/brand/Icon.png" width="96" height="96" alt="">
-          <h2>Imagination to Reality</h2>
-          <p class="sub">Download Breeze Code and have your ideas build now.</p>
+  <main id="content">
+    <!-- 1. Introduction -->
+    <section class="hero">
+      <div class="hero-card">
+        <div class="hero-copy">
+          <h1>Code at blazing speed. Turn ideas into reality</h1>
+          <p class="lede">Breeze Code is a light desktop code editor for Windows. Ask for a change in plain words, then
+            watch
+            every file read, edit and command happen right next to your code.</p>
           <div class="cta">
-            <a class="btn btn-primary btn-lg" data-download href="https://github.com/itsphatto/BreezeCode/releases/latest"
-              rel="noopener">
-              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-                <path class="fill" d="M3 5.5 10.5 4.5V11.5H3ZM11.5 4.4 21 3V11.5H11.5ZM3 12.5H10.5V19.5L3 18.5ZM11.5 12.5H21V21L11.5 19.6Z" />
+            <a class="btn btn-primary btn-lg" data-download
+              href="https://github.com/itsphatto/BreezeCode/releases/latest">
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M0 2.3 6.5 1.4v6.2H0zM7.3 1.3 16 0v7.6H7.3zM0 8.4h6.5v6.2L0 13.7zM7.3 8.4H16V16l-8.7-1.2z" />
               </svg>
               Download for Windows
             </a>
+            <a class="btn btn-lg" href="#features">See what it does</a>
           </div>
-          <!-- site.js refreshes the version and size from the latest GitHub release -->
-          <p class="download-meta">
-            <span data-release="version">v0.4.8</span>
-            <span aria-hidden="true">·</span>
-            <span>Windows 10 &amp; 11 (64-bit)</span>
-            <span aria-hidden="true">·</span>
-            <span data-release="size">109 MB</span>
-          </p>
+          <p class="hero-meta">Free · Windows 10 and 11, 64&#8209;bit · About 110 MB</p>
+        </div>
+        <div class="hero-shot">
+          <img src="assets/screens/ide-hero.jpg" width="1920" height="1030" fetchpriority="high"
+            alt="Breeze Code with styles.css open, a live preview of a coffee shop page, and the agents panel after Claude Code finished the change">
         </div>
       </div>
     </section>
+
+    <!-- 2. Benefits and how Breeze compares -->
+    <section class="section wrap" id="why">
+      <div class="section-head">
+        <h2>AI help you can actually follow.</h2>
+        <p>AI coding tools can feel like a black box with a monthly bill. Breeze shows every step, lets you pick the AI,
+          and costs nothing.</p>
+      </div>
+
+      <div class="pillars">
+        <article class="pillar t-blue">
+          <h3><svg class="ic" data-icon="eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>Work in the open</h3>
+          <p>Every file the agent reads, every edit and every command shows up as it happens. Git checkpoints let you
+            step back from a change you don't like.</p>
+        </article>
+        <article class="pillar t-violet">
+          <h3><svg class="ic" data-icon="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M7 4 3 8l4 4M3 8h13" />
+              <path d="M17 12l4 4-4 4M21 16H8" />
+            </svg>Bring your own agent</h3>
+          <p>Breeze finds Claude Code, Codex and Antigravity on your PC. Or connect a local model through Ollama, LM
+            Studio or any OpenAI-compatible server. Switch any time.</p>
+        </article>
+        <article class="pillar t-cyan">
+          <h3><svg class="ic" data-icon="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>Light and local</h3>
+          <p>A small app, not a heavy IDE. Your files stay on your computer, API keys are encrypted with the Windows
+            keychain, and with a local model nothing leaves your machine.</p>
+        </article>
+        <article class="pillar t-green">
+          <h3><svg class="ic" data-icon="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path
+                d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+            </svg>Fun while you wait</h3>
+          <p>Agents can take a few minutes. Vibe Code Mode plays a short-video feed while they work, and tells you the
+            moment
+            your code is ready.</p>
+        </article>
+      </div>
+
+      <div class="compare" id="compare">
+        <h3>How Breeze compares</h3>
+        <p>Next to popular AI editors like Cursor, Windsurf and VS Code with GitHub Copilot.</p>
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col"><span class="skip">Topic</span></th>
+              <th scope="col">Breeze Code</th>
+              <th scope="col">Typical AI editors</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Price</th>
+              <td class="win">Free. No plan, no credits. You only pay for an agent if you pick a paid one.</td>
+              <td>Free tier, then a monthly plan. Agent use draws from credits or quotas.</td>
+            </tr>
+            <tr>
+              <th scope="row">Which AI</th>
+              <td class="win">Claude Code, Codex, Antigravity or a local model. Switch any time.</td>
+              <td>Mostly the models the editor offers.</td>
+            </tr>
+            <tr>
+              <th scope="row">Local models</th>
+              <td class="win">Ollama, LM Studio or any OpenAI-compatible server, with nothing sent to the cloud.</td>
+              <td>Cloud-first. Local support varies.</td>
+            </tr>
+            <tr>
+              <th scope="row">While it works</th>
+              <td class="win">Each read, edit and command shows up live, marked with the agent that did it.</td>
+              <td>Varies by editor and mode.</td>
+            </tr>
+            <tr>
+              <th scope="row">Several agents</th>
+              <td class="win">@mention different agents, even from different companies, for parts of one task.</td>
+              <td>Some run agents in parallel, usually from one provider.</td>
+            </tr>
+            <tr>
+              <th scope="row">Platforms</th>
+              <td>Windows only, for now.</td>
+              <td class="win">Windows, macOS and Linux.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="note">Checked October 2026. These products change often, so check their sites for current plans.</p>
+      </div>
+    </section>
+
+    <!-- 3. Features -->
+    <section class="section hs" id="features" aria-labelledby="features-title">
+      <div class="hs-pin">
+        <div class="hs-track">
+          <div class="section-head hs-intro">
+            <h2 id="features-title">Everything in one light window.</h2>
+            <p>An editor, a terminal, Git and a live preview, with agents built in. Every part works without an agent
+              too.</p>
+          </div>
+
+          <div class="features">
+            <div class="feature">
+              <div class="feature-text">
+                <h3>Watch it work</h3>
+                <p>Ask in plain words. The agent card shows who is working and what they're doing right now, and every file
+                  read, edit and command lands in the chat as it happens.</p>
+              </div>
+              <div class="feature-media shot"><img src="assets/screens/ide-work.jpg" width="1440" height="900"
+                  loading="lazy"
+                  alt="Claude Code working on a request, with its file reads listed in the agents panel and the live preview beside the editor">
+              </div>
+            </div>
+
+            <div class="feature">
+              <div class="feature-text">
+                <h3>Your agent, detected</h3>
+                <p>First-run setup looks for coding agents, Git and Node.js. Pick one, or point Breeze at a local model.
+                  Change it any time in Settings.</p>
+              </div>
+              <div class="feature-media shot"><img src="assets/screens/setup-agents.jpg" width="1440" height="900"
+                  loading="lazy"
+                  alt="The Pick your AI agent screen listing Antigravity, Codex and Claude Code as detected, plus Ollama">
+              </div>
+            </div>
+
+            <div class="feature" id="team">
+              <div class="feature-text">
+                <h3>A team of agents</h3>
+                <p>Hand different parts of one task to different agents in a single prompt. Each agent claims its files, you
+                  settle any overlap, then they build at the same time. If one edits a file another owns, Breeze puts it
+                  back and tells you.</p>
+              </div>
+              <div class="feature-media team" role="img"
+                aria-label="A prompt asking Claude to make a front end and Codex to make the backend, with each agent's files listed">
+                <p class="team-prompt">
+                  <span class="mention m-claude"><img src="assets/agents/claude.svg" alt="">@Claude</span> make a front end
+                  for it<br>
+                  <span class="mention m-codex"><img src="assets/agents/codex.png" alt="">@Codex</span> make the backend
+                </p>
+                <dl class="lanes">
+                  <div class="lane">
+                    <dt>Claude Code</dt>
+                    <dd>src/ui/</dd>
+                    <dd>index.html</dd>
+                  </div>
+                  <div class="lane">
+                    <dt>Codex</dt>
+                    <dd>server/</dd>
+                    <dd>package.json</dd>
+                  </div>
+                </dl>
+                <p class="team-foot">One chat, each line marked with the agent that did it.</p>
+              </div>
+            </div>
+
+            <div class="feature">
+              <div class="feature-text">
+                <h3>Checkpoints with Git</h3>
+                <p>Stage, discard, commit and push from Source Control, with a graph of your checkpoints and branches. Files
+                  an
+                  agent is editing are marked in the explorer and tabs.</p>
+              </div>
+              <div class="feature-media shot"><img src="assets/screens/ide-git.jpg" width="1440" height="900" loading="lazy"
+                  alt="Source Control with staged and changed files, incoming changes and a graph of four checkpoints">
+              </div>
+            </div>
+
+            <div class="feature">
+              <div class="feature-text">
+                <h3>Breeze Box</h3>
+                <p>Just a prompt and a chat, no editor. Code in a reply becomes an artifact card you can copy or download in
+                  one click.</p>
+              </div>
+              <div class="feature-media shot"><img src="assets/screens/box.jpg" width="1440" height="900" loading="lazy"
+                  alt="Breeze Box with Claude Code's reply containing a contact.html artifact card"></div>
+            </div>
+
+            <div class="feature">
+              <div class="feature-text">
+                <h3>Vibe Code Mode</h3>
+                <p>While an agent works, the IDE fades and an Instagram or Facebook feed plays. A card tells you when the
+                  code
+                  is ready, and you decide when to leave.</p>
+              </div>
+              <div class="feature-media shot"><img src="assets/screens/vibe.jpg" width="1440" height="900" loading="lazy"
+                  alt="Vibe Code Mode over the dimmed editor, with the Instagram Reels panel and a Your code is ready card">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="wrap more">
+        <h3 class="extras-title">And also</h3>
+        <dl class="extras">
+          <div class="extra">
+            <dt>Run with <kbd>F5</kbd></dt>
+            <dd>Python, C, C++ and C# run with the compilers already on your PC. If one is missing, Breeze tells you what
+              to
+              install. Java and Rust are on the way.
+              <span class="langs">
+                <img src="assets/langs/python.svg" alt="Python" width="28" height="28" loading="lazy">
+                <img src="assets/langs/c.svg" alt="C" width="28" height="28" loading="lazy">
+                <img src="assets/langs/cplusplus.svg" alt="C++" width="28" height="28" loading="lazy">
+                <img src="assets/langs/csharp.svg" alt="C#" width="28" height="28" loading="lazy">
+                <img src="assets/langs/javascript.svg" alt="JavaScript" width="28" height="28" loading="lazy">
+                <img src="assets/langs/typescript.svg" alt="TypeScript" width="28" height="28" loading="lazy">
+                <img src="assets/langs/html5.svg" alt="HTML" width="28" height="28" loading="lazy">
+                <img src="assets/langs/css3.svg" alt="CSS" width="28" height="28" loading="lazy">
+              </span>
+            </dd>
+          </div>
+          <div class="extra">
+            <dt>Live preview</dt>
+            <dd>Open <code>index.html</code> next to your code and reload as you go.</dd>
+          </div>
+          <div class="extra">
+            <dt>Built-in terminal</dt>
+            <dd>Run Node and anything else without leaving the editor.</dd>
+          </div>
+          <div class="extra">
+            <dt>Smooth on big files</dt>
+            <dd>The editor draws only the lines on screen, so large files stay quick to scroll and edit.</dd>
+          </div>
+          <div class="extra">
+            <dt>Keys kept safe</dt>
+            <dd>API keys and sign-in tokens are encrypted with the Windows keychain and never leave your PC.</dd>
+          </div>
+          <div class="extra">
+            <dt>Updates that ask</dt>
+            <dd>Breeze checks for new versions and asks before downloading anything.</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- 4. Installer download -->
   </main>
 
-  <footer class="footer">
-    <div class="wrap footer-in">
-      <a class="brand" href="#intro" aria-label="Breeze Code home"><img src="assets/brand/BreezeCode.png" alt="Breeze Code"
-          height="26" width="155" loading="lazy"></a>
-      <nav class="footer-nav" aria-label="Footer">
-        <a href="https://github.com/itsphatto/BreezeCode" rel="noopener">GitHub</a>
-        <a href="FAQ.html">FAQ</a>
-        <a href="privacy.html">Privacy</a>
-        <a href="terms.html">Terms of Service</a>
-      </nav>
-    </div>
-  </footer>
+  <div class="finale">
+    <section class="download" id="download" aria-labelledby="download-title">
+      <img src="favicon-192.png" alt="" width="72" height="72" loading="lazy">
+      <h2 id="download-title">Get Breeze Code</h2>
+      <p>Free for Windows. Setup takes a minute, and agents are optional.</p>
+      <div class="cta">
+        <a class="btn btn-primary btn-lg" data-download href="https://github.com/itsphatto/BreezeCode/releases/latest">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M0 2.3 6.5 1.4v6.2H0zM7.3 1.3 16 0v7.6H7.3zM0 8.4h6.5v6.2L0 13.7zM7.3 8.4H16V16l-8.7-1.2z" />
+          </svg>
+          Download for Windows
+        </a>
+      </div>
+      <p class="download-meta"><span data-version>Latest version</span> · <span data-size>About 110 MB</span> ·
+        Windows 10 and 11, 64&#8209;bit</p>
+    </section>
 
-  <dialog class="zoom" id="zoom" aria-label="Screenshot">
-    <button class="zoom-close" type="button" aria-label="Close">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M18 6 6 18" />
-        <path d="m6 6 12 12" />
-      </svg>
-    </button>
-    <img id="zoom-img" alt="Screenshot preview" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"
-      width="1440" height="900">
-  </dialog>
+    <footer class="footer">
+      <div class="wrap footer-in">
+        <a class="logo" href="#content" aria-label="Breeze Code home"><img src="favicon-192.png" alt="" width="24"
+            height="24" loading="lazy">Breeze Code</a>
+        <nav aria-label="Footer">
+          <a href="privacy.html" target="_blank" rel="noopener">Privacy<span class="skip"> (opens in a new tab)</span></a>
+          <a href="terms.html" target="_blank" rel="noopener">Terms of Service<span class="skip"> (opens in a new tab)</span></a>
+          <a href="FAQ.html" target="_blank" rel="noopener">FAQ<span class="skip"> (opens in a new tab)</span></a>
+        </nav>
+      </div>
+    </footer>
+  </div>
 </body>
 
 </html>
