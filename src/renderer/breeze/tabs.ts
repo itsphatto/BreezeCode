@@ -69,26 +69,36 @@ function renderTabs(): void {
     tabsEl.innerHTML = '';
   } else {
     let runBtn = '';
+    let runKind = '';
     if (runnable(active)) {
-      runBtn = `<button class="tab-run${tabRunCompact ? ' compact' : ''}" data-run-file="1" title="Run File (F5)">${svgIcon('play', 12)}<span>Run</span></button>`;
+      runKind = 'run';
+      runBtn = `<button class="tab-run${tabRunCompact ? ' compact' : ''}" data-run-file="1" data-kind="run" title="Run File (F5)">${svgIcon('play', 12)}<span>Run</span></button>`;
     } else if (isHtml(active)) {
-      runBtn = `<button class="tab-run tab-preview${tabRunCompact ? ' compact' : ''}" data-preview-file="1" title="Preview this page (F5)">${svgIcon('play', 12)}<span>Preview</span></button>`;
+      runKind = 'preview';
+      runBtn = `<button class="tab-run tab-preview${tabRunCompact ? ' compact' : ''}" data-preview-file="1" data-kind="preview" title="Preview this page (F5)">${svgIcon('play', 12)}<span>Preview</span></button>`;
     }
-    const splitTitle = splitPath ? 'Close Split' : 'Split Editor Right';
-    const splitBtn = `<button class="icon-btn tab-split${splitPath ? ' on' : ''}" data-split="1" title="${splitTitle} ${String.raw`(Ctrl\)`}">${svgIcon('columns', 14)}</button>`;
+    const splitTitle = `${splitPath ? 'Close Split' : 'Split Editor Right'} (Ctrl\\)`;
+    const splitBtn = `<button class="icon-btn tab-split" data-split="1">${svgIcon('columns', 14)}</button>`;
     const oldRun = tabsEl.querySelector<HTMLElement>('.tab-run:not(.ghost)');
-    const oldKind = oldRun?.title ?? '';
-    const runTitle = /title="([^"]*)"/.exec(runBtn)?.[1] ?? '';
+    // Kind, not title: the tooltip code takes a hovered button's title away, and the button then read as a new one.
+    const oldKind = oldRun?.dataset.kind ?? '';
     // The same Run / Preview, and any old one still narrowing shut, stay put rather than being rebuilt: the strip
     // re-renders often (git status, saves), and a fresh button would cut its grow, fold or shrink short.
-    const keep = oldRun && oldKind === runTitle ? oldRun : null;
-    for (const c of [...tabsEl.children]) if (c !== keep && !c.classList.contains('ghost')) c.remove();
+    const keep = oldRun && oldKind === runKind ? oldRun : null;
+    // The split button stays too: rebuilt under the pointer that just clicked it, it replayed its hover bounce.
+    const oldSplit = tabsEl.querySelector<HTMLElement>('.tab-split');
+    for (const c of [...tabsEl.children]) if (c !== keep && c !== oldSplit && !c.classList.contains('ghost')) c.remove();
     tabsEl.insertAdjacentHTML('afterbegin', openTabs.map(tabHtml).join(''));
-    tabsEl.insertAdjacentHTML('beforeend', (keep ? '' : runBtn) + splitBtn);
+    if (!oldSplit) tabsEl.insertAdjacentHTML('beforeend', splitBtn);
+    const split = $('.tab-split', tabsEl);
+    split.classList.toggle('on', !!splitPath);
+    split.title = splitTitle;
+    split.setAttribute('aria-label', splitTitle);
+    if (!keep) split.insertAdjacentHTML('beforebegin', runBtn);
     // Run / Preview grows open when a file that has one opens, and narrows shut in place when it no longer does.
     const newRun = tabsEl.querySelector<HTMLElement>('.tab-run:not(.ghost)');
-    if (oldRun && oldKind !== (newRun?.title ?? '')) narrowAway(tabsEl, oldRun);
-    if (newRun && oldKind !== newRun.title) growNew = newRun;
+    if (oldRun && oldKind !== runKind) narrowAway(tabsEl, oldRun);
+    if (newRun && oldKind !== runKind) growNew = newRun;
   }
   // Run / Preview first: hiding it widens the tabs, so the line under the open tab is placed after.
   fitTabRunBtn();
@@ -131,9 +141,11 @@ const tabMotionOff = () => matchMedia('(prefers-reduced-motion: reduce)').matche
 const TAB_RUN_GROW = { duration: 320, easing: 'cubic-bezier(.65, 0, .35, 1)' };
 function tabRunBox(btn: HTMLElement): Keyframe {
   const cs = getComputedStyle(btn);
-  return { width: `${btn.getBoundingClientRect().width}px`, paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, borderLeftWidth: cs.borderLeftWidth, borderRightWidth: cs.borderRightWidth, marginLeft: cs.marginLeft };
+  return { width: `${btn.getBoundingClientRect().width}px`, paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, borderLeftWidth: cs.borderLeftWidth, borderRightWidth: cs.borderRightWidth };
 }
-const TAB_RUN_SHUT: Keyframe = { width: '0px', paddingLeft: '0px', paddingRight: '0px', borderLeftWidth: '0px', borderRightWidth: '0px', marginLeft: '0px' };
+// No margin here: the auto margin that pushes the button right must stay live, or a strip that changes mid-animation
+// leaves the button where it was measured and it snaps when the animation ends.
+const TAB_RUN_SHUT: Keyframe = { width: '0px', paddingLeft: '0px', paddingRight: '0px', borderLeftWidth: '0px', borderRightWidth: '0px' };
 function growTabRun(btn: HTMLElement): void {
   if (tabMotionOff()) return;
   const open = tabRunBox(btn);

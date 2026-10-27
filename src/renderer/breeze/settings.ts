@@ -108,7 +108,7 @@ function settingsBody(tab: SettingsTab): string {
       <h5>Vibe Code Mode</h5>
       ${settingRow('Vibe Code Mode', 'Play your feed while agents work.', switchHtml('sVibe', appState.vibeArmed, 'Vibe Code Mode'))}
       <h5>Feed</h5>
-      <div class="social-grid" id="sFeeds"></div>
+      <div class="social-grid ${appState.vibeArmed ? '' : 'off'}" id="sFeeds"${appState.vibeArmed ? '' : ' inert'}></div>
       <h5>Code</h5>
       ${settingRow('Enter code', appState.devMode ? 'Developer is unlocked.' : 'Unlock hidden sections.', '<div class="set-code"><input class="input" id="sCode" aria-label="Code" placeholder="Code" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sCodeGo">Enter</button></div>')}`;
     case 'discord': {
@@ -199,11 +199,13 @@ function bindSettings(m: HTMLElement): void {
   $$('[data-agent-pick]', pane).forEach(b => b.onclick = () => {
     const ag = appState.detect?.agents.find(a => a.id === b.dataset.agentPick);
     if (!ag?.found) return;
+    const from = pane.querySelector('.set-agent.on')?.getBoundingClientRect();
     appState.agent = ag.id;
     const curTab = surfaceTabs['ide']?.find(t => t.id === activeTabId['ide']);
     if (curTab) curTab.agentId = ag.id;
     saveApp(); renderAgentBar(); updateScmGenBtn();
     refreshSettings();
+    slideSelected(pane.querySelector<HTMLElement>(`[data-agent-pick="${CSS.escape(ag.id)}"]`), from);
   });
   if ($('#sEffort', pane)) seg('sEffort', v => { setEffort(v as EffortLevel); renderAgentBar(); refreshSettings(); });
   $$('[data-agent-install]', pane).forEach(b => b.onclick = async () => {
@@ -224,11 +226,8 @@ function bindSettings(m: HTMLElement): void {
     detectTools(true).catch(() => { /* the agent card shows the error */ }).finally(refreshSettings);
   });
   // Vibe
-  on('sVibe', () => {
-    if (appState.vibeArmed) { setVibeArmed(false); return; }
-    if (!connectedSites().length) { toast('Connect a feed first'); return; }
-    setVibeArmed(true);
-  });
+  // Turns on without a feed (it plays nothing until one is connected): the feeds are locked while it's off.
+  on('sVibe', () => setVibeArmed(!appState.vibeArmed));
   const feeds = $('#sFeeds', pane);
   if (feeds) void renderFeedChoices(feeds);
   // Code: the right one unlocks Developer and jumps to it.

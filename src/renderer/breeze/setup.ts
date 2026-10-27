@@ -30,7 +30,12 @@ async function renderFeedChoices(root: HTMLElement): Promise<void> {
       const id = card.dataset.site ?? '';
       const pick = (onButton: boolean) => {
         // A connected card's body makes it the feed Vibe Mode plays; the button connects or disconnects.
-        if (!onButton && appState.vibeSites.includes(id)) { appState.vibeSite = id; saveApp(); draw(); return; }
+        if (!onButton && appState.vibeSites.includes(id)) {
+          const from = root.querySelector('.social-card.on')?.getBoundingClientRect();
+          appState.vibeSite = id; saveApp(); draw();
+          slideSelected(root.querySelector<HTMLElement>(`[data-site="${CSS.escape(id)}"]`), from);
+          return;
+        }
         background(toggleFeed(id).then(draw));
       };
       card.onclick = e => pick(!!(e.target as HTMLElement).closest('[data-connect]'));
@@ -220,12 +225,14 @@ function bindLocalLlm(root: HTMLElement, onChange: () => void): void {
 function bindAgentOptions(root: HTMLElement, onChange: () => void): void {
   $$('[data-agent]', root).forEach(el => {
     const pick = () => {
+      const from = root.querySelector('.agent-opt.on')?.getBoundingClientRect();
       appState.agent = el.dataset.agent ?? null;
       const curTab = surfaceTabs['ide']?.find(t => t.id === activeTabId['ide']);
       if (curTab && appState.agent) curTab.agentId = appState.agent;
       saveApp();
       onChange();
       updateScmGenBtn();
+      slideSelected(root.querySelector<HTMLElement>(`[data-agent="${CSS.escape(appState.agent ?? '')}"]`), from);
     };
     el.onclick = e => { if (!(e.target as HTMLElement).closest('button, input, select')) pick(); };
     el.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); pick(); } };
@@ -365,7 +372,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
   }
 }
 
-function modelMenuItems(a: DetectedAgent, onSelect?: () => void): MenuItem[] {
+function modelMenuItems(a: DetectedAgent): MenuItem[] {
   return (a.models ?? []).map(m => ({
     label: versionLabel(m),
     checked: () => (a.version || a.models?.[0]) === m,
@@ -373,17 +380,9 @@ function modelMenuItems(a: DetectedAgent, onSelect?: () => void): MenuItem[] {
     sub: () => EFFORTS.map(eff => ({
       label: eff,
       checked: () => (a.version || a.models?.[0]) === m && agentEffort(a) === eff,
-      run: () => {
-        background(applyModelAndEffort(a, m, eff).then(() => {
-          onSelect?.();
-        }));
-      }
+      run: () => background(applyModelAndEffort(a, m, eff)),
     })),
-    run: () => {
-      background(applyModelAndEffort(a, m, agentEffort(a)).then(() => {
-        onSelect?.();
-      }));
-    }
+    run: () => background(applyModelAndEffort(a, m, agentEffort(a))),
   }));
 }
 
@@ -626,6 +625,7 @@ function openAgentPicker(): void {
 /* ----- Home: jump back into a recent project, or start one ----- */
 // null until the first list arrives, so Home shows placeholder rows instead of flashing its empty layout.
 let homeRecent: RecentFolder[] | null = null;
+let recentListHtml = '';
 let homeSeq = 0;
 // A steady colour per project, so each folder is recognisable at a glance.
 const projectHue = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
@@ -650,8 +650,7 @@ function recentRowHtml(r: RecentFolder, i: number): string {
   const cls = ['recent-row', lead ? 'lead' : '', r.missing ? 'missing' : ''].filter(Boolean).join(' ');
   return `<div class="${cls}" role="listitem" data-hue="${projectHue(r.name)}">
     <button class="recent-open" data-open="${escAttr(r.path)}" title="${escAttr(r.path)}">
-      <span class="proj-badge" aria-hidden="true">${esc((r.name[0] ?? '?').toUpperCase())}</span>
-      <span class="recent-txt">${lead ? `<span class="eyebrow">Last opened${when ? ` · ${esc(when)}` : ''}</span>` : ''}<span class="nm">${esc(r.name)}</span><span class="path">${esc(shortPath(r.path))}</span></span>
+      <span class="recent-txt">${lead ? `<span class="eyebrow">Last opened${when ? ` - ${esc(when[0].toUpperCase() + when.slice(1))}` : ''}</span>` : ''}<span class="nm">${esc(r.name)}</span><span class="path">${esc(shortPath(r.path))}</span></span>
       ${lead ? `<span class="recent-go">Continue${svgIcon('chevronRight', 14)}</span>` : `<span class="when">${esc(when)}</span>`}
     </button>
     <button class="icon-btn recent-forget" data-forget="${escAttr(r.path)}" title="Remove from this list" aria-label="Remove ${escAttr(r.name)} from recent projects">${svgIcon('x', 13)}</button>
@@ -662,29 +661,26 @@ function renderRecentList(): void {
   const el = $('#homeRecent');
   $('#homeRecentCount').textContent = list?.length ? String(list.length) : '';
   const empty = `<div class="recent-empty">${svgIcon('folder', 20)}<span>Projects you open show up here, so you can jump straight back in.</span></div>`;
-  el.innerHTML = !list ? skeletonRows(4) : list.length ? list.map(recentRowHtml).join('') : empty;
+  const html = !list ? skeletonRows(4) : list.length ? list.map(recentRowHtml).join('') : empty;
+  // Start-up draws Home more than once; redrawing the same rows would replay their rise and make them jump.
+  if (html === recentListHtml && el.childElementCount) return;
+  recentListHtml = html;
+  el.innerHTML = html;
   // Set here, not in the markup: the page's CSP blocks inline style attributes.
   $$('.recent-row', el).forEach((row, i) => {
     row.style.setProperty('--hue', row.dataset.hue ?? '210');
     row.style.setProperty('--i', String(i));
   });
 }
-// Every agent found on this computer: picking a row makes it the default (as "Make default" on its chip does),
-// and each row's dropdown picks that agent's model and effort.
+// Every agent found on this computer: picking a row makes it the default (as "Make default" on its chip does).
 function homeAgentRowHtml(a: DetectedAgent): string {
   const on = a.id === appState.agent;
   const st = AGENT_STYLE[a.id] ?? { letter: a.name[0], tint: a.id };
-  const model = a.version || a.models?.[0];
-  const value = !model ? '' : a.api ? model : versionLabel(model);
-  // A local server has no effort setting, and its vendor line (every server it can talk to) is too long for a row.
-  const about = a.api ? 'Runs on this computer' : `${a.vendor} · ${agentEffort(a)} effort`;
-  const picker = a.models?.length
-    ? `<button class="model-dd" data-model-for="${escAttr(a.id)}" aria-haspopup="menu" aria-label="${escAttr(`${a.name} model: ${value}`)}"><span>${esc(value)}</span>${svgIcon('chevronDown', 14)}</button>`
-    : value ? `<span class="model-fixed">${esc(value)}</span>` : '';
+  // A local server's vendor line (every server it can talk to) is too long for a row.
+  const about = a.api ? 'Runs on this computer' : a.vendor;
   return `<div class="agent-row${on ? ' on' : ''}" role="radio" aria-checked="${on}" tabindex="${on ? 0 : -1}" data-agent="${escAttr(a.id)}">
     ${brandMark('start-ico agent-mark', st.tint, st.letter)}
-    <span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${on ? '<b>Default</b> · ' : ''}${esc(about)}</span></span>
-    ${picker}
+    <span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${on ? '<span class="def"><b>Default</b> · </span>' : ''}${esc(about)}</span></span>
   </div>`;
 }
 function renderHomeAgent(): void {
@@ -698,26 +694,19 @@ function renderHomeAgent(): void {
   const rows = $$('.agent-row', el);
   if (rows.length && !rows.some(r => r.tabIndex === 0)) rows[0].tabIndex = 0;
 }
-// Opens a Home picker's menu under it, at least as wide as the picker.
-function openHomeMenu(anchor: HTMLElement, items: MenuItem[]): void {
-  openChipMenu(anchor, items);
-  const m = anchor.classList.contains('open') ? $('#menuRoot .menu') : null;
-  if (m) m.style.minWidth = `${anchor.offsetWidth}px`;
-}
 function pickHomeAgent(id: string): void {
   const ag = appState.detect?.agents.find(a => a.id === id && a.found);
   if (!ag || ag.id === appState.agent) return;
+  const from = document.querySelector('#homeAgents .agent-row.on')?.getBoundingClientRect();
   makeDefaultAgent(ag);
   renderHomeAgent();
-  $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`).focus();
+  const row = $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`);
+  row.focus();
+  slideSelected(row, from);
 }
 $('#homeAgents').addEventListener('click', e => {
   const t = e.target as HTMLElement;
   if (t.closest('[data-act-agents]')) { openAgentPicker(); return; }
-  // Clicking a model picks it at the current effort; hovering opens its effort levels, as on the agent chips.
-  const dd = t.closest<HTMLElement>('[data-model-for]');
-  const ag = dd && appState.detect?.agents.find(a => a.id === dd.dataset.modelFor);
-  if (dd && ag) { openHomeMenu(dd, modelMenuItems(ag, renderHomeAgent).map(it => ({ ...it, clickRuns: true }))); return; }
   const row = t.closest<HTMLElement>('.agent-row');
   if (row) pickHomeAgent(row.dataset.agent ?? '');
 });

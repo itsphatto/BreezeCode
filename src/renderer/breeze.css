@@ -765,6 +765,12 @@ button {
   font-size: 14px;
 }
 
+/* The Google PNG fills its box; the GitHub glyph spans 20 of its 24 units, so the PNG is inset to match. */
+.signin-btns .btn img {
+  box-sizing: border-box;
+  padding: 1.5px;
+}
+
 .waiting {
   display: grid;
   gap: 12px;
@@ -907,6 +913,14 @@ textarea:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
+}
+
+/* The selected highlight sliding from the old row to the new one (slideSelected in ui.ts). */
+.select-glide {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  pointer-events: none;
 }
 
 .agent-opt {
@@ -1613,7 +1627,8 @@ button svg,
 .modal-close svg,
 .close-btn svg,
 .side-act svg,
-.side-foot svg {
+.side-foot svg,
+.signin-btns .btn img {
   transform-origin: center center;
   transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.15s ease, color 0.15s ease;
 }
@@ -1631,6 +1646,7 @@ button:hover svg,
 .close-btn:hover svg,
 .side-act:hover svg,
 .side-foot:hover svg,
+.signin-btns .btn:hover img,
 svg.ico-svg:hover {
   transform: scale(1.14);
 }
@@ -1648,6 +1664,7 @@ button:active svg,
 .close-btn:active svg,
 .side-act:active svg,
 .side-foot:active svg,
+.signin-btns .btn:active img,
 svg.ico-svg:active {
   transform: scale(0.86);
   transition: transform 0.08s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -2529,6 +2546,14 @@ svg.ico-svg:active {
   gap: 6px;
   white-space: nowrap;
   overflow: hidden;
+  cursor: pointer;
+  transition: border-color .15s, background-color .15s;
+}
+
+#previewUrl:hover,
+#previewUrl.open {
+  border-color: rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .04);
 }
 
 .url .live {
@@ -3882,6 +3907,35 @@ textarea:not(:placeholder-shown) + .ph-rot {
   animation: settingsRoll .36s cubic-bezier(.55, 0, .25, 1) both, settingsFade .36s both;
 }
 
+/* Opened by a data-grow button (growFrom puts the transform origin on it): out of the button and back into it. */
+.modal.grow-from {
+  animation: growOut .46s cubic-bezier(.32, .72, 0, 1);
+}
+
+.scrim.closing .modal.grow-from {
+  animation: growBack .32s cubic-bezier(.55, 0, .25, 1) both;
+}
+
+@keyframes growOut {
+  from {
+    opacity: 0;
+    transform: scale(.2);
+  }
+  35% {
+    opacity: 1;
+  }
+}
+
+@keyframes growBack {
+  65% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: scale(.2);
+  }
+}
+
 /* The open (modalGrow) run backwards: the panel rolls up into its top strip while, over the last stretch, the strip
    fades the way it faded in. Reversing modalGrow itself left the strip hanging on screen and then popping off. */
 @keyframes settingsRoll {
@@ -3924,6 +3978,11 @@ textarea:not(:placeholder-shown) + .ph-rot {
   box-shadow: 0 30px 80px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .05);
   backdrop-filter: var(--glass-blur);
   animation: modalGrow .5s cubic-bezier(.32, .72, 0, 1);
+}
+
+/* Sign-in is solid: through the glass, Home's blue (Continue, the default agent) bled in as a tint. */
+.modal:has(.signin-modal) {
+  background: rgb(24, 24, 30);
 }
 
 /* Modals open by unrolling downward as their parts arrive (a strip at the top first, the full panel last),
@@ -5708,7 +5767,7 @@ body.vibing .ide {
 .recent-open {
   width: 100%;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 9px 42px 9px 10px;
@@ -5728,19 +5787,6 @@ body.vibing .ide {
   outline: none;
   border-color: var(--blue);
   background: rgba(255, 255, 255, .05);
-}
-
-/* A coloured initial per project (--hue comes from its name). */
-.proj-badge {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  display: grid;
-  place-items: center;
-  font: 700 14px var(--font-display);
-  color: hsl(var(--hue) 85% 78%);
-  background: hsl(var(--hue) 55% 45% / .22);
-  border: 1px solid hsl(var(--hue) 60% 60% / .25);
 }
 
 .recent-txt {
@@ -5791,27 +5837,43 @@ body.vibing .ide {
   margin-bottom: 8px;
 }
 
+@property --lead-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 120deg;
+}
+
+@property --lead-alpha {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: .16;
+}
+
+@property --lead-reach {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 70%;
+}
+
+/* The tint swings round and deepens on hover (registered properties, so the gradient itself can transition). */
 .recent-row.lead .recent-open {
-  grid-template-columns: 48px minmax(0, 1fr) auto;
   gap: 14px;
-  padding: 14px 46px 14px 14px;
+  /* Same right inset as the rows below, so Continue lines up with their times. */
+  padding: 14px 42px 14px 16px;
   border-color: rgba(255, 255, 255, .08);
-  background: linear-gradient(120deg, hsl(var(--hue) 60% 40% / .16), transparent 70%);
+  background: linear-gradient(var(--lead-angle), hsl(var(--hue) 60% 40% / var(--lead-alpha)), transparent var(--lead-reach));
+  transition: background-color .15s, border-color .15s, opacity .2s, --lead-angle .5s cubic-bezier(.2, .8, .2, 1), --lead-alpha .5s ease, --lead-reach .5s cubic-bezier(.2, .8, .2, 1);
 }
 
 .recent-row.lead .recent-open:hover {
+  --lead-angle: 165deg;
+  --lead-alpha: .3;
+  --lead-reach: 100%;
   border-color: rgba(255, 255, 255, .16);
 }
 
 .recent-row.lead .recent-open:focus-visible {
   border-color: var(--blue);
-}
-
-.recent-row.lead .proj-badge {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  font-size: 19px;
 }
 
 .recent-row.lead .nm {
@@ -5822,10 +5884,7 @@ body.vibing .ide {
 .recent-txt .eyebrow {
   margin-bottom: 3px;
   color: var(--text-2);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font: 500 12px var(--font-ui);
 }
 
 .recent-go {
@@ -5904,6 +5963,65 @@ body.vibing .ide {
   transform: translateY(0);
 }
 
+/* Idle life on Home's icons: a short move, replayed every 2s. On the shapes inside each svg, so the
+   button's own hover zoom (on the svg) still works. */
+.start-ico [data-icon="folder"] > *,
+.start-ico [data-icon="plus"] > *,
+.hp-ico [data-icon="user"] > circle {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.start-ico [data-icon="folder"] > * {
+  animation: idleLift 2s ease-in-out infinite;
+}
+
+.start-ico [data-icon="plus"] > * {
+  animation: idleTurn 2s cubic-bezier(.32, .72, 0, 1) .4s infinite;
+}
+
+.hp-ico [data-icon="user"] > circle {
+  animation: idleNod 2s ease-in-out .8s infinite;
+}
+
+@keyframes idleLift {
+  0%, 40%, 100% {
+    transform: none;
+  }
+  20% {
+    transform: translateY(-1.5px);
+  }
+}
+
+/* A plus turned a quarter looks the same, so the jump back to 0 at the loop is invisible. */
+@keyframes idleTurn {
+  0% {
+    transform: none;
+  }
+  30%, 100% {
+    transform: rotate(90deg);
+  }
+}
+
+@keyframes idleNod {
+  0%, 36%, 100% {
+    transform: none;
+  }
+  12% {
+    transform: translateY(-1.5px);
+  }
+  24% {
+    transform: translateY(.5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .start-ico [data-icon] > *,
+  .hp-ico [data-icon] > * {
+    animation: none;
+  }
+}
+
 .start-tile:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
@@ -5970,7 +6088,7 @@ body.vibing .ide {
 
 .agent-row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   padding: 10px;
@@ -5999,49 +6117,12 @@ body.vibing .ide {
   font-weight: 600;
 }
 
-.model-dd {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 170px;
-  padding: 6px 8px 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  font-size: 12.5px;
-  white-space: nowrap;
-  transition: background-color .15s, border-color .15s;
-}
-
-.model-dd span {
+/* Animated open when the row becomes the default (slideSelected in ui.ts). */
+.agent-row .sub .def {
+  display: inline-block;
   overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.model-dd:hover {
-  background: rgba(255, 255, 255, .06);
-}
-
-.model-dd.open,
-.model-dd:focus-visible {
-  outline: none;
-  border-color: var(--blue);
-}
-
-.model-dd .ico-svg {
-  flex: none;
-  color: var(--text-3);
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
-}
-
-.model-dd.open .ico-svg {
-  transform: rotate(180deg);
-}
-
-.model-fixed {
-  color: var(--text-2);
-  font-size: 12.5px;
+  vertical-align: bottom;
+  white-space: pre;
 }
 
 .agent-mark {
@@ -6052,7 +6133,6 @@ body.vibing .ide {
 
 .agent-mark.has-img {
   padding: 6px;
-  background: rgba(255, 255, 255, .06) !important;
 }
 
 /* Home's account button, top right just under the window buttons. */
@@ -6495,6 +6575,13 @@ body.vibing .box {
 /* The split button sits at the far right, so Run / Preview stick just before it. */
 .tabs .tab-run {
   right: 34px;
+}
+
+/* A shrinking old button beside a live one doesn't push right too: two auto margins split the space and the live
+   button jumped mid-strip. */
+.tabs .tab-run.ghost:has(~ .tab-run:not(.ghost)),
+.tabs .tab-run:not(.ghost) ~ .tab-run.ghost {
+  margin-left: 0;
 }
 
 .tab-run.tab-preview {
@@ -7373,6 +7460,13 @@ body:is(.resizing, .resizing-h) .sash-line.on {
 /* One feed per line, kept short instead of spanning the whole pane. */
 .set-pane .social-grid {
   grid-template-columns: minmax(0, 360px);
+  transition: filter .3s ease, opacity .3s ease;
+}
+
+/* Vibe Code Mode off: the feeds stay usable but go grey. */
+.set-pane .social-grid.off {
+  filter: grayscale(1);
+  opacity: .6;
 }
 
 /* The global .sub (modal subtitles) adds space below it; inside a card that pushed the text off centre. */

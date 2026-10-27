@@ -169,7 +169,7 @@
     <div class="ob-bg" id="obBg" aria-hidden="true"></div>
     <div class="ob-wave" id="obWave" aria-hidden="true"></div>
     <!-- Home only: who is signed in, top right under the window buttons -->
-    <button class="home-profile hidden" id="homeProfile" aria-haspopup="menu" title="Account"></button>
+    <button class="home-profile hidden" id="homeProfile" aria-haspopup="menu" title="Account" data-grow></button>
     <!-- Welcome -->
     <section class="ob-step ob-await" data-step="0">
       <img class="ob-logo" src="../../assets/brand/Agent.png" width="72" height="72" alt="Breeze Code Logo">
@@ -260,9 +260,9 @@
         </section>
         <section class="setup-card home-agent" aria-labelledby="homeAgentTitle">
           <header>
-            <h3 id="homeAgentTitle">Default agent</h3><button class="btn btn-ghost btn-sm" id="homeManageAgents">Manage</button>
+            <h3 id="homeAgentTitle">Default agent</h3><button class="btn btn-ghost btn-sm" id="homeManageAgents" data-grow>Manage</button>
           </header>
-          <p class="muted">Pick the agent new chats and plans go to, and the model each one uses.</p>
+          <p class="muted">Pick the agent new chats and plans go to.</p>
           <div class="agent-rows" id="homeAgents" role="radiogroup" aria-labelledby="homeAgentTitle"></div>
           <p class="muted home-tip">Type @ and an agent's name in a prompt to hand that one task to another agent.</p>
         </section>
@@ -419,7 +419,7 @@
             <div class="sash sash-v sash-left" data-sash="preview"></div>
             <div class="preview-bar">
               <span class="preview-label">Preview</span>
-              <span class="url" id="previewUrl"><span id="urlText">Not
+              <span class="url" id="previewUrl" role="button" tabindex="0" aria-haspopup="menu" title="Switch page"><span id="urlText">Not
                   running</span></span>
               <button class="icon-btn" title="Reload Preview" data-act="run.reload"><svg width="13" height="13">
                   <use href="#i-refresh" />

@@ -34,7 +34,15 @@ const sfx = (() => {
       awake.start();
     } catch { ctx = null; } // no audio available
   }
-  for (const t of ['pointerdown', 'keydown']) addEventListener(t, unlock, { capture: true, passive: true });
+  // A real press or key also ends the start-up hush and wakes a dozing context: start-up waits on slow work (an agent
+  // scan, a git refresh) for up to 8s, and every click made meanwhile was silent.
+  const wake = (e: Event) => {
+    if (!e.isTrusted) return;
+    document.documentElement.removeAttribute('data-starting');
+    unlock();
+    if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => {});
+  };
+  for (const t of ['pointerdown', 'keydown']) addEventListener(t, wake, { capture: true, passive: true });
   // The desktop window allows audio without a gesture, so the context is ready before the first sound is asked for;
   // coming back to the window wakes it if Chromium put it to sleep meanwhile.
   unlock();

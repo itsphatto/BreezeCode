@@ -12,6 +12,56 @@ function staggerIn(items: Iterable<Element>, from = 0): void {
     el.classList.add('stagger-item');
   }
 }
+// A new pick in a list (an agent row): the selected highlight slides up or down from the old row (`from`, measured
+// before the list was redrawn) onto the new one, which keeps its plain look until the highlight lands.
+function slideSelected(el: HTMLElement | null, from: DOMRect | undefined): void {
+  const list = el?.parentElement;
+  if (!el || !list || !from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const to = el.getBoundingClientRect();
+  if (Math.abs(to.top - from.top) < 1 && Math.abs(to.left - from.left) < 1) return;
+  // The glide is placed inside the list, so the list must be what it is positioned against.
+  if (getComputedStyle(list).position === 'static') list.style.position = 'relative';
+  const box = list.getBoundingClientRect();
+  const on = getComputedStyle(el);
+  const plainRow = [...list.children].find(c => c !== el && c.classList.contains(el.classList[0]) && !c.classList.contains('missing'));
+  const plain = plainRow ? getComputedStyle(plainRow) : null;
+  const ease = 'cubic-bezier(.32, .72, 0, 1)';
+  const ms = 340;
+  const glide = document.createElement('div');
+  glide.className = 'select-glide';
+  Object.assign(glide.style, {
+    left: `${to.left - box.left + list.scrollLeft}px`, top: `${to.top - box.top + list.scrollTop}px`,
+    width: `${to.width}px`, height: `${to.height}px`,
+    borderRadius: on.borderRadius, border: `1px solid ${on.borderTopColor}`, background: on.backgroundColor,
+  });
+  list.append(glide);
+  glide.animate([
+    { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`, height: `${from.height}px` },
+    { transform: 'none', height: `${to.height}px` },
+  ], { duration: ms, easing: ease }).onfinish = () => glide.remove();
+  if (plain) el.animate([
+    { borderColor: plain.borderTopColor, background: plain.background, boxShadow: plain.boxShadow, offset: 0 },
+    { borderColor: plain.borderTopColor, background: plain.background, boxShadow: plain.boxShadow, offset: .95 },
+    {},
+  ], { duration: ms });
+  const oldRow = [...list.children].find(c => c !== el && Math.abs(c.getBoundingClientRect().top - from.top) < 1 && Math.abs(c.getBoundingClientRect().left - from.left) < 1);
+  // Home's "Default ·" label opens up in front of the text, unblurring as it comes; on the old row the gap it
+  // leaves closes up instead of the text jumping back.
+  const label = el.querySelector<HTMLElement>('.sub .def');
+  if (label) {
+    const w = label.offsetWidth;
+    label.animate([{ width: '0px', opacity: 0, filter: 'blur(4px)' }, { width: `${w}px`, opacity: 1, filter: 'none' }], { duration: ms + 60, easing: ease });
+    oldRow?.querySelector('.sub')?.animate([{ paddingLeft: `${w}px` }, { paddingLeft: '0px' }], { duration: ms + 60, easing: ease });
+  }
+  // The two status pills (Selected and Detected) trade looks: each eases from the other's colours while its
+  // new word fades in.
+  const pills = [el.querySelector('.pill'), oldRow?.querySelector('.pill')];
+  if (!pills[0] || !pills[1]) return;
+  const looks = pills.map(p => { const s = getComputedStyle(p as Element); return { backgroundColor: s.backgroundColor, borderColor: s.borderTopColor }; });
+  pills.forEach((p, i) => p?.animate(
+    [{ ...looks[1 - i], color: 'transparent' }, { color: 'transparent', offset: .3 }, {}],
+    { duration: ms, easing: 'ease-out' }));
+}
 function staggerModal(m: HTMLElement): void {
   const settings = m.querySelector('.settings-modal');
   if (settings) { staggerIn(settings.querySelectorAll('.set-nav > *')); staggerIn(settings.querySelectorAll('.set-pane > *'), 2); return; }
@@ -34,8 +84,11 @@ function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () =
   $('#modalRoot .scrim:not(.closing)').onmousedown = e => { if ((e.target as HTMLElement).classList.contains('scrim')) dismissModal(); };
   $$('[data-close], [data-back]', m).forEach(b => b.onclick = dismissModal);
   const owner = popOwner();
-  if (owner) growFrom(m, owner);
   bind?.(m);
+  // Measured once filled in: a dialog centred on screen moves as its content arrives.
+  if (owner) growFrom(m, owner);
+  // A data-grow button's dialog swells out of the button and shrinks back into it, not just a nudge from there.
+  if (owner?.hasAttribute('data-grow')) m.classList.add('grow-from');
   staggerModal(m);
 }
 function closeModal(): void {
