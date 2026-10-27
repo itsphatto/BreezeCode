@@ -135,9 +135,20 @@ p, li, dd { text-wrap: pretty; }
   backdrop-filter: blur(8px);
   color: var(--text-2);
   cursor: pointer;
-  transition: color .15s, border-color .15s;
+  transition: color .15s, border-color .15s, transform .15s;
 }
 .sfx-toggle:hover { color: var(--text); border-color: rgba(255, 255, 255, .22); }
+.sfx-toggle:active { transform: scale(.94); }
+/* Muting: the waves shrink back into the speaker, then the X strokes draw across. Unmuting runs it in reverse. */
+.sfx-waves { transform-origin: 12px 12px; transition: opacity .2s ease .12s, transform .3s cubic-bezier(.2, .8, .2, 1) .12s; }
+.sfx-x path { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .2s ease; }
+.sfx-x path + path { transition-delay: .06s; }
+.sfx-toggle.muted .sfx-waves { opacity: 0; transform: scale(.6); transition-delay: 0s; }
+.sfx-toggle.muted .sfx-x path { stroke-dashoffset: 0; transition-delay: .14s; }
+.sfx-toggle.muted .sfx-x path + path { transition-delay: .2s; }
+@media (prefers-reduced-motion: reduce) {
+  .sfx-toggle *, .sfx-toggle { transition: none !important; }
+}
 
 /* ---------- nav ---------- */
 .nav { position: sticky; top: 12px; z-index: 50; display: flex; justify-content: center; padding: 0 16px; margin-top: 12px; }
@@ -478,12 +489,17 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
 
 .langs { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
 .langs img { width: 28px; height: 28px; transition: translate .3s cubic-bezier(.16, 1, .3, 1); }
+/* Orbiting (site.js): the logos start at the row's centre and site.js moves them round the description. The row is the stacking context, so a logo on
+   the far side (z-index -1) passes under the text and one on the near side over it. */
+.extra:has(.langs.orbit) { position: relative; isolation: isolate; padding-block: 48px; }
+.langs.orbit { position: absolute; inset: 0; margin: 0; pointer-events: none; }
+.langs.orbit img { position: absolute; left: calc(50% - 18px); top: calc(50% - 18px); width: 36px; height: 36px; transition: none; }
 
 @media (hover: hover) {
   .extra:hover { --rule-c: var(--blue); }
   .extra:hover dt { translate: 8px 0; color: #fff; }
   .extra:hover kbd { translate: 0 3px; box-shadow: 0 1px 0 #26262c; }
-  .langs img:hover { translate: 0 -4px; }
+  .langs:not(.orbit) img:hover { translate: 0 -4px; }
 }
 
 @media (max-width: 860px) {

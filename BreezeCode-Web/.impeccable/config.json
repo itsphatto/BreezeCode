@@ -24,6 +24,51 @@
         ],
         "createdAt": "2026-10-25T14:49:12.794Z",
         "reason": "Claude: only hit is .hero-card, whose screenshot bleeds off the bottom edge on purpose (DESIGN.md hero composition); the flush child is an image, not text"
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "ide-demo.js"
+        ],
+        "createdAt": "2026-10-27T14:08:31.763Z",
+        "reason": "Claude: the image viewer's <img> src is set at runtime by ide-demo.js when an image file is opened"
+      },
+      {
+        "rule": "gradient-text",
+        "value": "*",
+        "files": [
+          "ide-demo.css"
+        ],
+        "createdAt": "2026-10-27T14:09:49.915Z",
+        "reason": "Claude: .bz-team-claiming shimmer is a loading state copied from the desktop app, not decorative heading text"
+      },
+      {
+        "rule": "gradient-text",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-10-27T14:31:13.231Z",
+        "reason": "Claude: comes from ide-demo.css's agent-working shimmer, a loading state copied from the desktop app"
+      },
+      {
+        "rule": "nested-cards",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-10-27T14:33:31.417Z",
+        "reason": "Claude: comes from the embedded IDE demo (ide-demo.css), which copies the desktop app's panels and its agent working-state dot"
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-10-27T14:33:31.695Z",
+        "reason": "Claude: comes from the embedded IDE demo (ide-demo.css), which copies the desktop app's panels and its agent working-state dot"
       }
     ]
   },

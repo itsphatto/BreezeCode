@@ -131,10 +131,10 @@
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'sfx-toggle';
-  const ICON_ON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a8 8 0 0 1 0 11"/></svg>';
-  const ICON_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5"/><path d="M21 9.5l-5 5"/></svg>';
+  // One icon for both states, so CSS can morph between them: the waves fade out as the X draws in.
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><g class="sfx-waves"><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a8 8 0 0 1 0 11"/></g><g class="sfx-x"><path d="M16 9.5l5 5" pathLength="1"/><path d="M21 9.5l-5 5" pathLength="1"/></g></svg>';
   function paintButton() {
-    btn.innerHTML = muted ? ICON_OFF : ICON_ON;
+    btn.classList.toggle('muted', muted);
     btn.setAttribute('aria-pressed', String(!muted));
     btn.setAttribute('aria-label', muted ? 'Turn sound on' : 'Turn sound off');
     btn.title = muted ? 'Sound off' : 'Sound on';
