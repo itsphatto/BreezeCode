@@ -180,6 +180,29 @@ test('findTools prefers the py launcher', async () => {
   assert.deepEqual(r.python, { path: 'C:\\Windows\\py.exe', name: 'py', version: 'Python 3.13.1' });
 });
 
+// A PC with three Pythons: `py -3` finds python.org's, `python` is MSYS2's, and `pip` is the Store one's.
+const STORE_PIP = 'C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_x\\Lib\\site-packages\\pip';
+const threePythons = (extraOk = {}) => machine('win32', {
+  'C:\\Windows\\py.exe|-3': 'Python 3.13.1',
+  'C:\\Windows\\py.exe|exe': 'C:\\Python313\\python.exe\nC:\\Python313\\Lib\\site-packages\\pip\nPython 3.13.1\n',
+  'C:\\bin\\python.exe': 'Python 3.12.0',
+  'C:\\bin\\python.exe|exe': 'C:\\msys64\\ucrt64\\bin\\python.exe\n', // no pip: the import fails before the second line
+  'C:\\bin\\pip.exe': `pip 26.1.2 from ${STORE_PIP} (python 3.13)`,
+  'C:\\bin\\python3.13.exe': 'Python 3.13.9',
+  'C:\\bin\\python3.13.exe|exe': `C:\\Store\\python.exe\r\n${STORE_PIP}\r\nPython 3.13.9\r\n`,
+  ...extraOk,
+}, { glob: (p) => (p === 'C:\\bin\\python3.*.exe' ? ['C:\\bin\\python3.13.exe'] : []) });
+
+test('findTools runs code with the Python that owns pip, so pip installs are importable', async () => {
+  const r = await findTools(threePythons());
+  assert.deepEqual(r.python, { path: 'C:\\Store\\python.exe', name: 'python', version: 'Python 3.13.9' });
+});
+
+test('findTools keeps the py launcher when no Python owns the pip on PATH', async () => {
+  const r = await findTools(threePythons({ 'C:\\bin\\pip.exe': 'pip 26.1.2 from C:\\Elsewhere\\pip (python 3.13)' }));
+  assert.deepEqual(r.python, { path: 'C:\\Windows\\py.exe', name: 'py', version: 'Python 3.13.1' });
+});
+
 test('findTools falls back to python and resolves its interpreter', async () => {
   const r = await findTools(machine('win32', { 'C:\\bin\\python.exe': 'Python 3.11.9', 'C:\\bin\\python.exe|exe': 'C:\\Real\\python.exe\r\n' }));
   assert.deepEqual(r.python, { path: 'C:\\Real\\python.exe', name: 'python', version: 'Python 3.11.9' });

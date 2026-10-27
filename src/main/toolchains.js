@@ -82,7 +82,29 @@ async function findTools(o) {
   }
 
   let python = null;
-  if (win) {
+  // `pip install x` then F5 should just work, but a PC can hold several Pythons (Store, python.org, MSYS2) and
+  // `py -3` or `python` may not be the one `pip` installs into. So the first pip on PATH picks: whichever
+  // Python imports pip from the folder that pip reports.
+  const pip = await probe(pathDirs, win ? 'pip' : 'pip3');
+  const pipDir = /^pip \S+ from (.+) \(python [^)]*\)$/.exec(pip?.version || '')?.[1];
+  if (pipDir) {
+    const OWNER = "import os, sys, pip; print(sys.executable); print(os.path.dirname(pip.__file__)); print('Python ' + sys.version.split()[0])";
+    const cands = win ? [['py', ['-3']]] : [];
+    for (const dir of pathDirs) {
+      const names = win ? ['python', 'python3'] : ['python3', 'python'];
+      for (const n of names) cands.push([file(dir, n), []]);
+      // The Store install only puts versioned aliases (python3.13.exe) in WindowsApps.
+      if (win) for (const g of glob(P.join(dir, 'python3.*.exe'))) cands.push([g, []]);
+    }
+    for (const [c, pre] of cands) {
+      const p = c === 'py' ? pathDirs.map((d) => file(d, 'py')).find(exists) : c;
+      if (!p || !exists(p)) continue;
+      const r = await run(p, [...pre, '-c', OWNER]).catch(() => null);
+      const [exe, dir, version] = r && r.code === 0 ? String(r.stdout || '').split(/\r?\n/).map((s) => s.trim()) : [];
+      if (exe && dir && same(clean(dir), clean(pipDir))) { python = { path: exe, name: 'python', version }; break; }
+    }
+  }
+  if (!python && win) {
     const f = await probe(pathDirs, 'py', ['-3']);
     if (f) python = tool(f);
   }
