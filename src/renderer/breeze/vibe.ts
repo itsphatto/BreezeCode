@@ -13,7 +13,13 @@ const agentWorking = () => Object.values(agentsDef).some(a => a.status === 'work
 function setVibeArmed(on: boolean): void {
   appState.vibeArmed = on;
   saveApp();
-  refreshSettings();
+  // Flipped in place: rebuilding the Settings pane would redraw (and re-fetch) the feed cards.
+  const sw = document.getElementById('sVibe');
+  sw?.classList.toggle('on', on);
+  sw?.setAttribute('aria-checked', String(on));
+  const feeds = document.getElementById('sFeeds');
+  feeds?.classList.toggle('off', !on);
+  feeds?.toggleAttribute('inert', !on); // greyed out and locked: no clicks, no keyboard focus
 }
 function openFeedPicker(): void {
   openModal(`<h3>Vibe Mode feeds</h3><p class="sub">Pick what plays while your agents work. Connecting opens the site so you can sign in.</p>

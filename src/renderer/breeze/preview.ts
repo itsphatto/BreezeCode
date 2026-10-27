@@ -54,4 +54,13 @@ async function reloadPreview(): Promise<void> {
   }
 }
 function stopPreview(): void { running = false; previewPath = null; renderPreview(); }
+// The address bar lists every page in the project; picking one previews it.
+async function openPreviewPages(): Promise<void> {
+  if (!rootInfo) { toast('Open a folder first'); return; }
+  const pages = (await api.fs.listFiles().catch(() => [] as string[])).filter(isHtml).sort();
+  if (!pages.length) { toast('No HTML pages in this project'); return; }
+  openChipMenu($('#previewUrl'), pages.map(p => ({ label: p, checked: () => running && p === previewPath, run: () => void startPreview(p) })));
+}
+$('#previewUrl').onclick = () => void openPreviewPages();
+$('#previewUrl').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void openPreviewPages(); } };
 

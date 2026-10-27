@@ -152,8 +152,12 @@ const logError = where => err => {
   if (err?.code !== 'ERR_ABORTED') console.error(`[breeze] ${where}:`, err?.message ?? err);
 };
 // Opens an https link in the user's browser.
+// Web pages, plus dev servers on this computer (a terminal's http://localhost:5173/); never file: or other schemes.
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
 function openInBrowser(url) {
-  if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith(LIVE_URL))) shell.openExternal(url).catch(logError('openExternal'));
+  let u;
+  try { u = new URL(url); } catch { return; }
+  if (u.protocol === 'https:' || (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname))) shell.openExternal(u.href).catch(logError('openExternal'));
 }
 
 /* ================= Persisted main-process state ================= */

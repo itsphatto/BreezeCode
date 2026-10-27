@@ -424,13 +424,12 @@ function highlightPlainCli(text: string): string {
     return `<span class="term-npm">${npmWord}</span>${space}<span class="${lvlClass}">${lvl}</span>`;
   });
   // Secondary keywords: standalone or subsequent "invalid", "notice", "http"
-  out = out.replace(/\b(?:invalid|notice|http)\b(?![^<]*>)/gi, '<span class="term-kw-cyan">$&</span>');
+  out = out.replace(/\b(?:invalid|notice|http)\b(?!s?:\/\/)(?![^<]*>)/gi, '<span class="term-kw-cyan">$&</span>');
   // General warning / error / success tokens
   out = out.replace(/\b(?:FATAL|FAIL|ERROR|Error|ERR!|error|fatal error)\b:?(?![^<]*>)/g, '<span class="term-kw-error">$&</span>');
   out = out.replace(/\b(?:WARN|WARNING|Warning|warning|warn)\b:?(?![^<]*>)/g, '<span class="term-kw-warning">$&</span>');
   out = out.replace(/(?:\b(?:SUCCESS|SUCCESSFUL|PASS|passed|compiled successfully|Done in)\b|✓)(?![^<]*>)/g, '<span class="term-kw-success">$&</span>');
   out = out.replace(/\b(?:INFO|Info|NOTE|Note|note|info)\b:?(?![^<]*>)/g, '<span class="term-kw-info">$&</span>');
-  out = out.replace(/(https?:\/\/[^\s<>"'`)]+)/g, '<a class="term-url" href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
   return out;
 }
 
@@ -617,6 +616,36 @@ function setSavedHtml(el: Element, html: string): void {
 function setAnsiHtml(el: HTMLElement, raw: string): void {
   el.innerHTML = parseAnsiToHtml(raw);
   applyDataStyles(el);
+  linkUrls(el);
+}
+// Web addresses become plain-click links (they open in the browser), even when colours split one across several
+// spans: Vite prints its URL in cyan with the port in bold.
+function linkUrls(el: HTMLElement): void {
+  const nodes: Text[] = [];
+  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  while (walk.nextNode()) nodes.push(walk.currentNode as Text);
+  const starts: number[] = [];
+  let text = '';
+  for (const n of nodes) { starts.push(text.length); text += n.data; }
+  // The node holding text offset i: an end sits at the tail of the node before a boundary, a start at the head of the next.
+  const at = (i: number, end: boolean): [Text, number] => {
+    let k = nodes.length - 1;
+    while (k > 0 && (end ? starts[k] >= i : starts[k] > i)) k--;
+    return [nodes[k], i - starts[k]];
+  };
+  // Last match first: extracting one only cuts nodes after the earlier matches, so their offsets stay right.
+  for (const m of [...text.matchAll(/https?:\/\/[^\s<>"'`)]*[^\s<>"'`).,;:!?]/g)].reverse()) {
+    const r = document.createRange();
+    r.setStart(...at(m.index, false));
+    r.setEnd(...at(m.index + m[0].length, true));
+    const a = document.createElement('a');
+    a.className = 'term-url';
+    a.href = m[0];
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.append(r.extractContents());
+    r.insertNode(a);
+  }
 }
 function termWrite(text: string, cls = '', session: TermSession = activeTermSession): HTMLElement {
   const target = session || activeTermSession;
