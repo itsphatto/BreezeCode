@@ -44,8 +44,7 @@ These four points are equally weighted and should not be traded against each oth
 ## Capabilities and Constraints
 
 - Editor: reorderable tabs, go to file or line, find, and JS/TS syntax checking.
-- Run with F5: C, C++, C# (.NET SDK) and Python, using compilers Breeze finds on the machine. It explains how to install anything that's missing. JavaScript runs on Node in the terminal, and HTML/CSS get a live preview.
-- Java and Rust run support is planned, not shipped.
+- Run with F5: C, C++, C# (.NET SDK), Python, Java (JDK 11+) and Rust (rustc, or cargo inside a Cargo project), using compilers Breeze finds on the machine. It explains how to install anything that's missing. JavaScript runs on Node in the terminal, and HTML/CSS get a live preview.
 - Git: stage, discard, commit and push, with a graph of checkpoints and branches. Files an agent is editing are marked in the explorer and tabs.
 - Local LLM loop is token-efficient (project map, ranged reads, snippet edits). It assumes a 4k-token context on Ollama and 8k elsewhere.
 - Discord Rich Presence. Auto-updates via electron-updater, which asks before downloading.

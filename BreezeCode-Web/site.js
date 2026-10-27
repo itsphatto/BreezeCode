@@ -66,12 +66,12 @@ if (window.gsap && window.ScrollTrigger && window.SplitText) {
     gsap.fromTo('.hero-shot', { autoAlpha: 0 }, { autoAlpha: 1, duration: 1.4, ease: 'power2.out', delay: 0.7 });
 
     // Headings rise out of a mask; the paragraph under each follows.
-    gsap.utils.toArray('.section-head h2, .compare h3, .extras-title, .download h2').forEach((h) => {
+    gsap.utils.toArray('.section-head h2, .showcase-text h2, .compare h3, .extras-title, .download h2').forEach((h) => {
       lines(h, { scrollTrigger: { trigger: h, start: 'top 88%' } });
     });
     reveal(gsap.utils.toArray('.section-head p, .compare > p, .note'), { y: 20, autoAlpha: 0 }, (els) => rise(els, { delay: 0.2 }));
 
-    // Pillars and extras: each hairline draws across, then its words settle under it.
+    // Extras: each hairline draws across, then its words settle under it.
     const ruled = (sel) => {
       const items = gsap.utils.toArray(sel);
       // Not the orbiting logos (moved into .extra below): they have their own reveal, and a transform would move the ring.
@@ -82,51 +82,13 @@ if (window.gsap && window.ScrollTrigger && window.SplitText) {
         rise(kids(els), { delay: 0.25 });
       });
     };
-    ruled('.pillar');
-
-    // Pillar icons draw themselves in, then act out their idea: the eye blinks, the arrows trade places,
-    // the lock clicks shut, the spinner turns. Hovering a pillar plays it again.
-    const gestures = {
-      eye: (svg) => gsap.to(svg, { scaleY: 0.1, duration: 0.12, ease: 'power2.in', yoyo: true, repeat: 1 }),
-      swap: ({ children: [a, b] }) => gsap.timeline({ defaults: { duration: 0.28, ease: 'power2.inOut', yoyo: true, repeat: 1 } })
-        .to(a, { x: -3 }).to(b, { x: 3 }, 0),
-      lock: ({ children: [, shackle] }) => gsap.timeline().to(shackle, { y: -3, duration: 0.2, ease: 'power2.out' })
-        .to(shackle, { y: 0, duration: 0.5, ease: 'back.out(3)' }),
-      spark: (svg) => gsap.to(svg, { rotation: '+=180', duration: 0.9, ease: 'power3.inOut' }),
-    };
-    const icons = gsap.utils.toArray('.pillar .ic');
-    const play = (svg) => {
-      if (!svg.gesture?.isActive()) svg.gesture = gestures[svg.dataset.icon](svg);
-    };
-    for (const el of icons.flatMap((svg) => [...svg.children])) {
-      const len = el.getTotalLength();
-      gsap.set(el, { strokeDasharray: len, strokeDashoffset: len });
-    }
-    ScrollTrigger.batch(icons, {
-      start: 'top 88%',
-      once: true,
-      onEnter: (els) => els.forEach((svg, i) => {
-        gsap.timeline({ delay: 0.3 + i * 0.12, onComplete: () => { svg.drawn = true; play(svg); } })
-          .to(svg.children, { strokeDashoffset: 0, duration: 0.8, ease: 'power2.inOut', stagger: 0.12 });
-      }),
-    });
-    const hovers = icons.map((svg) => {
-      const pillar = svg.closest('.pillar');
-      const onHover = () => play(svg);
-      pillar.addEventListener('mouseenter', onHover);
-      return () => pillar.removeEventListener('mouseenter', onHover);
-    });
-    // Idle: while the pillars are on screen the icons take turns, one every 1.2 s, and rest once scrolled away.
-    let turn = 0;
-    const idle = gsap.timeline({ repeat: -1, paused: true }).call(() => {
-      const svg = icons[turn++ % icons.length];
-      if (svg.drawn) play(svg);
-    }, null, 1.2);
-    ScrollTrigger.create({ trigger: '.pillars', onToggle: (self) => (self.isActive ? idle.play() : idle.pause()) });
+    // Multi-agent showcase: the words rise beside the heading, then the video's frame settles in.
+    reveal(gsap.utils.toArray('.showcase-text > :not(h2)'), { y: 20, autoAlpha: 0 }, (els) => rise(els, { delay: 0.2 }));
+    reveal(gsap.utils.toArray('.showcase-media'), { y: 40, autoAlpha: 0 }, (els) => rise(els, { duration: 1.2, delay: 0.15 }));
     reveal(gsap.utils.toArray('.table tr'), { y: 16, autoAlpha: 0 }, (els) => rise(els, { stagger: 0.06 }));
 
     // Features: pin the section and turn vertical scroll into a sideways ride along the cards.
-    const section = document.querySelector('.hs');
+    const section = document.querySelector('.hs-pin')?.closest('.hs'); // the cards may be commented out
     if (wide && section) {
       section.classList.add('is-pinned');
       const pin = section.querySelector('.hs-pin');
@@ -166,10 +128,7 @@ if (window.gsap && window.ScrollTrigger && window.SplitText) {
       (els) => gsap.to(els, { scale: 1, rotation: 0, autoAlpha: 1, duration: 1.1, ease: out }));
     reveal(gsap.utils.toArray('.download > p, .download .cta'), { y: 20, autoAlpha: 0 }, (els) => rise(els, { delay: 0.25 }));
 
-    return () => {
-      section?.classList.remove('is-pinned');
-      hovers.forEach((off) => off());
-    };
+    return () => section?.classList.remove('is-pinned');
   });
 }
 
@@ -287,4 +246,17 @@ if (document.querySelector('[data-download]')) {
       document.querySelectorAll('[data-size]').forEach((el) => { el.textContent = `${Math.round(exe.size / 1048576)} MB`; });
     })
     .catch(() => {});
+}
+
+// Showcase video: loops quietly while on screen and rests once scrolled away. With reduced motion it waits for a click.
+const showcase = document.querySelector('.showcase-video');
+if (showcase) {
+  if (reduceMotion) {
+    showcase.removeAttribute('autoplay');
+    showcase.pause();
+    showcase.controls = true;
+  } else {
+    new IntersectionObserver(([e]) => (e.isIntersecting ? showcase.play().catch(() => {}) : showcase.pause()))
+      .observe(showcase);
+  }
 }

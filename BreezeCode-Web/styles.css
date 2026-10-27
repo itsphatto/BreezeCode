@@ -117,39 +117,6 @@ p, li, dd { text-wrap: pretty; }
 .btn-lg { padding: 12px 24px; font-size: 15px; border-radius: 10px; }
 .btn svg { width: 16px; height: 16px; flex: none; }
 
-/* Sound toggle (sfx.js): a small glass button pinned to the bottom-left corner. */
-.sfx-toggle {
-  position: fixed;
-  left: 20px;
-  bottom: 20px;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border: 1px solid var(--glass-line);
-  border-radius: 50%;
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  color: var(--text-2);
-  cursor: pointer;
-  transition: color .15s, border-color .15s, transform .15s;
-}
-.sfx-toggle:hover { color: var(--text); border-color: rgba(255, 255, 255, .22); }
-.sfx-toggle:active { transform: scale(.94); }
-/* Muting: the waves shrink back into the speaker, then the X strokes draw across. Unmuting runs it in reverse. */
-.sfx-waves { transform-origin: 12px 12px; transition: opacity .2s ease .12s, transform .3s cubic-bezier(.2, .8, .2, 1) .12s; }
-.sfx-x path { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .2s ease; }
-.sfx-x path + path { transition-delay: .06s; }
-.sfx-toggle.muted .sfx-waves { opacity: 0; transform: scale(.6); transition-delay: 0s; }
-.sfx-toggle.muted .sfx-x path { stroke-dashoffset: 0; transition-delay: .14s; }
-.sfx-toggle.muted .sfx-x path + path { transition-delay: .2s; }
-@media (prefers-reduced-motion: reduce) {
-  .sfx-toggle *, .sfx-toggle { transition: none !important; }
-}
-
 /* ---------- nav ---------- */
 .nav { position: sticky; top: 12px; z-index: 50; display: flex; justify-content: center; padding: 0 16px; margin-top: 12px; }
 
@@ -309,22 +276,31 @@ h2 {
 
 .section-head p { margin: 16px 0 0; color: var(--text-2); font-size: 17px; text-wrap: pretty; }
 
-/* ---------- benefits ---------- */
-.pillars { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: clamp(32px, 6vw, 80px); }
-/* Hairline drawn as a background so site.js can draw it in via --rule. */
-.pillar { background: linear-gradient(var(--line), var(--line)) 0 0 / var(--rule, 100%) 1px no-repeat; }
-.pillar { padding: 28px 0 32px; }
-.pillar h3 { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; font-family: var(--font-display); font-size: 19px; font-weight: 700; line-height: 1.25; letter-spacing: -.02em; }
-.pillar .ic { width: 22px; height: 22px; flex: none; color: var(--tone); }
-.pillar p { max-width: 46ch; margin: 0; color: var(--text-2); }
+/* ---------- multi-agent showcase ---------- */
+.showcase { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); align-items: center; gap: clamp(32px, 6vw, 80px); }
+.showcase-text h2 { font-size: clamp(28px, 3vw, 36px); }
+.showcase-text p { margin: 18px 0 0; max-width: 44ch; color: var(--text-2); text-wrap: pretty; }
+.showcase-text .link { display: inline-block; margin-top: 22px; color: #6ea2ff; font-weight: 500; }
+/* The video floats on a blue wash, like a window on a desktop. */
+.showcase-media {
+  padding: clamp(20px, 4.5vw, 52px);
+  border-radius: var(--r-card);
+  background:
+    radial-gradient(90% 80% at 0% 0%, rgba(120, 170, 255, .75), transparent 60%),
+    linear-gradient(135deg, #3b82ff 0%, var(--blue) 55%, #1f4fd8 100%);
+}
+.showcase-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  background: var(--bg-1);
+  box-shadow: 0 24px 60px -18px rgba(0, 10, 40, .7);
+}
 
-.t-blue { --tone: #3d82ff; }
-.t-violet { --tone: var(--c-planner); }
-.t-cyan { --tone: var(--c-builder); }
-.t-green { --tone: var(--ok); }
-
-@media (max-width: 760px) {
-  .pillars { grid-template-columns: 1fr; }
+@media (max-width: 860px) {
+  .showcase { grid-template-columns: 1fr; }
 }
 
 /* ---------- compare ---------- */

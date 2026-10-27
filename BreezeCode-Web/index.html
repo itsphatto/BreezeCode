@@ -74,7 +74,7 @@
               </svg>
               Download for Windows
             </a>
-            <a class="btn btn-lg" href="#features">Show me around</a>
+            <a class="btn btn-lg" href="#why">Learn More</a>
           </div>
           <p class="hero-meta">Free · Windows 10 and 11, 64&#8209;bit · About 110 MB</p>
         </div>
@@ -87,54 +87,26 @@
       </div>
     </section>
 
-    <!-- 2. Benefits and how Breeze compares -->
+    <!-- 2. Multi-agent showcase and how Breeze compares -->
     <section class="section wrap" id="why">
-      <div class="section-head">
-        <h2>AI you can actually keep an eye on.</h2>
-        <p>Most AI editors are a black box with a monthly bill. Breeze shows every step, lets you pick the AI, and
-          costs zero.</p>
-      </div>
-
-      <div class="pillars">
-        <article class="pillar t-blue">
-          <h3><svg class="ic" data-icon="eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>Nothing hidden</h3>
-          <p>Every read, edit and command pops up live. Don't like a change? Hop back to a Git checkpoint.</p>
-        </article>
-        <article class="pillar t-violet">
-          <h3><svg class="ic" data-icon="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M7 4 3 8l4 4M3 8h13" />
-              <path d="M17 12l4 4-4 4M21 16H8" />
-            </svg>Bring your own agent</h3>
-          <p>Breeze sniffs out Claude Code, Codex and Antigravity on your PC. Rather go local? Plug in Ollama, LM Studio
-            or any OpenAI-compatible server. Swap whenever.</p>
-        </article>
-        <article class="pillar t-cyan">
-          <h3><svg class="ic" data-icon="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="4" y="11" width="16" height="10" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-            </svg>Tiny and local</h3>
-          <p>Small app, big energy. Your files stay home, API keys sit locked in the Windows keychain, and a local model
-            keeps everything on your machine.</p>
-        </article>
-        <article class="pillar t-green">
-          <h3><svg class="ic" data-icon="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path
-                d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
-            </svg>Fun while you wait</h3>
-          <p>Agents can take a few minutes. Vibe Code Mode rolls a short-video feed meanwhile and pings you the second
-            your code's ready.</p>
-        </article>
+      <div class="showcase">
+        <div class="showcase-text">
+          <h2>Multi-agent, one prompt.</h2>
+          <p>Hand one task to several AI agents at once, even from different companies. @mention Claude Code, Codex or
+            Antigravity in a single prompt and each one takes its piece.</p>
+          <p>Each agent calls dibs on its files, you settle any overlap, then they build side by side. Every read, edit
+            and command lands live in one chat, tagged with who did it. Touch someone else's file? Breeze puts it back
+            and tells you.</p>
+          <a class="link" href="FAQ.html">Read the FAQ</a>
+        </div>
+        <div class="showcase-media">
+          <video class="showcase-video" src="assets/videoshowcase/AgentWritingCode.mp4" autoplay muted loop playsinline
+            preload="metadata" aria-label="An AI agent writing code in Breeze Code while its edits stream into the chat"></video>
+        </div>
       </div>
 
       <div class="compare" id="compare">
-        <h3>Breeze vs. the usual suspects</h3>
+        <h3>Breeze Code vs. Typical Code Editor</h3>
         <p>Side by side with Cursor, Windsurf and VS Code with GitHub Copilot.</p>
         <table class="table">
           <thead>
@@ -182,7 +154,8 @@
     </section>
 
     <!-- 3. Features -->
-    <section class="section hs" id="features" aria-labelledby="features-title">
+    <section class="section hs" id="features" aria-labelledby="extras-title">
+      <!-- Horizontal feature cards, hidden for now. Remove this comment wrapper to bring them back.
       <div class="hs-pin">
         <div class="hs-track">
           <div class="section-head hs-intro">
@@ -285,14 +258,15 @@
           </div>
         </div>
       </div>
+      -->
 
       <div class="wrap more">
-        <h3 class="extras-title">Oh, and</h3>
+        <h3 class="extras-title" id="extras-title">Oh, and</h3>
         <dl class="extras">
           <div class="extra">
             <dt>Run with <kbd>F5</kbd></dt>
-            <dd>Python, C, C++ and C# run on the compilers you already have. Missing one? Breeze tells you what to grab.
-              Java and Rust are coming.
+            <dd>Python, C, C++, C#, Java and Rust run on the compilers you already have. Missing one? Breeze tells you
+              what to grab.
               <span class="langs">
                 <img src="assets/langs/python.svg" alt="Python" width="28" height="28" loading="lazy">
                 <img src="assets/langs/c.svg" alt="C" width="28" height="28" loading="lazy">
@@ -335,8 +309,8 @@
   <div class="finale">
     <section class="download" id="download" aria-labelledby="download-title">
       <img src="favicon-192.png" alt="" width="72" height="72" loading="lazy">
-      <h2 id="download-title">Grab Breeze Code</h2>
-      <p>Free for Windows. Setup takes a minute, agents optional.</p>
+      <h2 id="download-title">Get Breeze Code</h2>
+      <p>Dream it. Build it. </p>
       <div class="cta">
         <a class="btn btn-primary btn-lg" data-download href="https://github.com/itsphatto/BreezeCode/releases/latest">
           <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

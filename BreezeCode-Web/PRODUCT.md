@@ -30,7 +30,7 @@ Four pillars: work in the open (every read, edit and command shows live), bring 
 
 ## Capabilities and Constraints
 
-- Facts the site may state: free; not marketed as open source (the repo is public and its LICENSE is MIT, but the site doesn't advertise either); Windows 10/11 64-bit only, with no Mac or Linux version yet; installer of about 110 MB; unsigned, so SmartScreen warns ("More info → Run anyway"); detects Claude Code, Codex and Antigravity; several agents can share one task through @mentions; runs local models via Ollama, LM Studio or any OpenAI-compatible server; F5 runs Python, C, C++ and C#; JS runs via Node; HTML/CSS live preview; Java and Rust are "on the way"; updates ask before downloading.
+- Facts the site may state: free; not marketed as open source (the repo is public and its LICENSE is MIT, but the site doesn't advertise either); Windows 10/11 64-bit only, with no Mac or Linux version yet; installer of about 110 MB; unsigned, so SmartScreen warns ("More info → Run anyway"); detects Claude Code, Codex and Antigravity; several agents can share one task through @mentions; runs local models via Ollama, LM Studio or any OpenAI-compatible server; F5 runs Python, C, C++, C#, Java (JDK 11+) and Rust (rustc, or cargo inside a Cargo project); JS runs via Node; HTML/CSS live preview; updates ask before downloading.
 - Privacy: files stay on the machine. Cloud agents send task data to their provider under that provider's terms. Keys are encrypted with the Windows keychain.
 
 ## Brand Commitments

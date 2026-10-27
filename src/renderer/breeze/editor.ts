@@ -27,10 +27,13 @@ function activeText(): (EditorBuffer & { ta: CodeSurface }) | undefined {
 function measureChar(): number {
   if (charW) return charW;
   const s = document.createElement('span');
-  s.textContent = 'x'.repeat(200);
+  s.textContent = 'x'.repeat(1000);
   s.style.visibility = 'hidden';
   hlInner.appendChild(s);
-  const w = s.getBoundingClientRect().width / 200;
+  // offsetWidth is the laid-out width: a scale animation around the editor (the IDE zooming in as a folder opens)
+  // would shrink getBoundingClientRect's, and that wrong width would stay cached. 1000 chars keep its whole-pixel
+  // rounding under 0.001px a char.
+  const w = s.offsetWidth / 1000;
   s.remove();
   // Hidden (#ide not shown yet) measures 0, and before the code font loads it measures the fallback font:
   // use either for now, but measure again next time.
