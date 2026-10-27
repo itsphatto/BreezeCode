@@ -638,8 +638,8 @@ button {
 /* A light dim over the whole photo, darker in an oval behind the text so the skyline doesn't fight the words. */
 .ob-bg::before {
   background:
-    radial-gradient(ellipse 42% 34% at 50% 50%, rgba(0, 0, 0, .62), rgba(0, 0, 0, .3) 60%, transparent 100%),
-    rgba(0, 0, 0, .28);
+    radial-gradient(ellipse 42% 34% at 50% 50%, rgba(0, 0, 0, .32), rgba(0, 0, 0, .14) 60%, transparent 100%),
+    rgba(0, 0, 0, .2);
 }
 
 /* Top edge only: a dark blur so the window buttons stay readable over the sky. */
@@ -1116,6 +1116,26 @@ textarea:focus-visible {
 
 .titlebar .logo img {
   height: 20px;
+}
+
+/* The IDE's logo is a button back to Home. */
+.titlebar .logo-home {
+  padding: 2px 4px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background .15s, opacity .15s;
+}
+
+.titlebar .logo-home:hover {
+  background: var(--bg-3);
+}
+
+.titlebar .logo-home:active {
+  opacity: .75;
 }
 
 .titlebar .project {
@@ -5964,9 +5984,8 @@ body.vibing .ide {
 }
 
 /* Idle life on Home's icons: a short move, replayed every 2s. On the shapes inside each svg, so the
-   button's own hover zoom (on the svg) still works. */
+   button's own hover zoom (on the svg) still works. The plus stays still and only grows on hover. */
 .start-ico [data-icon="folder"] > *,
-.start-ico [data-icon="plus"] > *,
 .hp-ico [data-icon="user"] > circle {
   transform-box: fill-box;
   transform-origin: center;
@@ -5974,10 +5993,6 @@ body.vibing .ide {
 
 .start-ico [data-icon="folder"] > * {
   animation: idleLift 2s ease-in-out infinite;
-}
-
-.start-ico [data-icon="plus"] > * {
-  animation: idleTurn 2s cubic-bezier(.32, .72, 0, 1) .4s infinite;
 }
 
 .hp-ico [data-icon="user"] > circle {
@@ -5990,16 +6005,6 @@ body.vibing .ide {
   }
   20% {
     transform: translateY(-1.5px);
-  }
-}
-
-/* A plus turned a quarter looks the same, so the jump back to 0 at the loop is invisible. */
-@keyframes idleTurn {
-  0% {
-    transform: none;
-  }
-  30%, 100% {
-    transform: rotate(90deg);
   }
 }
 

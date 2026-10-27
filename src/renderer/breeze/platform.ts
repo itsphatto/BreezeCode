@@ -117,6 +117,7 @@ function demoApi(): BreezeApi {
   const inside = (k: string, rel: string) => k === rel || k.startsWith(rel + '/');
   const needOpen = () => { if (!store.get('breeze.demoOpen', false)) throw new Error('No folder is open'); };
   const feeds = () => store.get<Record<string, boolean>>('breeze.demoVibe', {});
+  const markOpened = () => store.set('breeze.demoOpenedAt', Date.now());
   return {
     fs: {
       async importFile(dir, name, data) {
@@ -135,22 +136,27 @@ function demoApi(): BreezeApi {
       },
 
 
-      openFolder() { store.set('breeze.demoOpen', true); return Promise.resolve(info); },
+      openFolder() { store.set('breeze.demoOpen', true); markOpened(); return Promise.resolve(info); },
       // Browser preview: a new, empty in-memory project.
       async createFolder() {
         files.clear(); dirs.clear(); binary.clear();
         files.set('README.md', '# My Breeze project\n');
         info = { root: 'demo:/my-breeze-project', name: 'my-breeze-project' };
         store.set('breeze.demoOpen', true);
+        markOpened();
         return info;
 
 
       },
       restore() { return Promise.resolve(store.get('breeze.demoOpen', false) ? info : null); },
       closeFolder() { store.del('breeze.demoOpen'); return Promise.resolve(); },
-      recent() { return Promise.resolve([{ path: info.root, name: info.name, openedAt: Date.now() - 2 * 3600e3 }]); },
-      forgetRecent() { return Promise.resolve(); },
-      openRecent() { store.set('breeze.demoOpen', true); return Promise.resolve(info); },
+      // Empty until a folder has been opened, so a first visit starts with no recent projects.
+      recent() {
+        const at = store.get<number>('breeze.demoOpenedAt', 0);
+        return Promise.resolve(at ? [{ path: info.root, name: info.name, openedAt: at }] : []);
+      },
+      forgetRecent() { store.del('breeze.demoOpenedAt'); return Promise.resolve(); },
+      openRecent() { store.set('breeze.demoOpen', true); markOpened(); return Promise.resolve(info); },
       async readDir(rel) {
         needOpen();
         const seen = new Map<string, boolean>();

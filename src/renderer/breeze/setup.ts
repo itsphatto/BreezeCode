@@ -730,6 +730,7 @@ function goHome(): void {
   swapScreen('#onboard');
   goStep(STEP.home);
 }
+$('#logoHome').onclick = goHome;
 async function openFromHome(dir: string, row: HTMLElement): Promise<void> {
   const r = homeRecent?.find(x => x.path === dir);
   if (r?.missing) { toast(`${r.name} was moved or deleted. Remove it with ×.`); return; }
