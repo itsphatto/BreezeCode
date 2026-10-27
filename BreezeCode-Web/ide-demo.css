@@ -44,7 +44,8 @@
   box-sizing: border-box;
 }
 
-.bz button {
+/* :where keeps this at element strength, as the app's own `button` rule is, so a button's class sets its font. */
+.bz :where(button) {
   font: inherit;
   color: inherit;
   cursor: pointer;
@@ -136,6 +137,28 @@
   white-space: nowrap;
 }
 
+/* Title bar Sync button: the arrows turn once on hover instead of the colour changing. */
+.bz-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  margin-right: 8px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--blue);
+  color: #fff !important;
+  font-size: 12px;
+  font-weight: 600;
+  transition: transform .2s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.bz-sync:hover { transform: scale(1.06); }
+.bz-sync:active { transform: scale(.97); }
+.bz-sync svg { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.bz-sync:hover svg { transform: rotate(360deg); }
+
 .bz-layout-btns {
   display: flex;
   gap: 2px;
@@ -148,7 +171,7 @@
   height: 24px;
   margin: 0 8px 0 6px;
   padding: 0;
-  border: none;
+  border: 2px solid var(--bg-1);
   border-radius: 50%;
   background: #7aa9ff;
   color: #000 !important;
@@ -246,6 +269,11 @@
   border-color: #1a6dff;
 }
 
+.bz-btn-sm {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+
 .bz-btn:disabled {
   opacity: .45;
   cursor: default;
@@ -309,7 +337,7 @@ button.bz-pill:hover {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 0;
+  padding: 6px 0;
 }
 
 .bz-act-indicator {
@@ -409,10 +437,32 @@ button.bz-pill:hover {
   min-height: 40px;
   padding: 6px 10px 6px 12px;
   font-family: Inter, system-ui, sans-serif;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-2);
+  color: var(--text-3);
   white-space: nowrap;
+}
+
+.bz-agents .bz-side-head {
+  min-height: 32px;
+  padding: 4px 10px 1px 12px;
+}
+
+.bz-agent-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bz-head-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--blue-soft);
+  color: #7aa9ff;
+  font-size: 10px;
+  text-align: center;
+  animation: bzPop .25s cubic-bezier(.3, 1.6, .5, 1);
 }
 
 .bz-head-actions {
@@ -449,8 +499,9 @@ button.bz-pill:hover {
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 3px 8px;
-  border: none;
+  padding: 2px 8px;
+  border: 0;
+  border-block: 1px solid transparent;
   border-radius: 6px;
   background: none;
   color: var(--text-2) !important;
@@ -540,7 +591,7 @@ button.bz-pill:hover {
 }
 
 .bz-tree-item.bz-dot .bz-nm {
-  color: #e2c08d;
+  color: #d6c39a;
 }
 
 .bz-tree-input {
@@ -617,45 +668,180 @@ button.bz-pill:hover {
   border-radius: 2px;
 }
 
+/* ---------- source control (the app's .scm) ---------- */
 .bz-scm {
-  display: grid;
-  gap: 8px;
-  padding: 0 10px 10px;
+  padding: 0 0 12px;
 }
 
-.bz-scm-title {
-  margin-top: 4px;
+.bz-commit-box {
+  display: grid;
+  gap: 6px;
+  padding: 0 4px 10px;
+}
+
+.bz-commit-box textarea {
+  height: 28px;
+  min-height: 28px;
+  padding: 5px 8px;
+  overflow: hidden;
+  resize: none;
+  font: 12px/16px var(--font-ui);
+}
+
+.bz-scm-sec {
+  margin-top: 2px;
+}
+
+.bz-scm-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color .18s, color .18s;
+}
+
+.bz-scm-head:hover {
+  background: var(--bg-3);
+  color: #fff;
+}
+
+.bz-scm-head .bz-chev {
+  transform: rotate(270deg);
+  transition: transform .18s var(--ease);
+}
+
+.bz-scm-sec.closed .bz-chev {
+  transform: rotate(180deg);
+}
+
+.bz-scm-sec.closed .bz-scm-list {
+  display: none;
+}
+
+.bz-scm-head .title {
+  flex: 1;
+}
+
+.bz-scm-head .count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--bg-3);
+  color: var(--text-2);
+  font-size: 10px;
+  text-align: center;
+}
+
+.bz-scm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 1px 0;
+  padding: 3px 8px 3px 14px;
+  border-radius: 6px;
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .25s;
+}
+
+.bz-scm-row:hover,
+.bz-scm-row:hover * {
+  color: #fff !important;
+}
+
+.bz-scm-row .bz-nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.bz-scm-row .bz-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-3);
   font-size: 11px;
-  font-weight: 600;
+  text-overflow: ellipsis;
 }
 
-.bz-scm-done {
-  display: grid;
-  gap: 4px;
-  padding: 12px;
-  border: 1px solid rgba(34, 197, 94, .3);
-  border-radius: 8px;
-  background: rgba(34, 197, 94, .06);
-  color: var(--text-2);
-  user-select: text;
+.bz-scm-row .bz-st {
+  width: 14px;
+  flex-shrink: 0;
+  font: 600 11px var(--font-code);
+  text-align: center;
 }
 
-.bz-scm-done b {
-  color: #86efac;
+.bz-scm-row.bz-git-m .bz-nm,
+.bz-scm-row.bz-git-m .bz-st {
+  color: #e2c08d;
 }
 
-.bz-scm-done .bz-btn {
-  justify-content: center;
-  margin-top: 6px;
+.bz-scm-row.bz-git-u .bz-nm,
+.bz-scm-row.bz-git-u .bz-st {
+  color: #73c991;
 }
 
-.bz-scm-pushed {
+.bz-commit {
   display: flex;
-  gap: 6px;
+  align-items: stretch;
+  gap: 4px;
+  height: 36px;
+  border-radius: 6px;
+}
+
+.bz-commit:hover {
+  background: var(--bg-3);
+}
+
+.bz-msgline {
+  min-width: 0;
+  padding: 4px 6px 4px 0;
+}
+
+.bz-msgline div {
+  display: flex;
   align-items: center;
-  margin-top: 4px;
-  color: #86efac;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.bz-subj {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bz-msgline small {
+  display: block;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.bz-ref {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  font: 600 10px/15px var(--font-code);
+}
+
+.bz-ref.head {
+  background: var(--blue);
+  color: #fff;
+}
+
+.bz-ref.remote {
+  background: rgba(196, 181, 253, .15);
+  color: #c4b5fd;
 }
 
 /* ---------- editor area ---------- */
@@ -736,9 +922,29 @@ button.bz-pill:hover {
   display: none;
 }
 
+/* Run / Preview sits at the end of the tab strip as an outlined chip, then Split Editor (the app's .tab-run.tab-preview). */
 .bz-run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   flex-shrink: 0;
-  margin: 0 8px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(122, 169, 255, .4);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: #7aa9ff !important;
+  font-size: 12px;
+  transition: background-color .15s;
+}
+
+.bz-run-btn:hover {
+  background: rgba(122, 169, 255, .12);
+}
+
+.bz-tab-split {
+  flex-shrink: 0;
+  margin: 0 6px 0 4px;
 }
 
 .bz-tab {
@@ -1005,6 +1211,27 @@ button.bz-pill:hover {
   opacity: .9;
 }
 
+/* The editor's empty state: a faint logo and a few shortcuts, as in the app. */
+#bzEmpty img {
+  opacity: .14;
+}
+
+.bz-keys-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 8px 18px;
+  margin-top: 14px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.bz-keys-grid kbd {
+  justify-self: start;
+  border-bottom-width: 1px;
+  background: var(--bg-3);
+  font-family: var(--font-code);
+}
+
 .bz-empty kbd {
   padding: 1px 6px;
   border: 1px solid var(--line);
@@ -1035,19 +1262,18 @@ button.bz-pill:hover {
 .bz-preview-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 38px;
+  gap: 4px;
+  height: 34px;
   flex-shrink: 0;
-  padding: 0 6px 0 12px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
 }
 
 .bz-preview-label {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: .08em;
-  text-transform: uppercase;
 }
 
 .bz-url {
@@ -1056,14 +1282,24 @@ button.bz-pill:hover {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  margin: 0 4px;
   padding: 3px 10px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--bg);
   color: var(--text-2);
-  font: 11.5px var(--font-code);
+  font: 12px var(--font-ui);
   white-space: nowrap;
   overflow: hidden;
+  cursor: pointer;
+  transition: border-color .15s, background-color .15s;
+}
+
+/* The address opens a list of the project's pages. */
+.bz-url:hover,
+.bz-url.open {
+  border-color: rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .04);
 }
 
 .bz-preview-frame {
@@ -1088,15 +1324,13 @@ button.bz-pill:hover {
 .bz-term-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  height: 30px;
+  height: 32px;
   padding: 0 10px;
   color: var(--text-3);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -1186,7 +1420,7 @@ button.bz-pill:hover {
 .bz-agent-cards {
   display: grid;
   gap: 6px;
-  padding: 0 10px 10px;
+  padding: 10px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -1202,8 +1436,33 @@ button.bz-pill:hover {
   animation: bzRise .22s var(--ease);
 }
 
+.bz-agent.working {
+  border-color: rgba(0, 94, 255, .45);
+}
+
 .bz-agent.waiting {
   border-color: rgba(245, 158, 11, .45);
+}
+
+.bz-agent.done {
+  border-color: rgba(34, 197, 94, .35);
+}
+
+/* Tool calls so far: 4% per call, as in the app. */
+.bz-agent .meter {
+  grid-column: 1 / 4;
+  height: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-3);
+}
+
+.bz-agent .meter i {
+  display: block;
+  height: 100%;
+  background: var(--text-3);
+  transition: width .4s var(--ease);
 }
 
 .bz-ava {
@@ -1218,28 +1477,16 @@ button.bz-pill:hover {
   font-weight: 700;
 }
 
-.bz-ava.planner,
-.bz-ava-mini.planner {
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-}
-
-.bz-ava.builder,
-.bz-ava-mini.builder {
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-}
-
-.bz-ava.assistant,
-.bz-ava-mini.assistant {
-  background: var(--bg-3);
-  border: 1px solid var(--line);
+/* Agent logos sit bare, with no tile behind them (the app's .has-img). */
+.bz-ava,
+.bz-ava-mini {
+  overflow: hidden;
 }
 
 .bz-ava img,
 .bz-ava-mini img {
-  width: 66%;
-  height: 66%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 
@@ -1335,7 +1582,7 @@ button.bz-pill:hover {
   place-items: center;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: 4px;
   color: #000;
   font-size: 9px;
   font-weight: 700;
@@ -1372,28 +1619,73 @@ button.bz-pill:hover {
   font: 11.5px var(--font-code);
 }
 
+/* A pass between roles ("Planner → Builder"), on a rule across the chat. */
 .bz-handoff {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
   color: var(--text-3);
+  font-size: 11px;
+  text-align: center;
+  animation: bzRise .22s var(--ease);
+}
+
+.bz-handoff::before,
+.bz-handoff::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* Who is on the task, in a small box at the top of a run. */
+.bz-team-line {
+  align-self: center;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text-2);
   font-size: 11.5px;
   text-align: center;
   animation: bzRise .22s var(--ease);
 }
 
-.bz-handoff b {
+.bz-team-line b {
   color: var(--text);
+  font-weight: 600;
+}
+
+/* The green line that closes a finished run. */
+.bz-run-done {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 14px;
+  padding: 6px 8px;
+  border: 1px solid rgba(34, 197, 94, .25);
+  border-radius: 8px;
+  background: rgba(34, 197, 94, .07);
+  color: #86efac;
+  font-size: 12px;
+  animation: bzRise .22s var(--ease);
+}
+
+.bz-run-done .bz-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .bz-tool-line {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 4px 0 6px;
+  padding: 0 4px 0 0;
   color: var(--text-3);
   font-size: 12px;
   animation: bzRise .22s var(--ease);
@@ -1413,13 +1705,14 @@ button.bz-pill:hover {
   font: 11.5px var(--font-code);
 }
 
+/* The plan card is violet, as in the app; the team cards below set their own colours. */
 .bz-plan {
   display: grid;
   gap: 8px;
   padding: 12px;
-  border: 1px solid #3a3a42;
+  border: 1px solid rgba(167, 139, 250, .5);
   border-radius: 10px;
-  background: var(--bg-2);
+  background: linear-gradient(rgba(167, 139, 250, .1), rgba(167, 139, 250, .02));
   animation: bzRise .22s var(--ease);
 }
 
@@ -1772,7 +2065,11 @@ button.bz-pill:hover {
   border-top: 1px solid var(--line);
 }
 
+/* No model chips under the prompt: the send button sits beside it, as in the app's compact composer. */
 .bz-composer-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1787,8 +2084,9 @@ button.bz-pill:hover {
 
 .bz-composer textarea {
   display: block;
-  width: 100%;
-  min-height: 40px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px;
   border: none;
   outline: none;
   resize: none;
@@ -1803,27 +2101,110 @@ button.bz-pill:hover {
   color: var(--text-3);
 }
 
-.bz-composer .bz-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bz-select {
-  padding: 3px 6px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg-3);
-  color: var(--text-2);
-  font: 12px var(--font-ui);
+.bz-composer textarea::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bz-send {
-  width: 28px;
-  height: 28px;
-  margin-left: auto;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border-radius: 7px;
+  border-radius: 6px;
+}
+
+/* Agents header: the agent bar takes the room left between the title and the icon buttons. */
+.bz-agent-tools {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  opacity: 1;
+}
+
+.bz-agent-bar {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bz-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text-2) !important;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color .15s, background-color .15s, border-color .15s;
+}
+
+.bz-chip:hover {
+  border-color: #3a3a42;
+  color: var(--text) !important;
+}
+
+.bz-chip.on {
+  color: #7aa9ff !important;
+  border-color: rgba(0, 94, 255, .45);
+  background: var(--blue-soft);
+}
+
+.bz-chip.bz-chip-rest {
+  padding-right: 9px;
+}
+
+.bz-chip img {
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+}
+
+.bz-chip-more {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  opacity: .7;
+}
+
+.bz-chip-more:hover {
+  opacity: 1;
+  background: rgba(127, 127, 127, .28);
+}
+
+/* Chat tabs under the header: one tab reads like a plain title, the + opens a fresh chat. */
+.bz-agent-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+}
+
+.bz-agent-tab {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 6px;
+  background: var(--bg-3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 3px rgba(0, 0, 0, .28);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* ---------- status bar ---------- */
@@ -1976,22 +2357,22 @@ button.bz-sb:hover {
   font: 12px var(--font-code);
 }
 
+/* Centred at the bottom, as the app shows them. */
 .bz-toasts {
   position: absolute;
-  right: 16px;
-  bottom: 36px;
+  left: 50%;
+  bottom: 40px;
   z-index: 40;
   display: grid;
   gap: 8px;
-  justify-items: end;
+  justify-items: center;
+  transform: translateX(-50%);
   pointer-events: none;
 }
 
+/* Inline flow, not flex: as flex items the text and its link each wrapped into their own squeezed column. */
 .bz-toast {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 360px;
+  white-space: nowrap;
   padding: 9px 14px;
   border: 1px solid var(--glass-line);
   border-radius: 10px;
@@ -2011,6 +2392,11 @@ button.bz-sb:hover {
 
 .bz-toast a {
   color: #7aa9ff;
+}
+
+.bz-toast svg {
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 .bz.minimized .bz-ide {
@@ -2161,6 +2547,12 @@ button.bz-sb:hover {
 @keyframes bzFade {
   from {
     opacity: 0;
+  }
+}
+
+@keyframes bzPop {
+  from {
+    transform: scale(.4);
   }
 }
 

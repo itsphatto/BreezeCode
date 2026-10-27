@@ -74,7 +74,8 @@ if (window.gsap && window.ScrollTrigger && window.SplitText) {
     // Pillars and extras: each hairline draws across, then its words settle under it.
     const ruled = (sel) => {
       const items = gsap.utils.toArray(sel);
-      const kids = (els) => els.flatMap((el) => [...el.children]);
+      // Not the orbiting logos (moved into .extra below): they have their own reveal, and a transform would move the ring.
+      const kids = (els) => els.flatMap((el) => [...el.children].filter((c) => !c.matches('.langs')));
       gsap.set(kids(items), { y: 20, autoAlpha: 0 });
       reveal(items, { '--rule': '0%' }, (els) => {
         gsap.to(els, { '--rule': '100%', duration: 1.2, ease: 'expo.inOut', stagger: 0.12 });
@@ -198,6 +199,70 @@ if (!reduceMotion) document.querySelectorAll('details.faq').forEach((faq) => {
     };
   });
 });
+
+// Run with F5: the language logos orbit the description on a tilted ellipse, behind the text on the far side and in front on
+// the near side. Scrolling winds them faster (and backwards when scrolling up). Without JS or motion, or on a screen
+// too narrow for the two-column row (styles.css, 860px), they stay a row under the text.
+const langs = document.querySelector('.langs');
+if (langs && !reduceMotion) {
+  const row = langs.closest('.extra');
+  const dd = langs.parentElement;
+  const icons = [...langs.children];
+  const wide = matchMedia('(min-width: 861px)');
+  const TILT = -8 * Math.PI / 180, BASE = 0.35; // radians per second at rest
+  let angle = 0, boost = 0, lastY = scrollY, lastT = 0, frame = 0;
+  const setOrbit = () => {
+    cancelAnimationFrame(frame);
+    lastT = 0;
+    langs.classList.toggle('orbit', wide.matches);
+    // Out of the <dd> while orbiting: GSAP's reveal leaves a transform there, which would become the ring's centre.
+    (wide.matches ? row : dd).append(langs);
+    if (!wide.matches) for (const img of icons) for (const p of ['translate', 'scale', 'filter', 'z-index']) img.style.removeProperty(p);
+  };
+
+  const tick = (t) => {
+    const dt = Math.min(0.05, (t - (lastT || t)) / 1000);
+    lastT = t;
+    // Scroll speed in px/s, eased so the spin winds up and settles rather than jumping.
+    const v = dt ? (scrollY - lastY) / dt : 0;
+    lastY = scrollY;
+    boost += (Math.max(-6, Math.min(6, v * 0.006)) - boost) * Math.min(1, dt * 6);
+    angle += (BASE + boost) * dt;
+    // The ring hugs the description: centred on it, a little wider and taller than its text. The tilt makes the
+    // ring taller, so ry is sized for the tilted ring to clear the text by the same margin.
+    const cx = dd.offsetLeft + dd.offsetWidth / 2 - row.clientWidth / 2, cy = dd.offsetTop + dd.offsetHeight / 2 - row.clientHeight / 2;
+    // Sideways it reaches just past the text, into the page's 20px side gutter but no further: past that the page
+    // would scroll sideways.
+    const rx = dd.offsetWidth / 2 - 10, top = dd.offsetHeight / 2 + 24;
+    const ry = Math.sqrt(Math.max(0, top ** 2 - (rx * Math.sin(TILT)) ** 2)) / Math.cos(TILT);
+    icons.forEach((img, i) => {
+      const a = angle + (i / icons.length) * Math.PI * 2;
+      const x = rx * Math.cos(a), y = ry * Math.sin(a);
+      const depth = Math.sin(a); // -1 far side, 1 near side
+      const px = x * Math.cos(TILT) - y * Math.sin(TILT), py = x * Math.sin(TILT) + y * Math.cos(TILT);
+      // How far the logo has slid onto the text, eased over 24px: it fades as it crosses, so the words stay
+      // readable and the swap from behind to in front happens out of sight.
+      const into = Math.min(dd.offsetWidth / 2 + 18 - Math.abs(px), dd.offsetHeight / 2 + 18 - Math.abs(py));
+      const t = Math.max(0, Math.min(1, into / 24));
+      const over = t * t * (3 - 2 * t);
+      img.style.translate = `${cx + px}px ${cy + py}px`;
+      img.style.scale = String(0.95 + depth * 0.2 - over * 0.15);
+      img.style.filter = `brightness(${0.7 + depth * 0.3}) opacity(${1 - over * 0.75}) blur(${over * 1.5}px)`;
+      img.style.zIndex = depth < 0 ? '-1' : '1';
+    });
+    frame = requestAnimationFrame(tick);
+  };
+  // Only spins while the row is on screen and wide enough.
+  let onScreen = false;
+  const run = () => {
+    setOrbit();
+    lastY = scrollY;
+    if (onScreen && wide.matches) frame = requestAnimationFrame(tick);
+  };
+  new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; run(); }).observe(row);
+  wide.addEventListener('change', run);
+  run();
+}
 
 // Footer links open in a new tab; replay the press animation on every click (styles.css .is-opening).
 document.querySelectorAll('.footer a[target="_blank"]').forEach((a) => {

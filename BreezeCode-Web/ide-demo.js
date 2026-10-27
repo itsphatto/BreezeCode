@@ -65,6 +65,7 @@
     history: [1.8, '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/><path d="M12 7.5V12l3 2"/>'],
     x: [2, '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'],
     chevronRight: [2, '<path d="m9 18 6-6-6-6"/>'],
+    chevronDown: [2, '<path d="m6 9 6 6 6-6"/>'],
     backspace: [2, '<path d="M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="m12 9 6 6"/><path d="m18 9-6 6"/>'],
     stop: [2, '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>'],
     send: [2, '<path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/>'],
@@ -323,6 +324,7 @@ h1 {
       <span class="bz-spacer"></span>
       <span class="bz-project">Demo-IDE</span>
       <span class="bz-spacer"></span>
+      <button class="bz-sync" data-act="sync" title="Sync workspace">${icon('refresh', 14)}<span>Sync</span></button>
       <div class="bz-layout-btns">
         <button class="bz-icon-btn" data-act="view.toggleSide" title="Toggle Primary Side Bar (Ctrl+B)"></button>
         <button class="bz-icon-btn" data-act="term.toggle" title="Toggle Panel (Ctrl+\`)"></button>
@@ -349,7 +351,6 @@ h1 {
           <div class="bz-side-head"><span>Explorer</span><span class="bz-head-actions">
             <button class="bz-icon-btn" data-act="file.newFile" title="New File">${icon('newfile', 14)}</button>
             <button class="bz-icon-btn" data-act="file.newFolder" title="New Folder">${icon('newdir', 14)}</button>
-            <button class="bz-icon-btn" data-act="explorer.refresh" title="Refresh">${icon('refresh', 14)}</button>
             <button class="bz-icon-btn" data-act="explorer.collapse" title="Collapse Folders">${icon('collapse', 14)}</button>
             <button class="bz-icon-btn" data-act="view.toggleSide" title="Hide Side Bar">${icon('chev', 14)}</button>
           </span></div>
@@ -367,7 +368,8 @@ h1 {
         <div class="bz-work no-preview" id="bzWork">
           <div class="bz-pane">
             <div class="bz-tabrow"><div class="bz-tabs" id="bzTabs" role="tablist"></div>
-              <button class="bz-btn bz-btn-primary bz-run-btn bz-hidden" id="bzRun" data-act="run.start" title="Preview index.html (F5)">${icon('play', 12)} Preview</button></div>
+              <button class="bz-run-btn bz-hidden" id="bzRun" data-act="run.start" title="Preview this page (F5)">${icon('play', 12)}<span>Preview</span></button>
+              <button class="bz-icon-btn bz-tab-split" data-act="editor.split" title="Split Editor Right (Ctrl+\\)">${icon('columns', 14)}</button></div>
             <div class="bz-editor" id="bzEditor">
               <div class="bz-gutter"><div></div></div>
               <div class="bz-code"><pre class="bz-hl" aria-hidden="true"><div></div></pre><textarea class="bz-ta" id="bzTa" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Code editor"></textarea></div>
@@ -381,11 +383,11 @@ h1 {
             </div>
             <div class="bz-image bz-hidden"><img alt=""></div>
             <div class="bz-empty bz-hidden" id="bzEmpty"><img src="${ASSETS}brand/Agent.png" alt="" width="64" height="64"><h4>No file open</h4>
-              <div>Pick a file in the Explorer, or press <kbd>F5</kbd> to preview the site.</div></div>
+              <div class="bz-keys-grid"><span>Go to file</span><kbd>Ctrl+P</kbd><span>New file</span><kbd>Ctrl+N</kbd><span>Search files</span><kbd>Ctrl+Shift+F</kbd><span>Terminal</span><kbd>Ctrl+\`</kbd></div></div>
           </div>
           <div class="bz-pane preview">
             <div class="bz-preview-bar"><span class="bz-preview-label">Preview</span>
-              <span class="bz-url">http://127.0.0.1:5173/index.html</span>
+              <span class="bz-url" data-act="preview.pages" role="button" tabindex="0" aria-haspopup="menu" title="Switch page">http://127.0.0.1:5173/index.html</span>
               <button class="bz-icon-btn" data-act="run.reload" title="Reload Preview">${icon('refresh', 13)}</button>
               <button class="bz-icon-btn" data-act="run.stop" title="Close Preview">${icon('x', 13)}</button></div>
             <iframe class="bz-preview-frame" title="Preview of index.html" sandbox="allow-scripts"></iframe>
@@ -393,7 +395,8 @@ h1 {
         </div>
         <div class="bz-terminal" id="bzTerm">
           <div class="bz-term-head" data-act="term.toggle">
-            <span class="bz-term-title">${icon('chevronRight', 14)} Terminal</span><span class="bz-spacer"></span>
+            <span class="bz-term-title">${icon('chevronRight', 14)} Terminal</span>
+            <button class="bz-icon-btn" data-act="term.new" title="New Terminal (Ctrl+Shift+\`)">${icon('plus', 13)}</button><span class="bz-spacer"></span>
             <button class="bz-icon-btn" data-act="term.clear" title="Clear">${icon('backspace', 15)}</button>
             <button class="bz-icon-btn" data-act="term.kill" title="Stop running command">${icon('stop', 13)}</button>
             <span>Ctrl+\`</span>
@@ -405,21 +408,18 @@ h1 {
         </div>
       </section>
       <aside class="bz-agents" aria-label="Agents">
-        <div class="bz-side-head"><span>Agents</span><span class="bz-head-actions" style="opacity:1">
-          <button class="bz-pill blue" data-act="agent.pick" aria-haspopup="menu" id="bzAgentPill"><img src="${ASSETS}agents/claude.svg" alt="" width="14" height="14">Claude Code CLI</button>
-          <button class="bz-icon-btn" data-act="chat.new" title="New chat">${icon('plus', 14)}</button>
+        <div class="bz-side-head"><span class="bz-agent-title">Agents<span class="bz-head-count bz-hidden" id="bzAgentCount"></span></span><span class="bz-head-actions bz-agent-tools">
+          <div class="bz-agent-bar" id="bzAgentBar"></div>
+          <button class="bz-icon-btn" data-act="chat.history" title="Chat history" aria-haspopup="menu">${icon('history', 14)}</button>
           <button class="bz-icon-btn flip" data-act="view.toggleAgents" title="Hide Agents">${icon('chev', 14)}</button>
         </span></div>
+        <div class="bz-agent-tabs"><span class="bz-agent-tab" id="bzChatTab">Chat 1</span>
+          <button class="bz-icon-btn" data-act="chat.new" title="New chat" aria-label="New chat">${icon('plus', 13)}</button></div>
         <div class="bz-agent-cards bz-hidden" id="bzCards"></div>
         <div class="bz-chat" id="bzChat" aria-live="polite"></div>
         <div class="bz-composer"><div class="bz-composer-box">
-          <textarea id="bzPrompt" rows="2" aria-label="Message to the agent" placeholder="Describe what you want to build…"></textarea>
-          <div class="bz-row">
-            <select class="bz-select" id="bzMode" aria-label="How the agent should work">
-              <option value="plan">Plan, then build</option><option value="build">Build directly</option><option value="ask">Ask (read-only)</option>
-            </select>
-            <button class="bz-btn bz-btn-primary bz-send" data-act="agent.send" title="Send (Enter)" aria-label="Send">${icon('send', 14)}</button>
-          </div>
+          <textarea id="bzPrompt" rows="1" aria-label="Message to the agent" placeholder="Describe what you want to build"></textarea>
+          <button class="bz-btn bz-btn-primary bz-send" data-act="agent.send" title="Send (Enter)" aria-label="Send">${icon('send', 12)}</button>
         </div></div>
       </aside>
     </div>
@@ -427,11 +427,9 @@ h1 {
       <button class="bz-sb" data-act="branch" title="Branch">${icon('gitBranch', 14)}<span>master</span></button>
       <span class="bz-sb"><span class="bz-dot-ok"></span> Git ready · Node ready · Python ready</span>
       <span class="bz-spacer"></span>
-      <button class="bz-sb" data-act="vibe" id="bzVibe" title="Vibe Mode: plays your feed while agents work">${icon('circle', 14)}<span>Vibe Mode off</span></button>
-      <button class="bz-sb" data-act="discord" id="bzDiscord" title="Discord presence">Discord: off</button>
       <button class="bz-sb" data-act="editor.focus" id="bzPos">Ln 1, Col 1</button>
       <span class="bz-sb" id="bzLang">Plain Text</span>
-      <span class="bz-sb">LF · UTF-8</span>
+      <span class="bz-sb">UTF-8</span>
       <button class="bz-sb" data-act="account">Not signed in</button>
     </footer>
     <div class="bz-toasts" aria-live="polite"></div>
@@ -499,7 +497,7 @@ h1 {
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, ms);
   }
   const DOWNLOAD = 'https://github.com/itsphatto/BreezeCode/releases/latest';
-  const desktopOnly = what => toast(`${what} works in the desktop app. <a href="${DOWNLOAD}" target="_blank" rel="noopener">Download Breeze Code</a>`, 4200);
+  const desktopOnly = what => toast(`${what} lives in the desktop app. <a href="${DOWNLOAD}" target="_blank" rel="noopener">Grab Breeze Code</a>`, 4200);
 
   let menu = null;
   function closeMenu() {
@@ -702,7 +700,7 @@ h1 {
   }
   const dirChanged = d => [...files.keys()].some(p => p.startsWith(`${d}/`) && gitState(p));
   function nameBox(depth, value) {
-    return `<div class="bz-tree-item" style="padding-left:${8 + depth * 12}px"><span class="bz-chev none">${CHEV}</span><span class="bz-ico">${pending.kind === 'dir' ? folderIcon('', false) : fileIcon(value || 'file')}</span><input class="bz-tree-input" value="${esc(value)}" aria-label="Name" spellcheck="false" autocomplete="off"></div>`;
+    return `<div class="bz-tree-item" style="padding-left:${4 + depth * 12}px"><span class="bz-chev none">${CHEV}</span><span class="bz-ico">${pending.kind === 'dir' ? folderIcon('', false) : fileIcon(value || 'file')}</span><input class="bz-tree-input" value="${esc(value)}" aria-label="Name" spellcheck="false" autocomplete="off"></div>`;
   }
   function treeHtml(dir, depth) {
     let html = '';
@@ -713,7 +711,7 @@ h1 {
       const st = isDir ? '' : gitState(p);
       const cls = ['bz-tree-item', selected === p ? 'on' : '', st ? `bz-git-${st.toLowerCase()}` : '', isDir && dirChanged(p) ? 'bz-dot' : ''].join(' ');
       const open = openDirs.has(p);
-      html += `<button class="${cls}" data-path="${esc(p)}" style="padding-left:${8 + depth * 12}px" ${isDir ? `aria-expanded="${open}"` : ''}>`
+      html += `<button class="${cls}" data-path="${esc(p)}" style="padding-left:${4 + depth * 12}px" ${isDir ? `aria-expanded="${open}"` : ''}>`
         + `<span class="bz-chev ${isDir ? (open ? 'open' : '') : 'none'}">${CHEV}</span>`
         + `<span class="bz-ico">${isDir ? folderIcon(baseName(p), open) : fileIcon(baseName(p))}</span>`
         + `<span class="bz-nm">${esc(baseName(p))}${isDirty(p) ? ' ●' : ''}</span>${st ? `<span class="bz-gst">${st}</span>` : ''}</button>`;
@@ -836,25 +834,41 @@ h1 {
 
   /* ================= Checkpoints (source control) ================= */
   let lastCheckpoint = null;
+  const checkpoints = []; // newest first, for the graph
   let draftMsg = ''; // the checkpoint message survives the panel re-rendering
   let pushing = false;
+  const scmClosed = new Set(); // sections folded shut
+  // As in the app: a message box with Commit & Push, then Changes and the Checkpoints graph, each folding by its header.
   function renderScm() {
     const list = changedFiles();
     const rows = list.map(p => {
       const st = gitState(p);
-      return `<button class="bz-tree-item bz-git-${st.toLowerCase()}" data-open="${esc(p)}"><span class="bz-ico">${fileIcon(baseName(p))}</span><span class="bz-nm">${esc(baseName(p))}</span><small style="color:var(--text-3);overflow:hidden;text-overflow:ellipsis">${esc(dirName(p))}</small><span class="bz-gst">${st}</span></button>`;
+      return `<div class="bz-scm-row bz-git-${st.toLowerCase()}" data-open="${esc(p)}" title="${esc(p)} · ${st === 'U' ? 'Untracked' : 'Modified'}"><span class="bz-ico">${fileIcon(baseName(p))}</span><span class="bz-nm">${esc(baseName(p))}</span><span class="bz-dir">${esc(dirName(p))}</span><span class="bz-st">${st}</span></div>`;
     }).join('');
+    const dot = (i, n) => `<svg width="32" height="36" fill="none" stroke="#7aa9ff" stroke-width="2" stroke-linecap="round" aria-hidden="true">${i ? '<path d="M10 1V18"/>' : ''}${i < n - 1 ? '<path d="M10 18V36"/>' : ''}<circle cx="10" cy="18" r="5" fill="#7aa9ff"/></svg>`;
+    const graph = checkpoints.map((c, i) => `<div class="bz-commit" title="${esc(c.msg)} (${c.hash})">${dot(i, checkpoints.length)}<div class="bz-msgline"><div>${i ? '' : '<span class="bz-ref head">master</span>'}${c.pushed && c === checkpoints.find(x => x.pushed) ? '<span class="bz-ref remote">origin/master</span>' : ''}<span class="bz-subj">${esc(c.msg)}</span></div><small>You · ${agoOf(c.at)}</small></div></div>`).join('');
+    const sec = (key, title, count, body) => `<div class="bz-scm-sec${scmClosed.has(key) ? ' closed' : ''}" data-sec="${key}"><div class="bz-scm-head" role="button" tabindex="0" aria-expanded="${!scmClosed.has(key)}"><span class="bz-chev">${CHEV}</span><span class="title">${title}</span><span class="count">${count}</span></div><div class="bz-scm-list">${body}</div></div>`;
     sideBody.innerHTML = `<div class="bz-scm">
-      <input class="bz-input" id="bzCommitMsg" placeholder="Message (Enter to save)" aria-label="Checkpoint message" spellcheck="false" autocomplete="off" value="${esc(draftMsg)}">
-      <button class="bz-btn bz-btn-primary" data-act="git.commit" ${list.length ? '' : 'disabled'}>${icon('check', 14)} Save checkpoint</button>
-      ${lastCheckpoint ? `<div class="bz-scm-done"><b>Checkpoint ${lastCheckpoint.hash} saved</b>${esc(lastCheckpoint.msg)}<span>${lastCheckpoint.count} file${lastCheckpoint.count === 1 ? '' : 's'} on master</span>${lastCheckpoint.pushed ? `<span class="bz-scm-pushed">${icon('check', 12)} Pushed to origin/master</span>` : `<button class="bz-btn bz-btn-primary" data-act="git.push" ${pushing ? 'disabled' : ''}>${icon('up', 14)} ${pushing ? 'Pushing…' : 'Push to GitHub'}</button>`}</div>` : ''}
-      <div class="bz-scm-title">Changes · ${list.length}</div>
-      ${list.length ? `<div>${rows}</div>` : '<p class="bz-side-note">No changes since the last checkpoint.</p>'}
+      <div class="bz-commit-box">
+        <textarea class="bz-input" id="bzCommitMsg" rows="1" placeholder="Message (Ctrl+Enter to commit on ‘master’)" aria-label="Commit message" spellcheck="false" autocomplete="off">${esc(draftMsg)}</textarea>
+        <button class="bz-btn bz-btn-primary bz-btn-sm" data-act="git.commit" ${list.length && !pushing ? '' : 'disabled'}>${pushing ? 'Pushing…' : 'Commit &amp; Push'}</button>
+      </div>
+      ${sec('changes', 'Changes', list.length, rows || '<p class="bz-side-note">No changes since the last checkpoint.</p>')}
+      ${checkpoints.length ? sec('graph', 'Checkpoints', checkpoints.length, graph) : ''}
     </div>`;
     const msgEl = $('#bzCommitMsg');
-    msgEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); cmd('git.commit'); } });
+    msgEl.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); cmd('git.commit'); } });
     msgEl.addEventListener('input', () => { draftMsg = msgEl.value; updateTour(); });
   }
+  const agoOf = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : `${plural(m, 'minute')} ago`; };
+  sideBody.addEventListener('click', e => {
+    const head = e.target.closest('.bz-scm-head');
+    if (!head) return;
+    const key = head.parentElement.dataset.sec;
+    if (!scmClosed.delete(key)) scmClosed.add(key);
+    renderScm();
+  });
+  sideBody.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('.bz-scm-head')) { e.preventDefault(); e.target.click(); } });
   function commit() {
     const list = changedFiles();
     if (!list.length) return;
@@ -865,12 +879,14 @@ h1 {
     const msg = typed || 'Update site';
     draftMsg = '';
     for (const p of list) committed.set(p, files.get(p).saved ?? '');
-    lastCheckpoint = { msg, count: list.length, hash: Math.random().toString(16).slice(2, 9) };
+    lastCheckpoint = { msg, count: list.length, hash: Math.random().toString(16).slice(2, 9), at: Date.now() };
+    checkpoints.unshift(lastCheckpoint);
+    if (tourStep === 'commit') tourOff = true; // the tour ends on the commit
     renderSide();
     renderBadge();
     renderTabs();
-    toast(`${icon('check', 14)} Checkpoint saved · ${list.length} file${list.length === 1 ? '' : 's'}`);
     updateTour();
+    push(); // Commit & Push, in one click as in the app
   }
   async function push() {
     if (!lastCheckpoint || lastCheckpoint.pushed || pushing) return;
@@ -882,9 +898,7 @@ h1 {
     pushing = false;
     sfx.play('success');
     renderSide();
-    toast(`${icon('check', 14)} Pushed to GitHub`);
-    if (tourStep === 'push') tourOff = true; // the tour ends on the push
-    updateTour();
+    toast(`${icon('check', 14)} Committed and pushed · ${plural(lastCheckpoint.count, 'file')}`);
   }
 
   function renderSide() {
@@ -1349,16 +1363,25 @@ h1 {
   let menuMade = false; // index.html and styles.css start empty until an agent writes the coffee menu
   const cards = $('#bzCards');
   const roster = {};
-  const ROLES = { planner: ['P', 'Planner'], builder: ['B', 'Builder'], assistant: ['A', 'Assistant'] };
   const STATUS = { idle: 'Idle', working: 'Working', waiting: 'Waiting for you', done: 'Done' };
   // `key` is a role (planner, builder, assistant), or a teammate's agent name with `mate` set.
+  // As in the app, every card wears the name and logo of the agent doing the work, then its model, and a meter of its tool calls.
   function setAgent(key, status, task, mate = false) {
-    roster[key] = { status, task, mate };
-    cards.classList.remove('bz-hidden');
+    roster[key] = { status, task, mate, used: roster[key]?.used ?? 0 };
+    renderCards();
+  }
+  function renderCards() {
+    cards.classList.toggle('bz-hidden', !Object.keys(roster).length);
     cards.innerHTML = Object.entries(roster).map(([k, a]) => {
-      const [logo, name, sub] = a.mate ? [logoOf(k), shortOf(k), 'Teammate'] : [agentLogo(), ROLES[k][1], agentName];
-      return `<div class="bz-agent ${a.status}"><span class="bz-ava ${a.mate ? 'builder' : k}">${logo}</span><span class="name">${esc(name)}<small>${esc(sub)}</small></span><span class="bz-status ${a.status}">${STATUS[a.status]}</span><span class="task">${esc(a.task)}</span></div>`;
+      const who = a.mate ? k : agentName;
+      const [name, model = name] = who.split(' · ');
+      return `<div class="bz-agent ${a.status}"><span class="bz-ava">${logoOf(who)}</span><span class="name">${esc(name)}<small>${esc(model)}</small></span><span class="bz-status ${a.status}">${STATUS[a.status]}</span><span class="task">${esc(a.task)}</span><span class="meter" title="${plural(a.used, 'tool call')}"><i style="width:${Math.min(100, a.used * 4)}%"></i></span></div>`;
     }).join('');
+    const n = Object.keys(roster).length;
+    const count = $('#bzAgentCount');
+    count.textContent = n;
+    count.title = `${plural(n, 'agent')} on this task`;
+    count.classList.toggle('bz-hidden', !n);
   }
   const clock = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   function addChat(html) {
@@ -1367,16 +1390,25 @@ h1 {
     chat.scrollTop = chat.scrollHeight;
     return chat.lastElementChild;
   }
-  const say = (role, html) => (sfx.play('msg'), addChat(`<div class="bz-msg"><span class="bz-meta"><span class="bz-ava-mini ${role}">${agentLogo()}</span><b>${ROLES[role][1]}</b>${clock()}</span><div class="bz-body">${html}</div></div>`));
-  const mateSay = (name, html) => (sfx.play('msg'), addChat(`<div class="bz-msg"><span class="bz-meta"><span class="bz-ava-mini builder">${logoOf(name)}</span><b>${esc(shortOf(name))}</b>${clock()}</span><div class="bz-body">${html}</div></div>`));
-  const tool = (kind, ico, html) => (sfx.play('tool'), addChat(`<div class="bz-tool-line ${kind}">${icon(ico, 14)}<span>${html}</span></div>`));
+  // Whoever answers signs with their own name and logo, whichever role they hold (as in the app).
+  const say = (role, html) => (sfx.play('msg'), addChat(`<div class="bz-msg"><span class="bz-meta"><span class="bz-ava-mini">${agentLogo()}</span><b>${esc(agentName.split(' · ')[0])}</b>${clock()}</span><div class="bz-body">${html}</div></div>`));
+  const mateSay = (name, html) => (sfx.play('msg'), addChat(`<div class="bz-msg"><span class="bz-meta"><span class="bz-ava-mini">${logoOf(name)}</span><b>${esc(shortOf(name))}</b>${clock()}</span><div class="bz-body">${html}</div></div>`));
+  // shortcut: a tool call counts towards every working agent's meter, so teammates working at once share one count.
+  const tool = (kind, ico, html) => {
+    sfx.play('tool');
+    for (const a of Object.values(roster)) if (a.status === 'working') a.used++;
+    renderCards();
+    return addChat(`<div class="bz-tool-line ${kind}">${icon(ico, 14)}<span>${html}</span></div>`);
+  };
+  // The green line that closes a finished run: how long it took, what changed, and a way to review it.
+  const runDone = (ms, changed) => addChat(`<div class="bz-run-done"><span>✓ Done · ${Math.max(1, Math.round(ms / 1000))}s${changed ? ` · ${plural(changed, 'file')} changed` : ''}</span>${changed ? '<button class="bz-btn bz-btn-sm" data-act="view.git">Review changes</button>' : ''}</div>`);
   async function typing(ms) {
     const el = addChat('<div class="bz-msg"><div class="bz-body bz-typing"><i></i><i></i><i></i></div></div>');
     await sleep(ms);
     el.remove();
   }
   function emptyChat() {
-    chat.innerHTML = `<div class="bz-empty"><img src="${ASSETS}brand/Agent.png" alt="" width="44" height="44"><h4>What should we build?</h4><div>${menuMade ? 'Ask for a change to this site, like<br><b>“add our opening hours”</b>, <b>“put matcha on the menu”</b><br>or <b>“make it dark mode”</b>.<br><br>Mention two agents with <b>@</b> and they split the work.' : 'This project is empty. Mention two agents with <b>@</b> and they build it side by side, like<br><b>“@Claude write a coffee menu page @Codex style it”</b>.'}</div></div>`;
+    chat.innerHTML = `<div class="bz-empty"><img src="${ASSETS}brand/Agent.png" alt="" width="44" height="44"><h4>What are we building?</h4><div>${menuMade ? 'Ask for a tweak, like<br><b>“add our opening hours”</b>, <b>“put matcha on the menu”</b><br>or <b>“make it dark mode”</b>.<br><br><b>@</b>mention two agents and they split the work.' : 'Nothing here yet. <b>@</b>mention two agents and they build it side by side, like<br><b>“@Claude write a coffee menu page @Codex style it”</b>.'}</div></div>`;
     for (const k of Object.keys(roster)) delete roster[k];
     cards.classList.add('bz-hidden');
     planCard = null;
@@ -1552,6 +1584,8 @@ h1 {
     building = true;
     sfx.play('build');
     updateTour();
+    const started = Date.now();
+    const changed = new Set();
     setAgent('builder', 'working', 'Building the plan');
     await sleep(500);
     for (const [i, st] of steps.entries()) {
@@ -1563,15 +1597,15 @@ h1 {
         const r = await typeOut(file, fn);
         if (!r) tool('', 'eye', `${esc(file)} is missing, skipped`);
         else if (!r.add && !r.del) tool('', 'check', `${esc(file)} already does this`);
-        else tool('edit', 'pencil', `Edited ${esc(file)} <b>+${r.add}</b>${r.del ? ` −${r.del}` : ''}`);
+        else { tool('edit', 'pencil', `Edited ${esc(file)} <b>+${r.add}</b>${r.del ? ` −${r.del}` : ''}`); changed.add(file); }
         await sleep(350);
       }
       if (i < steps.length - 1) await sleep(300);
     }
     await typing(700);
-    const msg = say('builder', `Done. ${steps.length === 1 ? 'The change is' : `All ${steps.length} changes are`} in, highlighted in green. Have a look:<div class="bz-row" style="display:flex;gap:6px;margin-top:8px"><button class="bz-btn bz-btn-primary" data-act="run.start">${icon('play', 12)} Open preview</button><button class="bz-btn" data-act="view.git">Save a checkpoint</button></div>`);
-    setAgent('builder', 'done', `${steps.length} change${steps.length === 1 ? '' : 's'} made`);
-    if (roster.planner) setAgent('planner', 'done', 'Plan approved and built');
+    const msg = say('builder', `Done. ${steps.length === 1 ? 'The change is' : `All ${steps.length} changes are`} in, highlighted in green.`);
+    setAgent('builder', 'done', changed.size ? `Changed ${plural(changed.size, 'file')}` : 'Answered');
+    runDone(Date.now() - started, changed.size);
     busy = false;
     building = false;
     sfx.play('success');
@@ -1696,7 +1730,7 @@ h1 {
     strip.setAttribute('role', 'status');
     strip.innerHTML = names.map(n => `<span class="bz-team-chip working" data-chip="${esc(n)}">${agentTag(n)}<span class="state">working</span></span>`).join('');
     chat.prepend(strip); // pinned to the top of the chat while they build
-    addChat(`<div class="bz-handoff"><span>${listOf(names.map(n => `<b>${esc(shortOf(n))}</b>`))} are working at the same time, each in its own files</span></div>`);
+    addChat(`<div class="bz-team-line">${listOf(names.map(n => `<b>${esc(shortOf(n))}</b>`))} are working at the same time, each in its own files</div>`);
 
     const crossed = new Set();
     const notes = [];
@@ -1753,9 +1787,25 @@ h1 {
     updateTour();
   }
 
+  // The agent bar in the panel header, as the app shows it in a narrow panel: the default agent's chip, the rest folded into "+N".
+  function renderAgentBar() {
+    $('#bzAgentBar').innerHTML = `<button type="button" class="bz-chip on" aria-label="Mention @${esc(shortOf(agentName))}">${logoOf(agentName)}<span>${esc(shortOf(agentName))}</span><span class="bz-chip-more" role="button" aria-label="Switch the default agent" aria-haspopup="menu">${icon('chevronDown', 10)}</span></button>
+      <button type="button" class="bz-chip bz-chip-rest" aria-haspopup="menu" aria-label="${AGENTS.length - 1} more agents">+${AGENTS.length - 1}</button>`;
+  }
+  $('#bzAgentBar').addEventListener('click', e => {
+    const chip = e.target.closest('.bz-chip');
+    if (!chip) return;
+    if (menu?.anchor === chip) { closeMenu(); return; }
+    const mention = name => pickMention(TEAM_AGENTS.find(a => a.name === name));
+    if (chip.classList.contains('bz-chip-rest')) openMenu(AGENTS.filter(a => a !== agentName).map(a => ({ label: shortOf(a), icon: logoOf(a), run: () => mention(a) })), chip, 'right');
+    else if (e.target.closest('.bz-chip-more')) openMenu(AGENTS.map(a => ({ label: a, checked: a === agentName, run: () => pickAgent(a) })), chip, 'right');
+    else { closeMenu(); mention(agentName); }
+  });
+  renderAgentBar();
+
   function pickAgent(name) {
     agentName = name;
-    $('#bzAgentPill').innerHTML = `<img src="${ASSETS}agents/${AGENT_LOGOS[name]}" alt="" width="14" height="14">${esc(name.split(' · ')[0])}`;
+    renderAgentBar();
     for (const [r, v] of Object.entries(roster)) setAgent(r, v.status, v.task, v.mate);
   }
 
@@ -1766,7 +1816,8 @@ h1 {
     sfx.play('send');
     updateTour();
     promptEl.value = '';
-    const mode = $('#bzMode').value;
+    // No mode picker, as in the app: a question gets an answer, anything else a plan.
+    const mode = text.endsWith('?') ? 'ask' : 'plan';
     for (const k of Object.keys(roster)) delete roster[k];
     chat.querySelector('.bz-team-strip')?.remove(); // the last team's strip goes with the next request, as in the app
     addChat(`<div class="bz-msg user"><span class="bz-meta"><b>You</b>${clock()}</span><div class="bz-body">${mentionHtml(text)}</div></div>`);
@@ -1782,18 +1833,18 @@ h1 {
       await sleep(300);
       tool('', 'eye', 'Read site.js');
       await typing(900);
-      say('assistant', `This is the one-page site for Tidal Coffee. <code>index.html</code> has the menu, <code>styles.css</code> sets the colors through <code>--accent</code>, <code>--bg</code> and <code>--text</code>, and <code>site.js</code> shows whether the bar is open and handles the Order ahead button. Switch to <b>Plan, then build</b> and I'll make changes for you.`);
+      say('assistant', `This is the one-page site for Tidal Coffee. <code>index.html</code> has the menu, <code>styles.css</code> sets the colors through <code>--accent</code>, <code>--bg</code> and <code>--text</code>, and <code>site.js</code> shows whether the bar is open and handles the Order ahead button. Ask me for a change and I'll plan it out for you.`);
       setAgent('assistant', 'done', 'Answered');
       busy = false;
       return;
     }
     const steps = planFor(text);
     if (mode === 'build' || steps[0].menu) {
-      addChat('<div class="bz-handoff">The <b>Builder</b> works straight from your message</div>');
+      addChat(`<div class="bz-team-line">1 agent on this: <b>${esc(agentName.split(' · ')[0])}</b> makes the changes</div>`);
       await build(steps);
       return;
     }
-    addChat('<div class="bz-handoff"><span>2 agents on this: <b>Planner</b> writes a plan, then <b>Builder</b> builds it once you approve</span></div>');
+    addChat('<div class="bz-team-line">2 agents on this: <b>Planner</b> writes a plan, then <b>Builder</b> builds it once you approve</div>');
     setAgent('planner', 'working', 'Reading the project');
     await sleep(500);
     tool('', 'eye', 'Read index.html');
@@ -1812,11 +1863,11 @@ h1 {
       if (!b) return;
       planCard = null;
       updateTour();
-      card.querySelector('.bz-row').outerHTML = `<div class="bz-resolved">${b.dataset.plan === 'go' ? '✓ Approved' : 'Sent back to the Planner'}</div>`;
+      card.querySelector('.bz-row').outerHTML = `<div class="bz-resolved">${b.dataset.plan === 'go' ? '✓ Approved' : '✎ Asked for changes'}</div>`;
       if (b.dataset.plan === 'go') {
         sfx.play('approve');
-        setAgent('planner', 'done', 'Plan approved');
-        addChat('<div class="bz-handoff"><span>Plan approved. <b>Builder</b> takes over</span></div>');
+        setAgent('planner', 'done', 'Plan handed off');
+        addChat('<div class="bz-handoff">Planner → Builder</div>');
         await build(steps);
       } else {
         setAgent('planner', 'idle', 'Waiting for your changes');
@@ -1860,7 +1911,7 @@ h1 {
   });
 
   /* ================= Commands ================= */
-  let vibe = false, discord = false;
+  let chats = 1;
   const commands = {
     'view.files': () => showView('files'),
     'view.search': () => showView('search'),
@@ -1879,7 +1930,6 @@ h1 {
     'file.newFolder': () => { layout.side = true; layout.view = 'files'; applyLayout(); const parent = dirs.has(selected) ? selected : dirName(selected ?? ''); if (parent) openDirs.add(parent); pending = { kind: 'dir', parent }; renderTree(); },
     'file.save': () => { if (!hasFile()) return; const f = files.get(active); f.saved = f.text; sfx.play('save'); renderTabs(); renderSide(); renderBadge(); if (layout.preview) refreshPreview(); },
     'file.saveAll': () => { for (const f of files.values()) if ('text' in f) f.saved = f.text; renderTabs(); renderSide(); renderBadge(); },
-    'explorer.refresh': () => { const b = $('[data-act="explorer.refresh"] svg'); b.animate([{ transform: 'rotate(0)' }, { transform: 'rotate(360deg)' }], { duration: 500 }); renderTree(); },
     'explorer.collapse': () => { openDirs.clear(); renderTree(); },
     'edit.find': () => openFind(),
     'edit.comment': () => { if (hasFile()) toggleComment(); },
@@ -1894,8 +1944,13 @@ h1 {
     'git.commit': () => commit(),
     'git.push': () => push(),
     'agent.send': () => send(),
-    'chat.new': () => { if (busy) return; emptyChat(); updateTour(); },
-    'agent.pick': () => openMenu(AGENTS.map(a => ({ label: a, checked: a === agentName, run: () => pickAgent(a) })), $('#bzAgentPill'), 'right'),
+    'chat.new': () => { if (busy) return; emptyChat(); $('#bzChatTab').textContent = `Chat ${++chats}`; updateTour(); },
+    'chat.history': () => desktopOnly('Chat history'),
+    'term.new': () => desktopOnly('Opening more terminals'),
+    sync: () => desktopOnly('Cloud sync'),
+    'go.file': () => desktopOnly('Go to file'),
+    'editor.split': () => desktopOnly('Split editor'),
+    'preview.pages': () => openMenu([...files.keys()].filter(p => extOf(p) === 'html').sort().map(p => ({ label: p, checked: layout.preview && p === 'index.html', run: p === 'index.html' ? startPreview : () => desktopOnly(`Previewing ${p}`) })), $('.bz-url'), 'below'),
     settings: () => openMenu([
       { label: 'Keyboard Shortcuts', run: () => modal(`<h4>Keyboard shortcuts</h4><div class="bz-keys">${SHORTCUTS.map(([a, k]) => `<span>${a}</span><kbd>${k}</kbd>`).join('')}</div>`) },
       { sep: true },
@@ -1906,20 +1961,12 @@ h1 {
     ], $('.bz-act-btn.gear'), 'up'),
     account: () => openMenu([{ label: 'Not signed in', disabled: true }, { sep: true }, { label: 'Sign in with GitHub…', run: () => desktopOnly('Signing in') }, { label: 'Sign in with Google…', run: () => desktopOnly('Signing in') }], $('.bz-avatar'), 'right'),
     branch: () => toast(`${icon('gitBranch', 14)} On branch <b>master</b>`),
-    vibe: () => {
-      vibe = !vibe;
-      const b = $('#bzVibe');
-      b.classList.toggle('armed', vibe);
-      b.innerHTML = `${icon(vibe ? 'circleDot' : 'circle', 14)}<span>Vibe Mode ${vibe ? 'on' : 'off'}</span>`;
-      if (vibe) toast('Vibe Mode plays your feed while agents work. The feed itself runs in the desktop app.');
-    },
-    discord: () => { discord = !discord; $('#bzDiscord').textContent = `Discord: ${discord ? 'on' : 'off'}`; $('#bzDiscord').classList.toggle('armed', discord); },
     'win.min': () => { root.classList.add('minimized'); setTimeout(() => root.classList.remove('minimized'), 700); },
     'win.max': () => {
       if (document.fullscreenElement) document.exitFullscreen?.();
       else root.requestFullscreen?.().catch(() => toast('Full screen is not available here.'));
     },
-    'win.close': () => toast(`This window is a live demo. <a href="${DOWNLOAD}" target="_blank" rel="noopener">Download Breeze Code</a> to keep going.`, 4500),
+    'win.close': () => toast(`Just a demo, can't close it! <a href="${DOWNLOAD}" target="_blank" rel="noopener">Grab Breeze Code</a> for the real deal.`, 4500),
   };
   function cmd(name) { closeMenu(); commands[name]?.(); }
 
@@ -1962,6 +2009,9 @@ h1 {
     else if (mod && (k === '`' || e.code === 'Backquote')) run = 'term.toggle';
     else if (mod && k === 's') run = e.altKey ? 'file.saveAll' : 'file.save';
     else if (mod && k === 'f' && hasFile()) run = 'edit.find';
+    // The shortcuts the empty editor lists. Ctrl+N stays the browser's in most browsers.
+    else if (mod && k === 'p') run = 'go.file';
+    else if (mod && k === 'n') run = 'file.newFile';
     else if (mod && k === '/' && document.activeElement === ta) run = 'edit.comment';
     else if (mod && k === 'l' && document.activeElement === ta) run = 'sel.line';
     if (run) { e.preventDefault(); cmd(run); }
@@ -1990,17 +2040,16 @@ h1 {
   const RESTYLE = 'Switch to Dark Mode, add footer and location, and make accent yellow';
   const CHECKPOINT_MSG = 'Coffee menu in dark mode with a footer';
   const TOUR = {
-    index: { at: () => tabsEl.querySelector('[data-tab="index.html"]') ?? $('.bz-tree-item[data-path="index.html"]'), side: 'below', html: 'Open <b>index.html</b>. It is empty for now, and an agent is about to fill it.', act: ['Open index.html', () => openFile('index.html', true)] },
-    preview: { at: () => runBtn, side: 'below', html: '<b>index.html</b> and <b>styles.css</b> are empty. Open the <b>Preview</b> so you can watch the page appear.', act: [`${icon('play', 12)} Open the preview`, () => cmd('run.start')] },
-    agents: { at: () => $('[data-act="view.toggleAgents"]'), side: 'below', html: 'Now open the <b>agent bar</b>. Your AI agents write the code right in this project.', act: ['Open the agent bar', () => { if (!layout.agents) cmd('view.toggleAgents'); }] },
-    insert: { at: () => $('.bz-composer-box'), side: 'left', html: 'Give your agents their first job. <b>@mention</b> two of them and they build side by side. Click to send it:', act: [`${icon('plus', 12)} Insert “${esc(FIRST_ASK)}”`, () => { promptEl.value = FIRST_ASK; send(); }] },
-    start: { at: () => splitCard?.querySelector('[data-split="start"]'), side: 'left', html: 'Each agent listed the files it will change. <b>Start</b> and they build at the same time, without touching each other’s files.', act: [`${icon('play', 12)} Start the team`, () => splitCard?.querySelector('[data-split="start"]')?.click()] },
-    restyle: { at: () => $('.bz-composer-box'), side: 'left', html: 'Your menu is live. Now ask for <b>dark mode</b>, a <b>footer with the location</b> and a <b>yellow</b> accent. Type it yourself, or click to send it:', act: [`${icon('send', 12)} “${esc(RESTYLE)}”`, () => { promptEl.value = RESTYLE; send(); }] },
-    approve: { at: () => planCard?.querySelector('[data-plan="go"]'), side: 'left', html: 'The Planner wrote a plan. <b>Approve</b> it and the Builder gets to work.', act: [`${icon('check', 12)} Approve &amp; build`, () => planCard?.querySelector('[data-plan="go"]')?.click()] },
-    checkpoint: { at: () => [...chat.querySelectorAll('[data-act="view.git"]')].pop() ?? $('.bz-act-btn[data-view="git"]'), side: 'left', html: 'Looks good. Now <b>save a checkpoint</b> so you can always get back to this version.', act: ['Save a checkpoint', () => cmd('view.git')] },
-    message: { at: () => $('#bzCommitMsg'), side: 'right', html: 'Describe what changed in a few words. Type your own, or use this one:', act: [`“${esc(CHECKPOINT_MSG)}”`, () => { draftMsg = CHECKPOINT_MSG; const m = $('#bzCommitMsg'); if (m) { m.value = draftMsg; m.focus({ preventScroll: true }); } updateTour(); }] },
-    commit: { at: () => $('[data-act="git.commit"]'), side: 'right', html: 'Now commit it. Press <kbd>Enter</kbd> or click:', act: [`${icon('check', 12)} Save checkpoint`, () => cmd('git.commit')] },
-    push: { at: () => $('[data-act="git.push"]'), side: 'right', html: 'Committed. Last step: <b>push</b> it to GitHub so it is backed up and ready to share.', act: [`${icon('up', 12)} Push to GitHub`, () => cmd('git.push')] },
+    index: { at: () => tabsEl.querySelector('[data-tab="index.html"]') ?? $('.bz-tree-item[data-path="index.html"]'), side: 'below', html: 'Open <b>index.html</b>. Empty for now, but an agent’s about to fill it.', act: ['Open index.html', () => openFile('index.html', true)] },
+    preview: { at: () => runBtn, side: 'below', html: 'Blank canvas! Open the <b>Preview</b> and watch the page pop into life.', act: [`${icon('play', 12)} Open the preview`, () => cmd('run.start')] },
+    agents: { at: () => $('[data-act="view.toggleAgents"]'), side: 'below', html: 'Now open the <b>agent bar</b>. That’s where your AI crew writes the code.', act: ['Open the agent bar', () => { if (!layout.agents) cmd('view.toggleAgents'); }] },
+    insert: { at: () => $('.bz-composer-box'), side: 'left', html: 'Time for their first gig. <b>@mention</b> two agents and they build side by side. Click to send:', act: [`${icon('plus', 12)} Insert “${esc(FIRST_ASK)}”`, () => { promptEl.value = FIRST_ASK; send(); }] },
+    start: { at: () => splitCard?.querySelector('[data-split="start"]'), side: 'left', html: 'Each agent called dibs on its files. Hit <b>Start</b> and they build at once, no stepping on toes.', act: [`${icon('play', 12)} Start the team`, () => splitCard?.querySelector('[data-split="start"]')?.click()] },
+    restyle: { at: () => $('.bz-composer-box'), side: 'left', html: 'Menu’s live! Now ask for <b>dark mode</b>, a <b>footer with the location</b> and a <b>yellow</b> accent. Type it, or just click:', act: [`${icon('send', 12)} “${esc(RESTYLE)}”`, () => { promptEl.value = RESTYLE; send(); }] },
+    approve: { at: () => planCard?.querySelector('[data-plan="go"]'), side: 'left', html: 'The Planner has a plan. <b>Approve</b> it and the Builder gets cracking.', act: [`${icon('check', 12)} Approve &amp; build`, () => planCard?.querySelector('[data-plan="go"]')?.click()] },
+    checkpoint: { at: () => [...chat.querySelectorAll('[data-act="view.git"]')].pop() ?? $('.bz-act-btn[data-view="git"]'), side: 'left', html: 'Looking sharp. <b>Save a checkpoint</b> so you can always come back to this.', act: ['Save a checkpoint', () => cmd('view.git')] },
+    message: { at: () => $('#bzCommitMsg'), side: 'right', html: 'Sum up the change in a few words. Write your own, or steal this one:', act: [`“${esc(CHECKPOINT_MSG)}”`, () => { draftMsg = CHECKPOINT_MSG; const m = $('#bzCommitMsg'); if (m) { m.value = draftMsg; m.focus({ preventScroll: true }); } updateTour(); }] },
+    commit: { at: () => $('[data-act="git.commit"]'), side: 'right', html: 'Lock it in and send it to GitHub. Press <kbd>Ctrl+Enter</kbd> or click:', act: ['Commit &amp; Push', () => cmd('git.commit')] },
     watch: { at: () => $('.bz-url'), side: 'below', html: () => (menuMade ? 'Your agents are updating the page. Watch the preview change as they type.' : 'Claude writes the page while Codex writes its styles. Watch the preview fill in as they type.') },
   };
   const coach = document.createElement('div');
@@ -2026,7 +2075,7 @@ h1 {
       if (!(layout.side && layout.view === 'git')) return 'checkpoint';
       return draftMsg.trim() ? 'commit' : 'message';
     }
-    return lastCheckpoint.pushed ? null : 'push';
+    return null;
   }
   function placeCoach() {
     const t = TOUR[tourStep]?.at();
@@ -2080,7 +2129,7 @@ h1 {
     }
     const locked = tourStep === 'insert';
     promptEl.readOnly = locked;
-    promptEl.placeholder = locked ? `Click Insert “${FIRST_ASK}” to start` : 'Describe what you want to build…';
+    promptEl.placeholder = locked ? `Click Insert “${FIRST_ASK}” to start` : 'Describe what you want to build';
     cancelAnimationFrame(coachRaf);
     if (tourStep && onScreen) followCoach();
   }
