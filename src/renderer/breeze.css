@@ -5963,7 +5963,7 @@ body.vibing .ide {
   transform: translateY(0);
 }
 
-/* Idle life on Home's icons: a short move, then a few seconds of rest. On the shapes inside each svg, so the
+/* Idle life on Home's icons: a short move, replayed every 2s. On the shapes inside each svg, so the
    button's own hover zoom (on the svg) still works. */
 .start-ico [data-icon="folder"] > *,
 .start-ico [data-icon="plus"] > *,
@@ -5973,22 +5973,22 @@ body.vibing .ide {
 }
 
 .start-ico [data-icon="folder"] > * {
-  animation: idleLift 5s ease-in-out infinite;
+  animation: idleLift 2s ease-in-out infinite;
 }
 
 .start-ico [data-icon="plus"] > * {
-  animation: idleTurn 6s cubic-bezier(.32, .72, 0, 1) 1.2s infinite;
+  animation: idleTurn 2s cubic-bezier(.32, .72, 0, 1) .4s infinite;
 }
 
 .hp-ico [data-icon="user"] > circle {
-  animation: idleNod 5.5s ease-in-out 2.4s infinite;
+  animation: idleNod 2s ease-in-out .8s infinite;
 }
 
 @keyframes idleLift {
-  0%, 20%, 100% {
+  0%, 40%, 100% {
     transform: none;
   }
-  10% {
+  20% {
     transform: translateY(-1.5px);
   }
 }
@@ -5998,19 +5998,19 @@ body.vibing .ide {
   0% {
     transform: none;
   }
-  14%, 100% {
+  30%, 100% {
     transform: rotate(90deg);
   }
 }
 
 @keyframes idleNod {
-  0%, 18%, 100% {
+  0%, 36%, 100% {
     transform: none;
   }
-  6% {
+  12% {
     transform: translateY(-1.5px);
   }
-  12% {
+  24% {
     transform: translateY(.5px);
   }
 }
