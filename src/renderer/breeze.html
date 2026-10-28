@@ -7,8 +7,7 @@
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self' data:; img-src 'self' data: file: https://avatars.githubusercontent.com https://lh3.googleusercontent.com; frame-src 'self' breeze-preview:">
   <title>Breeze Code</title>
-  <link rel="preload" href="../../assets/fonts/Inter-SemiBold.woff2" as="font" type="font/woff2">
-  <link rel="preload" href="../../assets/fonts/Inter-Regular.woff2" as="font" type="font/woff2">
+  <link rel="preload" href="../../assets/fonts/InstrumentSans-Variable.woff2" as="font" type="font/woff2">
   <link rel="stylesheet" href="breeze.css">
 </head>
 
@@ -166,10 +165,10 @@
   <!-- ================= ONBOARDING ================= -->
   <div class="onboard" id="onboard">
     <div class="drag-strip"></div>
-    <div class="ob-bg" id="obBg" aria-hidden="true"></div>
+    <div class="ob-bg" id="obBg" aria-hidden="true"><video class="ob-video" src="../../assets/screens/chaophraya-loop.mp4" autoplay muted loop playsinline preload="auto" tabindex="-1"></video></div>
     <div class="ob-wave" id="obWave" aria-hidden="true"></div>
     <!-- Home only: who is signed in, top right under the window buttons -->
-    <button class="home-profile hidden" id="homeProfile" aria-haspopup="menu" title="Account" data-grow></button>
+    <button class="home-profile hidden" id="homeProfile" aria-haspopup="menu" title="Account"></button>
     <!-- Welcome -->
     <section class="ob-step ob-await" data-step="0">
       <img class="ob-logo" src="../../assets/brand/Agent.png" width="72" height="72" alt="Breeze Code Logo">
@@ -260,7 +259,7 @@
         </section>
         <section class="setup-card home-agent" aria-labelledby="homeAgentTitle">
           <header>
-            <h3 id="homeAgentTitle">Default agent</h3><button class="btn btn-ghost btn-sm" id="homeManageAgents" data-grow>Manage</button>
+            <h3 id="homeAgentTitle">Default agent</h3><button class="btn btn-ghost btn-sm" id="homeManageAgents">Manage</button>
           </header>
           <p class="muted">Pick the agent new chats and plans go to.</p>
           <div class="agent-rows" id="homeAgents" role="radiogroup" aria-labelledby="homeAgentTitle"></div>

@@ -69,6 +69,12 @@
         ],
         "createdAt": "2026-10-27T14:33:31.695Z",
         "reason": "Claude: comes from the embedded IDE demo (ide-demo.css), which copies the desktop app's panels and its agent working-state dot"
+      },
+      {
+        "rule": "overused-font",
+        "value": "instrument sans",
+        "createdAt": "2026-10-28T12:16:36.014Z",
+        "reason": "user confirmed: asked to switch every Inter font to Instrument Sans"
       }
     ]
   },

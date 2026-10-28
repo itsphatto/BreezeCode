@@ -15,7 +15,7 @@
 
   /* ================= Icons (copied from breeze.html / breezescript.ts) ================= */
   const svg16 = body => `<svg viewBox="0 0 16 16" aria-hidden="true">${body}</svg>`;
-  const badge = (bg, fg, label) => svg16(`<rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="${bg}"/><text x="8" y="11.2" text-anchor="middle" font-family="Inter,Segoe UI,sans-serif" font-weight="800" font-size="6.4" fill="${fg}">${label}</text>`);
+  const badge = (bg, fg, label) => svg16(`<rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="${bg}"/><text x="8" y="11.2" text-anchor="middle" font-family="Instrument Sans,Segoe UI,sans-serif" font-weight="800" font-size="6.4" fill="${fg}">${label}</text>`);
   const page = (color, inner = '') => svg16(`<path d="M3.5 1.5h6l3 3v10h-9z" fill="${color}" fill-opacity=".16" stroke="${color}" stroke-width="1.1" stroke-linejoin="round"/><path d="M9.5 1.5v3h3" fill="none" stroke="${color}" stroke-width="1.1" stroke-linejoin="round"/>${inner}`);
   const FILE_ICONS = {
     html: svg16('<path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" fill="none" stroke="#f16529" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="m9 3.5-2 9" stroke="#f9a77d" stroke-width="1.4" stroke-linecap="round"/>'),

@@ -1,10 +1,10 @@
 /* ================= Init ================= */
 async function boot(): Promise<void> {
   void holdStartup(Promise.all([
-    document.fonts.load('400 12px Inter'),
-    document.fonts.load('500 12px Inter'),
-    document.fonts.load('600 11px Inter'),
-    document.fonts.load('700 12px Inter'),
+    document.fonts.load('400 12px "Instrument Sans"'),
+    document.fonts.load('500 12px "Instrument Sans"'),
+    document.fonts.load('600 11px "Instrument Sans"'),
+    document.fonts.load('700 12px "Instrument Sans"'),
     document.fonts.ready,
   ]));
   buildMenubar();

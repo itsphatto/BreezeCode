@@ -38,7 +38,7 @@
   <link rel="icon" type="image/png" href="favicon-192.png" sizes="192x192">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="preload" href="assets/fonts/Unbounded.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="assets/fonts/Inter-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/InstrumentSans-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="ide-demo.css">
   <script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches) document.documentElement.classList.add('anim');</script>
@@ -62,6 +62,9 @@
     <!-- 1. Introduction -->
     <section class="hero">
       <div class="hero-card">
+        <!-- Pattaya bay sped up 3x (the speed is baked into the file); styles.css shows its first frame until it plays -->
+        <video class="hero-video" src="assets/Background/pattaya-bay.mp4" poster="assets/Background/pattaya-bay.jpg"
+          autoplay muted loop playsinline preload="auto" aria-hidden="true" tabindex="-1"></video>
         <div class="hero-copy">
           <h1>Code at blazing speed. Turn ideas into reality.</h1>
           <p class="lede">A free, featherweight code editor for Windows. Say what you want in plain words, then watch
@@ -92,12 +95,12 @@
       <div class="showcase">
         <div class="showcase-text">
           <h2>Multi-agent, one prompt.</h2>
-          <p>Hand one task to several AI agents at once, even from different companies. @mention Claude Code, Codex or
-            Antigravity in a single prompt and each one takes its piece.</p>
-          <p>Each agent calls dibs on its files, you settle any overlap, then they build side by side. Every read, edit
-            and command lands live in one chat, tagged with who did it. Touch someone else's file? Breeze puts it back
-            and tells you.</p>
-          <a class="link" href="FAQ.html">Read the FAQ</a>
+          <p>Why stop at one AI? @mention Claude Code, Codex and Antigravity in the same prompt and they split the
+            work, even though they come from different companies.</p>
+          <p>Each agent calls dibs on the files it needs. If two want the same one, you pick who gets it, then they
+            build side by side. You see every read, edit and command live in one chat, with a name on each. If an
+            agent wanders into someone else's file, Breeze puts it back and gives you a heads-up.</p>
+          <a class="link" href="FAQ.html">Got questions? Check the FAQ</a>
         </div>
         <div class="showcase-media">
           <video class="showcase-video" src="assets/videoshowcase/AgentWritingCode.mp4" autoplay muted loop playsinline

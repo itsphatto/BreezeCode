@@ -27,10 +27,14 @@ const sfx = (() => {
       master.gain.value = gainFor(volume);
       master.connect(ctx.destination);
       // Many Windows audio devices doze after a moment of silence and swallow the first short blip that wakes
-      // them (a tab's X, a lone key). A far-below-hearing signal keeps the output awake.
-      const awake = ctx.createConstantSource();
-      awake.offset.value = 0.00002;
-      awake.connect(ctx.destination);
+      // them (a click after resting on a button, a tab's X, a lone key). A far-below-hearing signal keeps the
+      // output awake. It is a tone, not a flat offset: the output chain filters a DC offset out and a 16-bit device
+      // rounds one that small to zero, so the line still read as silent. 25 Hz at -66 dB is well under hearing.
+      const awake = ctx.createOscillator();
+      const hush = ctx.createGain();
+      awake.frequency.value = 25;
+      hush.gain.value = 0.0005;
+      awake.connect(hush).connect(ctx.destination);
       awake.start();
     } catch { ctx = null; } // no audio available
   }

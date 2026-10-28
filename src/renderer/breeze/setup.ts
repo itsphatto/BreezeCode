@@ -121,6 +121,18 @@ function detectTools(force = false): Promise<Detection> {
   }).finally(() => { detecting = null; });
   return detecting;
 }
+// No Scan button: Breeze looks again on its own when it comes back into focus (an agent may have been installed or
+// signed in meanwhile) and when Settings → Agents opens, at most every 30 seconds. Settings redraws if anything changed.
+let lastAutoScan = 0;
+function autoRescan(): void {
+  if (!appState.onboarded || detecting || Date.now() - lastAutoScan < 30_000) return;
+  lastAutoScan = Date.now();
+  const before = JSON.stringify(appState.detect);
+  detectTools(true).then(d => {
+    if (JSON.stringify(d) !== before && settingsTab === 'agents' && settingsRoot()) refreshSettings();
+  }, () => { /* the agent card shows the error */ });
+}
+window.addEventListener('focus', autoRescan);
 // Keep the chosen agent if it is still usable, else fall back to the first one that is.
 function fixSelectedAgent(): void {
   const found = appState.detect?.agents.filter(a => a.found) ?? [];
@@ -162,7 +174,8 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
   const side = a.found
     ? `<span class="pill ${pillClass(on)} side">${label}</span>`
     : `<button class="get side" data-get="${escAttr(a.url)}"><span class="get-label">Get it</span></button>`;
-  const attrs = a.found ? `role="button" tabindex="0" data-agent="${a.id}"` : '';
+  // A found agent shows just its name; the model and path stay in the tooltip.
+  const attrs = a.found ? `role="button" tabindex="0" data-agent="${a.id}" title="${escAttr(sub)}"` : '';
   let modelOptions = '';
   if (a.found && a.models?.length && a.id !== 'codex' && a.id !== 'antigravity' && a.id !== 'claude') {
     const opts = a.models.map(m => {
@@ -173,7 +186,7 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
   }
   return `<div class="agent-opt ${a.found ? '' : 'missing'} ${on ? 'on' : ''}" ${attrs}>
     ${mark}<span class="nm">${esc(a.name)}</span>${side}
-    <span class="sub" title="${escAttr(sub)}">${esc(sub)}</span>${modelOptions}</div>`;
+    ${a.found ? '' : `<span class="sub" title="${escAttr(sub)}">${esc(sub)}</span>`}${modelOptions}</div>`;
 }
 function agentOptionsHtml(d: Detection): string {
   return d.agents.map(a => {
@@ -372,7 +385,11 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
   }
 }
 
-function modelMenuItems(a: DetectedAgent): MenuItem[] {
+// makeDefault (an agent's own chip): setting its model or effort also makes it the default agent.
+function modelMenuItems(a: DetectedAgent, makeDefault = false): MenuItem[] {
+  const apply = (m: string, eff: EffortLevel) => background(applyModelAndEffort(a, m, eff).then(() => {
+    if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
+  }));
   return (a.models ?? []).map(m => ({
     label: versionLabel(m),
     checked: () => (a.version || a.models?.[0]) === m,
@@ -380,9 +397,9 @@ function modelMenuItems(a: DetectedAgent): MenuItem[] {
     sub: () => EFFORTS.map(eff => ({
       label: eff,
       checked: () => (a.version || a.models?.[0]) === m && agentEffort(a) === eff,
-      run: () => background(applyModelAndEffort(a, m, eff)),
+      run: () => apply(m, eff),
     })),
-    run: () => background(applyModelAndEffort(a, m, agentEffort(a))),
+    run: () => apply(m, agentEffort(a)),
   }));
 }
 
@@ -418,7 +435,7 @@ function makeDefaultAgent(ag: DetectedAgent): void {
 function agentChipMenuItems(ag: DetectedAgent): MenuItem[] {
   // Each model opens its effort levels, so the agent's chip is where model and effort are picked.
   const models: MenuItem[] = ag.models?.length
-    ? [{ label: 'Model', enabled: () => false }, ...modelMenuItems(ag), { sep: true }]
+    ? [{ label: 'Model', enabled: () => false }, ...modelMenuItems(ag, true), { sep: true }]
     : [];
   return [
     ...models,
@@ -664,12 +681,16 @@ function renderRecentList(): void {
   const html = !list ? skeletonRows(4) : list.length ? list.map(recentRowHtml).join('') : empty;
   // Start-up draws Home more than once; redrawing the same rows would replay their rise and make them jump.
   if (html === recentListHtml && el.childElementCount) return;
+  // A changed list (opening the last project at start-up turns its "2h ago" into "Just now") keeps the rows that
+  // were already on screen still; only new ones rise in.
+  const shown = new Set($$<HTMLElement>('.recent-open', el).map(b => b.dataset.open));
   recentListHtml = html;
   el.innerHTML = html;
   // Set here, not in the markup: the page's CSP blocks inline style attributes.
   $$('.recent-row', el).forEach((row, i) => {
     row.style.setProperty('--hue', row.dataset.hue ?? '210');
     row.style.setProperty('--i', String(i));
+    if (shown.has(row.querySelector<HTMLElement>('.recent-open')?.dataset.open)) row.classList.add('stay');
   });
 }
 // Every agent found on this computer: picking a row makes it the default (as "Make default" on its chip does).
@@ -686,6 +707,8 @@ function homeAgentRowHtml(a: DetectedAgent): string {
 function renderHomeAgent(): void {
   const el = $('#homeAgents');
   if (!appState.detect) { el.innerHTML = skeletonRows(2); return; }
+  // Measured before the redraw, so a new default picked anywhere (here or in the agent picker) slides over.
+  const from = el.querySelector('.agent-row.on')?.getBoundingClientRect();
   const found = appState.detect.agents.filter(a => a.found);
   el.innerHTML = found.length
     ? found.map(homeAgentRowHtml).join('')
@@ -693,16 +716,14 @@ function renderHomeAgent(): void {
   // Keyboard focus lands on the default; with none picked yet, on the first row.
   const rows = $$('.agent-row', el);
   if (rows.length && !rows.some(r => r.tabIndex === 0)) rows[0].tabIndex = 0;
+  slideSelected(el.querySelector<HTMLElement>('.agent-row.on'), from);
 }
 function pickHomeAgent(id: string): void {
   const ag = appState.detect?.agents.find(a => a.id === id && a.found);
   if (!ag || ag.id === appState.agent) return;
-  const from = document.querySelector('#homeAgents .agent-row.on')?.getBoundingClientRect();
   makeDefaultAgent(ag);
   renderHomeAgent();
-  const row = $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`);
-  row.focus();
-  slideSelected(row, from);
+  $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`).focus();
 }
 $('#homeAgents').addEventListener('click', e => {
   const t = e.target as HTMLElement;

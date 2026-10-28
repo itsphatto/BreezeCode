@@ -763,7 +763,7 @@ function toDiags(t: string, raw: RawDiag[]): Diag[] {
 /* ----- Colored file & folder icons (16×16 inline SVG) ----- */
 const svg16 = (body: string) => `<svg viewBox="0 0 16 16" aria-hidden="true">${body}</svg>`;
 const badge = (bg: string, fg: string, label: string, size = 6.4) =>
-  svg16(`<rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="${bg}"/><text x="8" y="11.2" text-anchor="middle" font-family="Inter,Segoe UI,sans-serif" font-weight="800" font-size="${size}" fill="${fg}">${label}</text>`);
+  svg16(`<rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="${bg}"/><text x="8" y="11.2" text-anchor="middle" font-family="Instrument Sans,Segoe UI,sans-serif" font-weight="800" font-size="${size}" fill="${fg}">${label}</text>`);
 const page = (color: string, inner = '') =>
   svg16(`<path d="M3.5 1.5h6l3 3v10h-9z" fill="${color}" fill-opacity=".16" stroke="${color}" stroke-width="1.1" stroke-linejoin="round"/><path d="M9.5 1.5v3h3" fill="none" stroke="${color}" stroke-width="1.1" stroke-linejoin="round"/>${inner}`);
 const ICONS: Record<string, string> = {

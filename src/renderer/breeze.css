@@ -1,34 +1,10 @@
 /* ================= Embedded Local Fonts ================= */
 @font-face {
-  font-family: 'Inter';
+  font-family: 'Instrument Sans';
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 700;
   font-display: swap;
-  src: url('../../assets/fonts/Inter-Regular.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('../../assets/fonts/Inter-Medium.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('../../assets/fonts/Inter-SemiBold.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('../../assets/fonts/Inter-Bold.woff2') format('woff2');
+  src: url('../../assets/fonts/InstrumentSans-Variable.woff2') format('woff2');
 }
 
 @font-face {
@@ -101,7 +77,7 @@
   --err: #ef4444;
   --c-planner: #a78bfa;
   --c-builder: #38bdf8;
-  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-display: Unbounded, var(--font-ui);
   --font-code: "Google Sans Code", Consolas, monospace;
   --r: 10px;
@@ -480,9 +456,10 @@ button {
   transition: background .15s, border-color .15s;
 }
 
+/* Hover lifts one step lighter on the palette's grays (it used to drop to an old blue-black). */
 .btn:hover {
-  border-color: #3a3a42;
-  background: #24242a;
+  border-color: #48484a;
+  background: var(--line);
 }
 
 .btn-primary {
@@ -602,14 +579,33 @@ button {
   -webkit-app-region: drag;
 }
 
-/* Onboarding backdrop: the Chao Phraya photo. The welcome starts black; clicking Start breezing ripples the
-   photo out from the button (--r is the reveal radius, set from script), and once revealed it stays for setup. */
+/* Onboarding backdrop: the Chao Phraya, a looping video over its first frame. The welcome starts black; clicking
+   Start breezing ripples it out from the button (--r is the reveal radius, set from script), and once revealed it
+   stays for setup and Home. */
 .ob-bg {
   position: absolute;
   inset: 0;
-  background: url('../../assets/screens/chaphrayaView.jpg') center / cover no-repeat;
+  isolation: isolate; /* keeps the video under the dim layers below, also once the mask is gone */
+  background: url('../../assets/screens/chaophraya-loop.jpg') center / cover no-repeat;
+  /* The whole layer fades (video and its still together, so they never show through each other) into the dark
+     page behind: a busy aerial shot stays a backdrop instead of competing with the cards. */
+  opacity: .55;
   pointer-events: none;
   mask-image: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), #000 calc(var(--r, 0px) - 90px), transparent var(--r, 0px));
+}
+
+/* Muted and autoplaying, so Chromium pauses it on its own whenever Home is off screen. */
+.ob-video {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-video { display: none; }
 }
 
 .ob-bg.revealed {
@@ -657,10 +653,10 @@ button {
 /* Over the photo the dark surfaces turn glassy: mostly opaque, with the river showing faintly through a blur.
    Only the onboarding steps get these; the app keeps its solid colours. */
 .onboard .ob-step {
-  --bg: rgba(0, 0, 0, .72);
-  --bg-1: rgba(11, 11, 13, .76);
-  --bg-2: rgba(19, 19, 22, .78);
-  --bg-3: rgba(28, 28, 33, .8);
+  --bg: rgba(29, 29, 31, .72);
+  --bg-1: rgba(35, 35, 37, .76);
+  --bg-2: rgba(42, 42, 44, .78);
+  --bg-3: rgba(50, 50, 52, .8);
 }
 
 .onboard :is(.setup-card, .start-tile, .device-code),
@@ -669,16 +665,16 @@ button {
 }
 
 .onboard .ob-step .btn:not(.btn-primary, .btn-ghost, .btn-danger):hover {
-  background: rgba(36, 36, 42, .86);
+  background: rgba(58, 58, 60, .86);
 }
 
 /* The GitHub and Google buttons are see-through so the photo shows behind them. */
 .onboard .signin-btns .btn:not(.btn-ghost) {
-  background: rgba(28, 28, 33, .35);
+  background: rgba(50, 50, 52, .35);
 }
 
 .onboard .signin-btns .btn:not(.btn-ghost):hover {
-  background: rgba(36, 36, 42, .5);
+  background: rgba(58, 58, 60, .5);
 }
 
 /* Hovered start tiles warm up in blue over the photo. */
@@ -936,7 +932,7 @@ textarea:focus-visible {
 }
 
 .agent-opt:not(.missing):hover {
-  border-color: #3a3a42;
+  border-color: #48484a;
 }
 
 .agent-opt.missing {
@@ -986,6 +982,11 @@ textarea:focus-visible {
   grid-column: 3;
 }
 
+/* Name only (a found agent): logo, name and pill share one row, so the name sits centered. */
+.agent-opt:not(:has(> .sub)) > :is(.mark, .side) {
+  grid-row: auto;
+}
+
 .agent-opt .get {
   color: #7aa9ff;
   font-size: 12px;
@@ -1032,7 +1033,7 @@ textarea:focus-visible {
 .agent-opt .get:hover .get-label::after {
   transform: scaleX(1);
   opacity: 1;
-  animation: underlineShimmer 1.8s linear infinite;
+  animation: underlineShimmer 1.8s ease-in-out infinite;
 }
 
 .agent-opt .get:hover {
@@ -1065,7 +1066,7 @@ textarea:focus-visible {
 .agent-opt .get:not(:has(.get-label)):hover::after {
   transform: scaleX(1);
   opacity: 1;
-  animation: underlineShimmer 1.8s linear infinite;
+  animation: underlineShimmer 1.8s ease-in-out infinite;
 }
 
 @keyframes underlineShimmer {
@@ -1502,14 +1503,14 @@ body.resizing-h iframe {
   letter-spacing: normal;
   color: var(--text-3);
   font-weight: 600;
-  font-family: 'Inter', sans-serif !important;
+  font-family: "Instrument Sans", sans-serif !important;
   overflow: visible;
 }
 
 .side-head span,
 .side-head > span,
 .side-head * {
-  font-family: 'Inter', sans-serif !important;
+  font-family: "Instrument Sans", sans-serif !important;
   text-transform: none;
   letter-spacing: normal;
   line-height: normal;
@@ -1903,7 +1904,7 @@ svg.ico-svg:active {
   z-index: 2;
   cursor: grabbing;
   background: var(--bg-3);
-  border-color: #3a3a42;
+  border-color: #48484a;
   box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
   transition: none;
 }
@@ -2312,7 +2313,7 @@ svg.ico-svg:active {
   min-width: 1px;
   opacity: 1;
   z-index: 3;
-  background: var(--panel, #18181b);
+  background: var(--panel, var(--bg));
   color: var(--text);
   box-shadow: 0 1px 0 var(--text);
 }
@@ -2410,7 +2411,7 @@ svg.ico-svg:active {
   overflow: auto;
   display: grid;
   padding: 24px;
-  background: repeating-conic-gradient(#141418 0 25%, #0c0c0f 0 50%) 0 0 / 20px 20px;
+  background: repeating-conic-gradient(var(--bg-1) 0 25%, var(--bg) 0 50%) 0 0 / 20px 20px;
 }
 
 @keyframes imgOpenIn {
@@ -2534,7 +2535,7 @@ svg.ico-svg:active {
   color: #fdba74;
 }
 
-/* Matches the side bar headings: sentence case in Inter. */
+/* Matches the side bar headings: sentence case in Instrument Sans. */
 .preview-label {
   color: var(--text-3);
   font: 600 11.5px var(--font-ui);
@@ -3927,7 +3928,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   animation: settingsRoll .36s cubic-bezier(.55, 0, .25, 1) both, settingsFade .36s both;
 }
 
-/* Opened by a data-grow button (growFrom puts the transform origin on it): out of the button and back into it. */
+/* Opened by a button (growFrom puts the transform origin on it): out of the button and back into it. */
 .modal.grow-from {
   animation: growOut .46s cubic-bezier(.32, .72, 0, 1);
 }
@@ -3946,13 +3947,15 @@ textarea:not(:placeholder-shown) + .ph-rot {
   }
 }
 
+/* --back (set on close) lands the panel on the button's exact box; it stays solid until it's there. */
 @keyframes growBack {
-  65% {
+  85% {
     opacity: 1;
   }
   to {
     opacity: 0;
-    transform: scale(.2);
+    transform: var(--back, scale(.2));
+    border-radius: var(--back-r, 16px);
   }
 }
 
@@ -4002,7 +4005,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
 
 /* Sign-in is solid: through the glass, Home's blue (Continue, the default agent) bled in as a tint. */
 .modal:has(.signin-modal) {
-  background: rgb(24, 24, 30);
+  background: var(--bg-1);
 }
 
 /* Modals open by unrolling downward as their parts arrive (a strip at the top first, the full panel last),
@@ -4262,7 +4265,7 @@ body.vibing .ide {
 }
 
 .social-card:hover {
-  border-color: #3a3a42;
+  border-color: #48484a;
 }
 
 .social-card.on {
@@ -4833,7 +4836,7 @@ body.vibing .ide {
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   transform: none !important;
   animation: none !important;
   display: flex;
@@ -4853,7 +4856,7 @@ body.vibing .ide {
 .scm-head .title,
 .scm-head .chev,
 .scm-head .count {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   text-transform: none;
   letter-spacing: normal;
 }
@@ -4943,7 +4946,7 @@ body.vibing .ide {
   color: var(--text-2);
   cursor: pointer;
   white-space: nowrap;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   background: transparent !important;
   border: none !important;
   outline: none !important;
@@ -4954,7 +4957,7 @@ body.vibing .ide {
 .scm-row *,
 .scm-row .nm,
 .scm-row .dir {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
 
 .scm-row .nm,
@@ -5242,7 +5245,7 @@ body.vibing .ide {
   color: var(--text);
   margin-bottom: 6px;
   line-height: 1.45;
-  font-family: var(--font-ui), "Inter", sans-serif;
+  font-family: var(--font-ui), "Instrument Sans", sans-serif;
 }
 
 .cd-meta {
@@ -5250,7 +5253,7 @@ body.vibing .ide {
   font-size: 11px;
   margin-bottom: 6px;
   overflow-wrap: anywhere;
-  font-family: var(--font-ui), "Inter", sans-serif;
+  font-family: var(--font-ui), "Instrument Sans", sans-serif;
 }
 
 /* Totals line above the file list: "7 files changed" on the left, overall +/− on the right, lined up with the rows. */
@@ -5263,7 +5266,7 @@ body.vibing .ide {
   margin-bottom: 4px;
   border-bottom: 1px solid var(--line);
   color: var(--text-2);
-  font: 500 12px var(--font-ui), "Inter", sans-serif;
+  font: 500 12px var(--font-ui), "Instrument Sans", sans-serif;
 }
 
 .cd-total .file-stats {
@@ -5289,7 +5292,7 @@ body.vibing .ide {
   border-radius: 4px;
   padding: 3px 6px;
   min-width: 0;
-  font: 12px var(--font-ui), "Inter", sans-serif;
+  font: 12px var(--font-ui), "Instrument Sans", sans-serif;
 }
 
 .commit-detail .file:hover {
@@ -5323,7 +5326,7 @@ body.vibing .ide {
   flex-shrink: 0;
   display: inline-flex;
   gap: 4px;
-  font-family: var(--font-ui), "Inter", sans-serif;
+  font-family: var(--font-ui), "Instrument Sans", sans-serif;
   font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
@@ -5349,7 +5352,7 @@ body.vibing .ide {
   min-width: 0;
   padding: 4px 6px;
   font-size: 11px;
-  font-family: var(--font-ui), "Inter", sans-serif;
+  font-family: var(--font-ui), "Instrument Sans", sans-serif;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5749,6 +5752,8 @@ body.vibing .ide {
 }
 
 .home-recent {
+  display: flex;
+  flex-direction: column;
   padding: 12px;
   border-radius: 14px;
 }
@@ -5757,11 +5762,23 @@ body.vibing .ide {
   padding: 4px 6px 8px;
 }
 
+/* No projects yet: no count to show. */
+#homeRecentCount:empty {
+  display: none;
+}
+
 .recent-list {
   display: grid;
   gap: 2px;
   max-height: min(300px, 40vh);
   overflow: auto;
+}
+
+/* The empty note sits in the middle of the card, which stretches to match the agent card beside it. */
+.recent-list:has(> .recent-empty) {
+  flex: 1;
+  max-height: none;
+  align-content: center;
 }
 
 .recent-empty {
@@ -5782,6 +5799,11 @@ body.vibing .ide {
   position: relative;
   animation: rise .35s cubic-bezier(.2, .8, .2, 1) backwards;
   animation-delay: calc(var(--i, 0) * 35ms);
+}
+
+/* Already on screen before a redraw: no second rise. */
+.recent-row.stay {
+  animation: none;
 }
 
 .recent-open {
@@ -6153,7 +6175,7 @@ body.vibing .ide {
   border: 1px solid var(--line);
   border-radius: 999px;
   /* The same glass as the Home tiles (it sits outside .ob-step, so it can't use their --bg-2). */
-  background: rgba(19, 19, 22, .78);
+  background: rgba(42, 42, 44, .78);
   backdrop-filter: blur(18px) saturate(1.2);
   color: var(--text);
   animation: fade .35s ease;
@@ -6162,7 +6184,7 @@ body.vibing .ide {
 
 .home-profile:hover,
 .home-profile.open {
-  border-color: #3a3a42;
+  border-color: #48484a;
 }
 
 .home-profile:focus-visible {
@@ -6839,7 +6861,7 @@ body.vibing .box {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shimmer 1.8s linear infinite;
+  animation: shimmer 1.8s ease-in-out infinite;
 }
 
 .thinking .dots {
@@ -6887,6 +6909,24 @@ body.vibing .box {
 @keyframes shimmer {
   to {
     background-position: -200% 0;
+  }
+}
+
+/* "Loading" placeholders: a light sweeps across the words while they wait. */
+.shimmer-text {
+  width: fit-content;
+  /* Fill, not color: the text's own class (set-sub, side-note) sets color later in this file. */
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 35%, var(--text) 50%, var(--text-3) 65%, var(--text-3) 100%) 0 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+    -webkit-text-fill-color: var(--text-3);
   }
 }
 
@@ -6948,21 +6988,21 @@ body.vibing .box {
 }
 
 .dd-btn:hover {
-  border-color: #3a3a42;
+  border-color: #48484a;
   color: var(--text);
-  background: #24242a;
+  background: var(--line);
 }
 
 .dd-btn.open {
-  border-color: #4a4a54; /* open reads as a lighter edge, with no blue glow around it */
+  border-color: #636366; /* open reads as a lighter edge, with no blue glow around it */
   color: var(--text);
-  background: #24242a;
+  background: var(--line);
   box-shadow: none;
 }
 
 .dd-btn:focus-visible {
   outline: none;
-  border-color: #4a4a54;
+  border-color: #636366;
 }
 
 .dd-btn .dd-chev {
@@ -7023,26 +7063,37 @@ body.vibing .box {
   }
 }
 
-/* The gear's menu fades in from the gear itself (transform-origin is set in script). */
-.menu.from-gear {
-  animation: gearIn .26s cubic-bezier(.2, .8, .2, 1);
+/* A menu opened by a button grows out of that button and shrinks back into it (growFrom puts the transform origin
+   on the button). The extra selectors outrank the staggered and upward variants further down. */
+.menu.from-button,
+.menu.from-button.stagger,
+.menu.from-button.stagger.up {
+  animation: menuFromButton .34s cubic-bezier(.32, .72, 0, 1) backwards;
 }
 
-.menu.from-gear.closing {
-  animation: gearOut .16s cubic-bezier(.4, 0, 1, 1) forwards;
+.menu.from-button.closing,
+.menu.from-button.stagger.closing,
+.menu.from-button.stagger.up.closing {
+  animation: menuIntoButton .2s cubic-bezier(.55, 0, .25, 1) forwards;
 }
 
-@keyframes gearIn {
+@keyframes menuFromButton {
   from {
     opacity: 0;
-    transform: scale(.5);
+    transform: scale(.3);
+  }
+  40% {
+    opacity: 1;
   }
 }
 
-@keyframes gearOut {
+@keyframes menuIntoButton {
+  60% {
+    opacity: 1;
+  }
   to {
     opacity: 0;
-    transform: scale(.5);
+    transform: scale(.3);
   }
 }
 
@@ -7742,7 +7793,7 @@ body:is(.resizing, .resizing-h) .sash-line.on {
 }
 
 .br-del.holding::before {
-  animation: holdFill 5s linear forwards;
+  animation: holdFill 5s ease-in-out forwards;
 }
 
 .br-del .ico-svg {
@@ -8296,7 +8347,7 @@ body.layout-animating #previewPane {
   height: var(--tab-h);
   border-radius: 6px;
   font-size: 11.5px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   color: var(--text-3);
   background: transparent;
   border: 1px solid transparent;
@@ -8651,7 +8702,7 @@ body.layout-animating #previewPane {
   position: fixed;
   z-index: 999999;
   pointer-events: none;
-  background: rgba(18, 18, 22, 0.94);
+  background: rgba(29, 29, 31, 0.94);
   backdrop-filter: blur(14px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #f5f5f7;
@@ -8801,6 +8852,15 @@ body.layout-animating #previewPane {
 .set-nav button[data-set-tab="discord"] .set-nav-img { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), color .22s ease, opacity .22s ease; }
 .set-nav button[data-set-tab="help"]:hover svg,
 .set-nav button[data-set-tab="discord"]:hover .set-nav-img { transform: scale(1.22); }
+/* Miscellaneous: its three dots hop one after another, left to right (the icon draws them middle, right, left). */
+.set-nav button[data-set-tab="misc"]:hover svg circle { animation: navDotHop .42s ease-in-out both; }
+.set-nav button[data-set-tab="misc"]:hover svg circle:nth-child(1) { animation-delay: 80ms; }
+.set-nav button[data-set-tab="misc"]:hover svg circle:nth-child(2) { animation-delay: 160ms; }
+
+@keyframes navDotHop {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(-6px); }
+}
 
 /* Both keyframes grow to the hover size first and keep it, so there is no jump when they end. */
 @keyframes navPromptType {
@@ -8820,7 +8880,8 @@ body.layout-animating #previewPane {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .set-nav button:hover svg { animation: none !important; }
+  .set-nav button:hover svg,
+  .set-nav button:hover svg circle { animation: none !important; }
 }
 
 .set-main {
@@ -8861,7 +8922,7 @@ body.layout-animating #previewPane {
 .set-pane h5 {
   margin: 24px 0 8px;
   color: var(--text-2);
-  font-family: 'Inter', var(--font-ui), sans-serif;
+  font-family: "Instrument Sans", var(--font-ui), sans-serif;
   font-size: 14.5px;
   font-weight: 600;
   letter-spacing: 0;
@@ -9149,7 +9210,7 @@ body.layout-animating #previewPane {
   object-fit: contain;
 }
 
-/* Selected: a soft tint and a check badge rather than a solid fill; hovering it brightens the ring. */
+/* Selected: a soft tint and a blue ring rather than a solid fill; hovering it brightens the ring. */
 .set-agent.on {
   border-color: rgba(122, 169, 255, .45);
   background: rgba(0, 122, 255, .08);
@@ -9160,28 +9221,9 @@ body.layout-animating #previewPane {
   color: #9dbcff;
 }
 
-.set-agent.on::after {
-  content: "";
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--bg-1);
-  box-sizing: border-box;
-  border-radius: 50%;
-  background: var(--blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") calc(50% + .75px) 50% / 9px no-repeat; /* nudged right: the tick's weight sits left of centre */
-  animation: agentCheckIn .25s cubic-bezier(.34, 1.56, .64, 1);
-}
-
 .set-agent.on:hover:not(:disabled) {
   background: rgba(0, 122, 255, .13);
   border-color: rgba(122, 169, 255, .75);
-}
-
-@keyframes agentCheckIn {
-  from { transform: scale(0); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
 }
 
 .set-agent:disabled {
@@ -9227,6 +9269,109 @@ body.layout-animating #previewPane {
   padding: 1px 10px;
   font-size: 12.5px;
   border-radius: 7px;
+}
+
+/* Settings → Agents → Usage: one block per agent, its tokens this month and a bar per plan window. */
+.usage-agent {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--glass-line);
+}
+
+.usage-agent:last-child {
+  border-bottom: 0;
+}
+
+/* Arrived after the page opened: the agents rise in one after another (usageArrive sets --i). */
+.usage-agent.usage-in {
+  animation: rise .4s cubic-bezier(.32, .72, 0, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+/* The bars fill a beat later, once their row is up. */
+.usage-agent.usage-in .usage-bar i {
+  transition-delay: calc(120ms + var(--i, 0) * 60ms);
+}
+
+.usage-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.usage-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.usage-mark .brand-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.usage-tokens {
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-agent > .set-sub {
+  margin: 0 0 0 32px;
+}
+
+.usage-win {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 170px;
+  align-items: center;
+  gap: 12px;
+  margin-left: 32px;
+  font-size: 13px;
+}
+
+.usage-lbl {
+  color: var(--text-2);
+}
+
+.usage-left {
+  color: var(--text-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The parts that update in place: inline-block so changed text can roll in. */
+.usage-tokens [data-k],
+.usage-left [data-k] {
+  display: inline-block;
+}
+
+/* The fill is what's left, so it shrinks as the plan gets used. */
+.usage-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+
+.usage-bar i {
+  display: block;
+  width: var(--left, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width .5s cubic-bezier(.32, .72, 0, 1);
+}
+
+.usage-bar.low i {
+  background: var(--err);
 }
 
 /* Account bar: rounded corner rectangle holding the avatar, who is signed in and the account buttons. */
@@ -9817,7 +9962,7 @@ body.layout-animating #previewPane {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shimmer 1.8s linear infinite;
+  animation: shimmer 1.8s ease-in-out infinite;
 }
 
 .team-claiming:not(.settled) .agent-tag {
