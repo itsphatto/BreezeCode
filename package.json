@@ -1,7 +1,7 @@
 {
   "name": "breeze-code",
   "private": true,
-  "version": "0.5.7",
+  "version": "0.5.8",
   "description": "Blazing Fast Muti Agent IDE",
   "author": "itsphatto",
   "main": "src/main/main.js",
