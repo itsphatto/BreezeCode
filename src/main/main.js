@@ -196,9 +196,9 @@ function createWindow() {
     minHeight: 600,
     title: 'Breeze Code',
     icon: APP_ICON,
-    backgroundColor: '#000000',
+    backgroundColor: '#1d1d1f',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0b0b0d', symbolColor: '#a1a1aa', height: 38 },
+    titleBarOverlay: { color: '#232325', symbolColor: '#aaaaaa', height: 38 },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -2354,8 +2354,8 @@ async function githubSignIn({ clientId }, signal) {
 // Google: authorization code + PKCE through a one-shot loopback server on 127.0.0.1.
 // The page the browser lands on after Google: Breeze's look, with Unbounded headings and Inter text.
 const PAGE_ICON = {
-  ok: '<path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
-  fail: '<path d="M12 7.5v5.5M12 16.5v.01" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>',
+  ok: '<path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#f5f5f7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+  fail: '<path d="M12 7.5v5.5M12 16.5v.01" fill="none" stroke="#f5f5f7" stroke-width="2.4" stroke-linecap="round"/>',
 };
 // The Breeze IDE wordmark is inlined so the one-shot server needs no asset route.
 let wordmarkUri = null;
@@ -2370,8 +2370,8 @@ function googleRedirectPage(ok) {
   const text = ok ? 'Breeze has your account now. You can close this tab and head back to Breeze.' : 'Nothing was changed. Close this tab and try again from Breeze.';
   // The badge starts on the brand blue and eases to green once the sign-in lands; a failure stays amber.
   const tone = ok
-    ? { from: '#005EFF', to: '#57C478', shadowFrom: 'rgba(0,94,255,.45)', shadowTo: 'rgba(87,196,120,.45)', glowFrom: 'rgba(0,94,255,.32)', glowTo: 'rgba(87,196,120,.3)' }
-    : { from: '#d97706', to: '#d97706', shadowFrom: 'rgba(217,119,6,.4)', shadowTo: 'rgba(217,119,6,.4)', glowFrom: 'rgba(0,94,255,.32)', glowTo: 'rgba(217,119,6,.26)' };
+    ? { from: '#007AFF', to: '#57C478', shadowFrom: 'rgba(0,122,255,.45)', shadowTo: 'rgba(87,196,120,.45)', glowFrom: 'rgba(0,122,255,.32)', glowTo: 'rgba(87,196,120,.3)' }
+    : { from: '#d97706', to: '#d97706', shadowFrom: 'rgba(217,119,6,.4)', shadowTo: 'rgba(217,119,6,.4)', glowFrom: 'rgba(0,122,255,.32)', glowTo: 'rgba(217,119,6,.26)' };
   const logo = wordmarkSrc();
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Breeze</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2382,7 +2382,7 @@ function googleRedirectPage(ok) {
   @property --gy { syntax: '<percentage>'; inherits: false; initial-value: -10%; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; color: #f5f5f7; font: 15px/1.6 Inter, system-ui, sans-serif;
-    background: radial-gradient(900px 460px at var(--gx, 50%) var(--gy, -10%), var(--glow, ${tone.glowFrom}), transparent 70%), #000;
+    background: radial-gradient(900px 460px at var(--gx, 50%) var(--gy, -10%), var(--glow, ${tone.glowFrom}), transparent 70%), #1d1d1f;
     animation: glowTone 1.2s .5s cubic-bezier(.4,0,.2,1) both, sway 11s ease-in-out infinite alternate; }
   .card { width: min(440px, 100%); text-align: center; padding: 40px 36px 34px; border-radius: 24px; border: 1px solid rgba(255,255,255,.1);
     background: rgba(28,28,34,.55); backdrop-filter: blur(22px) saturate(160%); box-shadow: 0 30px 90px rgba(0,0,0,.55); animation: rise .5s cubic-bezier(.2,.8,.2,1); }
@@ -2390,8 +2390,8 @@ function googleRedirectPage(ok) {
     background: ${tone.from}; box-shadow: 0 10px 30px ${tone.shadowFrom}; animation: badgeTone 1s .55s cubic-bezier(.4,0,.2,1) both; }
   .badge path { stroke-dasharray: 20; stroke-dashoffset: 20; animation: draw .45s .3s ease-out forwards; }
   h1 { margin: 0 0 10px; font: 700 26px/1.2 Unbounded, Inter, sans-serif; letter-spacing: -.01em; }
-  p { margin: 0; color: #a1a1aa; }
-  .brand { margin-top: 26px; display: flex; align-items: center; justify-content: center; color: #6b6b75; font: 600 12px Unbounded, Inter, sans-serif; }
+  p { margin: 0; color: #aaaaaa; }
+  .brand { margin-top: 26px; display: flex; align-items: center; justify-content: center; color: #7c7c80; font: 600 12px Unbounded, Inter, sans-serif; }
   .brand img { display: block; height: 20px; width: auto; opacity: .75; }
   @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(.98); } }
   @keyframes badgeTone { from { background: ${tone.from}; box-shadow: 0 10px 30px ${tone.shadowFrom}; } to { background: ${tone.to}; box-shadow: 0 10px 30px ${tone.shadowTo}; } }
@@ -2676,7 +2676,7 @@ handle('vibe:connect', (_e, id, bounds) => {
   closeConnect();
   connectView = new WebContentsView({ webPreferences: feedPrefs() });
   connectView.setBorderRadius(14);
-  connectView.setBackgroundColor('#000000');
+  connectView.setBackgroundColor('#1d1d1f');
   guardFeed(connectView.webContents);
   hideScrollbars(connectView.webContents);
   win.contentView.addChildView(connectView);
@@ -2700,7 +2700,7 @@ handle('vibe:show', (_e, id, bounds) => {
   if (!vibeView) {
     vibeView = new WebContentsView({ webPreferences: feedPrefs() });
     vibeView.setBorderRadius(16);
-    vibeView.setBackgroundColor('#000000');
+    vibeView.setBackgroundColor('#1d1d1f');
     guardFeed(vibeView.webContents);
     hideScrollbars(vibeView.webContents);
     win.contentView.addChildView(vibeView);
