@@ -579,14 +579,33 @@ button {
   -webkit-app-region: drag;
 }
 
-/* Onboarding backdrop: the Chao Phraya photo. The welcome starts black; clicking Start breezing ripples the
-   photo out from the button (--r is the reveal radius, set from script), and once revealed it stays for setup. */
+/* Onboarding backdrop: the Chao Phraya, a looping video over its first frame. The welcome starts black; clicking
+   Start breezing ripples it out from the button (--r is the reveal radius, set from script), and once revealed it
+   stays for setup and Home. */
 .ob-bg {
   position: absolute;
   inset: 0;
-  background: url('../../assets/screens/chaphrayaView.jpg') center / cover no-repeat;
+  isolation: isolate; /* keeps the video under the dim layers below, also once the mask is gone */
+  background: url('../../assets/screens/chaophraya-loop.jpg') center / cover no-repeat;
+  /* The whole layer fades (video and its still together, so they never show through each other) into the dark
+     page behind: a busy aerial shot stays a backdrop instead of competing with the cards. */
+  opacity: .55;
   pointer-events: none;
   mask-image: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), #000 calc(var(--r, 0px) - 90px), transparent var(--r, 0px));
+}
+
+/* Muted and autoplaying, so Chromium pauses it on its own whenever Home is off screen. */
+.ob-video {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-video { display: none; }
 }
 
 .ob-bg.revealed {

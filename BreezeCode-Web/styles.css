@@ -48,10 +48,10 @@
     radial-gradient(120% 70% at 50% 100%, rgba(0, 94, 255, .62), rgba(64, 72, 210, .26) 38%, rgba(167, 139, 250, .08) 58%, transparent 78%),
     radial-gradient(60% 40% at 18% 100%, rgba(56, 189, 248, .22), transparent 70%),
     radial-gradient(60% 40% at 82% 100%, rgba(167, 139, 250, .22), transparent 70%);
-  /* Hero atmosphere: Pattaya bay under a dark scrim so the headline stays readable. */
-  --aurora:
-    linear-gradient(180deg, rgba(0, 0, 0, .62) 0%, rgba(3, 11, 31, .48) 40%, rgba(3, 11, 31, .3) 70%, rgba(0, 0, 0, .5) 100%),
-    url("assets/Background/pattayacityview.png") center 40% / cover no-repeat #030b1f;
+  /* Hero atmosphere: Pattaya bay (a 3x time-lapse video over its first frame) under a dark scrim so the headline
+     stays readable. */
+  --hero-scrim: linear-gradient(180deg, rgba(0, 0, 0, .62) 0%, rgba(3, 11, 31, .48) 40%, rgba(3, 11, 31, .3) 70%, rgba(0, 0, 0, .5) 100%);
+  --hero-still: url("assets/Background/pattaya-bay.jpg") center 40% / cover no-repeat #030b1f;
 }
 
 * { box-sizing: border-box; }
@@ -161,14 +161,42 @@ p, li, dd { text-wrap: pretty; }
 .hero { padding: 16px 16px 0; }
 
 .hero-card {
+  position: relative;
+  isolation: isolate; /* the video and scrim sit behind the copy without leaving the card */
   max-width: 1200px;
   margin: 0 auto;
   padding: clamp(64px, 10vw, 112px) 24px 0;
   overflow: hidden;
   border-radius: 20px;
-  background: var(--aurora);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+  background: var(--hero-still); /* shows until the video plays, and instead of it with reduced motion */
   text-align: center;
+}
+
+.hero-video {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 40%;
+  pointer-events: none;
+}
+
+/* The scrim (and the card's hairline edge) go over the video. */
+.hero-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--hero-scrim);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-video { display: none; }
 }
 
 /* A faint dark halo behind the hero copy so it reads over the photo. */

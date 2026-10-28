@@ -30,3 +30,8 @@ desktop.ini
 **/.impeccable/config.local.json
 .claude/settings.local.json
 DemoVideo/
+
+# Source videos: far over GitHub's 100 MB file limit. The app and site use the compressed copies
+# (assets/screens/chaophraya-loop.mp4, BreezeCode-Web/assets/Background/pattaya-bay.mp4).
+/BangkokVideo.mp4
+/PattayaVideo.mp4
