@@ -164,7 +164,7 @@ interface BreezeApi {
     mute(muted: boolean): Promise<void>;
     hide(): Promise<void>;
   };
-  win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; };
+  win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>; };
 }
 interface Window { breeze?: BreezeApi; }
 
@@ -238,4 +238,12 @@ const store = {
     try { localStorage.removeItem(key); } catch { /* storage blocked */ }
   },
 };
+
+/* ================= Appearance ================= */
+// Set as early as the page's scripts run, so the window comes up in the chosen colours (Settings → Appearance).
+type Theme = 'dark' | 'contrast' | 'light';
+const THEME_IDS: Theme[] = ['dark', 'contrast', 'light'];
+const savedTheme = store.get<string>('breeze.theme', 'dark');
+let theme: Theme = THEME_IDS.find(t => t === savedTheme) ?? 'dark';
+document.documentElement.dataset.theme = theme;
 

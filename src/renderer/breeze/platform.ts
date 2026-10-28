@@ -404,6 +404,7 @@ function demoApi(): BreezeApi {
       async toggleDevTools() { toast('Developer tools are available in the desktop app'); },
       async quit() { window.close(); },
       edit: demoEdit,
+      async theme() { /* the browser draws its own title bar */ },
     },
   };
 }
@@ -471,6 +472,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   diamond: [['path', { d: 'M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z' }]],
   dot: [['circle', { cx: 12, cy: 12, r: 2 }]],
   info: [['circle', { cx: 12, cy: 12, r: 10 }], ['path', { d: 'M12 16v-4' }], ['path', { d: 'M12 8h.01' }]],
+  palette: [['path', { d: 'M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z' }], ['circle', { cx: 13.5, cy: 6.5, r: .5, fill: 'currentColor' }], ['circle', { cx: 17.5, cy: 10.5, r: .5, fill: 'currentColor' }], ['circle', { cx: 6.5, cy: 12.5, r: .5, fill: 'currentColor' }], ['circle', { cx: 8.5, cy: 7.5, r: .5, fill: 'currentColor' }]],
   alert: [['path', { d: 'm21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3' }], ['path', { d: 'M12 9v4' }], ['path', { d: 'M12 17h.01' }]],
   circleX: [['circle', { cx: 12, cy: 12, r: 10 }], ['path', { d: 'm15 9-6 6' }], ['path', { d: 'm9 9 6 6' }]],
   gitBranch: [['path', { d: 'M6 3v12' }], ['circle', { cx: 18, cy: 6, r: 3 }], ['circle', { cx: 6, cy: 18, r: 3 }], ['path', { d: 'M18 9a9 9 0 0 1-9 9' }]],

@@ -1111,6 +1111,18 @@ handle('live:stop', async () => {
 handle('win:reload', () => win?.webContents.reload());
 handle('win:devtools', () => win?.webContents.toggleDevTools());
 handle('win:quit', () => app.quit());
+// The window's own background and the title bar's min/max/close buttons follow Settings → Appearance.
+const THEME_CHROME = {
+  dark: { bg: '#1d1d1f', bar: '#232325', symbols: '#aaaaaa' },
+  contrast: { bg: '#000000', bar: '#0b0b0d', symbols: '#a1a1aa' },
+  light: { bg: '#ffffff', bar: '#f5f5f7', symbols: '#5f5f64' },
+};
+handle('win:theme', (_e, theme) => {
+  const c = THEME_CHROME[theme];
+  if (!c || !win) return;
+  win.setBackgroundColor(c.bg);
+  win.setTitleBarOverlay({ color: c.bar, symbolColor: c.symbols, height: 38 });
+});
 handle('win:edit', (_e, role) => {
   const wc = win?.webContents;
   if (wc && ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'].includes(role)) wc[role]();

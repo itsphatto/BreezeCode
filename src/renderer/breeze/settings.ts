@@ -1,8 +1,9 @@
 /* ================= Settings ================= */
 // One pop-up for everything: the gear opens it (in the IDE and in Breeze Box) and turns while it is open.
-type SettingsTab = 'general' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
+type SettingsTab = 'general' | 'appearance' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
 const SETTINGS_TABS: [SettingsTab, string, string][] = [
   ['general', 'General', 'gear'],
+  ['appearance', 'Appearance', 'palette'],
   ['agents', 'Agents', 'terminal'],
   ['discord', 'Discord', 'img:discord.png'],
   ['help', 'Help & About', 'info'],
@@ -67,6 +68,32 @@ const settingRow = (title: string, sub: string, control: string) =>
   `<div class="set-row"><div class="set-text"><div class="set-title">${title}</div>${sub ? `<div class="set-sub">${sub}</div>` : ''}</div><div class="set-ctl">${control}</div></div>`;
 const segHtml = (id: string, opts: [string, string][], cur: string) =>
   `<div class="seg set-seg" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
+
+// Settings → Appearance. Each card shows a small picture of the window in that theme.
+const THEMES: [Theme, string, string][] = [
+  ['dark', 'Default Dark', 'Soft charcoal.'],
+  ['contrast', 'High Contrast Dark', 'True black, sharper edges.'],
+  ['light', 'Light', 'Bright and airy.'],
+];
+const themeCardHtml = ([id, name, sub]: [Theme, string, string]) =>
+  `<button class="set-theme ${id === theme ? 'on' : ''}" data-theme-pick="${id}" aria-pressed="${id === theme}">
+    <span class="theme-swatch" data-swatch="${id}" aria-hidden="true"><span class="sw-bar"><i></i><i></i><i></i></span><span class="sw-side"><b></b><b></b><b></b></span><span class="sw-main"><b></b><b></b><b></b><b></b></span></span>
+    <span class="nm">${esc(name)}</span><span class="set-sub">${esc(sub)}</span></button>`;
+function setTheme(t: Theme): void {
+  if (t === theme) return;
+  theme = t;
+  store.set('breeze.theme', t);
+  const root = document.documentElement;
+  // Every colour eases over to the new theme for a moment, then transitions go back to normal.
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    root.classList.add('theme-fading');
+    setTimeout(() => root.classList.remove('theme-fading'), 300);
+  }
+  root.dataset.theme = t;
+  background(api.win.theme(t));
+}
+// The window's title bar starts in the default colours; bring it to the saved theme.
+if (theme !== 'dark') background(api.win.theme(theme));
 
 // The account card sits at the top of General.
 function accountHtml(): string {
@@ -197,8 +224,12 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Terminal', 'Ctrl+`', switchHtml('sTerm', layout.termOpen, 'Terminal'))}
       ${settingRow('Preview', '', switchHtml('sPreview', layout.previewOpen, 'Preview'))}
       ${settingRow('Reset layout', 'Put every panel back where it started.', '<button class="btn btn-sm" id="sResetLayout">Reset</button>')}`;
+    case 'appearance': return `<h4>Appearance</h4>
+      <h5>Theme</h5>
+      <div class="set-themes">${THEMES.map(themeCardHtml).join('')}</div>
+      <p class="set-sub">Sign-in and Home keep their dark glass over the river photo in every theme.</p>`;
     case 'agents': {
-      const agents = [...appState.detect?.agents ?? []].sort((a, b) => agentRank(a) - agentRank(b));
+      const agents =[...appState.detect?.agents ?? []].sort((a, b) => agentRank(a) - agentRank(b));
       const list = agents.length
         ? agents.map(a => a.found
           ? `<button class="set-agent ${a.id === appState.agent ? 'on' : ''}" data-agent-pick="${a.id}" title="${escAttr(a.name)}">${brandMark('set-agent-mark', a.id, a.name[0])}<span class="nm">${esc(a.name)}</span></button>`
@@ -302,6 +333,13 @@ function bindSettings(m: HTMLElement): void {
   layoutSwitch('sTerm', 'term.toggle');
   layoutSwitch('sPreview', 'view.togglePreview');
   layoutSwitch('sResetLayout', 'view.resetLayout');
+  // Appearance
+  $$('[data-theme-pick]', pane).forEach(b => b.onclick = () => {
+    const from = pane.querySelector('.set-theme.on')?.getBoundingClientRect();
+    setTheme(b.dataset.themePick as Theme);
+    refreshSettings();
+    slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
+  });
   // Agents
   $$('[data-agent-pick]', pane).forEach(b => b.onclick = () => {
     const ag = appState.detect?.agents.find(a => a.id === b.dataset.agentPick);

@@ -137,5 +137,6 @@ contextBridge.exposeInMainWorld('breeze', {
     toggleDevTools: () => invoke('win:devtools'),
     quit: () => invoke('win:quit'),
     edit: role => invoke('win:edit', role),
+    theme: t => invoke('win:theme', t),
   },
 });
