@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-starting>
+<html lang="en" data-starting data-launching>
 
 <head>
   <meta charset="utf-8">
@@ -9,9 +9,16 @@
   <title>Breeze Code</title>
   <link rel="preload" href="../../assets/fonts/InstrumentSans-Variable.woff2" as="font" type="font/woff2">
   <link rel="stylesheet" href="breeze.css">
+  <link rel="stylesheet" href="launch.css">
 </head>
 
 <body>
+  <!-- Launch: a glimpse of light opens into the window with the swirl in the middle, then lifts off the app (init.ts) -->
+  <div class="launch" id="launch" aria-hidden="true">
+    <div class="launch-sky"></div>
+    <div class="launch-glint"></div>
+    <img class="launch-logo" src="../../assets/brand/Agent.png" width="150" height="150" alt="" draggable="false">
+  </div>
   <!-- Shared SVG symbols -->
   <svg class="sprite" width="0" height="0" aria-hidden="true">
     <symbol id="i-swirl" viewBox="0 0 24 24">
@@ -166,7 +173,7 @@
   <div class="onboard" id="onboard">
     <div class="drag-strip"></div>
     <div class="ob-bg" id="obBg" aria-hidden="true"><video class="ob-video" src="../../assets/screens/chaophraya-loop.mp4" autoplay muted loop playsinline preload="auto" tabindex="-1"></video></div>
-    <div class="ob-wave" id="obWave" aria-hidden="true"></div>
+    <div class="ob-sky" aria-hidden="true"></div>
     <!-- Home only: who is signed in, top right under the window buttons -->
     <button class="home-profile hidden" id="homeProfile" aria-haspopup="menu" title="Account"></button>
     <!-- Welcome -->

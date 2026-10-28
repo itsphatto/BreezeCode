@@ -141,8 +141,8 @@ app.setPath('sessionData', SESSION_DATA);
 // so it focuses the running window and exits before Chromium opens them.
 if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', () => {
-  const win = BrowserWindow.getAllWindows()[0];
   if (!win) return;
+  showMain(); // still behind the launch splash: skip straight to the app
   if (win.isMinimized()) win.restore();
   win.focus();
 });
@@ -188,12 +188,72 @@ function handle(channel, fn) {
   });
 }
 
+// The launch intro (launch.html) plays in its own see-through, click-through window, so the light bubbles over the
+// desktop itself, darkened but sharp. Only a transparent window shows the desktop unblurred, and a transparent window
+// can't be resized, so the app window is a normal one: it loads hidden behind the splash, already showing the intro's
+// last frame, and takes over at LAUNCH_HANDOFF (win:launchWait, then win:launchShow), when it lifts onto the app.
+const SPLASH_PAGE = path.join(ROOT, 'src', 'renderer', 'launch.html');
+const LAUNCH_HANDOFF = 3900; // ms: 0.8s bubbling, 1s opening, the swirl in by 2.1s, then held 1.8s
+let splash = null;
+let splashStart = 0;
+let splashShown = Promise.resolve();
+
+function createSplash(bounds) {
+  splash = new BrowserWindow({
+    ...bounds,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    focusable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    title: 'Breeze Code',
+    icon: APP_ICON,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  // No setIgnoreMouseEvents here: on Windows it turns the window into an opaque layered one and the desktop stops
+  // showing through. The splash can't take focus, so a click on it simply does nothing.
+  splash.webContents.on('will-navigate', e => e.preventDefault());
+  splash.on('closed', () => { splash = null; });
+  // The hand-off counts from when the intro first shows; a splash that never paints doesn't hold the app back.
+  splashShown = new Promise(done => {
+    splash.once('ready-to-show', () => { splashStart = Date.now(); splash?.show(); done(); });
+    setTimeout(done, 3000);
+  });
+  splash.loadFile(SPLASH_PAGE).catch(logError('splash'));
+}
+
+// Shows the app window and, once it has drawn over the splash, closes the splash.
+function showMain() {
+  if (win && !win.isVisible()) win.show();
+  const s = splash;
+  splash = null;
+  if (s) setTimeout(() => { if (!s.isDestroyed()) s.destroy(); }, 150);
+}
+
+// The page waits here until the intro has played through, then gets how long it has been running, so it can match
+// the sky's drifting light before it shows. null: no splash (a reload), so there is nothing to hand over.
+handle('win:launchWait', async () => {
+  if (!splash) return null;
+  await splashShown;
+  const left = LAUNCH_HANDOFF - (Date.now() - splashStart);
+  if (splashStart && left > 0) await new Promise(done => setTimeout(done, left));
+  return splashStart ? Date.now() - splashStart : 0;
+});
+handle('win:launchShow', () => showMain());
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 900,
     minHeight: 600,
+    show: false, // shown by showMain, at the launch hand-off
     title: 'Breeze Code',
     icon: APP_ICON,
     backgroundColor: '#1d1d1f',
@@ -212,6 +272,9 @@ function createWindow() {
   });
 
   showTaskbarIcon(win);
+  createSplash(win.getBounds());
+  // However the page fares, the app window shows in the end.
+  setTimeout(showMain, LAUNCH_HANDOFF + 5000);
   win.loadFile(APP_PAGE).catch(logError('loadFile'));
 
   // Open external links in the system browser, never inside the app.
@@ -225,7 +288,7 @@ function createWindow() {
   // A reload or crash drops the renderer's terminal state, so nothing may keep running for it.
   win.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => { if (isMainFrame) killAllTerms(); });
   win.webContents.on('render-process-gone', killAllTerms);
-  win.on('closed', () => { win = null; vibeView = null; stopWatching(); stopLiveServer(); killAllTerms(); });
+  win.on('closed', () => { win = null; vibeView = null; splash?.destroy(); stopWatching(); stopLiveServer(); killAllTerms(); });
 }
 
 // Windows draws the taskbar button from the app's user model id, which in development is electron.exe, so the

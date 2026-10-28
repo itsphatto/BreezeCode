@@ -31,35 +31,10 @@ function goStep(n: number): void {
 }
 $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
 
-/* Welcome: Start breezing ripples the photo out from the button while sign-in comes in, then leaves it fully open. */
-const RIPPLE_MS = 1400;
-const obBg = $('#obBg'), obWave = $('#obWave');
-let rippleFrame = 0;
-// Opens the photo at once, unless a ripple is still spreading (that opens it when it finishes).
-function revealBackdrop(): void {
-  if (!rippleFrame) obBg.classList.add('revealed');
-}
-function rippleBackdrop(from: HTMLElement): void {
-  if (obBg.classList.contains('revealed') || rippleFrame) return;
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { obBg.classList.add('revealed'); return; }
-  const box = $('#onboard').getBoundingClientRect(), btn = from.getBoundingClientRect();
-  const cx = btn.left + btn.width / 2 - box.left, cy = btn.top + btn.height / 2 - box.top;
-  const far = Math.hypot(Math.max(cx, box.width - cx), Math.max(cy, box.height - cy)) + 90;
-  for (const el of [obBg, obWave]) { el.style.setProperty('--rx', `${cx}px`); el.style.setProperty('--ry', `${cy}px`); }
-  const t0 = performance.now();
-  const tick = (now: number) => {
-    const p = Math.min(1, (now - t0) / RIPPLE_MS);
-    // Eases out like a ripple on water: a quick push from the button that slows as it reaches the edges.
-    const r = far * (1 - (1 - p) ** 3);
-    for (const el of [obBg, obWave]) el.style.setProperty('--r', `${r}px`);
-    obWave.style.setProperty('--wave', String(1 - p));
-    if (p < 1) { rippleFrame = requestAnimationFrame(tick); return; }
-    rippleFrame = 0;
-    obBg.classList.add('revealed');
-  };
-  rippleFrame = requestAnimationFrame(tick);
-}
-$('#obStart').onclick = e => { rippleBackdrop(e.currentTarget as HTMLElement); goStep(STEP.signIn); };
+/* Welcome: it sits on the launch sky; Start breezing eases the sky away to the city video (the fade is in breeze.css). */
+const obBg = $('#obBg');
+const revealBackdrop = () => obBg.classList.add('revealed');
+$('#obStart').onclick = () => goStep(STEP.signIn);
 // The dots before the current one take you back to that step.
 $$('.ob-dots span').forEach((d, i) => {
   d.onclick = () => { if (i < step) goStep(i); };

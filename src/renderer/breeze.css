@@ -651,9 +651,8 @@ button {
   -webkit-app-region: drag;
 }
 
-/* Onboarding backdrop: the Chao Phraya, a looping video over its first frame. The welcome starts black; clicking
-   Start breezing ripples it out from the button (--r is the reveal radius, set from script), and once revealed it
-   stays for setup and Home. */
+/* Onboarding backdrop: the Chao Phraya, a looping video over its first frame. The welcome sits on the launch sky
+   (.ob-sky, laid over the video); Start breezing fades the sky away so the city eases in, and it stays for setup and Home. */
 .ob-bg {
   position: absolute;
   inset: 0;
@@ -663,7 +662,6 @@ button {
      page behind: a busy aerial shot stays a backdrop instead of competing with the cards. */
   opacity: .55;
   pointer-events: none;
-  mask-image: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), #000 calc(var(--r, 0px) - 90px), transparent var(--r, 0px));
 }
 
 /* Muted and autoplaying, so Chromium pauses it on its own whenever Home is off screen. */
@@ -680,20 +678,31 @@ button {
   .ob-video { display: none; }
 }
 
-.ob-bg.revealed {
-  mask-image: none;
+/* The sky the launch animation opened, kept behind the welcome; it eases away to the city once Start breezing is pressed. */
+.ob-sky {
+  pointer-events: none;
+  transition: opacity 1.4s cubic-bezier(.65, 0, .35, 1);
 }
 
-/* Thin light rings riding the reveal's edge, so the photo spreads like a ripple on water. */
-.ob-wave {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: var(--wave, 0);
-  background:
-    radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), transparent calc(var(--r, 0px) - 4px), rgba(255, 255, 255, .28) var(--r, 0px), transparent calc(var(--r, 0px) + 3px)),
-    radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), transparent calc(var(--r, 0px) * .72 - 3px), rgba(255, 255, 255, .14) calc(var(--r, 0px) * .72), transparent calc(var(--r, 0px) * .72 + 2px)),
-    radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), transparent calc(var(--r, 0px) * .48 - 2px), rgba(255, 255, 255, .08) calc(var(--r, 0px) * .48), transparent calc(var(--r, 0px) * .48 + 2px));
+/* Hidden only once the fade has finished. The delay lives here, not on .ob-sky: there it would also hold the sky back
+   for 1.4s when the page comes out from under the launch light, flashing the city before the sky. */
+.ob-bg.revealed ~ .ob-sky {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 1.4s cubic-bezier(.65, 0, .35, 1), visibility 0s 1.4s;
+}
+
+/* Over the sky the blue button would vanish into the blue, so it turns white until the city comes up. */
+.ob-step[data-step="0"] .btn-primary,
+.ob-step[data-step="0"] .btn-primary:hover {
+  background: #f5f5f7;
+  border-color: #f5f5f7;
+  color: #1f4dff;
+}
+
+.ob-step[data-step="0"] .btn-primary:hover {
+  background: #fff;
+  border-color: #fff;
 }
 
 .ob-bg::after,
@@ -815,6 +824,15 @@ button {
 .ob-dots span.on {
   width: 20px;
   background: var(--blue);
+}
+
+/* On the welcome's blue sky the dots go white, the current one solid. */
+.onboard:has(.ob-step[data-step="0"]:not(.hidden)) .ob-dots span {
+  background: rgba(255, 255, 255, .45);
+}
+
+.onboard:has(.ob-step[data-step="0"]:not(.hidden)) .ob-dots span.on {
+  background: #fff;
 }
 
 .signin-btns {

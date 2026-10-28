@@ -92,8 +92,6 @@ function setTheme(t: Theme): void {
   root.dataset.theme = t;
   background(api.win.theme(t));
 }
-// The window's title bar starts in the default colours; bring it to the saved theme.
-if (theme !== 'dark') background(api.win.theme(theme));
 
 // The account card sits at the top of General.
 function accountHtml(): string {

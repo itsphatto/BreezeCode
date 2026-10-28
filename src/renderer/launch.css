@@ -1,0 +1,225 @@
+/* ---------- launch: a glimpse of light opens into the window, the swirl settles in the middle, then the app shows ---------- */
+/* Shared by the splash window (launch.html) and the app page (breeze.html).
+   Timeline: light bubbles around for 0.8s, then opens into the sky (1s, ease-in-out), the swirl settles in by 2.1s and
+   holds 1.8s. In the desktop app the intro plays in its own see-through splash window over the desktop, while the app
+   loads hidden behind it already showing the finished frame (.held); at the hand-off the app window appears in that same
+   frame and lifts off (.done, from init.ts). In a browser the whole intro plays in the page itself. */
+@property --open {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+.launch {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  /* No background of its own: in the splash window the light bubbles straight over the desktop. */
+  pointer-events: none;
+  /* If nothing ever lifts it, this still does, so it can't cover the app for good. */
+  animation: launch-out .6s cubic-bezier(.4, 0, .2, 1) 8s forwards;
+}
+
+.launch > * {
+  grid-area: 1 / 1;
+}
+
+/* The app waits hidden under the launch until it lifts (init.ts drops data-launching). */
+:root[data-launching] body > :not(.launch) {
+  visibility: hidden;
+}
+
+/* The splash window: a see-through page, its corners rounded like a Windows 11 window so the hand-off doesn't jump. */
+:root.splash,
+:root.splash body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+:root.splash .launch {
+  border-radius: 8px;
+  animation: none;
+}
+
+/* The sky: deep Breeze blue through the middle, pale sky in the corners, a hint of violet low down.
+   It opens from the centre through a soft-edged circular mask. The welcome page sits on the same sky (.ob-sky). */
+.launch-sky,
+.ob-sky {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(60% 55% at 12% 8%, #b9dcff 0%, rgba(185, 220, 255, 0) 70%),
+    radial-gradient(55% 60% at 92% 96%, #a9d1fb 0%, rgba(169, 209, 251, 0) 70%),
+    radial-gradient(45% 40% at 18% 92%, #7a5cff 0%, rgba(122, 92, 255, 0) 70%),
+    linear-gradient(125deg, #8fc3ff 0%, #2f6bff 34%, #1f4dff 55%, #3d7bff 78%, #9cc9f7 100%);
+}
+
+.launch-sky {
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--open) - 120px), transparent var(--open));
+  mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--open) - 120px), transparent var(--open));
+  animation: launch-open 1s cubic-bezier(.65, 0, .35, 1) .8s both;
+}
+
+/* Slow drifting light inside the sky, so it feels alive while it holds. */
+:is(.launch-sky, .ob-sky)::before,
+:is(.launch-sky, .ob-sky)::after {
+  content: "";
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: .55;
+}
+
+:is(.launch-sky, .ob-sky)::before {
+  left: -20vmax;
+  top: -30vmax;
+  background: #d6ecff;
+  animation: launch-drift 5s ease-in-out infinite alternate;
+}
+
+:is(.launch-sky, .ob-sky)::after {
+  right: -25vmax;
+  bottom: -35vmax;
+  background: #5b3dff;
+  opacity: .35;
+  animation: launch-drift 6s ease-in-out -2s infinite alternate-reverse;
+}
+
+/* The glimpse: a soft ball of blue light with a bright core that bubbles around the middle for 0.8s, its shape
+   wobbling as it goes, then blooms out and fades as the sky opens behind it. Two smaller bubbles circle with it. */
+.launch-glint {
+  position: relative;
+  width: 360px;
+  height: 360px;
+  border-radius: 42% 58% 55% 45% / 48% 42% 58% 52%;
+  background: radial-gradient(circle at 46% 46%, rgba(255, 255, 255, .95) 0%, rgba(205, 225, 255, .85) 14%, rgba(110, 140, 255, .6) 36%, rgba(70, 90, 255, .25) 56%, rgba(60, 80, 255, 0) 72%);
+  filter: blur(22px);
+  animation:
+    launch-bubble .8s ease-in-out both,
+    launch-bloom 1s cubic-bezier(.65, 0, .35, 1) .8s forwards;
+}
+
+/* No blend mode on these: in the see-through splash window one makes Chromium paint an opaque backdrop to blend
+   against, hiding the desktop. */
+.launch-glint::before,
+.launch-glint::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+}
+
+.launch-glint::before {
+  inset: 18% 30% 30% 18%;
+  background: radial-gradient(circle, rgba(140, 200, 255, .9), rgba(140, 200, 255, 0) 70%);
+  animation: launch-orbit .8s ease-in-out both;
+}
+
+.launch-glint::after {
+  inset: 34% 14% 16% 38%;
+  background: radial-gradient(circle, rgba(150, 110, 255, .75), rgba(150, 110, 255, 0) 70%);
+  animation: launch-orbit .8s ease-in-out -.4s both reverse;
+}
+
+.launch-logo {
+  width: 150px;
+  height: 150px;
+  filter: blur(0) drop-shadow(0 0 22px rgba(255, 255, 255, .45)) drop-shadow(0 6px 24px rgba(10, 30, 120, .35));
+  animation: launch-logo-in .7s cubic-bezier(.2, .8, .2, 1) 1.4s both;
+  user-select: none;
+}
+
+/* Held: the intro's last frame (sky open, swirl in place), shown by the app window while the splash window plays the
+   intro; only the sky's drifting light keeps moving. */
+.launch.held:not(.done) {
+  animation: none;
+}
+
+.launch.held .launch-glint {
+  display: none;
+}
+
+.launch.held .launch-sky {
+  --open: 160vmax;
+  animation: none;
+}
+
+.launch.held:not(.done) .launch-logo {
+  animation: none;
+}
+
+/* Lifting off: the swirl grows and fades a beat ahead of the sky, which melts away onto the app. */
+.launch.done {
+  animation: launch-out .55s cubic-bezier(.4, 0, .2, 1) .08s forwards;
+}
+
+.launch.done .launch-logo {
+  animation: launch-logo-out .45s cubic-bezier(.5, 0, .75, 0) forwards;
+}
+
+@keyframes launch-bubble {
+  0% { opacity: 0; transform: translate(0, 0) scale(.15); border-radius: 50%; }
+  18% { opacity: .9; transform: translate(-26px, 12px) scale(.55); }
+  40% { opacity: 1; transform: translate(30px, -18px) scale(.8) rotate(25deg); border-radius: 58% 42% 46% 54% / 40% 58% 42% 60%; }
+  62% { transform: translate(-18px, -24px) scale(.7) rotate(-15deg); border-radius: 45% 55% 60% 40% / 55% 45% 55% 45%; }
+  82% { transform: translate(14px, 18px) scale(.9) rotate(10deg); border-radius: 52% 48% 42% 58% / 46% 56% 44% 54%; }
+  100% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0); border-radius: 50%; }
+}
+
+@keyframes launch-orbit {
+  0% { transform: translate(0, 0) scale(.6); }
+  25% { transform: translate(60px, -30px) scale(1); }
+  50% { transform: translate(15px, 54px) scale(.8); }
+  75% { transform: translate(-54px, 9px) scale(1.1); }
+  100% { transform: translate(0, 0) scale(.9); }
+}
+
+@keyframes launch-bloom {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(5); }
+}
+
+@keyframes launch-open {
+  from { --open: 0px; }
+  to { --open: 160vmax; }
+}
+
+@keyframes launch-drift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(8vmax, 6vmax) scale(1.12); }
+}
+
+@keyframes launch-logo-in {
+  from { opacity: 0; transform: scale(.78); filter: blur(10px) drop-shadow(0 0 0 rgba(255, 255, 255, 0)) drop-shadow(0 0 0 rgba(10, 30, 120, 0)); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes launch-logo-out {
+  to { opacity: 0; transform: scale(1.35); }
+}
+
+@keyframes launch-out {
+  to { opacity: 0; transform: scale(1.04); visibility: hidden; }
+}
+
+/* Reduced motion: no glint or spreading light, just the sky and swirl, then a plain fade. */
+@media (prefers-reduced-motion: reduce) {
+  .launch-glint { display: none; }
+  .launch-sky { --open: 300vmax; animation: none; }
+  .launch-sky::before,
+  .launch-sky::after,
+  .launch-logo,
+  .launch.done .launch-logo { animation: none; }
+  .launch.done { animation: launch-fade .3s ease forwards; }
+}
+
+@keyframes launch-fade {
+  to { opacity: 0; visibility: hidden; }
+}
