@@ -71,7 +71,7 @@ function staggerModal(m: HTMLElement): void {
 // A modal opened from Settings (or from a modal that was) leads back there: it gets a "Settings" back button,
 // and dismissing it (Esc, its close or cancel button, a click outside) reopens Settings on the same page.
 let modalBackToSettings = false;
-// The data-grow button a dialog swelled out of, so closing can shrink it back onto that button.
+// The button a dialog swelled out of, so closing can shrink it back onto that button.
 let modalGrowOwner: HTMLElement | null = null;
 function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () => void, place: 'center' | 'top' = 'center'): void {
   const back = !html.includes('settings-modal') && (!!settingsRoot() || modalBackToSettings);
@@ -89,8 +89,8 @@ function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () =
   bind?.(m);
   // Measured once filled in: a dialog centred on screen moves as its content arrives.
   if (owner) growFrom(m, owner);
-  // A data-grow button's dialog swells out of the button and shrinks back into it, not just a nudge from there.
-  modalGrowOwner = owner?.hasAttribute('data-grow') ? owner : null;
+  // A dialog opened by a button swells out of it and shrinks back into it, not just a nudge from there.
+  modalGrowOwner = owner;
   if (modalGrowOwner) m.classList.add('grow-from');
   staggerModal(m);
 }

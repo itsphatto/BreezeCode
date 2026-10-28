@@ -486,19 +486,24 @@ const noteTrigger = (e: Event) => {
 };
 document.addEventListener('pointerdown', noteTrigger, true);
 document.addEventListener('click', noteTrigger, true);
-// The button that just opened a popup, if it carries an icon (a text-only button keeps the plain animation unless
-// it is marked data-grow, like Home's Manage).
+// The button that just opened a popup (an item in a menu stands for the button that opened that menu). Popups opened
+// any other way (a shortcut, a right-click) keep their plain animation.
 function popOwner(): HTMLElement | null {
   if (!popTrigger || Date.now() - popTrigger.at > 700) return null;
   const el = popTrigger.el.closest('.menu') ? menuOwner : popTrigger.el;
-  return el?.isConnected && (el.querySelector('svg') || el.hasAttribute('data-grow')) ? el : null;
+  return el?.isConnected ? el : null;
 }
-// Sets the scale-from point of `pop` (placed at left/top, or wherever it sits) to the owner's icon.
+// Sets the scale-from point of `pop` (placed at left/top, or wherever it sits) to the middle of its button.
 function growFrom(pop: HTMLElement, owner: HTMLElement, at?: { left: number; top: number }): void {
-  const i = (owner.hasAttribute('data-grow') ? owner : owner.querySelector('svg') ?? owner).getBoundingClientRect();
-  const p = at ?? pop.getBoundingClientRect();
+  const i = owner.getBoundingClientRect();
+  // Where the popup sits by layout: its bounding box would include the opening animation's transform, already running.
+  let p = at;
+  if (!p) {
+    p = { left: 0, top: 0 };
+    for (let e: HTMLElement | null = pop; e; e = e.offsetParent as HTMLElement | null) { p.left += e.offsetLeft; p.top += e.offsetTop; }
+  }
   pop.style.transformOrigin = `${i.left + i.width / 2 - p.left}px ${i.top + i.height / 2 - p.top}px`;
-  pop.classList.add('from-icon');
+  pop.classList.add('from-button');
 }
 function popupMenu(x: number, y: number, items: MenuItem[], onClose?: () => void, trigger?: HTMLElement): void {
   const trig = trigger || popOwner() || popTrigger?.el || null;

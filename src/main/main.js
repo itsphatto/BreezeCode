@@ -1257,7 +1257,8 @@ function stopRun(runId) {
 handle('agent:run', (_e, opts) => launchRun({ ...opts, team: null }));
 
 /* ----- Agent usage: tokens each agent used this month, and how much of its plan is left ----- */
-// Tokens are counted from each finished run. Plan limits are only what the agents report themselves: Claude in its
+// Tokens come from Claude's and Codex's own logs (below) and, for other agents, from each finished run in Breeze.
+// Plan limits are only what the agents report themselves: Claude in its
 // stream (rate_limit_event), Codex in its session logs. Antigravity reports neither, a local model has no limit.
 const usageMonth = () => new Date().toISOString().slice(0, 7);
 function addUsage(agent, tokens) {
@@ -1270,11 +1271,35 @@ const windowLabel = min => ({ 300: '5-hour', 10080: 'Weekly', 43200: 'Monthly' }
 // A window whose reset time has passed is empty again until the agent next reports.
 const limitWindow = (label, usedPct, resetsAt) =>
   resetsAt && resetsAt * 1000 < Date.now() ? { label, used: 0, resetsAt: null } : { label, used: Math.min(100, Math.max(0, usedPct)), resetsAt: resetsAt || null };
+const CLAUDE_WINDOWS = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
+// The last Breeze run's numbers (rate_limit_event: utilization 0–1, resetsAt in seconds). Only a fallback: they go stale
+// as soon as Claude is used anywhere else.
 function claudeLimits() {
   const w = loadState().claudeLimits || {};
-  const names = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
   return Object.entries(w).filter(([, v]) => typeof v?.utilization === 'number')
-    .map(([k, v]) => limitWindow(names[k] || k.replace(/_/g, ' '), v.utilization * 100, v.resetsAt));
+    .map(([k, v]) => limitWindow(CLAUDE_WINDOWS[k] || k.replace(/_/g, ' '), v.utilization * 100, v.resetsAt));
+}
+// Live numbers, the same ones Claude's own usage page shows (utilization in percent, resets_at as a date), asked for
+// with the sign-in Claude Code saved on this computer. The token is only ever sent to Anthropic; Breeze keeps nothing.
+// At most once a minute; null when it can't (signed out, an expired token Claude Code hasn't refreshed yet, offline).
+let claudeLive = { at: 0, windows: null };
+async function claudeLiveLimits() {
+  if (Date.now() - claudeLive.at < 60_000) return claudeLive.windows;
+  claudeLive.at = Date.now();
+  try {
+    const file = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
+    const token = JSON.parse(await fs.promises.readFile(file, 'utf8')).claudeAiOauth?.accessToken;
+    if (!token) return (claudeLive.windows = null);
+    const res = await net.fetch('https://api.anthropic.com/api/oauth/usage', {
+      headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return (claudeLive.windows = null);
+    const d = await res.json();
+    const windows = Object.entries(CLAUDE_WINDOWS).filter(([k]) => typeof d?.[k]?.utilization === 'number')
+      .map(([k, label]) => limitWindow(label, d[k].utilization, d[k].resets_at ? Date.parse(d[k].resets_at) / 1000 : null));
+    return (claudeLive.windows = windows.length ? windows : null);
+  } catch { return (claudeLive.windows = null); }
 }
 // The newest Codex session log (sessions/YYYY/MM/DD/rollout-*.jsonl) holds the latest rate_limits it was sent.
 function codexLimits() {
@@ -1293,11 +1318,79 @@ function codexLimits() {
       .map(w => limitWindow(windowLabel(w.window_minutes), w.used_percent, w.resets_at));
   } catch { return []; }
 }
-handle('agent:usage', () => {
+// Claude Code and Codex log every session on disk, whether it ran in Breeze or not, so their monthly tokens come from
+// those logs: input (cached or not) plus output, the same total Codex reports. Each log is re-read only when it changes.
+const logCache = new Map(); // file -> { key, data }
+async function recentLogs(dir, depth, since) {
+  const out = [];
+  for (const e of await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory() && depth > 0) out.push(...await recentLogs(p, depth - 1, since));
+    else if (e.isFile() && e.name.endsWith('.jsonl') && (await fs.promises.stat(p).catch(() => null))?.mtimeMs >= since) out.push(p);
+  }
+  return out;
+}
+async function readLog(file, parse) {
+  const st = await fs.promises.stat(file).catch(() => null);
+  if (!st) return null;
+  const key = `${st.mtimeMs}:${st.size}:${usageMonth()}`;
+  if (logCache.get(file)?.key === key) return logCache.get(file).data;
+  const data = parse((await fs.promises.readFile(file, 'utf8')).split('\n'), usageMonth());
+  logCache.set(file, { key, data });
+  return data;
+}
+const monthStart = () => Date.parse(`${usageMonth()}-01T00:00:00Z`);
+// Claude repeats a message's usage on each of its lines and a resumed chat copies earlier ones, so each message id counts once.
+async function claudeTokens() {
+  const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+  const byMsg = new Map();
+  for (const file of await recentLogs(base, 3, monthStart())) {
+    const msgs = await readLog(file, (lines, month) => {
+      const m = new Map();
+      for (const line of lines) {
+        if (!line.includes('"usage"')) continue;
+        try {
+          const d = JSON.parse(line), u = d.message?.usage;
+          if (!u || !d.message.id || d.timestamp?.slice(0, 7) !== month) continue;
+          m.set(d.message.id, (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0));
+        } catch { /* a line still being written */ }
+      }
+      return m;
+    });
+    for (const [id, n] of msgs ?? []) byMsg.set(id, n);
+  }
+  return [...byMsg.values()].reduce((a, b) => a + b, 0);
+}
+// A Codex session keeps a running total; this month's share is its last total less the last one from before the month.
+async function codexTokens() {
+  const base = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
+  let sum = 0;
+  for (const file of await recentLogs(base, 4, monthStart())) {
+    sum += await readLog(file, (lines, month) => {
+      let before = 0, last = 0;
+      for (const line of lines) {
+        if (!line.includes('"token_count"')) continue;
+        try {
+          const d = JSON.parse(line), t = d.payload?.info?.total_token_usage?.total_tokens;
+          if (typeof t !== 'number') continue;
+          if (d.timestamp?.slice(0, 7) < month) before = t; else last = t;
+        } catch { /* a line still being written */ }
+      }
+      return Math.max(0, last - before);
+    }) ?? 0;
+  }
+  return sum;
+}
+let usageJob = null;
+async function agentUsage() {
   const month = usageMonth();
   const usage = Object.fromEntries(Object.entries(loadState().usage || {}).map(([id, u]) => [id, u.month === month ? u.tokens : 0]));
-  return { usage, limits: { claude: claudeLimits(), codex: codexLimits() } };
-});
+  // The logs include Breeze's own runs; Breeze's count stays as a floor in case an agent logs somewhere else.
+  usage.claude = Math.max(usage.claude || 0, await claudeTokens());
+  usage.codex = Math.max(usage.codex || 0, await codexTokens());
+  return { usage, limits: { claude: (await claudeLiveLimits()) ?? claudeLimits(), codex: codexLimits() } };
+}
+handle('agent:usage', () => (usageJob ??= agentUsage().finally(() => { usageJob = null; })));
 handle('agent:stop', (_e, runId) => stopRun(runId));
 
 /* ----- Agent teams: one prompt split between several agents, each owning its own files ----- */

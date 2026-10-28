@@ -79,27 +79,110 @@ function accountHtml(): string {
 
 // Settings → Agents → Usage. The last numbers fetched are kept, so a redraw shows them while fresh ones load.
 let agentUsage: AgentUsage | null = null;
-const untilText = (sec: number) => {
-  const min = Math.max(1, Math.round((sec * 1000 - Date.now()) / 60000));
-  return min < 60 ? `${min}m` : min < 1440 ? `${Math.round(min / 60)}h` : `${Math.round(min / 1440)}d`;
+// When a window resets, written the way Claude's own usage page does: "11:00 PM" today, "Thu 8:00 PM" this week,
+// a date after that.
+const resetText = (sec: number) => {
+  const at = new Date(sec * 1000), now = new Date();
+  const time = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (at.toDateString() === now.toDateString()) return time;
+  if (at.getTime() - now.getTime() < 6 * 86_400_000) return `${at.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+  return at.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 function usageHtml(agents: DetectedAgent[]): string {
-  if (!agentUsage) return '<p class="set-sub">Loading usage</p>';
+  if (!agentUsage) return '<p class="set-sub shimmer-text">Loading usage</p>';
   const u = agentUsage;
   return agents.map(a => {
     const wins = u.limits[a.id] ?? [];
     // Only Claude and Codex report their plan; theirs appears once they've run since the last reset.
     const none = a.api ? 'No limit · runs on this computer'
       : a.id in u.limits ? 'Plan limits show up after its next run' : `${a.name} doesn't share its limits`;
+    // data-k names each part that can change, so a refresh updates it in place (see patchUsage).
     const plan = wins.length ? wins.map(w => {
-      const left = Math.round(100 - w.used);
-      return `<div class="usage-win"><span class="usage-lbl">${esc(w.label)}</span><span class="usage-bar ${left <= 10 ? 'low' : ''}" data-left="${left}"><i></i></span><span class="usage-left">${left}% left${w.resetsAt ? ` · resets in ${untilText(w.resetsAt)}` : ''}</span></div>`;
-    }).join('') : `<div class="set-sub">${esc(none)}</div>`;
-    return `<div class="usage-agent"><div class="usage-head">${brandMark('usage-mark', a.id, a.name[0])}<span class="set-title">${esc(a.name)}</span><span class="usage-tokens">${(u.usage[a.id] ?? 0).toLocaleString()} tokens this month</span></div>${plan}</div>`;
+      const left = Math.round(100 - w.used), k = `${a.id}:${w.label}`;
+      return `<div class="usage-win"><span class="usage-lbl">${esc(w.label)}</span><span class="usage-bar ${left <= 10 ? 'low' : ''}" data-k="${escAttr(k)}:bar" data-left="${left}"><i></i></span><span class="usage-left"><span data-k="${escAttr(k)}:left" data-n="${left}">${left}</span>% left${w.resetsAt ? ` · <span data-k="${escAttr(k)}:reset">resets ${resetText(w.resetsAt)}</span>` : ''}</span></div>`;
+    }).join('') : `<div class="set-sub" data-k="${a.id}:none">${esc(none)}</div>`;
+    const tokens = u.usage[a.id] ?? 0;
+    // Antigravity never reports its tokens, so a count would only ever say 0.
+    const count = a.id === 'antigravity' ? ''
+      : `<span class="usage-tokens" title="${tokens.toLocaleString()} tokens"><span data-k="${a.id}:tokens" data-n="${tokens}" data-fmt="tokens">${tokenCount.format(tokens)}</span> tokens this month</span>`;
+    return `<div class="usage-agent"><div class="usage-head">${brandMark('usage-mark', a.id, a.name[0])}<span class="set-title">${esc(a.name)}</span>${count}</div>${plan}</div>`;
   }).join('');
 }
+// "959.5M": Claude's count includes the cached context it re-reads every turn, so it runs into the millions.
+const tokenCount = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 // Bar widths are set from script: the page's CSP blocks inline style attributes.
 const fillUsageBars = (root: ParentNode) => $$('.usage-bar', root).forEach(b => b.style.setProperty('--left', `${b.dataset.left ?? 0}%`));
+// A changed number counts from its old value to the new one, easing in and out.
+function countTo(el: HTMLElement, from: number, to: number): void {
+  const show = (n: number) => { el.textContent = el.dataset.fmt === 'tokens' ? tokenCount.format(n) : String(n); };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { show(to); return; }
+  const t0 = performance.now(), ms = 700;
+  const step = (now: number) => {
+    const t = Math.min(1, (now - t0) / ms), e = t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    show(Math.round(from + (to - from) * e));
+    if (t < 1 && el.isConnected && el.dataset.n === String(to)) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+// Numbers that land while the page is already open come in like the rest of it: each agent rises in turn, its bars
+// fill from empty and its numbers count up from zero.
+function usageArrive(el: HTMLElement): void {
+  $$('.usage-agent', el).forEach((a, i) => {
+    a.style.setProperty('--i', String(i));
+    a.classList.add('usage-in');
+    // Dropped once it's in, so later refreshes slide the bars without the entrance delay.
+    a.addEventListener('animationend', () => a.classList.remove('usage-in'), { once: true });
+  });
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    void el.offsetWidth; // lay the bars out empty first, so setting their width below slides them
+    $$<HTMLElement>('[data-n]', el).forEach(n => countTo(n, 0, Number(n.dataset.n)));
+  }
+  fillUsageBars(el);
+}
+// Same agents and windows as on screen: numbers count, bars slide (their width transitions) and other text rolls in.
+// Anything else (an agent or a window came or went) is redrawn.
+function patchUsage(el: HTMLElement, html: string): void {
+  const fresh = document.createElement('div');
+  fresh.innerHTML = html;
+  const keys = (r: ParentNode) => $$('[data-k]', r).map(x => x.dataset.k).join('|');
+  if (!el.childElementCount || keys(fresh) !== keys(el)) {
+    const arriving = !el.querySelector('.usage-agent'); // it was showing "Loading usage"
+    el.innerHTML = html;
+    if (arriving) usageArrive(el); else fillUsageBars(el);
+    return;
+  }
+  for (const n of $$('[data-k]', fresh)) {
+    const o = el.querySelector<HTMLElement>(`[data-k="${CSS.escape(n.dataset.k ?? '')}"]`);
+    if (!o) continue;
+    if (n.dataset.n !== undefined) {
+      if (n.dataset.n !== o.dataset.n) { const from = Number(o.dataset.n); o.dataset.n = n.dataset.n; countTo(o, from, Number(n.dataset.n)); }
+      if (o.parentElement && n.parentElement?.title) o.parentElement.title = n.parentElement.title;
+    } else if (o.classList.contains('usage-bar')) {
+      o.className = n.className;
+      o.dataset.left = n.dataset.left;
+      o.style.setProperty('--left', `${n.dataset.left}%`);
+    } else if (o.textContent !== n.textContent) {
+      o.textContent = n.textContent;
+      o.animate([{ opacity: 0, transform: 'translateY(5px)' }, { opacity: 1, transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.32, .72, 0, 1)' });
+    }
+  }
+}
+// Fetches fresh numbers (agents used outside Breeze count too) and updates only if something changed.
+let usageShown = '';
+const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found).sort((a, b) => agentRank(a) - agentRank(b));
+function updateUsage(el: HTMLElement): void {
+  background(api.agent.usage().then(u => {
+    agentUsage = u;
+    const html = usageHtml(usageAgents());
+    if (!el.isConnected || (html === usageShown && el.childElementCount)) return;
+    usageShown = html;
+    patchUsage(el, html);
+  }));
+}
+window.addEventListener('focus', () => {
+  const el = settingsRoot()?.querySelector<HTMLElement>('#sUsage');
+  if (el) updateUsage(el);
+});
 
 function settingsBody(tab: SettingsTab): string {
   switch (tab) {
@@ -122,12 +205,11 @@ function settingsBody(tab: SettingsTab): string {
           // Not installed: the card stays, dimmed, with an Install button that runs the install command in a terminal.
           : `<div class="set-agent missing" title="${escAttr(a.name)} is not installed">${brandMark('set-agent-mark', a.id, a.name[0])}<span class="nm">${esc(a.name)}</span>
               <button class="btn btn-sm btn-primary set-agent-install" data-agent-install="${a.id}">Install</button></div>`).join('')
-        : '<p class="set-sub">No agents found yet. Scan again or run setup.</p>';
+        : '<p class="set-sub">No agents found yet. Install one and it shows up here.</p>';
       return `<h4>Agents</h4>
         <div class="set-agents">${list}</div>
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
-        ${settingRow('Scan again', 'Look for newly installed tools.', '<button class="btn btn-sm" id="sRescan">Scan</button>')}
-        ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(agents.filter(a => a.found))}</div>` : ''}`;
+        ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}`;
     }
     case 'misc': return `<h4>Miscellaneous</h4>
       <h5>Vibe Code Mode</h5>
@@ -240,7 +322,7 @@ function bindSettings(m: HTMLElement): void {
     (b as HTMLButtonElement).disabled = true;
     swapText(b, 'Installing');
     try {
-      if (await api.sys.runCommand(ag.install)) toast(`Installing ${ag.name} in a terminal. Scan again when it finishes.`);
+      if (await api.sys.runCommand(ag.install)) toast(`Installing ${ag.name} in a terminal. It shows up here once it's done.`);
       else { toast(`Run this to install ${ag.name}: ${ag.install}`); background(api.sys.openExternal(ag.url)); }
     } catch (err) { toast(`Couldn't start the install: ${errMsg(err)}`); }
     finally { setTimeout(refreshSettings, 2500); }
@@ -249,17 +331,12 @@ function bindSettings(m: HTMLElement): void {
   const usageEl = pane.querySelector<HTMLElement>('#sUsage');
   if (usageEl) {
     fillUsageBars(usageEl);
-    background(api.agent.usage().then(u => {
-      agentUsage = u;
-      if (!usageEl.isConnected) return;
-      usageEl.innerHTML = usageHtml((appState.detect?.agents ?? []).filter(a => a.found).sort((a, b) => agentRank(a) - agentRank(b)));
-      fillUsageBars(usageEl);
-    }));
+    usageShown = usageHtml(usageAgents());
+    updateUsage(usageEl);
+    // Kept current while it's on screen; the timer ends once this pane is redrawn or closed.
+    const tick = setInterval(() => { if (usageEl.isConnected) updateUsage(usageEl); else clearInterval(tick); }, 15_000);
   }
-  on('sRescan', el => {
-    el.textContent = 'Scanning'; (el as HTMLButtonElement).disabled = true;
-    detectTools(true).catch(() => { /* the agent card shows the error */ }).finally(refreshSettings);
-  });
+  if (settingsTab === 'agents') autoRescan();
   // Vibe
   // Turns on without a feed (it plays nothing until one is connected): the feeds are locked while it's off.
   on('sVibe', () => setVibeArmed(!appState.vibeArmed));
@@ -325,6 +402,8 @@ function bindSettings(m: HTMLElement): void {
       // A tick away from a snapped 25 is a push out of the snap: let it through.
       if (snapped && cur === SNAP_AT) { snapped = false; snapArmed = false; show(next); }
       else settle(next);
+      // The same slide sound a drag makes (setting the value from script fires no input event to play it).
+      if (+vol.value !== cur) sfx.play('slide');
       clearTimeout(wheelIdle);
       wheelIdle = window.setTimeout(() => { sfx.play('tick'); rearm(); }, 450);
     }, { passive: false });

@@ -612,13 +612,13 @@ function commitDetailHtml(c: GitCommit, d?: GitCommitDetail): string {
         const { name, ext } = splitFilePath(f.path);
         return `<div class="file" data-open-file="${escAttr(f.path)}" title="${escAttr(f.path)}"><span class="ico">${fileIcon(baseName(f.path))}</span><span class="fp"><span class="fp-name">${esc(name)}</span><span class="fp-ext">${esc(ext)}</span></span><span class="file-stats"><span class="add">+${f.added}</span> <span class="del">−${f.removed}</span></span></div>`;
       }).join('')
-    : '<div class="side-note">Loading changed files</div>';
+    : '<div class="side-note shimmer-text">Loading changed files</div>';
   // The whole checkpoint at a glance: how many files, and the lines added and removed across all of them.
   const added = d ? d.files.reduce((n, f) => n + f.added, 0) : 0;
   const removed = d ? d.files.reduce((n, f) => n + f.removed, 0) : 0;
   const total = d?.files.length ? `<div class="cd-total"><span>${plural(d.files.length, 'file')} changed</span><span class="file-stats"><span class="add">+${added}</span> <span class="del">−${removed}</span></span></div>` : '';
   return `<div class="commit-detail">
-    <div class="cd-msg">${esc(d ? d.message : c.subject)}</div>
+    <div class="cd-msg selectable">${esc(d ? d.message : c.subject)}</div>
     <div class="cd-meta">${esc(d ? d.author : c.author)} · ${esc(d ? d.when : c.when)} · <code>${c.hash.slice(0, 8)}</code></div>
     ${total}
     ${files}

@@ -1072,7 +1072,7 @@ function quickOpen(): void {
   let all: string[] = [];
   let sel = 0;
   let shown: string[] = [];
-  openModal(`<input class="input w-full" id="qoIn" aria-label="Search files by name" placeholder="Search files by name" spellcheck="false"><div class="qo-list" id="qoList"><div class="side-note">Loading</div></div>`, m => {
+  openModal(`<input class="input w-full" id="qoIn" aria-label="Search files by name" placeholder="Search files by name" spellcheck="false"><div class="qo-list" id="qoList"><div class="side-note shimmer-text">Loading</div></div>`, m => {
     const input = $<HTMLInputElement>('#qoIn', m);
     input.focus();
     const render = () => {
