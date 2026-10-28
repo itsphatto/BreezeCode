@@ -119,11 +119,15 @@ if (window.gsap && window.ScrollTrigger && window.SplitText) {
     reveal(gsap.utils.toArray('.langs img'), { scale: 0.4, autoAlpha: 0 },
       (els) => gsap.to(els, { scale: 1, autoAlpha: 1, duration: 0.6, ease: 'back.out(2)', stagger: 0.05, delay: 0.5 }));
 
-    // Download: the light rises from the bottom as the finale arrives, then the icon and button land.
-    gsap.fromTo('.finale', { '--glow': 0 }, {
-      '--glow': 1, ease: 'none',
-      scrollTrigger: { trigger: '.finale', start: 'top bottom', end: 'top 15%', scrub: true },
-    });
+    // Download: the sky opens from the centre as the finale arrives (styles.css), then the icon and button land.
+    const sky = document.querySelector('.finale-sky');
+    if (sky) {
+      sky.classList.add('is-closed');
+      ScrollTrigger.create({
+        trigger: '.finale', start: 'top 45%', once: true,
+        onEnter: () => sky.classList.replace('is-closed', 'is-open'),
+      });
+    }
     reveal(gsap.utils.toArray('.download > img'), { scale: 0.6, rotation: -12, autoAlpha: 0 },
       (els) => gsap.to(els, { scale: 1, rotation: 0, autoAlpha: 1, duration: 1.1, ease: out }));
     reveal(gsap.utils.toArray('.download > p, .download .cta'), { y: 20, autoAlpha: 0 }, (els) => rise(els, { delay: 0.25 }));

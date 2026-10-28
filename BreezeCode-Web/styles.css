@@ -524,16 +524,107 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
   margin-top: clamp(80px, 11vw, 136px);
 }
 
-/* The glow lives on its own layer so site.js can raise it (--glow 0 to 1) without repainting the gradient. */
-.finale::before {
-  content: '';
+@property --open {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* The app's onboarding sky: deep Breeze blue through the middle, pale sky in the corners, a hint of violet low down.
+   Like the app's launch, it opens from the centre through a soft-edged circular mask; site.js holds it shut
+   (.is-closed) until the finale scrolls in, then plays it open (.is-open). */
+.finale-sky {
+  --open: 160vmax;
   position: absolute;
   inset: 0;
   z-index: -1;
-  opacity: var(--glow, 1);
-  transform: translateY(calc((1 - var(--glow, 1)) * 35%));
-  background: var(--glow-bg);
+  overflow: hidden;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--open) - 120px), transparent var(--open));
+  mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--open) - 120px), transparent var(--open));
+  background:
+    radial-gradient(60% 55% at 12% 8%, #b9dcff 0%, rgba(185, 220, 255, 0) 70%),
+    radial-gradient(55% 60% at 92% 96%, #a9d1fb 0%, rgba(169, 209, 251, 0) 70%),
+    radial-gradient(45% 40% at 18% 92%, #7a5cff 0%, rgba(122, 92, 255, 0) 70%),
+    linear-gradient(125deg, #8fc3ff 0%, #2f6bff 34%, #1f4dff 55%, #3d7bff 78%, #9cc9f7 100%);
 }
+
+/* Slow drifting light inside the sky, so it feels alive while it holds. */
+.finale-sky::before,
+.finale-sky::after {
+  content: '';
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: .55;
+}
+
+.finale-sky::before {
+  left: -20vmax;
+  top: -30vmax;
+  background: #d6ecff;
+  animation: sky-drift 5s ease-in-out infinite alternate;
+}
+
+.finale-sky::after {
+  right: -25vmax;
+  bottom: -35vmax;
+  background: #5b3dff;
+  opacity: .35;
+  animation: sky-drift 6s ease-in-out -2s infinite alternate-reverse;
+}
+
+.finale-sky.is-closed { --open: 0px; }
+.finale-sky.is-open { animation: sky-open 1s cubic-bezier(.65, 0, .35, 1) both; }
+
+@keyframes sky-open {
+  from { --open: 0px; }
+  to { --open: 160vmax; }
+}
+
+/* Holds the edge blurs above the drifting light. */
+.finale-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* Top and bottom edges: a dark blur, so the sky melts into the page above and settles under the footer. */
+.finale-veil::before,
+.finale-veil::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.finale-veil::before {
+  background: linear-gradient(to bottom, rgba(0, 0, 0, .85), transparent 28%);
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 28%);
+  mask-image: linear-gradient(to bottom, #000, transparent 28%);
+}
+
+.finale-veil::after {
+  background: linear-gradient(to top, rgba(0, 0, 0, .8), transparent 30%);
+  -webkit-mask-image: linear-gradient(to top, #000, transparent 30%);
+  mask-image: linear-gradient(to top, #000, transparent 30%);
+}
+
+@keyframes sky-drift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(8vmax, 6vmax) scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .finale-sky::before,
+  .finale-sky::after { animation: none; }
+}
+
+/* Over the sky the blue button would vanish into the blue, so it turns white (as on the app's welcome screen). */
+.finale .btn-primary { background: #f5f5f7; border-color: #f5f5f7; color: #1f4dff; }
+.finale .btn-primary:hover { background: #fff; border-color: #fff; }
 
 /* FAQ and legal pages: the same screen-tall glow painted at the bottom of the page, behind the footer. */
 .glow { background-image: var(--glow-bg); background-position: bottom; background-size: 100% 100vh; background-repeat: no-repeat; }
