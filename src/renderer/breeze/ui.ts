@@ -71,6 +71,8 @@ function staggerModal(m: HTMLElement): void {
 // A modal opened from Settings (or from a modal that was) leads back there: it gets a "Settings" back button,
 // and dismissing it (Esc, its close or cancel button, a click outside) reopens Settings on the same page.
 let modalBackToSettings = false;
+// The data-grow button a dialog swelled out of, so closing can shrink it back onto that button.
+let modalGrowOwner: HTMLElement | null = null;
 function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () => void, place: 'center' | 'top' = 'center'): void {
   const back = !html.includes('settings-modal') && (!!settingsRoot() || modalBackToSettings);
   closeModal();
@@ -88,13 +90,25 @@ function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () =
   // Measured once filled in: a dialog centred on screen moves as its content arrives.
   if (owner) growFrom(m, owner);
   // A data-grow button's dialog swells out of the button and shrinks back into it, not just a nudge from there.
-  if (owner?.hasAttribute('data-grow')) m.classList.add('grow-from');
+  modalGrowOwner = owner?.hasAttribute('data-grow') ? owner : null;
+  if (modalGrowOwner) m.classList.add('grow-from');
   staggerModal(m);
 }
 function closeModal(): void {
   const scrim = $('#modalRoot .scrim:not(.closing)');
   modalBackToSettings = false;
   if (!scrim) return;
+  // Shrink onto the button's own box (place, size and rounded ends), not just toward its centre, so it lands there.
+  const m = scrim.querySelector<HTMLElement>('.modal.grow-from');
+  if (m && modalGrowOwner?.isConnected) {
+    const o = modalGrowOwner.getBoundingClientRect(), p = m.getBoundingClientRect();
+    const sx = o.width / m.offsetWidth, sy = o.height / m.offsetHeight;
+    const r = parseFloat(getComputedStyle(modalGrowOwner).borderTopLeftRadius) || 0;
+    m.style.transformOrigin = '0 0';
+    m.style.setProperty('--back', `translate(${o.left - p.left}px, ${o.top - p.top}px) scale(${sx}, ${sy})`);
+    m.style.setProperty('--back-r', `${r / sx}px / ${r / sy}px`);
+  }
+  modalGrowOwner = null;
   // Play the closing animation on a detached copy so a new modal can open immediately.
   scrim.classList.add('closing');
   setTimeout(() => scrim.remove(), scrim.querySelector('.settings-shell') ? 460 : 380);

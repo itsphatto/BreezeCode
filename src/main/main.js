@@ -1216,6 +1216,7 @@ const sendEvent = (runId, ev) => win?.webContents.send('agent:event', runId, ev)
 // A dropped team keeps the runs still going until their done, so a team stopped by a folder change hears them end.
 const teamOf = new Map(); // runId -> { team: TeamCoordinator, done }
 function emit(runId, ev) {
+  if (ev?.t === 'done' && ev.tokens) addUsage(runs.get(runId)?.agent, ev.tokens);
   const entry = teamOf.get(runId);
   if (entry) {
     if (ev?.t === 'done') {
@@ -1254,6 +1255,49 @@ function stopRun(runId) {
   r.abort?.abort();
 }
 handle('agent:run', (_e, opts) => launchRun({ ...opts, team: null }));
+
+/* ----- Agent usage: tokens each agent used this month, and how much of its plan is left ----- */
+// Tokens are counted from each finished run. Plan limits are only what the agents report themselves: Claude in its
+// stream (rate_limit_event), Codex in its session logs. Antigravity reports neither, a local model has no limit.
+const usageMonth = () => new Date().toISOString().slice(0, 7);
+function addUsage(agent, tokens) {
+  if (!agent) return;
+  const all = loadState().usage || {};
+  const cur = all[agent]?.month === usageMonth() ? all[agent] : { month: usageMonth(), tokens: 0 };
+  saveState({ usage: { ...all, [agent]: { month: cur.month, tokens: cur.tokens + tokens } } });
+}
+const windowLabel = min => ({ 300: '5-hour', 10080: 'Weekly', 43200: 'Monthly' })[min] || `${Math.round(min / 60)}-hour`;
+// A window whose reset time has passed is empty again until the agent next reports.
+const limitWindow = (label, usedPct, resetsAt) =>
+  resetsAt && resetsAt * 1000 < Date.now() ? { label, used: 0, resetsAt: null } : { label, used: Math.min(100, Math.max(0, usedPct)), resetsAt: resetsAt || null };
+function claudeLimits() {
+  const w = loadState().claudeLimits || {};
+  const names = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
+  return Object.entries(w).filter(([, v]) => typeof v?.utilization === 'number')
+    .map(([k, v]) => limitWindow(names[k] || k.replace(/_/g, ' '), v.utilization * 100, v.resetsAt));
+}
+// The newest Codex session log (sessions/YYYY/MM/DD/rollout-*.jsonl) holds the latest rate_limits it was sent.
+function codexLimits() {
+  try {
+    let dir = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
+    for (let depth = 0; depth < 3; depth++) {
+      const sub = fs.readdirSync(dir).filter(n => /^\d+$/.test(n)).sort().pop();
+      if (!sub) return [];
+      dir = path.join(dir, sub);
+    }
+    const file = fs.readdirSync(dir).filter(n => n.endsWith('.jsonl')).map(n => path.join(dir, n))
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+    const line = file && fs.readFileSync(file, 'utf8').split('\n').reverse().find(l => l.includes('"rate_limits"'));
+    const r = line && JSON.parse(line).payload?.rate_limits;
+    return [r?.primary, r?.secondary].filter(w => typeof w?.used_percent === 'number')
+      .map(w => limitWindow(windowLabel(w.window_minutes), w.used_percent, w.resets_at));
+  } catch { return []; }
+}
+handle('agent:usage', () => {
+  const month = usageMonth();
+  const usage = Object.fromEntries(Object.entries(loadState().usage || {}).map(([id, u]) => [id, u.month === month ? u.tokens : 0]));
+  return { usage, limits: { claude: claudeLimits(), codex: codexLimits() } };
+});
 handle('agent:stop', (_e, runId) => stopRun(runId));
 
 /* ----- Agent teams: one prompt split between several agents, each owning its own files ----- */
@@ -1522,6 +1566,7 @@ function claudeEvent(runId, d, ctx, mode) {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
   else if (d.type === 'assistant') for (const c of d.message?.content || []) claudeContent(runId, c, ctx);
   else if (d.type === 'result') claudeResult(runId, d, ctx, mode);
+  else if (d.type === 'rate_limit_event' && d.rate_limit_info?.unifiedWindows) saveState({ claudeLimits: d.rate_limit_info.unifiedWindows });
 }
 
 // Codex's config may name a model the signed-in account can't use (e.g. a ChatGPT plan without API models).
@@ -1546,7 +1591,7 @@ async function startRun(runId, { agent, mode, prompt, session, box, team }) {
   const base = root || (box ? boxDir() : null);
   if (!base) throw new Error('Open a folder first');
   if (session && !SAFE_ID.test(session)) session = null;
-  const run = { child: null, abort: null, stopped: false, team: team || null };
+  const run = { agent, child: null, abort: null, stopped: false, team: team || null };
   runs.set(runId, run);
   if (agent === 'local') return runLocal(runId, run, { mode, prompt, session, base });
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
@@ -2352,7 +2397,7 @@ async function githubSignIn({ clientId }, signal) {
 }
 
 // Google: authorization code + PKCE through a one-shot loopback server on 127.0.0.1.
-// The page the browser lands on after Google: Breeze's look, with Unbounded headings and Inter text.
+// The page the browser lands on after Google: Breeze's look, with Unbounded headings and Instrument Sans text.
 const PAGE_ICON = {
   ok: '<path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#f5f5f7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
   fail: '<path d="M12 7.5v5.5M12 16.5v.01" fill="none" stroke="#f5f5f7" stroke-width="2.4" stroke-linecap="round"/>',
@@ -2375,13 +2420,13 @@ function googleRedirectPage(ok) {
   const logo = wordmarkSrc();
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Breeze</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700&family=Instrument+Sans:wght@400;500&display=swap" rel="stylesheet">
 <style>
   @property --glow { syntax: '<color>'; inherits: false; initial-value: ${tone.glowFrom}; }
   @property --gx { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
   @property --gy { syntax: '<percentage>'; inherits: false; initial-value: -10%; }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; color: #f5f5f7; font: 15px/1.6 Inter, system-ui, sans-serif;
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; color: #f5f5f7; font: 15px/1.6 "Instrument Sans", system-ui, sans-serif;
     background: radial-gradient(900px 460px at var(--gx, 50%) var(--gy, -10%), var(--glow, ${tone.glowFrom}), transparent 70%), #1d1d1f;
     animation: glowTone 1.2s .5s cubic-bezier(.4,0,.2,1) both, sway 11s ease-in-out infinite alternate; }
   .card { width: min(440px, 100%); text-align: center; padding: 40px 36px 34px; border-radius: 24px; border: 1px solid rgba(255,255,255,.1);
@@ -2389,9 +2434,9 @@ function googleRedirectPage(ok) {
   .badge { width: 64px; height: 64px; margin: 0 auto 22px; border-radius: 50%; display: grid; place-items: center;
     background: ${tone.from}; box-shadow: 0 10px 30px ${tone.shadowFrom}; animation: badgeTone 1s .55s cubic-bezier(.4,0,.2,1) both; }
   .badge path { stroke-dasharray: 20; stroke-dashoffset: 20; animation: draw .45s .3s ease-out forwards; }
-  h1 { margin: 0 0 10px; font: 700 26px/1.2 Unbounded, Inter, sans-serif; letter-spacing: -.01em; }
+  h1 { margin: 0 0 10px; font: 700 26px/1.2 Unbounded, "Instrument Sans", sans-serif; letter-spacing: -.01em; }
   p { margin: 0; color: #aaaaaa; }
-  .brand { margin-top: 26px; display: flex; align-items: center; justify-content: center; color: #7c7c80; font: 600 12px Unbounded, Inter, sans-serif; }
+  .brand { margin-top: 26px; display: flex; align-items: center; justify-content: center; color: #7c7c80; font: 600 12px Unbounded, "Instrument Sans", sans-serif; }
   .brand img { display: block; height: 20px; width: auto; opacity: .75; }
   @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(.98); } }
   @keyframes badgeTone { from { background: ${tone.from}; box-shadow: 0 10px 30px ${tone.shadowFrom}; } to { background: ${tone.to}; box-shadow: 0 10px 30px ${tone.shadowTo}; } }

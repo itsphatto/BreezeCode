@@ -162,7 +162,8 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
   const side = a.found
     ? `<span class="pill ${pillClass(on)} side">${label}</span>`
     : `<button class="get side" data-get="${escAttr(a.url)}"><span class="get-label">Get it</span></button>`;
-  const attrs = a.found ? `role="button" tabindex="0" data-agent="${a.id}"` : '';
+  // A found agent shows just its name; the model and path stay in the tooltip.
+  const attrs = a.found ? `role="button" tabindex="0" data-agent="${a.id}" title="${escAttr(sub)}"` : '';
   let modelOptions = '';
   if (a.found && a.models?.length && a.id !== 'codex' && a.id !== 'antigravity' && a.id !== 'claude') {
     const opts = a.models.map(m => {
@@ -173,7 +174,7 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
   }
   return `<div class="agent-opt ${a.found ? '' : 'missing'} ${on ? 'on' : ''}" ${attrs}>
     ${mark}<span class="nm">${esc(a.name)}</span>${side}
-    <span class="sub" title="${escAttr(sub)}">${esc(sub)}</span>${modelOptions}</div>`;
+    ${a.found ? '' : `<span class="sub" title="${escAttr(sub)}">${esc(sub)}</span>`}${modelOptions}</div>`;
 }
 function agentOptionsHtml(d: Detection): string {
   return d.agents.map(a => {
@@ -686,6 +687,8 @@ function homeAgentRowHtml(a: DetectedAgent): string {
 function renderHomeAgent(): void {
   const el = $('#homeAgents');
   if (!appState.detect) { el.innerHTML = skeletonRows(2); return; }
+  // Measured before the redraw, so a new default picked anywhere (here or in the agent picker) slides over.
+  const from = el.querySelector('.agent-row.on')?.getBoundingClientRect();
   const found = appState.detect.agents.filter(a => a.found);
   el.innerHTML = found.length
     ? found.map(homeAgentRowHtml).join('')
@@ -693,16 +696,14 @@ function renderHomeAgent(): void {
   // Keyboard focus lands on the default; with none picked yet, on the first row.
   const rows = $$('.agent-row', el);
   if (rows.length && !rows.some(r => r.tabIndex === 0)) rows[0].tabIndex = 0;
+  slideSelected(el.querySelector<HTMLElement>('.agent-row.on'), from);
 }
 function pickHomeAgent(id: string): void {
   const ag = appState.detect?.agents.find(a => a.id === id && a.found);
   if (!ag || ag.id === appState.agent) return;
-  const from = document.querySelector('#homeAgents .agent-row.on')?.getBoundingClientRect();
   makeDefaultAgent(ag);
   renderHomeAgent();
-  const row = $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`);
-  row.focus();
-  slideSelected(row, from);
+  $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`).focus();
 }
 $('#homeAgents').addEventListener('click', e => {
   const t = e.target as HTMLElement;

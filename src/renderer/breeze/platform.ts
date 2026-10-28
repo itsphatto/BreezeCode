@@ -286,6 +286,14 @@ function demoApi(): BreezeApi {
       },
       async stop() { /* demo runs finish on their own */ },
       async setModel() { return true; },
+      // Made-up numbers, so the browser preview shows what Settings → Agents looks like.
+      async usage() {
+        const in2h = Math.floor(Date.now() / 1000) + 7200, in4d = in2h + 4 * 86400;
+        return {
+          usage: { claude: 182400, codex: 46100 },
+          limits: { claude: [{ label: '5-hour', used: 14, resetsAt: in2h }, { label: 'Weekly', used: 69, resetsAt: in4d }], codex: [{ label: 'Monthly', used: 11, resetsAt: in4d }] },
+        };
+      },
       onEvent(cb) { agentListeners.push(cb); return () => { }; },
     },
     team: {

@@ -1,9 +1,9 @@
 /* Breeze Code site. Tokens, fonts and buttons match the app (src/renderer/breeze.css). */
 @font-face {
-  font-family: 'Inter';
-  font-weight: 100 900;
+  font-family: 'Instrument Sans';
+  font-weight: 400 700;
   font-display: swap;
-  src: url('assets/fonts/Inter-Variable.woff2') format('woff2');
+  src: url('assets/fonts/InstrumentSans-Variable.woff2') format('woff2');
 }
 
 @font-face {
@@ -35,7 +35,7 @@
   --ok: #22c55e;
   --c-planner: #a78bfa;
   --c-builder: #38bdf8;
-  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-display: Unbounded, var(--font-ui);
   --font-code: "Google Sans Code", Consolas, monospace;
   --r: 10px;

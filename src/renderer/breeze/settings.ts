@@ -77,6 +77,30 @@ function accountHtml(): string {
     ${others ? `<h5>Accounts</h5>${others}` : ''}`;
 }
 
+// Settings → Agents → Usage. The last numbers fetched are kept, so a redraw shows them while fresh ones load.
+let agentUsage: AgentUsage | null = null;
+const untilText = (sec: number) => {
+  const min = Math.max(1, Math.round((sec * 1000 - Date.now()) / 60000));
+  return min < 60 ? `${min}m` : min < 1440 ? `${Math.round(min / 60)}h` : `${Math.round(min / 1440)}d`;
+};
+function usageHtml(agents: DetectedAgent[]): string {
+  if (!agentUsage) return '<p class="set-sub">Loading usage</p>';
+  const u = agentUsage;
+  return agents.map(a => {
+    const wins = u.limits[a.id] ?? [];
+    // Only Claude and Codex report their plan; theirs appears once they've run since the last reset.
+    const none = a.api ? 'No limit · runs on this computer'
+      : a.id in u.limits ? 'Plan limits show up after its next run' : `${a.name} doesn't share its limits`;
+    const plan = wins.length ? wins.map(w => {
+      const left = Math.round(100 - w.used);
+      return `<div class="usage-win"><span class="usage-lbl">${esc(w.label)}</span><span class="usage-bar ${left <= 10 ? 'low' : ''}" data-left="${left}"><i></i></span><span class="usage-left">${left}% left${w.resetsAt ? ` · resets in ${untilText(w.resetsAt)}` : ''}</span></div>`;
+    }).join('') : `<div class="set-sub">${esc(none)}</div>`;
+    return `<div class="usage-agent"><div class="usage-head">${brandMark('usage-mark', a.id, a.name[0])}<span class="set-title">${esc(a.name)}</span><span class="usage-tokens">${(u.usage[a.id] ?? 0).toLocaleString()} tokens this month</span></div>${plan}</div>`;
+  }).join('');
+}
+// Bar widths are set from script: the page's CSP blocks inline style attributes.
+const fillUsageBars = (root: ParentNode) => $$('.usage-bar', root).forEach(b => b.style.setProperty('--left', `${b.dataset.left ?? 0}%`));
+
 function settingsBody(tab: SettingsTab): string {
   switch (tab) {
     case 'general': return `<h4>General</h4>
@@ -102,7 +126,8 @@ function settingsBody(tab: SettingsTab): string {
       return `<h4>Agents</h4>
         <div class="set-agents">${list}</div>
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
-        ${settingRow('Scan again', 'Look for newly installed tools.', '<button class="btn btn-sm" id="sRescan">Scan</button>')}`;
+        ${settingRow('Scan again', 'Look for newly installed tools.', '<button class="btn btn-sm" id="sRescan">Scan</button>')}
+        ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(agents.filter(a => a.found))}</div>` : ''}`;
     }
     case 'misc': return `<h4>Miscellaneous</h4>
       <h5>Vibe Code Mode</h5>
@@ -221,6 +246,16 @@ function bindSettings(m: HTMLElement): void {
     finally { setTimeout(refreshSettings, 2500); }
   });
   on('sAgentPicker', () => openAgentPicker());
+  const usageEl = pane.querySelector<HTMLElement>('#sUsage');
+  if (usageEl) {
+    fillUsageBars(usageEl);
+    background(api.agent.usage().then(u => {
+      agentUsage = u;
+      if (!usageEl.isConnected) return;
+      usageEl.innerHTML = usageHtml((appState.detect?.agents ?? []).filter(a => a.found).sort((a, b) => agentRank(a) - agentRank(b)));
+      fillUsageBars(usageEl);
+    }));
+  }
   on('sRescan', el => {
     el.textContent = 'Scanning'; (el as HTMLButtonElement).disabled = true;
     detectTools(true).catch(() => { /* the agent card shows the error */ }).finally(refreshSettings);
