@@ -62,6 +62,14 @@
 
 :root {
   color-scheme: dark;
+  /* Signature accent: the launch sky (launch.css .launch-sky), the same in every theme. --sig-accent is the full
+     sky for surfaces; --sig-band is its colours in a row whose ends match, for strips that slide and wrap. */
+  --sig-accent:
+    radial-gradient(60% 55% at 12% 8%, #b9dcff 0%, rgba(185, 220, 255, 0) 70%),
+    radial-gradient(55% 60% at 92% 96%, #a9d1fb 0%, rgba(169, 209, 251, 0) 70%),
+    radial-gradient(45% 40% at 18% 92%, #7a5cff 0%, rgba(122, 92, 255, 0) 70%),
+    linear-gradient(125deg, #8fc3ff 0%, #2f6bff 34%, #1f4dff 55%, #3d7bff 78%, #9cc9f7 100%);
+  --sig-band: linear-gradient(90deg, #8fc3ff 0%, #2f6bff 22%, #1f4dff 42%, #7a5cff 58%, #3d7bff 78%, #8fc3ff 100%);
   --blue: #0a6cd8; /* white on it reads 4.65:1; #007AFF only reached 3.69 */
   --blue-soft: rgba(0, 122, 255, .14);
   --bg: #1d1d1f;
@@ -1418,15 +1426,15 @@ textarea:focus-visible {
 }
 
 /* Inset like the thumb and ending at its centre. At the first step it fades out, so no edge of it rims the thumb.
-   It is painted with the launch sky's colours (launch.css .launch-sky) as one track-wide band that drifts to the
-   right and wraps (both ends are the same colour), so a longer fill uncovers more of the sky rather than squeezing it. */
+   It is painted with the signature accent as one track-wide band that drifts to the right and wraps (both ends are
+   the same colour), so a longer fill uncovers more of the sky rather than squeezing it. */
 .ms-fill {
   --band: calc(100cqw - 4px);
   position: absolute;
   inset: 2px auto 2px 2px;
   width: calc(var(--knob) / 2 + (100% - var(--knob) - 4px) * var(--pos));
   border-radius: 999px;
-  background: linear-gradient(90deg, #8fc3ff 0%, #2f6bff 22%, #1f4dff 42%, #7a5cff 58%, #3d7bff 78%, #8fc3ff 100%) 0 0 / var(--band) 100% repeat-x;
+  background: var(--sig-band) 0 0 / var(--band) 100% repeat-x;
   opacity: clamp(0, var(--pos) * 12, 1);
   animation: ms-sky 4s linear infinite;
 }
@@ -6084,13 +6092,77 @@ body.vibing .ide {
   margin-bottom: 8px;
 }
 
-/* A soft tint in the project's own hue; hover darkens it like every other button. */
+/* A soft blue tint; on hover the signature accent sweeps in over it from the left (a layer, since gradients can't
+   transition), dimmed a little so the white text reads, and Continue turns white so it doesn't sink into the sky. */
 .recent-row.lead .recent-open {
+  position: relative;
+  isolation: isolate;
   gap: 14px;
   /* Same right inset as the rows below, so Continue lines up with their times. */
   padding: 14px 42px 14px 16px;
   border-color: rgba(var(--ink), .08);
-  background: linear-gradient(120deg, hsl(var(--hue) 60% 40% / .16), transparent 70%);
+  background: linear-gradient(120deg, rgba(10, 108, 216, .24), transparent 70%);
+  transition: background-color .15s, border-color .3s, opacity .2s;
+}
+
+.recent-row.lead .recent-open::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--sig-accent);
+  filter: brightness(.72);
+  pointer-events: none;
+  /* A soft-edged wipe: the mask is three widths wide, opaque on its left third and clear on its right third.
+     Sliding it from its right end to its left end carries the edge across the card from left to right. */
+  -webkit-mask-image: linear-gradient(90deg, #000 33%, transparent 66%);
+  mask-image: linear-gradient(90deg, #000 33%, transparent 66%);
+  -webkit-mask-size: 300% 100%;
+  mask-size: 300% 100%;
+  -webkit-mask-position: 100% 0;
+  mask-position: 100% 0;
+  transition: -webkit-mask-position .6s cubic-bezier(.65, 0, .35, 1), mask-position .6s cubic-bezier(.65, 0, .35, 1);
+}
+
+.recent-row.lead:hover .recent-open {
+  border-color: rgba(255, 255, 255, .18);
+  color: #fff;
+}
+
+.recent-row.lead:hover .recent-open::before {
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+}
+
+/* The sky replaces the usual hover dim on this card and its Continue button. */
+.recent-row.lead:hover .recent-open::after,
+.recent-row.lead:hover .recent-open .recent-go::after {
+  opacity: 0;
+}
+
+/* The remove button sits on the sky too (the row's hover keeps the sky up while the pointer is on it). */
+.recent-row.lead:hover .recent-forget {
+  color: rgba(255, 255, 255, .85);
+}
+
+/* Hovering Continue itself still dims it a little, so it reads as the thing to press. */
+.recent-row.lead:hover .recent-open .recent-go:hover::after {
+  opacity: .35;
+}
+
+.recent-row.lead:hover .recent-open :is(.nm, .eyebrow, .path) {
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(10, 30, 120, .45);
+}
+
+.recent-row.lead:hover .recent-open .recent-go {
+  background: #f5f5f7;
+  color: #1f4dff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recent-row.lead .recent-open::before { transition: none; }
 }
 
 .recent-row.lead .recent-open:focus-visible {
@@ -6119,6 +6191,7 @@ body.vibing .ide {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+  transition: background-color .3s ease, color .3s ease;
 }
 
 .recent-row.missing .recent-open {
