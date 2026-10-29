@@ -1038,9 +1038,11 @@ function antigravityModels(bin) {
   return cachedAntigravityModels;
 }
 
-function which(cmd) {
+// `pathValue` searches the PATH as it is now (getTools reads it fresh), so a tool installed since Breeze started is found.
+function which(cmd, pathValue) {
   return new Promise(res => {
-    execFile(isWin ? 'where' : 'which', [cmd], { windowsHide: true, timeout: 4000 }, (err, stdout) => {
+    const env = pathValue ? toolEnv(process.env, [], process.platform, pathValue) : process.env;
+    execFile(isWin ? 'where' : 'which', [cmd], { windowsHide: true, timeout: 4000, env }, (err, stdout) => {
       if (err) { res(null); return; }
       const hits = stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       // On Windows prefer the runnable shim (.cmd/.exe) over the extension-less sh script npm also writes.
@@ -1110,11 +1112,11 @@ handle('sys:detect', async (_e, force) => {
   // A saved server may have been closed since: it only counts as found while it answers and still has the model.
   if (llm) llm = await llmReachable(llm).then(() => llm, () => null);
   agents.push({ id: 'local', name: 'Ollama', vendor: 'Ollama, LM Studio or any OpenAI-compatible server', url: 'https://ollama.com/download', api: true, found: !!llm, path: llm?.url ?? null, version: llm?.model ?? null, models: llm?.models ?? [], install: llm ? null : agentInstallCmd('local', process.platform) });
+  const { tools: found, pathValue } = await getTools(!!force);
   const tools = await Promise.all([['git', 'Git'], ['node', 'Node.js']].map(async ([cmd, name]) => {
-    const bin = await which(cmd);
-    return { id: cmd, name, found: !!bin, version: bin ? await versionOf(bin) : null };
+    const bin = await which(cmd, pathValue);
+    return { id: cmd, name, found: !!bin, version: bin ? await versionOf(bin) : null, hint: bin ? null : installHint(cmd, process.platform), cmd: bin ? null : installCmd(cmd, process.platform), url: bin ? null : installUrl(cmd, process.platform) };
   }));
-  const found = (await getTools(!!force)).tools;
   for (const [id, name, t, kind] of [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs']]) {
     tools.push({ id, name, found: !!t, version: t ? versionIn(t.version) : null, optional: true, hint: t ? null : installHint(kind, process.platform), cmd: t ? null : installCmd(kind, process.platform), url: t ? null : installUrl(kind, process.platform) });
   }
@@ -1128,7 +1130,7 @@ handle('sys:runCommand', async (_e, cmd) => {
   if (typeof cmd !== 'string') return false;
   const command = cmd.trim();
   const allowed = [
-    ...['c', 'py', 'cs', 'java', 'rs'].map(kind => installCmd(kind, process.platform)),
+    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs'].map(kind => installCmd(kind, process.platform)),
     ...['claude', 'codex', 'local'].map(id => agentInstallCmd(id, process.platform)),
   ].filter(Boolean);
   if (!allowed.includes(command)) return false;

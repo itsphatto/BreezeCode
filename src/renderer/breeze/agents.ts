@@ -627,8 +627,16 @@ function hideThinking(tab?: AgentTabState): void {
 
 /* ----- Rotating prompts: a composer's placeholder changes when you point at it (and every 5 s while you do);
    Breeze Box's greeting changes every 5 s ----- */
-// Built from parts, so each list holds over a thousand lines without writing them out one by one.
+// Built from parts, so each list holds about a thousand lines without writing them out one by one. Each verb only meets
+// the things it makes sense for ("Add types to" meets code, "Restyle" meets screens), so no line reads as nonsense.
 const combine = (templates: string[], parts: string[]) => templates.flatMap(t => parts.map(p => t.replace('{x}', p)));
+const CODE_PARTS = ['the login flow', 'the API client', 'the database queries', 'the build script', 'the router', 'the auth middleware',
+  'the image loader', 'the date helpers', 'the cart logic', 'the config loader', 'the state store', 'the form validation',
+  'the caching layer', 'the websocket code', 'the logging', 'the cron jobs', 'the upload handler', 'the routes file', 'the data fetching'];
+const UI_PARTS = ['the navbar', 'the checkout page', 'the settings screen', 'the search results', 'the signup form', 'the footer',
+  'the dashboard charts', 'the error page', 'the mobile layout', 'the sidebar', 'the modal', 'the dark theme', 'the header',
+  'the pagination', 'the notifications', 'the profile page', 'the main menu', 'the onboarding steps', 'the pricing page',
+  'the email templates', 'the landing hero', 'the color tokens'];
 // The composer's own placeholder ("Describe what you want to build") isn't one of these: it's the fixed one, and the
 // examples rotate over it.
 const IDE_PLACEHOLDERS = [
@@ -644,17 +652,10 @@ const IDE_PLACEHOLDERS = [
     'a product card grid', 'a sidebar navigation', 'a responsive navbar', 'a FAQ accordion', 'a star rating widget',
     'a QR code generator', 'a weather app', 'an expense splitter', 'a mini spreadsheet', 'a memory card game',
   ]),
-  ...combine(['Fix {x}', 'Refactor {x}', 'Speed up {x}', 'Write tests for {x}', 'Clean up {x}', 'Document {x}', 'Add types to {x}', 'Simplify {x}', 'Explain {x}', 'Restyle {x}', 'Add error handling to {x}', 'Review {x}'], [
-    'the navbar', 'the login flow', 'the checkout page', 'the API client', 'the settings screen',
-    'the search results', 'the signup form', 'the database queries', 'the build script', 'the footer',
-    'the router', 'the auth middleware', 'the image loader', 'the dashboard charts', 'the date helpers',
-    'the cart logic', 'the error page', 'the mobile layout', 'the sidebar', 'the modal',
-    'the file upload', 'the config loader', 'the test suite', 'the state store', 'the form validation',
-    'the dark theme', 'the header', 'the pagination', 'the notifications', 'the profile page',
-    'the caching layer', 'the websocket code', 'the logging', 'the main menu', 'the onboarding steps',
-    'the pricing page', 'the email templates', 'the cron jobs', 'the upload handler', 'the color tokens',
-    'the routes file', 'the landing hero', 'the data fetching', 'the drag and drop', 'the keyboard shortcuts',
-  ]),
+  ...combine(['Fix {x}', 'Refactor {x}', 'Clean up {x}', 'Simplify {x}', 'Review {x}'],
+    [...CODE_PARTS, ...UI_PARTS, 'the file upload', 'the test suite', 'the drag and drop', 'the keyboard shortcuts']),
+  ...combine(['Speed up {x}', 'Write tests for {x}', 'Document {x}', 'Add types to {x}', 'Explain {x}', 'Add error handling to {x}'], CODE_PARTS),
+  ...combine(['Restyle {x}', 'Polish {x}'], UI_PARTS),
 ];
 const BOX_PLACEHOLDERS = [
   'Ask Breeze anything',

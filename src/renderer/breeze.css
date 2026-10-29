@@ -62,7 +62,7 @@
 
 :root {
   color-scheme: dark;
-  --blue: #007AFF;
+  --blue: #0a6cd8; /* white on it reads 4.65:1; #007AFF only reached 3.69 */
   --blue-soft: rgba(0, 122, 255, .14);
   --bg: #1d1d1f;
   --bg-1: #232325;
@@ -71,7 +71,7 @@
   --line: #3a3a3c;
   --text: #f5f5f7;
   --text-2: #aaaaaa;
-  --text-3: #7c7c80;
+  --text-3: #9a9a9f;
   --ok: #22c55e;
   --warn: #f59e0b;
   --err: #ef4444;
@@ -94,6 +94,7 @@
   --line-hi: #48484a;
   --line-strong: #636366;
   --code-text: #d4d4d8;
+  --hover-dim: rgba(0, 0, 0, .25);
 }
 
 /* ---------- appearance (Settings → Appearance; theme.ts sets data-theme on <html>) ---------- */
@@ -105,38 +106,46 @@
   --bg-3: #1c1c21;
   --line: #26262c;
   --text-2: #a1a1aa;
-  --text-3: #6b6b75;
+  --text-3: #8a8a94;
   --glass: rgba(28, 28, 34, .6);
   --glass-strong: rgba(24, 24, 30, .74);
   --line-hi: #3a3a40;
   --line-strong: #52525b;
 }
 
+/* Light: warm paper and brown-black ink. Every text colour keeps 4.5:1 on the darkest paper (--bg-3). */
 :root[data-theme="light"] {
   color-scheme: light;
-  --blue-soft: rgba(0, 122, 255, .1);
-  --bg: #ffffff;
-  --bg-1: #f5f5f7;
-  --bg-2: #ececee;
-  --bg-3: #e3e3e6;
-  --line: #d9d9de;
-  --text: #1d1d1f;
-  --text-2: #5f5f64;
-  --text-3: #86868b;
-  --ok: #16a34a;
-  --warn: #d97706;
-  --err: #dc2626;
-  --c-planner: #7c3aed;
-  --c-builder: #0284c7;
-  --glass: rgba(255, 255, 255, .72);
-  --glass-strong: rgba(250, 250, 252, .84);
-  --glass-line: rgba(0, 0, 0, .08);
-  --ink: 0, 0, 0;
-  --blue-text: #0062cc;
-  --text-soft: #3a3a3c;
-  --line-hi: #c7c7cc;
-  --line-strong: #aeaeb2;
-  --code-text: #1d1d1f;
+  --blue: #0a62c9;
+  --blue-soft: rgba(10, 98, 201, .1);
+  --bg: #fbf9f4;
+  --bg-1: #f4f1e8;
+  --bg-2: #ece8dc;
+  --bg-3: #e3ded0;
+  --line: #d8d1c0;
+  --text: #26231e;
+  --text-2: #57514a;
+  --text-3: #645d53;
+  --ok: #137036;
+  --warn: #9c4706;
+  --err: #c42b1c;
+  --c-planner: #6d28d9;
+  --c-builder: #0369a1;
+  /* Paper isn't see-through: popups are solid sheets, not frosted glass. */
+  --glass: rgba(251, 249, 244, .97);
+  --glass-strong: rgba(248, 245, 238, .98);
+  --glass-blur: none;
+  --glass-line: rgba(70, 55, 30, .12);
+  /* Fibre grain: brown noise at a few percent, tiled over the big surfaces (see "paper grain" below). */
+  --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .24 0 0 0 0 .13 0 0 0 .16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --paper-shadow: 0 1px 2px rgba(70, 55, 30, .08), 0 14px 36px rgba(70, 55, 30, .14);
+  --hover-dim: rgba(70, 55, 30, .12);
+  --ink: 38, 35, 30;
+  --blue-text: #0057b8;
+  --text-soft: #3b3731;
+  --line-hi: #c7bfab;
+  --line-strong: #a89f8a;
+  --code-text: #26231e;
 }
 
 /* Onboarding and Home sit over the river photo, so they keep the dark glass in every theme. */
@@ -144,7 +153,7 @@
   color-scheme: dark;
   --text: #f5f5f7;
   --text-2: #aaaaaa;
-  --text-3: #7c7c80;
+  --text-3: #9a9a9f;
   --line: #3a3a3c;
   --ink: 255, 255, 255;
   --blue-text: #7aa9ff;
@@ -157,6 +166,7 @@
   --ok: #22c55e;
   --warn: #f59e0b;
   --err: #ef4444;
+  --hover-dim: rgba(0, 0, 0, .25);
   color: var(--text);
 }
 
@@ -528,21 +538,10 @@ button {
   transition: background .15s, border-color .15s;
 }
 
-/* Hover lifts one step lighter on the palette's grays (it used to drop to an old blue-black). */
-.btn:hover {
-  border-color: var(--line-hi);
-  background: var(--line);
-}
-
 .btn-primary {
   background: var(--blue);
   border-color: var(--blue);
   color: #f5f5f7;
-}
-
-.btn-primary:hover {
-  background: #1a6dff;
-  border-color: #1a6dff;
 }
 
 .btn-ghost {
@@ -552,7 +551,6 @@ button {
 }
 
 .btn-ghost:hover {
-  background: var(--bg-3);
   color: var(--text);
 }
 
@@ -569,14 +567,9 @@ button {
 }
 
 .btn-danger {
-  background: var(--err);
-  border-color: var(--err);
+  background: #c42b1c; /* deeper than --err, so its white label reads 5.2:1 */
+  border-color: #c42b1c;
   color: #f5f5f7;
-}
-
-.btn-danger:hover {
-  background: color-mix(in srgb, var(--err), #f5f5f7 12%);
-  border-color: color-mix(in srgb, var(--err), #f5f5f7 12%);
 }
 
 .icon-btn {
@@ -593,7 +586,6 @@ button {
 }
 
 .icon-btn:hover {
-  background: var(--bg-3);
   color: var(--text);
 }
 
@@ -693,16 +685,10 @@ button {
 }
 
 /* Over the sky the blue button would vanish into the blue, so it turns white until the city comes up. */
-.ob-step[data-step="0"] .btn-primary,
-.ob-step[data-step="0"] .btn-primary:hover {
+.ob-step[data-step="0"] .btn-primary {
   background: #f5f5f7;
   border-color: #f5f5f7;
   color: #1f4dff;
-}
-
-.ob-step[data-step="0"] .btn-primary:hover {
-  background: #fff;
-  border-color: #fff;
 }
 
 .ob-bg::after,
@@ -745,22 +731,9 @@ button {
   backdrop-filter: blur(18px) saturate(1.2);
 }
 
-.onboard .ob-step .btn:not(.btn-primary, .btn-ghost, .btn-danger):hover {
-  background: rgba(58, 58, 60, .86);
-}
-
 /* The GitHub and Google buttons are see-through so the photo shows behind them. */
 .onboard .signin-btns .btn:not(.btn-ghost) {
   background: rgba(50, 50, 52, .35);
-}
-
-.onboard .signin-btns .btn:not(.btn-ghost):hover {
-  background: rgba(58, 58, 60, .5);
-}
-
-/* Hovered start tiles warm up in blue over the photo. */
-.onboard .start-tile:hover {
-  background: rgba(14, 30, 60, .82);
 }
 
 .ob-step[data-step="0"] h1 {
@@ -1221,10 +1194,6 @@ textarea:focus-visible {
   transition: background .15s, opacity .15s;
 }
 
-.titlebar .logo-home:hover {
-  background: var(--bg-3);
-}
-
 .titlebar .logo-home:active {
   opacity: .75;
 }
@@ -1309,9 +1278,12 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-.menu-top:hover,
 .menu-top.open {
   background: rgba(var(--ink), .1);
+  color: var(--text);
+}
+
+.menu-top:hover {
   color: var(--text);
 }
 
@@ -1529,7 +1501,6 @@ body.resizing-h iframe {
 
 .act-btn:hover {
   color: var(--text);
-  background: var(--bg-3);
 }
 
 .act-btn.on {
@@ -2661,7 +2632,6 @@ svg.ico-svg:active {
   transition: border-color .15s, background-color .15s;
 }
 
-#previewUrl:hover,
 #previewUrl.open {
   border-color: rgba(var(--ink), .16);
   background: rgba(var(--ink), .04);
@@ -2960,7 +2930,6 @@ svg.ico-svg:active {
 
 .term-new-btn:hover {
   color: var(--text);
-  background: var(--bg-2);
 }
 
 .term-out-pane {
@@ -3150,7 +3119,7 @@ body.resizing-h .term-body {
 }
 
 #termOut .term-ref {
-  color: var(--blue);
+  color: var(--blue-text);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -3778,7 +3747,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
 }
 
 .qo-item .qo-badge {
-  color: var(--blue);
+  color: var(--blue-text);
   font-size: 11px;
   font-weight: 500;
   background: rgba(59, 130, 246, .15);
@@ -3937,7 +3906,6 @@ textarea:not(:placeholder-shown) + .ph-rot {
 }
 
 .sb:hover {
-  background: var(--bg-3);
   color: var(--text);
 }
 
@@ -3984,7 +3952,6 @@ textarea:not(:placeholder-shown) + .ph-rot {
 }
 
 .modal-back:hover {
-  background: var(--bg-3);
   color: var(--text);
 }
 
@@ -4221,7 +4188,6 @@ body.vibing .ide {
 }
 
 .vibe-sites button:hover {
-  background: rgba(var(--ink), .07);
   color: var(--text);
 }
 
@@ -4555,6 +4521,40 @@ body.vibing .ide {
 .btn:disabled {
   opacity: .5;
   cursor: default;
+}
+
+/* Hovering a button never lights it up or makes it glow: a dark layer (--hover-dim) fades in over it, under its text
+   and icon, the selected one included. Continue and a cloud workspace's arrow darken with the row they sit in.
+   :where() keeps the `position: relative` the layer needs weaker than any rule that places a button itself. */
+:where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
+  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
+  .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
+  .chat-file-chip) {
+  position: relative;
+  isolation: isolate;
+}
+
+:where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
+  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
+  .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
+  .chat-file-chip)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--hover-dim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease;
+}
+
+:where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
+  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
+  .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
+  .chat-file-chip):hover:not(:disabled)::after,
+:where(.recent-open:hover .recent-go, .cloud-ws:hover .cloud-ws-go)::after {
+  opacity: 1;
 }
 
 .input,
@@ -5514,10 +5514,6 @@ body.vibing .ide {
   letter-spacing: 0;
 }
 
-.pill-btn:hover {
-  background: rgba(0, 122, 255, .25);
-}
-
 #send.stop {
   background: var(--err);
   border-color: var(--err);
@@ -5820,18 +5816,38 @@ body.vibing .ide {
 
 .home-head {
   text-align: center;
-  margin-bottom: 26px;
+  margin-bottom: 30px;
 }
 
 .home-head h2 {
-  font-size: 28px;
+  margin-bottom: 10px;
+  font-size: 40px;
   text-shadow: 0 2px 24px rgba(0, 0, 0, .55);
 }
 
 .home-head p.lead {
   margin: 0;
   color: rgba(255, 255, 255, .8);
+  font-size: 18px;
   text-shadow: 0 1px 14px rgba(0, 0, 0, .7);
+}
+
+/* Coming off the launch screen (init.ts), the greeting comes into focus as the sky lifts, the line under it a beat
+   later. */
+.home-step.home-in .home-head > * {
+  animation: homeBlurIn .8s cubic-bezier(.2, .8, .2, 1) backwards;
+}
+
+.home-step.home-in .home-head > .lead {
+  animation-delay: .14s;
+}
+
+@keyframes homeBlurIn {
+  from {
+    opacity: 0;
+    filter: blur(14px);
+    transform: scale(.97);
+  }
 }
 
 .home-grid {
@@ -5911,10 +5927,6 @@ body.vibing .ide {
   transition: background-color .15s, border-color .15s, opacity .2s;
 }
 
-.recent-open:hover {
-  background: rgba(var(--ink), .05);
-}
-
 .recent-open:focus-visible {
   outline: none;
   border-color: var(--blue);
@@ -5969,39 +5981,13 @@ body.vibing .ide {
   margin-bottom: 8px;
 }
 
-@property --lead-angle {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 120deg;
-}
-
-@property --lead-alpha {
-  syntax: '<number>';
-  inherits: false;
-  initial-value: .16;
-}
-
-@property --lead-reach {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: 70%;
-}
-
-/* The tint swings round and deepens on hover (registered properties, so the gradient itself can transition). */
+/* A soft tint in the project's own hue; hover darkens it like every other button. */
 .recent-row.lead .recent-open {
   gap: 14px;
   /* Same right inset as the rows below, so Continue lines up with their times. */
   padding: 14px 42px 14px 16px;
   border-color: rgba(var(--ink), .08);
-  background: linear-gradient(var(--lead-angle), hsl(var(--hue) 60% 40% / var(--lead-alpha)), transparent var(--lead-reach));
-  transition: background-color .15s, border-color .15s, opacity .2s, --lead-angle .5s cubic-bezier(.2, .8, .2, 1), --lead-alpha .5s ease, --lead-reach .5s cubic-bezier(.2, .8, .2, 1);
-}
-
-.recent-row.lead .recent-open:hover {
-  --lead-angle: 165deg;
-  --lead-alpha: .3;
-  --lead-reach: 100%;
-  border-color: rgba(var(--ink), .16);
+  background: linear-gradient(120deg, hsl(var(--hue) 60% 40% / .16), transparent 70%);
 }
 
 .recent-row.lead .recent-open:focus-visible {
@@ -6030,19 +6016,6 @@ body.vibing .ide {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
-  transition: box-shadow .2s;
-}
-
-.recent-go .ico-svg {
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
-}
-
-.recent-open:hover .recent-go {
-  box-shadow: 0 6px 20px rgba(0, 122, 255, .35);
-}
-
-.recent-open:hover .recent-go .ico-svg {
-  transform: translateX(2px);
 }
 
 .recent-row.missing .recent-open {
@@ -6083,32 +6056,38 @@ body.vibing .ide {
   border-radius: 14px;
   background: var(--bg-2);
   color: var(--text);
-  transition: border-color .2s cubic-bezier(.2, .8, .2, 1), background-color .2s cubic-bezier(.2, .8, .2, 1), transform .2s cubic-bezier(.2, .8, .2, 1);
 }
 
-.start-tile:hover {
-  border-color: var(--blue);
-  transform: translateY(-1px);
-}
-
-.start-tile:active {
-  transform: translateY(0);
-}
-
-/* Idle life on Home's icons: a short move, replayed every 2s. On the shapes inside each svg, so the
-   button's own hover zoom (on the svg) still works. The plus stays still and only grows on hover. */
-.start-ico [data-icon="folder"] > *,
+/* Idle life on Home's icons: a short move, replayed every 1.2s. On the shapes inside each svg, so the
+   button's own hover zoom (on the svg) still works. */
+.start-ico [data-icon] > *,
 .hp-ico [data-icon="user"] > circle {
   transform-box: fill-box;
   transform-origin: center;
 }
 
 .start-ico [data-icon="folder"] > * {
-  animation: idleLift 2s ease-in-out infinite;
+  animation: idleLift 1.2s ease-in-out infinite;
+}
+
+/* The plus turns a quarter, which lands it back on its own shape. */
+.start-ico [data-icon="plus"] > * {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  animation: idleTurn 1.2s cubic-bezier(.5, 0, .2, 1) .4s infinite;
 }
 
 .hp-ico [data-icon="user"] > circle {
-  animation: idleNod 2s ease-in-out .8s infinite;
+  animation: idleNod 1.2s ease-in-out .8s infinite;
+}
+
+@keyframes idleTurn {
+  0% {
+    transform: none;
+  }
+  40%, 100% {
+    transform: rotate(90deg);
+  }
 }
 
 @keyframes idleLift {
@@ -6215,10 +6194,6 @@ body.vibing .ide {
   transition: background-color .15s, border-color .15s;
 }
 
-.agent-row:hover {
-  background: rgba(var(--ink), .05);
-}
-
 .agent-row:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 1px;
@@ -6272,7 +6247,6 @@ body.vibing .ide {
   transition: border-color .15s, background-color .15s;
 }
 
-.home-profile:hover,
 .home-profile.open {
   border-color: var(--line-hi);
 }
@@ -6483,10 +6457,6 @@ body.vibing .box {
   cursor: pointer;
 }
 
-.avatars:hover {
-  background: var(--bg-3);
-}
-
 .menu-label {
   padding: 6px 12px 8px;
   display: flex;
@@ -6685,10 +6655,6 @@ body.vibing .box {
   cursor: pointer;
 }
 
-.tab-run:hover {
-  background: rgba(34, 197, 94, .12);
-}
-
 /* The split button sits at the far right, so Run / Preview stick just before it. */
 .tabs .tab-run {
   right: 34px;
@@ -6704,10 +6670,6 @@ body.vibing .box {
 .tab-run.tab-preview {
   border-color: rgba(122, 169, 255, .4);
   color: var(--blue-text);
-}
-
-.tab-run.tab-preview:hover {
-  background: rgba(122, 169, 255, .12);
 }
 
 /* In a tight strip Run / Preview folds to a bare play icon (see fitTabRunBtn): the label shrinks into the icon as it
@@ -6776,18 +6738,6 @@ body.vibing .box {
   -webkit-backdrop-filter: blur(16px) saturate(1.3);
   backdrop-filter: blur(16px) saturate(1.3);
   box-shadow: none;
-}
-
-#tabs .tab-split:hover {
-  background: color-mix(in srgb, var(--bg-3) 70%, transparent);
-}
-
-#tabs .tab-run.tab-preview:hover {
-  background: rgba(122, 169, 255, .14);
-}
-
-#tabs .tab-run:not(.tab-preview):hover {
-  background: rgba(34, 197, 94, .14);
 }
 
 /* Pinned just left of the split button (the shared sticky rule above would put both at the right edge). */
@@ -7078,9 +7028,7 @@ body.vibing .box {
 }
 
 .dd-btn:hover {
-  border-color: var(--line-hi);
   color: var(--text);
-  background: var(--line);
 }
 
 .dd-btn.open {
@@ -7609,8 +7557,8 @@ body:is(.resizing, .resizing-h) .sash-line.on {
   transition: filter .3s ease, opacity .3s ease;
 }
 
-/* Vibe Code Mode off: the feeds stay usable but go grey. */
-.set-pane .social-grid.off {
+/* Vibe Code Mode off: the feeds go grey. Discord presence off: the rest of its page does the same. */
+.set-pane :is(.social-grid, .set-dim).off {
   filter: grayscale(1);
   opacity: .6;
 }
@@ -7906,6 +7854,19 @@ body:is(.resizing, .resizing-h) .sash-line.on {
   margin-left: 0;
 }
 
+/* Hovering an account's trash lifts its lid (the icon's 1st and 3rd paths) on a hinge at its right end; leaving
+   sets it back down. */
+@media (prefers-reduced-motion: no-preference) {
+  .set-acct-ctl .br-del .ico-svg path:is(:nth-child(1), :nth-child(3)) {
+    transform-origin: 21px 6px;
+    transition: transform .28s cubic-bezier(.34, 1.56, .64, 1);
+  }
+
+  .set-acct-ctl .br-del:is(:hover, :focus-visible) .ico-svg path:is(:nth-child(1), :nth-child(3)) {
+    transform: translateY(-1.5px) rotate(14deg);
+  }
+}
+
 .set-row:hover .br-del,
 .menu-item:hover .br-del {
   opacity: 1;
@@ -7956,10 +7917,7 @@ button.pill, .pill-btn {
   user-select: none;
 }
 button.pill:hover, .pill-btn:hover {
-  background: var(--bg-3);
   color: var(--text-1);
-  border-color: rgba(var(--ink), .25);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
   transform: none !important;
 }
 button.pill:active, .pill-btn:active {
@@ -7968,9 +7926,6 @@ button.pill:active, .pill-btn:active {
 
 .agent-chip:hover,
 .pill.blue:hover {
-  background: #f5f5f7 !important;
-  color: #1d1d1f !important;
-  border-color: #f5f5f7 !important;
   transform: none !important;
 }
 
@@ -7999,8 +7954,6 @@ button.pill:active, .pill-btn:active {
 
 .agent-chip:active,
 .pill.blue:active {
-  background: #e5e5e7 !important;
-  color: #1d1d1f !important;
   transform: none !important;
 }
 .tool-pill-missing {
@@ -8025,9 +7978,9 @@ button.pill:active, .pill-btn:active {
   transition: border-color .15s ease, background .15s ease, color .15s ease;
   animation: promptModelIn .28s cubic-bezier(.22, 1, .36, 1) both;
 }
-.prompt-model:hover, .prompt-model.open { background: var(--bg-3); color: var(--text); }
+.prompt-model.open { background: var(--bg-3); color: var(--text); }
 /* The border never changes colour: no hover, open or focus ring. */
-.prompt-model, .prompt-model:hover, .prompt-model.open, .prompt-model:focus, .prompt-model:focus-visible { border-color: var(--line); outline: none; box-shadow: none; }
+.prompt-model, .prompt-model.open, .prompt-model:focus, .prompt-model:focus-visible { border-color: var(--line); outline: none; box-shadow: none; }
 .prompt-model b { font-weight: 600; color: var(--text); flex-shrink: 0; }
 .prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .prompt-model .dd-eff { color: var(--text-3); font-size: 11px; flex-shrink: 0; }
@@ -8041,7 +7994,6 @@ button.pill:active, .pill-btn:active {
 /* Composer attachments */
 .composer-attachments { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .attachment-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px 3px 3px; font-size: 11px; color: var(--text-2); max-width: 240px; box-sizing: border-box; overflow: hidden; animation: chipSpringIn .24s cubic-bezier(.175, .885, .32, 1.275) both; cursor: pointer; transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease; }
-.attachment-chip:hover { background: var(--bg-3); border-color: color-mix(in srgb, var(--text-3) 50%, var(--line)); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
 .attachment-chip.folder-chip { border-color: rgba(245, 158, 11, .3); }
 .attachment-chip.folder-chip:hover { border-color: rgba(245, 158, 11, .6); }
 .attachment-thumb { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; border: 1px solid var(--line); background: #1d1d1f; flex-shrink: 0; cursor: pointer; transition: transform .15s ease; }
@@ -8235,7 +8187,6 @@ body.layout-animating #previewPane {
 /* Chat attachments */
 .msg-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; margin-bottom: 6px; }
 .chat-file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 11px; font-family: var(--mono); color: var(--text-1); cursor: pointer; transition: background .15s, border-color .15s, transform .12s; }
-.chat-file-chip:hover { background: var(--bg-3); border-color: var(--blue); transform: translateY(-1px); }
 .chat-file-chip .ico { display: flex; align-items: center; }
 .chat-file-chip.folder .ico { color: #f59e0b; }
 .chat-file-chip.file .ico { color: var(--blue); }
@@ -8340,7 +8291,6 @@ body.layout-animating #previewPane {
 
 .agent-chip .chip-more:hover {
   opacity: 1;
-  background: rgba(127, 127, 127, .28);
 }
 
 .pill-logo {
@@ -8910,20 +8860,19 @@ body.layout-animating #previewPane {
   transition: color .22s ease, transform .22s ease;
 }
 
+/* Discord's logo is a white PNG, used as a mask so it takes the text colour like the line icons beside it. */
 .set-nav-img {
   width: 17px;
   height: 17px;
-  object-fit: contain;
-  opacity: .8;
+  background: currentColor;
+  mask: url('../../assets/icons/discord.png') center / contain no-repeat;
 }
 
-.set-nav button:hover .set-nav-img,
-.set-nav button.on .set-nav-img {
-  opacity: 1;
+.set-nav button.on :is(svg, .set-nav-img) {
+  color: var(--blue-text);
 }
 
 .set-nav button.on svg {
-  color: var(--blue-text);
   transform: scale(1.05);
 }
 
@@ -9193,7 +9142,6 @@ body.layout-animating #previewPane {
 }
 
 .set-volume-ico:hover {
-  background: var(--bg-3);
   color: var(--text);
 }
 
@@ -9256,12 +9204,6 @@ body.layout-animating #previewPane {
   transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
 }
 
-.set-agent:hover:not(:disabled) {
-  background: var(--bg-3);
-  border-color: rgba(var(--ink), .18);
-  transform: translateY(-1px);
-}
-
 .set-agent:active:not(:disabled) {
   transform: translateY(0) scale(.98);
 }
@@ -9309,11 +9251,6 @@ body.layout-animating #previewPane {
 
 .set-agent.on .set-sub {
   color: #9dbcff;
-}
-
-.set-agent.on:hover:not(:disabled) {
-  background: rgba(0, 122, 255, .13);
-  border-color: rgba(122, 169, 255, .75);
 }
 
 .set-agent:disabled {
@@ -9544,7 +9481,6 @@ body.layout-animating #previewPane {
   transition: border-color .15s, background .15s;
 }
 
-.cloud-ws:hover,
 .cloud-ws:focus-visible {
   border-color: var(--blue);
   background: var(--blue-soft);
@@ -9638,11 +9574,6 @@ body.layout-animating #previewPane {
   border-radius: 8px;
   color: var(--text-3);
   transition: color .15s, background .15s;
-}
-
-.cloud-ws:hover .cloud-ws-go {
-  color: #f5f5f7;
-  background: var(--blue);
 }
 
 .cloud-ws-empty {
@@ -10350,76 +10281,92 @@ body.layout-animating #previewPane {
   transform: rotate(180deg) scale(1.14);
 }
 
-/* ---------- light theme: colours drawn for a dark page, redrawn darker so they read on white ---------- */
+/* ---------- light theme: colours drawn for a dark page, redrawn darker so they read on the paper ---------- */
 /* Code */
 :root[data-theme="light"] .tk-attr { color: #6d28d9; }
-:root[data-theme="light"] .tk-str { color: #15803d; }
+:root[data-theme="light"] .tk-str { color: #137036; }
 :root[data-theme="light"] .tk-kw { color: #be185d; }
 :root[data-theme="light"] .tk-prop { color: #0369a1; }
-:root[data-theme="light"] .tk-num { color: #c2410c; }
-:root[data-theme="light"] :is(.diag-msg, .tab.has-err, #sbProblems) { color: #dc2626; }
+:root[data-theme="light"] .tk-num { color: #a8380a; }
+:root[data-theme="light"] :is(.diag-msg, .tab.has-err, #sbProblems) { color: #b91c1c; }
 :root[data-theme="light"] .gutter .err.cur { color: #b91c1c; }
 
 /* Git status, refs and diffs */
-:root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m .gst, .scm-row.git-m .nm) { color: #a16207; }
-:root[data-theme="light"] :is(.tab .gst.git-a, .tree-item.git-a .gst, .scm-row.git-a .nm) { color: #15803d; }
-:root[data-theme="light"] :is(.tab .gst.git-d, .tree-item.git-d .gst, .scm-row.git-d .nm) { color: #dc2626; }
+:root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m :is(.gst, .nm), .scm-row.git-m :is(.st, .nm)) { color: #8a5800; }
+/* Added and untracked share the green, as they do in the dark themes; each status covers its tab, tree and list rows. */
+:root[data-theme="light"] :is(.tab .gst:is(.git-a, .git-u), .tree-item:is(.git-a, .git-u) :is(.gst, .nm), .scm-row:is(.git-a, .git-u) :is(.st, .nm)) { color: #137036; }
+:root[data-theme="light"] :is(.tab .gst.git-d, .tree-item.git-d :is(.gst, .nm), .scm-row.git-d :is(.st, .nm)) { color: #b91c1c; }
 :root[data-theme="light"] .tree-item.has-changes .nm { color: #92400e; }
-:root[data-theme="light"] :is(.tree-item .gst.gst-in, .tree-item.has-incoming:not(.has-changes)::after, .scm-row.git-in .st) { color: #0062cc; }
+/* Ignored files read as quieter, not faded: names in the third ink at full strength, only the icon dimmed. */
+:root[data-theme="light"] .tree-item.git-ignored { opacity: 1; }
+:root[data-theme="light"] .tree-item.git-ignored :is(.nm, .gst) { color: var(--text-3); }
+:root[data-theme="light"] .tree-item.git-ignored .ico { opacity: .62; }
+:root[data-theme="light"] .tree-item.git-ignored:is(:hover, .on) .ico { opacity: 1; }
+:root[data-theme="light"] :is(.tree-item .gst.gst-in, .tree-item.has-incoming:not(.has-changes)::after, .scm-row.git-in .st) { color: var(--blue-text); }
 :root[data-theme="light"] :is(#scmGenMsg svg, #scmGenMsg:hover svg) { color: #7c3aed; }
-:root[data-theme="light"] .ref.branch { color: #15803d; }
+:root[data-theme="light"] .ref.branch { color: #137036; }
 :root[data-theme="light"] .ref.remote { color: #6d28d9; }
-:root[data-theme="light"] .ref.tag { color: #c2410c; }
+:root[data-theme="light"] .ref.tag { color: #a8380a; }
 :root[data-theme="light"] .dl.add { color: #14532d; }
 :root[data-theme="light"] .dl.del { color: #7f1d1d; }
 
 /* Agent output, status and errors */
-:root[data-theme="light"] :is(.tool-line.edit .tl, .run-done, .sb.live, .vibe-ready) { color: #15803d; }
+:root[data-theme="light"] :is(.tool-line.edit .tl, .run-done, .sb.live, .vibe-ready) { color: #137036; }
 :root[data-theme="light"] :is(.card.error pre, .card.crossing p.crossing-error, .card p.ts-error) { color: #b91c1c; }
-:root[data-theme="light"] .vibe-ready.failed { color: #b45309; }
-:root[data-theme="light"] :is(.start-ico, .agent-row .start-txt .sub b, .agent-opt .get:hover) { color: #0062cc; }
-:root[data-theme="light"] .set-agent.on { border-color: rgba(0, 122, 255, .45); }
-:root[data-theme="light"] .set-agent.on .set-sub { color: #0062cc; }
-:root[data-theme="light"] :is(.attachment-del:hover, .mi-remove.armed) { color: #dc2626 !important; }
-:root[data-theme="light"] .attachment-thumb.folder-icon { color: #b45309; }
+:root[data-theme="light"] .vibe-ready.failed { color: #92400e; }
+:root[data-theme="light"] :is(.start-ico, .agent-row .start-txt .sub b, .agent-opt .get:hover) { color: var(--blue-text); }
+:root[data-theme="light"] .set-agent.on { border-color: rgba(10, 98, 201, .5); }
+:root[data-theme="light"] .set-agent.on .set-sub { color: var(--blue-text); }
+:root[data-theme="light"] :is(.attachment-del:hover, .mi-remove.armed) { color: #b91c1c !important; }
+:root[data-theme="light"] .attachment-thumb.folder-icon { color: #92400e; }
+
+/* Controls (WCAG 1.4.11): a field's edge stands 3:1 off the paper, placeholders read at full text contrast, header
+   icons rest at a strength you can still see, and an agent that isn't installed keeps a readable name. */
+:root[data-theme="light"] :is(.input, .select, .composer-box) { border-color: #887e6b; }
+:root[data-theme="light"] ::placeholder { color: var(--text-3); }
+:root[data-theme="light"] .head-actions { opacity: .85; }
+:root[data-theme="light"] .set-agent.missing .nm { opacity: 1; color: var(--text-3); }
+
+/* Paper grain on the window's big surfaces and popups, under their content. The preview frame is left alone so
+   the user's page keeps its own colours. Popups lift off the page on a warm shadow instead of a grey one. */
+:root[data-theme="light"] :is(body, .titlebar, .activity, .sidebar, .main, .pane, .tabs, .editor-empty, .preview-bar, .terminal, .agents, .statusbar, .modal, .menu, .toast) {
+  background-image: var(--paper-grain);
+}
+
+:root[data-theme="light"] :is(.modal, .menu, .toast) {
+  box-shadow: var(--paper-shadow);
+}
 
 /* The wordmarks and the swirl are white images: drawn dark here, except over the photo. */
 :root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeBox.png"], [src$="brand/Agent.png"]):not(.onboard *) {
   filter: invert(.88);
 }
 
-/* The white hover on blue pills turns dark, so it still stands out from a white page. */
-:root[data-theme="light"] :is(.agent-chip:hover, .pill.blue:hover) {
-  background: #1d1d1f !important;
-  color: #f5f5f7 !important;
-  border-color: #1d1d1f !important;
-}
-
-:root[data-theme="light"] :is(.agent-chip:active, .pill.blue:active) {
-  background: #3a3a3c !important;
-  color: #f5f5f7 !important;
-}
-
 /* Terminal */
-:root[data-theme="light"] :is(.term-kw-error, .term-exit-err, #termOut .err) { color: #dc2626; }
-:root[data-theme="light"] :is(.term-kw-warning, #termOut .term-cmd-name) { color: #a16207; }
+:root[data-theme="light"] :is(.term-kw-error, .term-exit-err, #termOut .err) { color: #b91c1c; }
+/* The command being typed is coloured by the same classes as the echoed one in the output (.term-ghost and #termOut). */
+:root[data-theme="light"] :is(.term-kw-warning, #termOut .term-cmd-name, .term-ghost .term-cmd-name) { color: #8a5800; }
 :root[data-theme="light"] :is(.term-kw-cyan, .term-kw-info, .term-url) { color: #0369a1; }
-:root[data-theme="light"] :is(.term-url:hover, #termOut .term-ref:hover) { color: #0062cc; }
-:root[data-theme="light"] :is(.term-kw-success, .term-exit-ok, #termOut .term-cmd-str) { color: #15803d; }
-:root[data-theme="light"] #termOut .term-cmd-num { color: #c2410c; }
+:root[data-theme="light"] :is(.term-url:hover, #termOut .term-ref:hover) { color: var(--blue-text); }
+:root[data-theme="light"] :is(.term-kw-success, .term-exit-ok, #termOut .term-cmd-str, .term-ghost .term-cmd-str) { color: #137036; }
+:root[data-theme="light"] :is(#termOut, .term-ghost) .term-cmd-num { color: #a8380a; }
+:root[data-theme="light"] :is(#termOut, .term-ghost) .term-cmd-flag { color: #be185d; }
+/* The suggested rest of a command stays lighter than what was typed, but readable. */
+:root[data-theme="light"] .term-ghost .term-ghost-text { color: var(--text-3); }
+:root[data-theme="light"] .term-body .ps .ps-dot { color: #0e7490; }
 :root[data-theme="light"] .term-body .ps .ps-branch { color: #7c3aed; }
-:root[data-theme="light"] .term-line input::selection { color: #1d1d1f; -webkit-text-fill-color: #1d1d1f; }
-:root[data-theme="light"] :is(.ansi-fg-black, .ansi-bold) { color: #1d1d1f; }
-:root[data-theme="light"] :is(.ansi-fg-red, .ansi-fg-bright-red) { color: #dc2626; }
-:root[data-theme="light"] :is(.ansi-fg-green, .ansi-fg-bright-green) { color: #15803d; }
-:root[data-theme="light"] :is(.ansi-fg-yellow, .ansi-fg-bright-yellow) { color: #a16207; }
+:root[data-theme="light"] .term-line input::selection { color: var(--text); -webkit-text-fill-color: var(--text); }
+:root[data-theme="light"] :is(.ansi-fg-black, .ansi-bold) { color: var(--text); }
+:root[data-theme="light"] :is(.ansi-fg-red, .ansi-fg-bright-red) { color: #b91c1c; }
+:root[data-theme="light"] :is(.ansi-fg-green, .ansi-fg-bright-green) { color: #137036; }
+:root[data-theme="light"] :is(.ansi-fg-yellow, .ansi-fg-bright-yellow) { color: #8a5800; }
 :root[data-theme="light"] :is(.ansi-fg-blue, .ansi-fg-bright-blue) { color: #1d4ed8; }
 :root[data-theme="light"] :is(.ansi-fg-magenta, .ansi-fg-bright-magenta) { color: #a21caf; }
 :root[data-theme="light"] :is(.ansi-fg-cyan, .ansi-fg-bright-cyan) { color: #0e7490; }
-:root[data-theme="light"] :is(.ansi-fg-white, .ansi-fg-bright-white) { color: #6e6e73; }
-:root[data-theme="light"] .ansi-fg-bright-black { color: #86868b; }
-:root[data-theme="light"] .ansi-bg-black { background-color: #d9d9de; }
-:root[data-theme="light"] .ansi-bg-bright-black { background-color: #e3e3e6; }
+:root[data-theme="light"] :is(.ansi-fg-white, .ansi-fg-bright-white) { color: var(--text-2); }
+:root[data-theme="light"] .ansi-fg-bright-black { color: var(--text-3); }
+:root[data-theme="light"] .ansi-bg-black { background-color: var(--line); }
+:root[data-theme="light"] .ansi-bg-bright-black { background-color: var(--bg-3); }
 
 /* ---------- Settings → Appearance: one card per theme, each with a small picture of the window ---------- */
 .set-themes {
@@ -10444,20 +10391,24 @@ body.layout-animating #previewPane {
   transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
 }
 
-.set-theme:hover {
-  border-color: rgba(var(--ink), .18);
-  background: var(--bg-3);
-  transform: translateY(-1px);
-}
-
 .set-theme:active {
   transform: translateY(0) scale(.98);
 }
 
-.set-theme.on,
-.set-theme.on:hover {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 1px var(--blue);
+/* Selected: the same soft tint and blue ring as a selected agent. The tint is see-through, so the highlight that
+   glides over from the old card (slideSelected) doesn't hide the picture while it moves. */
+.set-theme.on {
+  border-color: rgba(122, 169, 255, .55);
+  background: rgba(0, 122, 255, .08);
+  box-shadow: inset 0 0 0 1px rgba(122, 169, 255, .14);
+}
+
+.set-theme.on .set-sub {
+  color: var(--blue-text);
+}
+
+:root[data-theme="light"] .set-theme.on {
+  border-color: rgba(10, 98, 201, .5);
 }
 
 .set-theme .nm {
@@ -10470,6 +10421,15 @@ body.layout-animating #previewPane {
   padding: 0 4px;
   margin-top: -6px;
   font-size: 12px;
+}
+
+/* A warning-style description (the Light card's): red in every state, selected included. */
+.set-theme .set-sub.set-warn {
+  color: #f87171;
+}
+
+:root[data-theme="light"] .set-theme .set-sub.set-warn {
+  color: #b91c1c;
 }
 
 /* The picture: a title bar, a side bar and a few lines of "code", drawn in that theme's own colours. */
@@ -10496,10 +10456,10 @@ body.layout-animating #previewPane {
 }
 
 .theme-swatch[data-swatch="light"] {
-  --sw-bg: #ffffff;
-  --sw-side: #f5f5f7;
-  --sw-line: #d9d9de;
-  --sw-text: #86868b;
+  --sw-bg: #fbf9f4;
+  --sw-side: #f4f1e8;
+  --sw-line: #d8d1c0;
+  --sw-text: #645d53;
 }
 
 .theme-swatch .sw-bar {

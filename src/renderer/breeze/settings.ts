@@ -5,7 +5,7 @@ const SETTINGS_TABS: [SettingsTab, string, string][] = [
   ['general', 'General', 'gear'],
   ['appearance', 'Appearance', 'palette'],
   ['agents', 'Agents', 'terminal'],
-  ['discord', 'Discord', 'img:discord.png'],
+  ['discord', 'Discord', 'discord'],
   ['help', 'Help & About', 'info'],
   ['misc', 'Miscellaneous', 'more'],
   ['dev', 'Developer', 'code'],
@@ -70,15 +70,16 @@ const segHtml = (id: string, opts: [string, string][], cur: string) =>
   `<div class="seg set-seg" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
 
 // Settings → Appearance. Each card shows a small picture of the window in that theme.
-const THEMES: [Theme, string, string][] = [
+// The fourth field marks a description written as a (tongue-in-cheek) warning: it shows in red.
+const THEMES: [Theme, string, string, boolean?][] = [
   ['dark', 'Default Dark', 'Soft charcoal.'],
   ['contrast', 'High Contrast Dark', 'True black, sharper edges.'],
-  ['light', 'Light', 'Bright and airy.'],
+  ['light', 'Light', 'May the lumens be with you.', true],
 ];
-const themeCardHtml = ([id, name, sub]: [Theme, string, string]) =>
+const themeCardHtml = ([id, name, sub, warn]: [Theme, string, string, boolean?]) =>
   `<button class="set-theme ${id === theme ? 'on' : ''}" data-theme-pick="${id}" aria-pressed="${id === theme}">
     <span class="theme-swatch" data-swatch="${id}" aria-hidden="true"><span class="sw-bar"><i></i><i></i><i></i></span><span class="sw-side"><b></b><b></b><b></b></span><span class="sw-main"><b></b><b></b><b></b><b></b></span></span>
-    <span class="nm">${esc(name)}</span><span class="set-sub">${esc(sub)}</span></button>`;
+    <span class="nm">${esc(name)}</span><span class="set-sub${warn ? ' set-warn' : ''}">${esc(sub)}</span></button>`;
 function setTheme(t: Theme): void {
   if (t === theme) return;
   theme = t;
@@ -250,17 +251,30 @@ function settingsBody(tab: SettingsTab): string {
     case 'discord': {
       const a = discordActivity();
       const status = { on: 'Connected', off: 'Off', error: 'Not connected' }[discordState.state];
+      // With presence off, everything under the switch goes grey and can't be used, like the feeds under Vibe Code Mode.
+      const off = appState.discord ? '' : 'off';
       return `<h4>Discord</h4>
         ${settingRow('Rich presence', `Status: ${status}${discordState.why ? ` · ${esc(discordState.why)}` : ''}`, switchHtml('sDiscord', appState.discord, 'Discord presence'))}
+        <div class="set-dim ${off}"${off ? ' inert' : ''}>
         ${settingRow('Show project and file names', 'Names can include client or employer names.', switchHtml('sDiscordDetails', appState.discordDetails, 'Show project and file names'))}
         <h5>Friends will see</h5>
         <div class="setup-card discord-preview"><b>Breeze Code</b><div class="text-2">${esc(a.details ?? '')}</div><div class="text-2">${esc(a.state ?? '')}</div><div class="text-3 fs-12">elapsed time</div></div>
-        <p class="set-sub">The Discord app must be running on this computer.</p>`;
+        <p class="set-sub">The Discord app must be running on this computer.</p></div>`;
     }
     case 'help': {
       const engine = /Electron\/[\d.]+|Chrome\/[\d.]+/.exec(navigator.userAgent)?.[0] ?? '';
+      // Git, Node.js and the compilers, each with the setup card's installer when it's missing (bindToolButtons).
+      const tools = (appState.detect?.tools ?? []).map(t => {
+        if (t.found) return settingRow(esc(t.name), esc(versionLabel(t.version) || 'Installed'), '<span class="pill ok">Ready</span>');
+        const { attrs, does } = toolInstall(t);
+        return settingRow(esc(t.name), attrs ? 'Not installed' : esc(does),
+          attrs ? `<button class="btn btn-sm" ${attrs} title="${escAttr(does)}" aria-label="${escAttr(`Install ${t.name}. ${does}`)}">${attrs.startsWith('data-get') ? 'Download' : 'Install'}</button>` : '');
+      }).join('') || '<p class="set-sub shimmer-text">Checking this computer</p>';
       return `<h4>Help & About</h4>
       ${settingRow('Keyboard shortcuts', '', '<button class="btn btn-sm" data-set-cmd="help.keys">Show</button>')}
+      <h5>Tools</h5>
+      ${tools}
+      <h5>About</h5>
       ${settingRow('About Breeze Code', `${engine ? `${esc(engine)} · ` : ''}v${esc(appVersion)}`, '')}`;
     }
     case 'dev': return `<h4>Developer</h4>
@@ -273,9 +287,8 @@ function settingsBody(tab: SettingsTab): string {
 
 function settingsNavHtml(): string {
   return visibleSettingsTabs().map(([id, label, icon]) => {
-    const iconHtml = icon.startsWith('img:')
-      ? '<img class="set-nav-img" src="../../assets/icons/' + icon.slice(4) + '" width="17" height="17" alt="" draggable="false">'
-      : svgIcon(icon, 17);
+    // Discord's logo is drawn by CSS (a mask over the text colour), so it follows the theme.
+    const iconHtml = icon === 'discord' ? '<span class="set-nav-img" aria-hidden="true"></span>' : svgIcon(icon, 17);
     return '<button data-set-tab="' + id + '">' + iconHtml + '<span>' + esc(label) + '</span></button>';
   }).join('');
 }
@@ -372,7 +385,8 @@ function bindSettings(m: HTMLElement): void {
     // Kept current while it's on screen; the timer ends once this pane is redrawn or closed.
     const tick = setInterval(() => { if (usageEl.isConnected) updateUsage(usageEl); else clearInterval(tick); }, 15_000);
   }
-  if (settingsTab === 'agents') autoRescan();
+  if (settingsTab === 'agents' || settingsTab === 'help') autoRescan();
+  if (settingsTab === 'help') bindToolButtons(pane);
   // Vibe
   // Turns on without a feed (it plays nothing until one is connected): the feeds are locked while it's off.
   on('sVibe', () => setVibeArmed(!appState.vibeArmed));

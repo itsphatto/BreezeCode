@@ -396,6 +396,13 @@ test('installHint and installUrl for C#', () => {
   assert.equal(installUrl('c', 'win32'), null);
 });
 
+test('installHint and installUrl for Git and Node.js', () => {
+  assert.equal(installHint('git', 'win32'), 'winget install Git.Git');
+  assert.equal(installHint('node', 'win32'), 'winget install OpenJS.NodeJS.LTS');
+  assert.equal(installUrl('node', 'linux'), 'https://nodejs.org/en/download');
+  assert.match(installHint('git', 'linux'), /^Install git with your package manager/);
+});
+
 test('findTools finds dotnet on the PATH', async () => {
   const r = await findTools(machine('win32', { 'C:\\bin\\dotnet.exe': '10.0.401\r\n' }));
   assert.deepEqual(r.dotnet, { path: 'C:\\bin\\dotnet.exe', name: 'dotnet', version: '10.0.401' });

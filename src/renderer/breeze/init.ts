@@ -62,6 +62,10 @@ async function boot(): Promise<void> {
     welcome.classList.remove('ob-await');
     if (welcome.getClientRects().length) welcome.classList.add('ob-intro');
     if (!lift) { launch.remove(); return; }
+    // Home's greeting blurs into focus as the light lifts (once: a later visit to Home just shows it).
+    const home = $('.home-step');
+    home.classList.add('home-in');
+    setTimeout(() => home.classList.remove('home-in'), 1200);
     launch.classList.add('done');
     launch.addEventListener('animationend', e => { if (e.target === launch) launch.remove(); });
     setTimeout(() => launch.remove(), 1500); // the lift-off never got a frame to play in
