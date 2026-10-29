@@ -1567,6 +1567,7 @@ async function runAntigravity(runId, run, { mode, prompt, session, base }) {
     sessionId: session,
     prompt,
     autoOpenAuth: false,
+    fullAccess: mode === 'build' && fullAccess(),
   });
 
   run.service = service;

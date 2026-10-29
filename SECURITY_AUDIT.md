@@ -17,8 +17,8 @@ I read the code by hand and ran proof-of-concept scripts against the real module
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
-| 1 | **High** | Command injection: Antigravity `.cmd`/`.bat` shim spawned with `shell: true` and the prompt as a raw argument | Open (PoC confirmed) |
-| 2 | **High** | Antigravity always runs with `--dangerously-skip-permissions` and ignores the Full access toggle | Open |
+| 1 | **High** | Command injection: Antigravity `.cmd`/`.bat` shim spawned with `shell: true` and the prompt as a raw argument | **Fixed** (PoC + regression test) |
+| 2 | **High** | Antigravity always runs with `--dangerously-skip-permissions` and ignores the Full access toggle | **Fixed** (not yet checked against a real `agy`) |
 | 3 | **Medium** | Build mode without Full access still gives Claude and the local LLM an unrestricted shell, which defeats the `.env`/`.git` guard | Open |
 | 4 | **Medium** | A repo's own `.git/config` and hooks run code when Breeze stages, commits, fetches or pushes | Open (PoC confirmed) |
 | 5 | **Medium** | Workspace sync's `.git` filter missed `GIT~1` and `\`, so a synced file could land in `.git/hooks` | **Fixed** (PoC + regression test) |
@@ -57,6 +57,8 @@ No renderer XSS was found, and `npm audit` reports 0 vulnerabilities. The main t
 
 **Fix.** Never put free text on a shell command line. Either (a) send the prompt only over stdin (the service already writes it to stdin) and drop `--print <prompt>`, or (b) resolve the npm shim to its `node <script>` target and spawn that without a shell, or (c) build the line with `guard.shellCommand`, which rejects non-plain arguments, the way Claude and Codex already do. Apply the same rule to `--model` and `--conversation`. `--conversation` is validated against `SAFE_ID` upstream, but `model` comes from saved state and the renderer.
 
+**Fix applied.** The new `AntigravityAgentService.cmdLine` (in `antigravityAgentService.ts`, compiled to `.js`) builds the `cmd.exe` line itself: `cmd.exe /d /s /c "<line>"` with `windowsVerbatimArguments`. Each argument, including `--model` and the prompt, is quoted for the program's own parser, and every `cmd.exe` metacharacter is `^`-escaped twice (once for the line, once for the shim's `%*`), the same scheme cross-spawn uses. `cmd.exe` can't carry a line break in an argument, so line breaks become spaces. Before the fix, multi-line prompts were silently cut at the first line. The test "cmdLine: a .cmd shim gets every argument intact and runs nothing else" runs a real npm-style shim from a folder with spaces in its name. It checks that `&`, `|`, `<`, `>`, `%PATH%`, `!PATH!`, `^`, quotes, backslashes and Unicode all arrive unchanged and that no extra command runs. The PoC above now reports `injected: false`.
+
 ## 2. High: Antigravity ignores the Full access setting and always skips permissions
 
 **Where**
@@ -69,6 +71,8 @@ No renderer XSS was found, and `npm audit` reports 0 vulnerabilities. The main t
 **Reproduction.** Read the code: `buildSpawnArgs` has no branch that leaves the flag off. Turn Full access off, start any Antigravity run and inspect the child's command line in Task Manager / `wmic process where "name like '%agy%'" get commandline`; it contains `--dangerously-skip-permissions`.
 
 **Fix.** Pass `fullAccess` into the service. Leave `--dangerously-skip-permissions` off unless it is on, and never use it for ask/plan or for commit messages. If `agy` cannot run headless without the flag, disable Antigravity build mode while Full access is off and say so in the settings text.
+
+**Fix applied.** The service takes a `fullAccess` option, and `runAntigravity` passes `mode === 'build' && fullAccess()`. `--dangerously-skip-permissions` is now added only for a build run with Full access on; ask, plan and commit-message runs never get it. Covered by the test "buildSpawnArgs: permissions are skipped only in build mode with Full access". **Not yet verified:** `agy` isn't installed on the audit machine. Check with a real `agy` that a run without the flag still answers (ask/plan) and that build mode with Full access off either asks for or refuses tool calls rather than waiting forever. If it waits, apply the fallback above (turn Antigravity build mode off while Full access is off).
 
 ## 3. Medium: build mode without Full access is still an unrestricted shell
 
@@ -162,8 +166,8 @@ Running Breeze's own argument builder, `execFile('git', safeGitArgs(['add','-A',
 
 ## Suggested order of work
 
-1. Finding 1 (one-line class of fix: stop passing the prompt through `cmd.exe`).
-2. Finding 2, and update the settings text with it.
+1. ~~Finding 1~~ (fixed).
+2. ~~Finding 2~~ (fixed; check it against a real `agy`).
 3. Finding 3: approval or allowlist for agent shell commands.
 4. Finding 4: a repository trust prompt.
 5. Findings 6–9 as time allows.
