@@ -691,25 +691,14 @@ button {
   color: #1f4dff;
 }
 
-.ob-bg::after,
+/* A light dim over the whole photo, darker in an oval behind the text so the skyline doesn't fight the words. */
 .ob-bg::before {
   content: '';
   position: absolute;
   inset: 0;
-}
-
-/* A light dim over the whole photo, darker in an oval behind the text so the skyline doesn't fight the words. */
-.ob-bg::before {
   background:
     radial-gradient(ellipse 42% 34% at 50% 50%, rgba(0, 0, 0, .32), rgba(0, 0, 0, .14) 60%, transparent 100%),
     rgba(0, 0, 0, .2);
-}
-
-/* Top edge only: a dark blur so the window buttons stay readable over the sky. */
-.ob-bg::after {
-  background: linear-gradient(to bottom, rgba(0, 0, 0, .7), transparent 20%);
-  backdrop-filter: blur(14px);
-  mask-image: linear-gradient(to bottom, #000, transparent 20%);
 }
 
 /* Every step sits above the photo and its ripple. */
@@ -1362,6 +1351,120 @@ textarea:focus-visible {
   height: 1px;
   background: var(--glass-line);
   margin: 4px 8px;
+}
+
+/* A stepped slider row (effort): the level and a hint above a pill track, a dot per step and a white thumb.
+   --pos (0–1) places the fill and thumb; it follows the pointer while dragging and settles on a step. */
+.menu-slider {
+  --pos: 0;
+  --knob: 20px;
+  padding: 6px 10px 8px;
+}
+
+.ms-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  margin-bottom: 8px;
+  padding: 0 24px;
+}
+
+.ms-val {
+  color: var(--blue-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ms-hint {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.ms-reset {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.ms-reset:hover {
+  background: rgba(var(--ink), .08);
+  color: var(--text);
+}
+
+.ms-track {
+  position: relative;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  container-type: inline-size; /* the fill sizes its sky by the track (cqw) */
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+
+.ms-track:focus-visible {
+  box-shadow: 0 0 0 2px var(--blue);
+}
+
+/* Inset like the thumb and ending at its centre. At the first step it fades out, so no edge of it rims the thumb.
+   It is painted with the launch sky's colours (launch.css .launch-sky) as one track-wide band that drifts to the
+   right and wraps (both ends are the same colour), so a longer fill uncovers more of the sky rather than squeezing it. */
+.ms-fill {
+  --band: calc(100cqw - 4px);
+  position: absolute;
+  inset: 2px auto 2px 2px;
+  width: calc(var(--knob) / 2 + (100% - var(--knob) - 4px) * var(--pos));
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8fc3ff 0%, #2f6bff 22%, #1f4dff 42%, #7a5cff 58%, #3d7bff 78%, #8fc3ff 100%) 0 0 / var(--band) 100% repeat-x;
+  opacity: clamp(0, var(--pos) * 12, 1);
+  animation: ms-sky 4s linear infinite;
+}
+
+@keyframes ms-sky {
+  to { background-position-x: var(--band); }
+}
+
+.ms-track i {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--knob) / 2 + 2px + (100% - var(--knob) - 4px) * var(--at));
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(var(--ink), .3);
+  transform: translate(-50%, -50%);
+}
+
+.ms-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--knob) / 2 + 2px + (100% - var(--knob) - 4px) * var(--pos));
+  width: var(--knob);
+  height: var(--knob);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  transform: translate(-50%, -50%);
+}
+
+/* Settling on a step eases; dragging follows the pointer straight. */
+.menu-slider:not(.dragging) :is(.ms-fill, .ms-thumb) {
+  transition: width .18s cubic-bezier(.2, .8, .2, 1), left .18s cubic-bezier(.2, .8, .2, 1), opacity .18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-slider :is(.ms-fill, .ms-thumb) { transition: none; animation: none; }
 }
 
 /* ---------- layout ---------- */
@@ -10421,6 +10524,11 @@ body.layout-animating #previewPane {
   padding: 0 4px;
   margin-top: -6px;
   font-size: 12px;
+}
+
+/* Full access is on: the row's description reads as a warning. */
+.set-sub .set-warn {
+  color: var(--warn);
 }
 
 /* A warning-style description (the Light card's): red in every state, selected included. */

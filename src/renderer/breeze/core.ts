@@ -110,6 +110,8 @@ interface BreezeApi {
 
     stop(runId: number): Promise<void>;
     setModel(agent: string, model: string, effort?: string): Promise<boolean>;
+    fullAccess(): Promise<boolean>;
+    setFullAccess(on: boolean): Promise<boolean>;
     usage(): Promise<AgentUsage>;
     onEvent(cb: (runId: number, ev: AgentEvent) => void): () => void;
   };

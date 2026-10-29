@@ -104,16 +104,19 @@ function mentionedAgents(text: string): DetectedAgent[] {
 // Under the prompt: one chip per agent tagged in it, showing its model and effort; a click changes either.
 // Chips are kept between keystrokes so only a newly tagged agent slides in.
 function promptModelMenuItems(a: DetectedAgent): MenuItem[] {
+  const setEffort = (eff: EffortLevel) => background(applyModelAndEffort(a, a.version || a.models?.[0] || '', eff).then(renderPromptModels));
   const efforts: MenuItem[] = a.api ? [] : [
     { sep: true },
-    { label: 'Effort', enabled: () => false },
-    ...EFFORTS.map(eff => ({
-      label: eff,
-      checked: () => agentEffort(a) === eff,
-      run: () => background(applyModelAndEffort(a, a.version || a.models?.[0] || '', eff)),
-    })),
+    { slider: {
+      label: `${agentShortName(a)} effort`,
+      steps: EFFORTS,
+      value: () => EFFORTS.indexOf(agentEffort(a)),
+      set: i => setEffort(EFFORTS[i]),
+      hint: i => EFFORT_HINTS[EFFORTS[i]],
+      reset: () => setEffort(currentEffort()), // back to the level picked in Settings
+    } },
   ];
-  return [{ label: 'Model', enabled: () => false }, ...modelMenuItems(a), ...efforts];
+  return [{ label: 'Model', enabled: () => false }, ...modelMenuItems(a, false, false), ...efforts];
 }
 function promptModelHtml(a: DetectedAgent): string {
   const model = a.version || a.models?.[0] || '';

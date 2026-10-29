@@ -1146,6 +1146,11 @@ handle('sys:runCommand', async (_e, cmd) => {
   }
   return true;
 });
+// Full access: build mode runs with no guard. Agents may reach files outside the project, .env files and .git,
+// Claude skips every permission check and Codex leaves its sandbox. Off unless the user turns it on.
+const fullAccess = () => loadState().agentFullAccess === true;
+handle('agent:fullAccess', () => fullAccess());
+handle('agent:setFullAccess', (_e, on) => { saveState({ agentFullAccess: on === true }); return on === true; });
 handle('agent:setModel', async (_e, { agent, model, effort }) => {
   if (agent === 'codex') {
     const nextState = { codexModel: model || null };
@@ -1646,7 +1651,8 @@ const effortArg = effort => EFFORT_ARGS[String(effort || '').toLowerCase()] || n
 function cliArgs(agent, mode, prompt, session, team, shell) {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell);
   const build = mode === 'build';
-  const args = ['exec', '--json', '-s', build ? 'workspace-write' : 'read-only', '--skip-git-repo-check'];
+  const sandbox = !build ? 'read-only' : fullAccess() ? 'danger-full-access' : 'workspace-write';
+  const args = ['exec', '--json', '-s', sandbox, '--skip-git-repo-check'];
   const st = loadState();
   const model = st.codexModel;
   if (model && SAFE_MODEL.test(model)) args.push('-m', model);
@@ -1659,16 +1665,19 @@ function cliArgs(agent, mode, prompt, session, team, shell) {
   const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
   return { args, prompt: `${ask}\n\n${prompt}` };
 }
-// Claude Code in print mode: one JSON event per line. Build mode may edit files without asking; ask and plan
-// modes can read and search but every tool that changes files is switched off.
+// Claude Code in print mode: one JSON event per line. Build mode may edit files and run commands without asking
+// (with full access, every permission check is off); ask and plan modes can read and search but every tool that
+// changes files is switched off.
 const NO_SESSION = /No conversation found with session ID/i;
 const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'];
 // On a team, build mode also denies editing what a teammate owns (rule paths are relative to the project root).
 // Those rules can't pass through a shell (`shell`: an npm .cmd shim), so they come back as `deny` for a settings file.
 function claudeArgs(mode, prompt, session, team, shell) {
   const build = mode === 'build';
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', build ? 'acceptEdits' : 'default'];
+  const full = build && fullAccess();
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
   if (!build) args.push('--disallowedTools', ...CLAUDE_WRITE_TOOLS);
+  else if (!full) args.push('--allowedTools', 'Bash'); // print mode can't ask, so commands would otherwise be refused
   const deny = build && team ? claudeDenyArgs(team.coordinator.owners, team.agentId) : [];
   if (deny.length && !shell) args.push('--disallowedTools', ...deny);
   const st = loadState();
@@ -1899,13 +1908,18 @@ const LLM_TOOLS = [
   { name: 'search_files', description: 'Find lines containing some text (plain text, not a regex) across the project. Use it to find code before reading files.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
   { name: 'edit_file', description: 'Change a file by replacing one exact snippet. old_text must appear exactly once in the file: copy it from read_file, without the line numbers.', parameters: { type: 'object', properties: { path: { type: 'string' }, old_text: { type: 'string' }, new_text: { type: 'string' } }, required: ['path', 'old_text', 'new_text'] } },
   { name: 'write_file', description: 'Create a new file, or replace a whole file, with its complete contents. For changes to an existing file use edit_file.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
+  { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
 ].map(fn => ({ type: 'function', function: fn }));
-const WRITE_TOOLS = new Set(['edit_file', 'write_file']);
+const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'run_command']);
 const LIST_MAX = 200;
+const COMMAND_MS = 2 * 60 * 1000;
+const COMMAND_OUT_MAX = 8000; // characters of output the model gets back; the end is kept, where errors show
 
 // Each tool works inside ctx.base: the open project, or the Breeze Box folder. Secrets (.env…) and the .git
 // folder are off limits: what the model reads goes to the LLM server, and git's config and hooks run commands.
+// With full access none of that applies: any path on the computer is fair.
 function agentPath(ctx, rel) {
+  if (ctx.full) return path.resolve(ctx.base, String(rel ?? ''));
   const abs = resolveUnder(ctx.base, rel);
   const why = agentBlocked(ctx.base, abs);
   if (why) throw new Error(why);
@@ -1953,7 +1967,31 @@ const LLM_TOOL_FNS = {
   },
   async search_files(ctx, a) {
     emit(ctx.runId, { t: 'tool', kind: 'search', label: `Searched for ${a.query}` });
-    return brain.formatHits(await searchProject(String(a.query || ''), false, ctx.base, blockedRel));
+    return brain.formatHits(await searchProject(String(a.query || ''), false, ctx.base, ctx.full ? undefined : blockedRel));
+  },
+  // The shell's output, both streams as they came. The whole process tree stops at the time limit or when the run is stopped.
+  run_command(ctx, a) {
+    const command = String(a.command ?? '').trim();
+    if (!command) throw new Error('command is empty.');
+    emit(ctx.runId, { t: 'tool', kind: 'run', label: `$ ${command}` });
+    return new Promise(resolve => {
+      const child = spawn(command, { cwd: ctx.base, shell: true, windowsHide: true, env: process.env });
+      let out = '', timedOut = false;
+      const add = d => { out = (out + d).slice(-COMMAND_OUT_MAX * 2); };
+      child.stdout.on('data', add);
+      child.stderr.on('data', add);
+      const stop = () => killTree(child);
+      const timer = setTimeout(() => { timedOut = true; stop(); }, COMMAND_MS);
+      ctx.signal?.addEventListener('abort', stop, { once: true });
+      const finish = head => {
+        clearTimeout(timer);
+        ctx.signal?.removeEventListener('abort', stop);
+        const body = out.length > COMMAND_OUT_MAX ? `…${out.slice(-COMMAND_OUT_MAX)}` : out;
+        resolve(`${head}\n${body.trim() || '(no output)'}`);
+      };
+      child.on('error', err => finish(`Couldn't start it: ${err.message}`));
+      child.on('close', code => finish(timedOut ? `Stopped after ${COMMAND_MS / 60000} minutes.` : `Exit code ${code}.`));
+    });
   },
   async edit_file(ctx, a) {
     const abs = agentPath(ctx, a.path);
@@ -1980,7 +2018,7 @@ async function llmTool(ctx, call) {
   const name = call.function?.name;
   const fn = LLM_TOOL_FNS[name];
   if (!fn) throw new Error(`There is no tool called ${name}. Use one of: ${ctx.toolNames.join(', ')}.`);
-  if (WRITE_TOOLS.has(name) && ctx.mode !== 'build') throw new Error('This is read-only mode, so files can’t be changed. Describe the change instead.');
+  if (WRITE_TOOLS.has(name) && ctx.mode !== 'build') throw new Error('This is read-only mode, so files can’t be changed and commands can’t run. Describe the change instead.');
   let args;
   try { args = JSON.parse(call.function.arguments || '{}'); } catch { throw new Error('The arguments were not valid JSON. Call the tool again with a JSON object.'); }
   if (WRITE_TOOLS.has(name)) ctx.seen.clear(); // files changed, so reading them again is fair
@@ -2001,7 +2039,7 @@ function runToolCalls(ctx, calls) {
   }, Promise.resolve([]));
 }
 const LLM_MODE_NOTE = {
-  build: 'Build mode: make the change with edit_file (write_file only for new files), then say what you changed.',
+  build: 'Build mode: make the change with edit_file (write_file only for new files), run_command to build or test it, then say what you changed.',
   plan: 'Plan mode: read only. Look at the code you need, then reply with a short numbered plan of the changes.',
   ask: 'Ask mode: read only. Answer the question directly.',
 };
@@ -2092,8 +2130,9 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
   const map = fresh ? `Project map:\n${brain.projectMap((await listFiles(base)).map(f => relTo(base, f)), Math.min(2400, Math.floor(budget * 0.8)))}\n\n` : '';
   messages.push({ role: 'user', content: `${map}${prompt}\n\n(${LLM_MODE_NOTE[mode] ?? LLM_MODE_NOTE.ask})` });
   const tools = LLM_TOOLS.filter(t => mode === 'build' || !WRITE_TOOLS.has(t.function.name));
-  const ctx = { runId, base, cfg, mode, team: run.team, noTools: false, seen: new Map(), turn: 0, toolNames: tools.map(t => t.function.name) };
   run.abort = new AbortController();
+  const full = mode === 'build' && fullAccess();
+  const ctx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, seen: new Map(), turn: 0, toolNames: tools.map(t => t.function.name) };
   const started = Date.now();
   let tokens = 0, lastText = '';
   // One request; only the assistant's text and tool calls are kept (servers add extra fields).

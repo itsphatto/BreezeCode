@@ -5,6 +5,16 @@ interface MenuItem {
   sub?: () => MenuItem[];     // opens a submenu on hover
   subClass?: string;          // custom css class for submenu
   clickRuns?: boolean;        // with `sub`: a click runs the item, hovering still opens the submenu
+  slider?: MenuSlider;        // a row with a stepped slider in place of a label
+}
+// Steps picked by dragging or clicking along a track; the menu stays open while it changes.
+interface MenuSlider {
+  label: string;                      // what the slider sets, for screen readers
+  steps: readonly string[];
+  value: () => number;                // index into steps
+  set: (i: number) => void;
+  hint?: (i: number) => string;       // a line under the value
+  reset?: () => void;                 // shows a reset button
 }
 const hasFile = () => !!activeText();
 function searchSelection(): void {
@@ -528,9 +538,61 @@ function menuHeaderHtml(u: User): string {
   const detail = [u.email ?? u.login, u.provider].filter(Boolean).join(' · ');
   return `<div class="menu-label">${avatarHtml(u, '')}<span class="who"><b>${esc(u.name)}</b><small>${esc(detail)}</small></span></div>`;
 }
+function menuSliderHtml(sl: MenuSlider, i: number): string {
+  const dots = sl.steps.map((_s, k) => `<i data-style="--at:${k / (sl.steps.length - 1)}"></i>`).join('');
+  const reset = sl.reset ? `<button type="button" class="ms-reset" aria-label="Reset ${escAttr(sl.label)}">${svgIcon('rotateCcw', 13)}</button>` : '';
+  return `<div class="menu-slider" data-ms="${i}" data-style="--i:${i}">
+    <div class="ms-head"><b class="ms-val"></b>${sl.hint ? '<small class="ms-hint"></small>' : ''}${reset}</div>
+    <div class="ms-track" role="slider" tabindex="0" aria-label="${escAttr(sl.label)}" aria-valuemin="0" aria-valuemax="${sl.steps.length - 1}"><span class="ms-fill"></span>${dots}<span class="ms-thumb"></span></div>
+  </div>`;
+}
+// Draws the slider at step `i` (or, while dragging, at a fraction `at` of the track) and wires its pointer and keys.
+function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
+  const track = row.querySelector<HTMLElement>('.ms-track') as HTMLElement;
+  const last = sl.steps.length - 1;
+  const paint = (i: number, at = i / last) => {
+    row.style.setProperty('--pos', String(at));
+    (row.querySelector('.ms-val') as HTMLElement).textContent = sl.steps[i];
+    const hint = row.querySelector<HTMLElement>('.ms-hint');
+    if (hint && sl.hint) hint.textContent = sl.hint(i);
+    track.setAttribute('aria-valuenow', String(i));
+    track.setAttribute('aria-valuetext', sl.steps[i]);
+  };
+  const pick = (i: number) => { if (i !== sl.value()) sl.set(i); paint(sl.value()); };
+  const fraction = (e: PointerEvent) => { const r = track.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+  paint(sl.value());
+  row.onmousedown = e => e.preventDefault(); // keep focus where it was, like the other rows
+  track.onpointerdown = e => {
+    track.setPointerCapture(e.pointerId);
+    row.classList.add('dragging');
+    const at = fraction(e);
+    paint(Math.round(at * last), at);
+  };
+  track.onpointermove = e => {
+    if (!track.hasPointerCapture(e.pointerId)) return;
+    const at = fraction(e);
+    paint(Math.round(at * last), at);
+  };
+  track.onpointerup = e => {
+    row.classList.remove('dragging');
+    pick(Math.round(fraction(e) * last));
+  };
+  track.onpointercancel = () => { row.classList.remove('dragging'); paint(sl.value()); };
+  track.onkeydown = e => {
+    const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? last : step != null ? sl.value() + step : null;
+    if (to == null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    pick(Math.min(last, Math.max(0, to)));
+  };
+  const reset = row.querySelector<HTMLElement>('.ms-reset');
+  if (reset && sl.reset) { const r = sl.reset; reset.onclick = () => { r(); paint(sl.value()); }; }
+}
 function menuItemHtml(it: MenuItem, i: number): string {
   if (it.sep) return `<div class="menu-sep" data-style="--i:${i}"></div>`;
   if (it.header) return menuHeaderHtml(it.header);
+  if (it.slider) return menuSliderHtml(it.slider, i);
   const cls = ['menu-item', it.checked?.() ? 'checked' : '', it.sub ? 'has-sub' : '', i === kbIdx ? 'kb' : ''].filter(Boolean).join(' ');
   const disabled = it.enabled && !it.enabled() ? ' disabled' : '';
   const key = it.key ? `<span class="key">${esc(it.key)}</span>` : '';
@@ -551,6 +613,12 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
   $('#menuRoot').append(m);
   m.style.left = `${Math.max(8, Math.min(x, innerWidth - m.offsetWidth - 8))}px`;
   m.style.top = `${Math.max(8, Math.min(y, innerHeight - m.offsetHeight - 8))}px`;
+  $$<HTMLElement>('[data-ms]', m).forEach(row => {
+    const sl = items[Number(row.dataset.ms)].slider;
+    if (sl) bindMenuSlider(row, sl);
+    if (depth) row.onmouseenter = () => closeSubmenu(depth + 1);
+    else row.onmouseenter = () => closeSubmenu(1);
+  });
   $$('[data-mi]', m).forEach(b => {
     const it = items[Number(b.dataset.mi)];
     b.onmousedown = e => e.preventDefault(); // keep focus (and the selection) in the editor
@@ -591,7 +659,7 @@ function showMenu(x: number, y: number, items: MenuItem[], viaKeyboard: boolean)
   cancelMenuClose();
   sfx.play('menu');
   menuItems = items;
-  kbIdx = viaKeyboard ? items.findIndex(it => !it.sep && !it.header) : -1;
+  kbIdx = viaKeyboard ? items.findIndex(it => !it.sep && !it.header && !it.slider) : -1;
   $('#menuRoot').innerHTML = '';
   menuOwner = popOwner();
   const m = renderMenu(x, y, items);
@@ -645,7 +713,7 @@ document.addEventListener('mousedown', e => {
 });
 window.addEventListener('blur', closeMenu);
 function moveKbSelection(down: boolean): void {
-  const usable = menuItems.map((it, i) => (!it.sep && !it.header && (!it.enabled || it.enabled()) ? i : -1)).filter(i => i !== -1);
+  const usable = menuItems.map((it, i) => (!it.sep && !it.header && !it.slider && (!it.enabled || it.enabled()) ? i : -1)).filter(i => i !== -1);
   const pos = usable.indexOf(kbIdx);
   kbIdx = usable[(pos + (down ? 1 : -1) + usable.length) % usable.length] ?? -1;
   $$('[data-mi]').forEach(b => b.classList.toggle('kb', Number(b.dataset.mi) === kbIdx));

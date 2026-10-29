@@ -360,6 +360,12 @@ function modelLabel(a: DetectedAgent | null): string {
 
 const EFFORTS = ['Low', 'Medium', 'High', 'Extra'] as const;
 type EffortLevel = typeof EFFORTS[number];
+const EFFORT_HINTS: Record<EffortLevel, string> = {
+  Low: 'Quick answers, light thinking',
+  Medium: 'Balanced speed and depth',
+  High: 'Thinks harder, a little slower',
+  Extra: 'Deepest thinking, slowest',
+};
 
 function currentEffort(): EffortLevel {
   const stored = store.get<string>('breeze.effort', 'Medium');
@@ -400,21 +406,29 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
 }
 
 // makeDefault (an agent's own chip): setting its model or effort also makes it the default agent.
-function modelMenuItems(a: DetectedAgent, makeDefault = false): MenuItem[] {
+// efforts: each model opens a submenu of effort levels; without it a click just picks the model (the prompt's
+// menu sets effort with its slider instead).
+function modelMenuItems(a: DetectedAgent, makeDefault = false, efforts = true): MenuItem[] {
   const apply = (m: string, eff: EffortLevel) => background(applyModelAndEffort(a, m, eff).then(() => {
     if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
   }));
-  return (a.models ?? []).map(m => ({
-    label: versionLabel(m),
-    checked: () => (a.version || a.models?.[0]) === m,
-    subClass: 'effort-menu',
-    sub: () => EFFORTS.map(eff => ({
-      label: eff,
-      checked: () => (a.version || a.models?.[0]) === m && agentEffort(a) === eff,
-      run: () => apply(m, eff),
-    })),
-    run: () => apply(m, agentEffort(a)),
-  }));
+  return (a.models ?? []).map(m => {
+    const item: MenuItem = {
+      label: versionLabel(m),
+      checked: () => (a.version || a.models?.[0]) === m,
+      run: () => apply(m, agentEffort(a)),
+    };
+    if (!efforts) return item;
+    return {
+      ...item,
+      subClass: 'effort-menu',
+      sub: () => EFFORTS.map(eff => ({
+        label: eff,
+        checked: () => (a.version || a.models?.[0]) === m && agentEffort(a) === eff,
+        run: () => apply(m, eff),
+      })),
+    };
+  });
 }
 
 /* ----- Agent bar: one chip per installed agent; a chip inserts its @mention ----- */

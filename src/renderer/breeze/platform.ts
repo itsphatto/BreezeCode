@@ -286,6 +286,8 @@ function demoApi(): BreezeApi {
       },
       async stop() { /* demo runs finish on their own */ },
       async setModel() { return true; },
+      async fullAccess() { return store.get<boolean>('breeze.demoFullAccess', false); },
+      async setFullAccess(on) { store.set('breeze.demoFullAccess', on); return on; },
       // Made-up numbers, so the browser preview shows what Settings → Agents looks like.
       async usage() {
         const in2h = Math.floor(Date.now() / 1000) + 7200, in4d = in2h + 4 * 86400;
@@ -445,6 +447,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   x: [['path', { d: 'M18 6 6 18' }], ['path', { d: 'm6 6 12 12' }]],
   check: [['path', { d: 'M20 6 9 17l-5-5' }]],
   external: [['path', { d: 'M7 7h10v10' }], ['path', { d: 'M7 17 17 7' }]],
+  rotateCcw: [['path', { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' }], ['path', { d: 'M3 3v5h5' }]],
   undo: [['path', { d: 'M9 14 4 9l5-5' }], ['path', { d: 'M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11' }]],
   stop: [['rect', { x: 6, y: 6, width: 12, height: 12, rx: 2, fill: 'currentColor' }]],
   play: [['path', { d: 'M6 3l14 9-14 9z', fill: 'currentColor' }]],

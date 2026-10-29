@@ -17,6 +17,7 @@ const visibleSettingsTabs = () => SETTINGS_TABS.filter(([id]) => id !== 'dev' ||
 const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'ollama'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
 let settingsTab: SettingsTab = 'general';
+let agentFullAccess = false; // the main process keeps the real value; read each time Settings opens
 let justSwitched = false;
 const settingsRoot = () => document.querySelector<HTMLElement>('#modalRoot .scrim:not(.closing) .settings-modal');
 // The on/off switch (styles under "on/off switch" in breeze.css): a rounded track and a square knob that stretches as it slides.
@@ -239,6 +240,10 @@ function settingsBody(tab: SettingsTab): string {
       return `<h4>Agents</h4>
         <div class="set-agents">${list}</div>
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
+        <h5>Permissions</h5>
+        ${settingRow('Full access', agentFullAccess
+          ? '<span class="set-warn">On: in build mode agents run any command, reach any file on this computer (.env and .git too) and skip every check.</span>'
+          : 'Off: agents stay in the project, keep out of .env and .git, and Codex runs sandboxed.', switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
         ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}`;
     }
     case 'misc': return `<h4>Miscellaneous</h4>
@@ -377,6 +382,11 @@ function bindSettings(m: HTMLElement): void {
     finally { setTimeout(refreshSettings, 2500); }
   });
   on('sAgentPicker', () => openAgentPicker());
+  on('sFullAccess', () => background(api.agent.setFullAccess(!agentFullAccess).then(v => {
+    agentFullAccess = v;
+    toast(v ? 'Full access on: agents can run anything in build mode' : 'Full access off');
+    refreshSettings();
+  })));
   const usageEl = pane.querySelector<HTMLElement>('#sUsage');
   if (usageEl) {
     fillUsageBars(usageEl);
@@ -485,6 +495,7 @@ function refreshSettings(): void {
 
 function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   if (settingsRoot()) { closeModal(); return; }
+  background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; refreshSettings(); } }));
   closeMenu();
   if (tab) settingsTab = tab;
   const gears = [$('#settingsBtn'), $('#boxSettings')];
