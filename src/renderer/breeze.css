@@ -6369,11 +6369,11 @@ body.vibing .ide {
   padding: 6px;
 }
 
-/* Home's account button, top right just under the window buttons. */
+/* Home's account button, bottom left. */
 .home-profile {
   position: absolute;
-  top: 50px;
-  right: 22px;
+  bottom: 22px;
+  left: 22px;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -6402,8 +6402,10 @@ body.vibing .ide {
 }
 
 .home-profile:has(> .avatar) .avatar {
-  width: 33px;
-  height: 33px;
+  width: 40px;
+  height: 40px;
+  /* A thin, soft dark ring so the picture holds its edge against the sky. */
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .4);
 }
 
 .home-profile:focus-visible {

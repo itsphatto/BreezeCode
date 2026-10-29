@@ -133,7 +133,13 @@ function openAccountMenu(anchor: HTMLElement): void {
   const m = $('#menuRoot .menu');
   if (m) {
     m.classList.add('account-menu');
-    m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
+    if (anchor.id === 'homeProfile') {
+      // Home's button sits bottom left, so the menu opens upward from its left edge.
+      m.style.left = `${Math.max(8, r.left)}px`;
+      m.style.top = `${Math.max(8, r.top - 6 - m.offsetHeight)}px`;
+    } else {
+      m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
+    }
   }
 }
 for (const id of ['#avatars', '#boxAvatar', '#homeProfile']) {
