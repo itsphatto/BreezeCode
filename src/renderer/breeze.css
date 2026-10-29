@@ -700,7 +700,7 @@ button {
 .onboard:has(.home-step:not(.hidden)) .ob-sky {
   opacity: 1;
   visibility: visible;
-  filter: brightness(.86) saturate(1);
+  filter: brightness(.67) saturate(1);
   transition: opacity .6s ease;
 }
 
