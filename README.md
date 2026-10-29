@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="assets/brand/Icon.png" height="96" alt="">
-<br>
-<img src="assets/brand/BreezeCode.png" height="44" alt="Breeze Code">
+<img src="assets/brand/Icon.png" height="96" alt="Breeze Code">
 
 <br>
 

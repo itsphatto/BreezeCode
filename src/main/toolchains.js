@@ -180,7 +180,19 @@ function toolEnv(baseEnv, binDirs, platform, pathValue) {
 const DOTNET_URL = 'https://dotnet.microsoft.com/download';
 const JDK_URL = 'https://adoptium.net';
 const RUST_URL = 'https://rustup.rs';
+const GIT_URL = 'https://git-scm.com/downloads';
+const NODE_URL = 'https://nodejs.org/en/download';
 const MISSING = {
+  git: {
+    win32: { lead: "Git wasn't found. Install it with:", cmd: 'winget install Git.Git', url: GIT_URL },
+    darwin: { lead: "Git wasn't found. Install it with:", cmd: 'xcode-select --install', url: GIT_URL },
+    other: { lead: 'Install git with your package manager (e.g. sudo apt install git)', url: GIT_URL },
+  },
+  node: {
+    win32: { lead: "Node.js wasn't found. Install it with:", cmd: 'winget install OpenJS.NodeJS.LTS', url: NODE_URL },
+    darwin: { lead: "Node.js wasn't found. Install it with:", cmd: 'brew install node', url: NODE_URL },
+    other: { lead: 'Install Node.js with your package manager', url: NODE_URL },
+  },
   c: {
     win32: { lead: 'No C/C++ compiler found. Install one with:', cmd: 'winget install BrechtSanders.WinLibs.POSIX.UCRT' },
     darwin: { lead: 'No C/C++ compiler found. Install one with:', cmd: 'xcode-select --install' },

@@ -122,17 +122,21 @@ function detectTools(force = false): Promise<Detection> {
   return detecting;
 }
 // No Scan button: Breeze looks again on its own when it comes back into focus (an agent may have been installed or
-// signed in meanwhile) and when Settings → Agents opens, at most every 30 seconds. Settings redraws if anything changed.
+// signed in meanwhile) and when Settings → Agents or Help & About opens, at most every 30 seconds. Settings redraws if
+// anything changed. For ten minutes after an install starts (even during setup), every return to the window looks again.
 let lastAutoScan = 0;
 function autoRescan(): void {
-  if (!appState.onboarded || detecting || Date.now() - lastAutoScan < 30_000) return;
+  if (detecting || (!appState.onboarded && !installStarted) || Date.now() - lastAutoScan < 30_000) return;
   lastAutoScan = Date.now();
   const before = JSON.stringify(appState.detect);
   detectTools(true).then(d => {
-    if (JSON.stringify(d) !== before && settingsTab === 'agents' && settingsRoot()) refreshSettings();
+    if (JSON.stringify(d) !== before && (settingsTab === 'agents' || settingsTab === 'help') && settingsRoot()) refreshSettings();
   }, () => { /* the agent card shows the error */ });
 }
-window.addEventListener('focus', autoRescan);
+window.addEventListener('focus', () => {
+  if (Date.now() - installStarted < 10 * 60_000) lastAutoScan = 0;
+  autoRescan();
+});
 // Keep the chosen agent if it is still usable, else fall back to the first one that is.
 function fixSelectedAgent(): void {
   const found = appState.detect?.agents.filter(a => a.found) ?? [];
@@ -276,19 +280,49 @@ function bindAgentOptions(root: HTMLElement, onChange: () => void): void {
   bindLocalLlm(root, onChange);
 }
 
-const TOOL_DOWNLOADS: Record<string, string> = { git: 'https://git-scm.com/downloads', node: 'https://nodejs.org/en/download' };
+// What a missing tool's button does: run its install command in a terminal, or open its download page.
+// `does` says which, as the button's tooltip and in its accessible name.
+function toolInstall(t: DetectedTool): { attrs: string; does: string } {
+  const cmd = t.cmd || (t.hint && /^(?:winget|brew|xcode-select)\b/.test(t.hint) ? t.hint : null);
+  if (cmd) return { attrs: `data-run-cmd="${escAttr(cmd)}"`, does: `Installs ${t.name} in a terminal: ${cmd}` };
+  if (t.url) return { attrs: `data-get="${escAttr(t.url)}"`, does: `Opens the ${t.name} download page: ${t.url}` };
+  return { attrs: '', does: t.hint ?? '' };
+}
 function toolHtml(t: DetectedTool): string {
   if (!t.found) {
-    const cmd = t.cmd || (t.hint && /^(?:winget|brew|xcode-select)\b/.test(t.hint) ? t.hint : null);
-    const url = t.url || TOOL_DOWNLOADS[t.id] || null;
     const label = t.optional ? `${t.name} not found` : `${t.name} missing`;
     const cls = `pill pill-btn tool-pill-missing ${t.optional ? '' : 'warn'}`.trim();
-    const runAttr = cmd ? `data-run-cmd="${escAttr(cmd)}"` : '';
-    const getAttr = (!cmd && url) ? `data-get="${escAttr(url)}"` : '';
-    return `<button type="button" class="${cls}" data-tool-id="${escAttr(t.id)}" ${runAttr} ${getAttr}>${esc(label)}</button>`;
+    const { attrs, does } = toolInstall(t);
+    return `<button type="button" class="${cls}" data-tool-id="${escAttr(t.id)}" ${attrs} title="${escAttr(does)}" aria-label="${escAttr(`${label}. ${does}`)}">${esc(label)}</button>`;
   }
   const version = t.version ? ' ' + esc(t.version) : '';
   return `<span class="pill ok">${esc(t.name)}${version} ready</span>`;
+}
+// The install buttons, here and in Settings → Help & About. An install finishes in its own terminal, so for a while
+// after one starts Breeze looks again every time it comes back into focus (see autoRescan).
+let installStarted = 0;
+function bindToolButtons(root: HTMLElement): void {
+  $$('[data-get]', root).forEach(b => b.onclick = () => background(api.sys.openExternal(b.dataset.get ?? '')));
+  $$('[data-run-cmd]', root).forEach(b => {
+    b.onclick = async () => {
+      const cmd = b.dataset.runCmd;
+      if (!cmd) return;
+      b.classList.add('busy');
+      const prev = b.textContent;
+      swapText(b, 'Running');
+      try {
+        if (await api.sys.runCommand(cmd)) { installStarted = Date.now(); toast(`Launched terminal command: ${cmd}`); }
+        else toast(`Breeze can't run that command. Run it yourself: ${cmd}`);
+      } catch (err) {
+        toast(`Failed to run command: ${errMsg(err)}`);
+      } finally {
+        setTimeout(() => {
+          b.classList.remove('busy');
+          swapText(b, prev);
+        }, 2000);
+      }
+    };
+  });
 }
 function renderDetection(): void {
   const d = appState.detect;
@@ -304,27 +338,7 @@ function renderDetection(): void {
   if (d.demo) $('#aiHint').textContent += ' (Browser preview.)';
 
   $('#toolList').innerHTML = d.tools.map(toolHtml).join('');
-  $$('[data-get]', $('#toolList')).forEach(b => b.onclick = () => background(api.sys.openExternal(b.dataset.get ?? '')));
-  $$('[data-run-cmd]', $('#toolList')).forEach(b => {
-    b.onclick = async () => {
-      const cmd = b.dataset.runCmd;
-      if (!cmd) return;
-      b.classList.add('busy');
-      const prev = b.textContent;
-      swapText(b, 'Running');
-      try {
-        if (await api.sys.runCommand(cmd)) toast(`Launched terminal command: ${cmd}`);
-        else toast(`Breeze can't run that command. Run it yourself: ${cmd}`);
-      } catch (err) {
-        toast(`Failed to run command: ${errMsg(err)}`);
-      } finally {
-        setTimeout(() => {
-          b.classList.remove('busy');
-          swapText(b, prev);
-        }, 2000);
-      }
-    };
-  });
+  bindToolButtons($('#toolList'));
   const missing = d.tools.filter(t => !t.found && !t.optional).map(t => t.name);
   $('#toolsPill').className = missing.length ? 'pill warn' : 'pill ok';
   swapText($('#toolsPill'), missing.length ? `${missing.join(' & ')} missing` : 'Ready');

@@ -34,7 +34,9 @@ async function pushDiscord(): Promise<void> {
     discordLive = true;
   } catch (e) {
     discordLive = false;
-    renderDiscord('error', errMsg(e));
+    // Said once, in a toast; Settings only shows "Not connected" until it comes back.
+    if (discordState.state !== 'error') toast(errMsg(e));
+    renderDiscord('error');
   }
 }
 function queueDiscord(): void {
@@ -51,7 +53,7 @@ async function discordOn(details: boolean): Promise<boolean> {
     toast(r.user ? `Showing on Discord as ${r.user}` : 'Discord presence on');
     return true;
   } catch (e) {
-    openModal(`<h3>Couldn't reach Discord</h3><pre class="git-err">${esc(errMsg(e))}</pre><div class="row end"><button class="btn btn-primary" data-close>OK</button></div>`);
+    toast(errMsg(e));
     return false;
   }
 }
