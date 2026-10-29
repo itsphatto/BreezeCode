@@ -235,11 +235,15 @@ export class AntigravityAgentService extends EventEmitter {
                     stdio: ['pipe', 'pipe', 'pipe'],
                     windowsHide: true,
                 };
-                // On Windows, .bat/.cmd scripts must run through a shell or cmd.exe
+                // On Windows, .bat/.cmd scripts must run through cmd.exe, so the command line is quoted for it (see cmdLine)
+                let child;
                 if (isWindows && /\.(?:bat|cmd)$/i.test(execPath)) {
-                    spawnOptions.shell = true;
+                    const line = AntigravityAgentService.cmdLine(execPath, args);
+                    child = spawn(line.file, line.args, { ...spawnOptions, ...line.options });
                 }
-                const child = spawn(execPath, args, spawnOptions);
+                else {
+                    child = spawn(execPath, args, spawnOptions);
+                }
                 this.child = child;
                 // Configure stream encoding for UTF-8 isolation
                 child.stdout?.setEncoding('utf8');
@@ -894,8 +898,10 @@ export class AntigravityAgentService extends EventEmitter {
         else {
             args.push('--mode', 'plan');
         }
-        // Always skip interactive permission prompts in headless IDE runner
-        args.push('--dangerously-skip-permissions');
+        // Only a build run with Full access on skips agy's permission checks; ask, plan and commit messages never do
+        if (mode === 'build' && this.options.fullAccess === true) {
+            args.push('--dangerously-skip-permissions');
+        }
         // Specify the model chosen by the user
         const model = this.options.model || 'claude-sonnet-4-6';
         args.push('--model', model);
@@ -915,6 +921,27 @@ export class AntigravityAgentService extends EventEmitter {
             args.push('--print', this.options.prompt);
         }
         return args;
+    }
+    /**
+     * How to run a .cmd/.bat shim with `args` through cmd.exe without it reading any of them as its own syntax
+     * (& | > % ^…). Node's `shell: true` only joins the arguments with spaces, so a prompt like "a & b" ran b.
+     * Each argument is quoted for the program's own parser, then every cmd.exe metacharacter is ^-escaped twice:
+     * once for this command line and once more for the %* the shim passes on. cmd.exe ends a command at a line
+     * break, so line breaks become spaces rather than cutting the rest of the prompt off.
+     */
+    static cmdLine(execPath, args) {
+        if (execPath.includes('"'))
+            throw new Error(`Can't run ${execPath} through cmd.exe`);
+        const meta = /([()\][%!^"`<>&|;, *?])/g;
+        const quote = (arg) => {
+            const a = String(arg).replace(/\r?\n|\r/g, ' ')
+                .replace(/(\\*)"/g, '$1$1\\"') // backslashes before a quote are doubled, the quote escaped
+                .replace(/(\\*)$/, '$1$1'); // and so are trailing ones, which sit before the closing quote
+            return `"${a}"`.replace(meta, '^$1').replace(meta, '^$1');
+        };
+        const line = [`"${execPath}"`, ...args.map(quote)].join(' ');
+        const comspec = process.env.ComSpec || 'cmd.exe';
+        return { file: comspec, args: ['/d', '/s', '/c', `"${line}"`], options: { windowsVerbatimArguments: true } };
     }
     /**
      * The --effort value agy takes for this model, or null to leave the flag off.

@@ -153,6 +153,18 @@ test('cloud paths cannot escape the folder', async () => {
   assert.equal(fs.existsSync(path.join(dir, '..', 'evil.txt')), false);
 });
 
+test('the cloud never writes into .git, by any of its names', async () => {
+  const cloud = memoryStore();
+  const dir = tmp();
+  write(dir, 'a.txt', 'x');
+  fs.mkdirSync(path.join(dir, '.git', 'hooks'), { recursive: true });
+  const { link } = await syncWorkspace({ store: cloud, dir, link: null, device: 'L', name: 'p' });
+  for (const rel of ['.git/hooks/a', 'GIT~1/hooks/b', '.git./hooks/c', 'src\\.git\\hooks\\d']) cloud.files.set(`ws/${link.id}/${rel}`, Buffer.from('#!/bin/sh'));
+  await syncWorkspace({ store: cloud, dir, link, mode: 'pull', device: 'L', name: 'p' });
+  assert.deepEqual(fs.readdirSync(path.join(dir, '.git', 'hooks')), []);
+  assert.equal(has(dir, 'src'), false);
+});
+
 test('settings: newer side wins', async () => {
   const cloud = memoryStore();
   const first = await syncSettings(cloud, { updatedAt: '2026-01-01', values: { 'breeze.sound': true } });

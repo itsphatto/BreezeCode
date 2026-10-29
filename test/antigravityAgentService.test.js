@@ -261,7 +261,7 @@ test('buildSpawnArgs: configures agy with requested model, effort, and headless 
   const args = service['buildSpawnArgs']('agy.exe');
   assert.ok(args.includes('--mode'), 'Must have --mode');
   assert.ok(args.includes('auto'), 'Build mode maps to auto');
-  assert.ok(args.includes('--dangerously-skip-permissions'), 'Headless runner needs permissions bypass');
+  assert.ok(!args.includes('--dangerously-skip-permissions'), 'Only Full access skips permissions');
   assert.ok(args.includes('--model'), 'Must have --model');
   assert.ok(args.includes('claude-opus-4-6-thinking'), 'Must specify chosen model');
   assert.ok(!args.includes('--effort'), 'agy rejects --effort for Claude models');
@@ -269,6 +269,47 @@ test('buildSpawnArgs: configures agy with requested model, effort, and headless 
   assert.ok(args.includes('stream-json'), 'Must be stream-json');
   assert.ok(args.includes('--print'), 'Must specify print flag');
   assert.ok(args.includes('Implement feature'), 'Must specify prompt');
+});
+
+test('buildSpawnArgs: permissions are skipped only in build mode with Full access', () => {
+  const skips = o => new AntigravityAgentService({ prompt: 'p', ...o })['buildSpawnArgs']('agy.exe').includes('--dangerously-skip-permissions');
+  assert.equal(skips({ mode: 'build', fullAccess: true }), true);
+  assert.equal(skips({ mode: 'build' }), false);
+  assert.equal(skips({ mode: 'plan', fullAccess: true }), false);
+  assert.equal(skips({ mode: 'ask', fullAccess: true }), false);
+});
+
+// A .cmd shim runs through cmd.exe, which must see the prompt as text, never as its own syntax.
+test('cmdLine: a .cmd shim gets every argument intact and runs nothing else', { skip: process.platform !== 'win32' }, () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { spawnSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze agy '));
+  fs.writeFileSync(path.join(dir, 'cli.js'), "require('fs').writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)))");
+  // The same shape as the shim npm writes for a global package.
+  fs.writeFileSync(path.join(dir, 'agy.cmd'), '@ECHO off\r\nSETLOCAL\r\nnode "%~dp0\\cli.js" %*\r\n');
+  const out = path.join(dir, 'argv.json');
+  const prompts = [
+    'add login & echo INJECTED> INJECTED.txt & rem',
+    'x > y | z < w',
+    '"quoted" 100% %PATH% !PATH! ^caret (paren) ; , = * ?',
+    'trail\\',
+    'back\\"slash \\\\" end',
+    'tab\there ünï€ode 日本',
+  ];
+  for (const p of prompts) {
+    fs.rmSync(out, { force: true });
+    const { file, args, options } = AntigravityAgentService.cmdLine(path.join(dir, 'agy.cmd'), [out, '--print', p]);
+    spawnSync(file, args, { ...options, cwd: dir });
+    assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), ['--print', p]);
+  }
+  // cmd.exe ends a command at a line break, so line breaks travel as spaces instead of cutting the prompt off.
+  fs.rmSync(out, { force: true });
+  const { file, args, options } = AntigravityAgentService.cmdLine(path.join(dir, 'agy.cmd'), [out, 'line1\nline2 & echo NL> NL.txt\r\nline3']);
+  spawnSync(file, args, { ...options, cwd: dir });
+  assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), ['line1 line2 & echo NL> NL.txt line3']);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['agy.cmd', 'argv.json', 'cli.js']);
 });
 
 test('effortFlag: only passes --effort where agy accepts it', () => {
