@@ -30,6 +30,17 @@ function goStep(n: number): void {
   if (n > STEP.welcome) revealBackdrop();
 }
 $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
+// While the onboarding screen (and so Home) is up, the window buttons sit straight on its backdrop, not on a dark bar.
+let barCleared: boolean | undefined;
+function syncTitleBar(): void {
+  const ob = $('#onboard');
+  const on = !ob.classList.contains('hidden') && !ob.classList.contains('screen-out');
+  if (on === barCleared) return;
+  barCleared = on;
+  background(api.win.clearBar(on));
+}
+new MutationObserver(syncTitleBar).observe($('#onboard'), { attributes: true, attributeFilter: ['class'] });
+syncTitleBar();
 
 /* Welcome: it sits on the launch sky; Start breezing eases the sky away to the city video (the fade is in breeze.css). */
 const obBg = $('#obBg');
@@ -65,7 +76,7 @@ function renderHomeProfile(): void {
   $('#homeTitle').textContent = !appState.onboarded ? "You're all set" : first ? `Welcome back, ${first}` : 'Welcome back';
   const btn = $('#homeProfile');
   btn.innerHTML = user
-    ? `${avatarHtml(user, '')}<span class="hp-txt"><span class="nm">${esc(user.name)}</span><span class="sub">${esc(user.provider)}</span></span>${svgIcon('chevronDown', 14)}`
+    ? avatarHtml(user, '')
     : `<span class="hp-ico">${svgIcon('user', 15)}</span><span class="hp-txt"><span class="nm">Sign in</span></span>`;
   btn.title = user ? `${user.name} · ${user.provider}` : 'Sign in with GitHub or Google';
   // Signed in it opens the account menu; signed out it goes straight to signing in.

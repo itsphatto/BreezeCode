@@ -140,6 +140,7 @@ contextBridge.exposeInMainWorld('breeze', {
     quit: () => invoke('win:quit'),
     edit: role => invoke('win:edit', role),
     theme: t => invoke('win:theme', t),
+    clearBar: on => invoke('win:clearBar', on),
     launchWait: () => invoke('win:launchWait'),
     launchShow: () => invoke('win:launchShow'),
   },

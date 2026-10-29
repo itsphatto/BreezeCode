@@ -167,7 +167,7 @@ interface BreezeApi {
     hide(): Promise<void>;
   };
   win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>;
-    launchWait(): Promise<number | null>; launchShow(): Promise<void>; };
+    clearBar(on: boolean): Promise<void>; launchWait(): Promise<number | null>; launchShow(): Promise<void>; };
 }
 interface Window { breeze?: BreezeApi; }
 

@@ -258,7 +258,7 @@ function createWindow() {
     icon: APP_ICON,
     backgroundColor: '#1d1d1f',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#232325', symbolColor: '#aaaaaa', height: 38 },
+    titleBarOverlay: { color: '#232325', symbolColor: '#aaaaaa', height: 44 },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -1185,13 +1185,24 @@ handle('win:quit', () => app.quit());
 const THEME_CHROME = {
   dark: { bg: '#1d1d1f', bar: '#232325', symbols: '#aaaaaa' },
   contrast: { bg: '#000000', bar: '#0b0b0d', symbols: '#a1a1aa' },
-  light: { bg: '#ffffff', bar: '#f5f5f7', symbols: '#5f5f64' },
+  light: { bg: '#fbf9f4', bar: '#f4f1e8', symbols: '#5f5f64' },
 };
+let chrome = THEME_CHROME.dark;
+// Over Home's sky and the setup backdrop the buttons drop their bar and draw light straight onto the picture.
+let clearBar = false;
+const paintTitleBar = () => win?.setTitleBarOverlay(clearBar
+  ? { color: '#00000000', symbolColor: '#e8ecff', height: 44 }
+  : { color: chrome.bar, symbolColor: chrome.symbols, height: 44 });
 handle('win:theme', (_e, theme) => {
   const c = THEME_CHROME[theme];
   if (!c || !win) return;
+  chrome = c;
   win.setBackgroundColor(c.bg);
-  win.setTitleBarOverlay({ color: c.bar, symbolColor: c.symbols, height: 38 });
+  paintTitleBar();
+});
+handle('win:clearBar', (_e, on) => {
+  clearBar = on === true;
+  paintTitleBar();
 });
 handle('win:edit', (_e, role) => {
   const wc = win?.webContents;

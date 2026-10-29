@@ -407,6 +407,7 @@ function demoApi(): BreezeApi {
       async quit() { window.close(); },
       edit: demoEdit,
       async theme() { /* the browser draws its own title bar */ },
+      async clearBar() { /* nor are there window buttons to clear */ },
       // No splash window in the browser: the page plays the whole launch itself (init.ts).
       async launchWait() { return null; },
       async launchShow() { /* the page is already showing */ },

@@ -692,6 +692,18 @@ button {
   transition: opacity 1.4s cubic-bezier(.65, 0, .35, 1), visibility 0s 1.4s;
 }
 
+/* Home sits on the launch sky again rather than the city, turned down so the glassy cards and white text stay calm on it. */
+.onboard:has(.home-step:not(.hidden)) .ob-bg {
+  visibility: hidden;
+}
+
+.onboard:has(.home-step:not(.hidden)) .ob-sky {
+  opacity: 1;
+  visibility: visible;
+  filter: brightness(.86) saturate(1);
+  transition: opacity .6s ease;
+}
+
 /* Over the sky the blue button would vanish into the blue, so it turns white until the city comes up. */
 .ob-step[data-step="0"] .btn-primary {
   background: #f5f5f7;
@@ -723,9 +735,9 @@ button {
   --bg-3: rgba(50, 50, 52, .8);
 }
 
-.onboard :is(.setup-card, .start-tile, .device-code),
+.onboard :is(.setup-card, .start-tile, .device-code, .home-recent, .home-agent),
 .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) {
-  backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: blur(36px) saturate(1.3);
 }
 
 /* The GitHub and Google buttons are see-through so the photo shows behind them. */
@@ -5916,8 +5928,22 @@ body.vibing .ide {
 
 /* ================= Home: jump back in, or start a project ================= */
 .ob-step.home-step {
-  width: min(920px, calc(100vw - 48px));
+  /* Home runs a size up from the setup steps; the width is divided back so it still fits narrow windows. */
+  zoom: 1.15;
+  width: min(920px, calc((100vw - 48px) / 1.15));
   text-align: left;
+}
+
+/* Smoked glass: darker than the sky but well short of the setup steps' near-black, so it shows through the blur. */
+.onboard .ob-step.home-step {
+  --bg: rgba(14, 18, 40, .36);
+  --bg-1: rgba(14, 18, 40, .4);
+  --bg-2: rgba(14, 18, 40, .44);
+  --bg-3: rgba(14, 18, 40, .5);
+  --line: rgba(255, 255, 255, .16);
+  /* The sky is pale in its corners, so the greys under the titles lift to stay readable. */
+  --text-2: rgba(255, 255, 255, .82);
+  --text-3: rgba(255, 255, 255, .64);
 }
 
 /* Once set up, Home is its own screen rather than a setup step: no progress dots. */
@@ -6234,66 +6260,6 @@ body.vibing .ide {
   color: var(--text);
 }
 
-/* Idle life on Home's icons: a short move, replayed every 1.2s. On the shapes inside each svg, so the
-   button's own hover zoom (on the svg) still works. */
-.start-ico [data-icon] > *,
-.hp-ico [data-icon="user"] > circle {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.start-ico [data-icon="folder"] > * {
-  animation: idleLift 1.2s ease-in-out infinite;
-}
-
-/* The plus turns a quarter, which lands it back on its own shape. */
-.start-ico [data-icon="plus"] > * {
-  transform-box: view-box;
-  transform-origin: 12px 12px;
-  animation: idleTurn 1.2s cubic-bezier(.5, 0, .2, 1) .4s infinite;
-}
-
-.hp-ico [data-icon="user"] > circle {
-  animation: idleNod 1.2s ease-in-out .8s infinite;
-}
-
-@keyframes idleTurn {
-  0% {
-    transform: none;
-  }
-  40%, 100% {
-    transform: rotate(90deg);
-  }
-}
-
-@keyframes idleLift {
-  0%, 40%, 100% {
-    transform: none;
-  }
-  20% {
-    transform: translateY(-1.5px);
-  }
-}
-
-@keyframes idleNod {
-  0%, 36%, 100% {
-    transform: none;
-  }
-  12% {
-    transform: translateY(-1.5px);
-  }
-  24% {
-    transform: translateY(.5px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .start-ico [data-icon] > *,
-  .hp-ico [data-icon] > * {
-    animation: none;
-  }
-}
-
 .start-tile:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
@@ -6425,6 +6391,19 @@ body.vibing .ide {
 
 .home-profile.open {
   border-color: var(--line-hi);
+}
+
+/* Signed in it is just the picture; the name and provider are in the menu it opens. */
+.home-profile:has(> .avatar) {
+  padding: 0;
+  border: 0;
+  background: none;
+  backdrop-filter: none;
+}
+
+.home-profile:has(> .avatar) .avatar {
+  width: 33px;
+  height: 33px;
 }
 
 .home-profile:focus-visible {
