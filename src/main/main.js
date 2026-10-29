@@ -2789,7 +2789,7 @@ syncHandle('sync:clone', (_e, id) => oneSync(async () => {
     defaultPath: app.getPath('documents'), properties: ['openDirectory', 'createDirectory'],
   });
   if (r.canceled || !r.filePaths[0]) return null;
-  const safeName = ws.name.replace(/[/:*?"<>|]/g, '-') || 'workspace';
+  const safeName = ws.name.replace(/[/\\:*?"<>|]/g, '-').replace(/^\.+$/, '') || 'workspace';
   // The first of "name", "name (2)", "name (3)"… that doesn't exist yet or is an empty folder.
   const taken = async d => fs.existsSync(d) && (await fsp.readdir(d)).length > 0;
   let dir = path.join(r.filePaths[0], safeName);

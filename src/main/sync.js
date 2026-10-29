@@ -148,7 +148,8 @@ async function syncWorkspace({ store, dir, link, mode = 'sync', device, name, ba
 
   // Download first: if the upload then fails, nothing here was lost and the next sync picks up again.
   await pool(plan.download, 6, async rel => {
-    if (rel.split('/').some(part => /^\.git$/i.test(part))) return; // never let the cloud write into .git
+    // Never let the cloud write into .git, which Windows also knows as "GIT~1" or ".git.".
+    if (rel.split(/[\\/]/).some(part => /^(?:\.git|git~1)[. ]*$/i.test(part))) return;
     const buf = await fetchRemote(rel);
     await backup(rel);
     const abs = target(rel);
