@@ -81,6 +81,15 @@ const themeCardHtml = ([id, name, sub, warn]: [Theme, string, string, boolean?])
   `<button class="set-theme ${id === theme ? 'on' : ''}" data-theme-pick="${id}" aria-pressed="${id === theme}">
     <span class="theme-swatch" data-swatch="${id}" aria-hidden="true"><span class="sw-bar"><i></i><i></i><i></i></span><span class="sw-side"><b></b><b></b><b></b></span><span class="sw-main"><b></b><b></b><b></b><b></b></span></span>
     <span class="nm">${esc(name)}</span><span class="set-sub${warn ? ' set-warn' : ''}">${esc(sub)}</span></button>`;
+// While a new theme paints in, the cards (and the note under them) show as shimmering placeholders for a beat,
+// then the real ones rise back in, drawn in the new colours.
+const THEME_SKEL_MS = 550;
+let themeSkelTimer = 0;
+const themeSkeletonHtml = () => `<h4>Appearance</h4>
+  <h5>Theme</h5>
+  <div class="set-themes theme-skel" aria-hidden="true">${THEMES.map(() =>
+    '<span class="theme-skel-card"><i class="theme-skel-swatch"></i><i class="skel-row theme-skel-nm"></i><i class="skel-row theme-skel-sub"></i></span>').join('')}</div>
+  <i class="skel-row theme-skel-note" aria-hidden="true"></i>`;
 function setTheme(t: Theme): void {
   if (t === theme) return;
   theme = t;
@@ -351,10 +360,26 @@ function bindSettings(m: HTMLElement): void {
   layoutSwitch('sResetLayout', 'view.resetLayout');
   // Appearance
   $$('[data-theme-pick]', pane).forEach(b => b.onclick = () => {
-    const from = pane.querySelector('.set-theme.on')?.getBoundingClientRect();
-    setTheme(b.dataset.themePick as Theme);
-    refreshSettings();
-    slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
+    const pick = b.dataset.themePick as Theme;
+    if (pick === theme) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const from = pane.querySelector('.set-theme.on')?.getBoundingClientRect();
+      setTheme(pick);
+      refreshSettings();
+      slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
+      return;
+    }
+    setTheme(pick);
+    pane.innerHTML = themeSkeletonHtml();
+    pane.setAttribute('aria-busy', 'true');
+    clearTimeout(themeSkelTimer);
+    themeSkelTimer = window.setTimeout(() => {
+      pane.removeAttribute('aria-busy');
+      // Moved to another section (or closed Settings) meanwhile: that pane is already drawn.
+      if (!pane.isConnected || settingsTab !== 'appearance' || !pane.querySelector('.theme-skel')) return;
+      refreshSettings();
+      staggerIn(pane.querySelectorAll('.set-themes > *, .set-themes ~ .set-sub'));
+    }, THEME_SKEL_MS);
   });
   // Agents
   $$('[data-agent-pick]', pane).forEach(b => b.onclick = () => {

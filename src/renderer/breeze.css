@@ -10691,6 +10691,45 @@ body.layout-animating #previewPane {
 .theme-swatch .sw-main b:nth-child(3) { width: 48%; }
 .theme-swatch .sw-main b:nth-child(4) { width: 70%; }
 
+/* Switching themes: the cards show as placeholders (same size as the real ones) while the new colours paint in. */
+.theme-skel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 8px 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-2);
+  animation: skelIn .2s ease backwards;
+}
+
+.theme-skel-swatch {
+  display: block;
+  aspect-ratio: 16 / 10;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--bg-3) 30%, var(--line) 50%, var(--bg-3) 70%) 0 0 / 300% 100%;
+  animation: skelShimmer 1.6s ease-in-out infinite;
+}
+
+.theme-skel-card .skel-row {
+  margin: 0 4px;
+}
+
+.theme-skel-nm {
+  width: 52%;
+  height: 11px;
+  margin-top: 2px !important;
+}
+
+.theme-skel-sub {
+  width: 70%;
+}
+
+.theme-skel-note {
+  width: 64%;
+  animation: skelIn .2s ease backwards, skelShimmer 1.6s ease-in-out infinite;
+}
+
 /* Switching themes cross-fades the window instead of snapping. */
 :root.theme-fading,
 :root.theme-fading *,
