@@ -77,12 +77,24 @@ function renderUser(): void {
 // Home's account button (picture, name and provider, or an invitation to sign in) and its greeting.
 function renderHomeProfile(): void {
   const first = user?.name.split(/\s+/)[0];
-  $('#homeTitle').textContent = !appState.onboarded ? "You're all set" : first ? `Welcome back, ${first}` : 'Welcome back';
+  // "Welcome back, (picture) name": the picture is the account button, sitting inside the heading.
+  // Signed out there is no one to welcome back, so it invites them in instead.
+  $('#homeGreet').textContent = (!appState.onboarded ? 'Ready when you are' : first ? 'Welcome Back' : 'Welcome to Breeze') + (first ? ',' : '');
+  $('#homeLead').textContent = !appState.onboarded ? 'Open a project to start building.'
+    : first ? 'Pick up where you left off, or start something new.'
+    : 'Sign in to bring your name and picture along, or just open a project.';
+  $('#homeName').textContent = first ?? '';
   const btn = $('#homeProfile');
+  // Signed in it sits in the heading beside the name; signed out the Sign in button goes back to the bottom left.
+  if (user) $('#homeTitle').insertBefore(btn, $('#homeName'));
+  else $('#onboard').appendChild(btn);
+  btn.classList.toggle('corner', !user);
   btn.innerHTML = user
     ? avatarHtml(user, '')
     : `<span class="hp-ico">${svgIcon('user', 15)}</span><span class="hp-txt"><span class="nm">Sign in</span></span>`;
-  btn.title = user ? `${user.name} · ${user.provider}` : 'Sign in with GitHub or Google';
+  // No hover tooltip; the label is kept for screen readers.
+  btn.removeAttribute('title');
+  btn.setAttribute('aria-label', user ? `${user.name} · ${user.provider}` : 'Sign in with GitHub or Google');
   // Signed in it opens the account menu; signed out it goes straight to signing in.
   btn.setAttribute('aria-haspopup', user ? 'menu' : 'dialog');
 }
@@ -138,9 +150,8 @@ function openAccountMenu(anchor: HTMLElement): void {
   if (m) {
     m.classList.add('account-menu');
     if (anchor.id === 'homeProfile') {
-      // Home's button sits bottom left, so the menu opens upward from its left edge.
+      // Home's button sits in the heading, so the menu drops down from its left edge.
       m.style.left = `${Math.max(8, r.left)}px`;
-      m.style.top = `${Math.max(8, r.top - 6 - m.offsetHeight)}px`;
     } else {
       m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
     }
@@ -232,7 +243,7 @@ api.auth.onEvent(ev => {
 
 // Hover icons (breeze.css, .icon-live): the loop runs while the pointer is on the button; leaving eases the icon back
 // from its current pose, since dropping a CSS animation snaps it home.
-const ICON_HOVER = '#pickFolder, #createFolder, #onboard .recent-forget, #onboard .recent-open, #onboard .btn, #homeProfile, #rescan';
+const ICON_HOVER = '#onboard .recent-forget, #onboard .recent-open, #onboard .btn, #homeProfile, #rescan';
 document.addEventListener('pointerover', e => (e.target as Element).closest?.(ICON_HOVER)?.classList.add('icon-live'));
 document.addEventListener('pointerout', e => {
   const b = (e.target as Element).closest?.(ICON_HOVER);

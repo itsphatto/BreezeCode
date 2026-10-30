@@ -174,8 +174,6 @@
     <div class="drag-strip"></div>
     <div class="ob-bg" id="obBg" aria-hidden="true"><video class="ob-video" src="../../assets/screens/chaophraya-loop.mp4" muted loop playsinline preload="auto" tabindex="-1"></video></div>
     <div class="ob-sky" aria-hidden="true"></div>
-    <!-- Home only: who is signed in, top right under the window buttons -->
-    <button class="home-profile hidden" id="homeProfile" aria-haspopup="menu" title="Account"></button>
     <!-- Welcome -->
     <section class="ob-step ob-await" data-step="0">
       <img class="ob-logo" src="../../assets/brand/Agent.png" width="72" height="72" alt="Breeze Code Logo">
@@ -242,37 +240,49 @@
     <!-- 3 · Home: where every launch lands, and the last step of first-run setup -->
     <section class="ob-step home-step hidden" data-step="3" aria-labelledby="homeTitle">
       <header class="home-head">
-        <h2 id="homeTitle">Welcome back</h2>
+        <h2 id="homeTitle"><span id="homeGreet">Welcome Back</span><button class="home-profile hidden" id="homeProfile" aria-haspopup="menu" aria-label="Account"></button><span id="homeName"></span></h2>
         <p class="lead" id="homeLead">Pick up where you left off, or start something new.</p>
       </header>
-      <section class="home-start" aria-label="Start a project">
-        <div class="start-row">
-          <button class="start-tile" id="pickFolder">
-            <span class="start-ico"><svg data-i="folder" data-size="18"></svg></span>
-            <span class="start-txt"><span class="nm">Open folder</span></span>
-          </button>
-          <button class="start-tile" id="createFolder">
-            <span class="start-ico"><svg data-i="plus" data-size="18"></svg></span>
-            <span class="start-txt"><span class="nm">Create new folder</span></span>
-          </button>
-        </div>
-      </section>
+      <!-- One way in leads (Open folder, the only blue on the screen); recent projects sit beside it. -->
       <div class="home-grid">
+        <section class="home-start" aria-label="Start a project">
+          <button class="start-tile primary" id="pickFolder" aria-keyshortcuts="Control+O">
+            <span class="start-ico"><svg data-i="folder" data-size="18"></svg></span>
+            <span class="start-txt"><span class="nm">Open folder…</span></span>
+            <kbd>Ctrl+O</kbd>
+          </button>
+          <button class="start-tile" id="createFolder" aria-keyshortcuts="Control+Shift+N">
+            <span class="start-ico"><svg data-i="folderPlus" data-size="18"></svg></span>
+            <span class="start-txt"><span class="nm">New folder…</span></span>
+            <kbd>Ctrl+Shift+N</kbd>
+          </button>
+          <button class="start-tile" id="pickFile">
+            <span class="start-ico"><svg data-i="file" data-size="18"></svg></span>
+            <span class="start-txt"><span class="nm">Open file…</span></span>
+          </button>
+          <button class="start-tile" id="createFile" aria-keyshortcuts="Control+N">
+            <span class="start-ico"><svg data-i="filePlus" data-size="18"></svg></span>
+            <span class="start-txt"><span class="nm">New file…</span></span>
+            <kbd>Ctrl+N</kbd>
+          </button>
+        </section>
         <section class="setup-card home-recent" aria-labelledby="homeRecentTitle">
           <header>
-            <h3 id="homeRecentTitle">Recent Folder</h3><span class="pill" id="homeRecentCount"></span>
+            <h3 id="homeRecentTitle">Recent projects</h3><span class="pill" id="homeRecentCount"></span>
           </header>
           <div class="recent-list" id="homeRecent" role="list"></div>
         </section>
-        <section class="setup-card home-agent" aria-labelledby="homeAgentTitle">
-          <header>
-            <h3 id="homeAgentTitle">Default agent</h3><button class="btn btn-ghost btn-sm" id="homeManageAgents">Manage</button>
-          </header>
-          <p class="muted">Pick the agent new chats and plans go to.</p>
-          <div class="agent-rows" id="homeAgents" role="radiogroup" aria-labelledby="homeAgentTitle"></div>
-          
-        </section>
       </div>
+      <!-- Your agents: every agent Breeze knows, found ones first. Picking one makes it the default; a missing one
+           offers its download page. -->
+      <section class="setup-card home-agent" aria-labelledby="homeAgentTitle">
+        <header>
+          <h3 id="homeAgentTitle">Your agents</h3>
+          <p class="muted" id="homeAgentNote">New chats and plans go to the one you pick.</p>
+          <button class="icon-btn" id="homeRescan" title="Scan this computer for agents" aria-label="Scan this computer for agents"><svg width="16" height="16"><use href="#i-refresh" /></svg></button>
+        </header>
+        <div class="agent-rows" id="homeAgents" role="radiogroup" aria-labelledby="homeAgentTitle"></div>
+      </section>
     </section>
 
     <div class="ob-dots"><span class="on"></span><span></span><span></span><span></span></div>

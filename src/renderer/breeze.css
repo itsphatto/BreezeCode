@@ -700,7 +700,7 @@ button {
 .onboard:has(.home-step:not(.hidden)) .ob-sky {
   opacity: 1;
   visibility: visible;
-  filter: brightness(.67) saturate(1);
+  filter: brightness(.5) saturate(1);
   transition: opacity .6s ease;
 }
 
@@ -4426,9 +4426,21 @@ textarea:not(:placeholder-shown) + .ph-rot {
   animation: modalGrow .5s cubic-bezier(.32, .72, 0, 1);
 }
 
-/* Sign-in is solid: through the glass, Home's blue (Continue, the default agent) bled in as a tint. */
+/* Sign-in wears the same night-blue glass as the Home cards behind it (same tint, border, corners and buttons).
+   The blur is what keeps Home's blue (Continue, the default agent) from showing through as patches. */
 .modal:has(.signin-modal) {
-  background: var(--bg-1);
+  --text-2: rgba(255, 255, 255, .72);
+  background: color-mix(in srgb, rgb(28, 31, 46) 78%, transparent);
+  border-color: rgba(255, 255, 255, .1);
+  border-radius: 14px;
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.modal:has(.signin-modal) .signin-btns .btn {
+  background: rgba(38, 42, 60, .96);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 12px;
+  color: var(--text);
 }
 
 /* Modals open by unrolling downward as their parts arrive (a strip at the top first, the full panel last),
@@ -6177,26 +6189,38 @@ body.vibing .ide {
   text-align: left;
 }
 
-/* Smoked glass: darker than the sky but well short of the setup steps' near-black, so it shows through the blur. */
+/* Solid night-blue panels rather than glass: the sky behind them is the brand, the panels are content and stay calm.
+   #aaaaaa-level greys on #1C1F2E read about 7:1. */
 .onboard .ob-step.home-step {
-  --bg: rgba(14, 18, 40, .36);
-  --bg-1: rgba(14, 18, 40, .4);
-  --bg-2: rgba(14, 18, 40, .44);
-  --bg-3: rgba(14, 18, 40, .5);
-  --line: rgba(255, 255, 255, .16);
-  /* The sky is pale in its corners, so the greys under the titles lift to stay readable. */
-  --text-2: rgba(255, 255, 255, .82);
-  --text-3: rgba(255, 255, 255, .64);
+  --bg: rgba(28, 31, 46, .94);
+  --bg-1: rgba(28, 31, 46, .94);
+  --bg-2: rgba(28, 31, 46, .94);
+  --bg-3: rgba(38, 42, 60, .96);
+  --line: rgba(255, 255, 255, .1);
+  --text-2: rgba(255, 255, 255, .72);
+  --text-3: rgba(255, 255, 255, .56);
 }
 
-/* Once set up, Home is its own screen rather than a setup step: no progress dots. */
-.onboard.settled .ob-dots {
+.onboard .home-step :is(.setup-card, .start-tile, .home-recent, .home-agent) {
+  backdrop-filter: none;
+}
+
+/* A touch more see-through than the base cards, so the sky shows through a little. Text keeps full opacity. */
+.onboard .home-step :is(.home-recent, .home-agent, .start-tile:not(.primary)) {
+  background: color-mix(in srgb, var(--bg-2) 70%, transparent);
+}
+
+.onboard .home-step .start-tile.primary {
+  background: color-mix(in srgb, var(--blue) 82%, transparent);
+}
+
+/* Home is where every launch lands, not a step to count: no progress dots. */
+.onboard:has(.home-step:not(.hidden)) .ob-dots {
   display: none;
 }
 
 .home-head {
-  text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: 28px;
 }
 
 .home-head h2 {
@@ -6205,7 +6229,8 @@ body.vibing .ide {
 }
 
 .home-head p.lead {
-  margin: 0;
+  /* Tucked closer to the title; the bottom margin gives the pulled-up space back so nothing below shifts. */
+  margin: -6px 0 6px;
   color: rgba(255, 255, 255, .8);
   font-size: 18px;
 }
@@ -6228,11 +6253,38 @@ body.vibing .ide {
   }
 }
 
+/* Ways in on the leading side, recent projects beside them; stacked when the window is narrow. */
 .home-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 14px;
-  align-items: stretch;
+}
+
+/* Side by side, Recent projects is exactly as tall as the four ways in: size containment stops its list from
+   stretching the row, and the list scrolls inside. Stacked on a narrow window it keeps the list's own capped height. */
+@media (min-width: 761px) {
+  .home-grid .home-recent {
+    contain: size;
+  }
+
+  .home-grid .recent-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+/* Only the greeting speaks in Unbounded; every heading under it is the UI face. */
+.home-step .setup-card h3 {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.home-step .setup-card .muted,
+.home-step .recent-empty {
+  font-size: 13px;
 }
 
 .home-recent {
@@ -6395,6 +6447,9 @@ body.vibing .ide {
   mask-size: 250% 100%;
   -webkit-mask-position: 100% 0;
   mask-position: 100% 0;
+  /* No tiling: a repeated tile peeked in at the right edge as a thin blue line while the sweep was at rest. */
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
   transition: -webkit-mask-position .5s cubic-bezier(.2, .8, .2, 1), mask-position .5s cubic-bezier(.2, .8, .2, 1);
 }
 
@@ -6483,20 +6538,15 @@ body.vibing .ide {
   opacity: .6;
 }
 
-/* Start a project: the two ways in, side by side across the top. */
+/* Start a project: the two ways in, stacked, each with the shortcut that does the same. */
 .home-start {
-  margin-bottom: 14px;
-}
-
-.start-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 8px;
 }
 
 .start-tile {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 14px;
@@ -6510,6 +6560,31 @@ body.vibing .ide {
 .start-tile:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
+}
+
+.start-tile kbd {
+  font: 500 12px var(--font-ui);
+  color: var(--text-3);
+}
+
+/* The one blue on Home: white on --blue reads 4.65:1. Its focus ring goes white so it still shows. */
+.start-tile.primary {
+  background: var(--blue);
+  border-color: transparent;
+  color: #fff;
+}
+
+.start-tile.primary .start-ico {
+  background: rgba(255, 255, 255, .18);
+  color: #fff;
+}
+
+.start-tile.primary kbd {
+  color: rgba(255, 255, 255, .8);
+}
+
+.start-tile.primary:focus-visible {
+  outline-color: #fff;
 }
 
 .start-ico {
@@ -6548,13 +6623,75 @@ body.vibing .ide {
   border-radius: 14px;
 }
 
+/* The heading and its note on the leading side, with room below before the roster; the rescan button keeps to the
+   trailing corner. */
 .home-agent header {
-  padding: 4px 2px 0 6px;
+  position: relative;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 4px 40px 8px 6px;
   margin: 0;
 }
 
 .home-agent .muted {
-  margin: 0 6px 6px;
+  margin: 0;
+}
+
+/* Under the ways in and recent projects. */
+.home-step .home-agent {
+  margin-top: 14px;
+}
+
+#homeRescan {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+#homeRescan.busy svg {
+  animation: spin .8s linear infinite;
+}
+
+.home-agent .agent-row {
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+}
+
+/* One line, so the "Default ·" label never wraps a row taller and nudges the roster when the default moves. */
+.home-agent .agent-row .sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Not installed: greyed so the ones you can pick stand out, but the name stays readable (white at .56 on the
+   panel is about 6:1) and Get stays a full-strength button. */
+.home-agent .agent-row.missing {
+  cursor: default;
+  border-style: dashed;
+}
+
+.home-agent .agent-row.missing .agent-mark {
+  filter: grayscale(1);
+  opacity: .5;
+}
+
+.home-agent .agent-row.missing .nm {
+  color: var(--text-2);
+}
+
+.home-agent .agent-row.missing .sub {
+  color: var(--text-3);
+}
+
+/* The roster: found agents side by side, wrapping on narrow windows, each rising in as the scan reports it. */
+.home-agent .agent-rows {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.home-agent .agent-row {
+  animation: rise .35s cubic-bezier(.2, .8, .2, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
 }
 
 /* Pinned to the card's foot, so the card lines up with Jump back in beside it. */
@@ -6618,13 +6755,12 @@ body.vibing .ide {
   padding: 6px;
 }
 
-/* Home's account button, bottom left. */
+/* Home's account button, inline in the heading between "Welcome back," and the name. */
 .home-profile {
-  position: absolute;
-  bottom: 22px;
-  left: 22px;
+  position: relative;
   z-index: 2;
-  display: flex;
+  display: inline-flex;
+  vertical-align: middle;
   align-items: center;
   gap: 9px;
   padding: 5px 10px 5px 5px;
@@ -6636,6 +6772,14 @@ body.vibing .ide {
   color: var(--text);
   animation: fade .35s ease;
   transition: border-color .15s, background-color .15s;
+}
+
+/* Signed out: the Sign in button leaves the heading and sits in the bottom left corner. */
+.home-profile.corner {
+  position: absolute;
+  bottom: 22px;
+  left: 22px;
+  display: flex;
 }
 
 .home-profile.open {
@@ -6653,6 +6797,13 @@ body.vibing .ide {
 .home-profile:has(> .avatar) .avatar {
   width: 40px;
   height: 40px;
+}
+
+.home-head h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 14px;
 }
 
 .home-profile:focus-visible {
@@ -6704,8 +6855,7 @@ body.vibing .ide {
 }
 
 @media (max-width: 760px) {
-  .home-grid,
-  .start-row {
+  .home-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -11178,8 +11328,6 @@ body.layout-animating #previewPane {
 /* Onboarding and Home: each icon acts out what its button does, over and over while the pointer is on it. Each loop
    moves straight away (no still frame first) and then rests a beat before the next. .icon-live (onboarding.ts) stands
    in for :hover, so leaving can ease the icon home from wherever it is instead of snapping. */
-#pickFolder.icon-live svg { animation: icon-tilt 1.8s infinite; }
-#createFolder.icon-live svg,
 #onboard .recent-forget.icon-live svg { animation: icon-turn 1.6s cubic-bezier(.34, 1.56, .64, 1) infinite; }
 #onboard .recent-open.icon-live .recent-go svg { animation: icon-nudge 1.3s ease-in-out infinite; }
 #onboard .btn.icon-live svg { animation: icon-hop 1.3s ease-in-out infinite; }

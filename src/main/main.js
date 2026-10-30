@@ -641,6 +641,29 @@ handle('fs:createFolder', async () => {
   return setRoot(r.filePath);
 });
 
+// Opens one file. Inside the open project it opens there; anywhere else its folder becomes the project, as when a
+// file is opened from Explorer.
+handle('fs:openFile', async () => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile'] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const { dir, file } = placeLaunch({ abs: r.filePaths[0], isDir: false }, root);
+  return { ...(await setRoot(dir)), open: file, launched: true };
+});
+
+// Asks where to save a new file (its name is typed in the dialog), creates it empty and opens it the same way.
+// Picking a file that already exists opens it as it is rather than emptying it.
+handle('fs:newFile', async () => {
+  const r = await dialog.showSaveDialog(win, {
+    title: 'Create a new file', buttonLabel: 'Create',
+    defaultPath: path.join(root ?? app.getPath('documents'), 'untitled.txt'),
+    properties: ['createDirectory'],
+  });
+  if (r.canceled || !r.filePath) return null;
+  await fsp.writeFile(r.filePath, '', { flag: 'a' });
+  const { dir, file } = placeLaunch({ abs: r.filePath, isDir: false }, root);
+  return { ...(await setRoot(dir)), open: file, launched: true };
+});
+
 handle('fs:restore', async () => {
   const { lastRoot } = loadState();
   try { const opened = await openLaunch(lastRoot); if (opened) return opened; } catch (e) { logError('open from Explorer')(e); }

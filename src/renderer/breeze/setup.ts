@@ -676,7 +676,6 @@ const projectHue = (name: string) => [...name].reduce((h, c) => (h * 31 + c.char
 // Long paths keep their end, the part that tells two projects apart.
 const shortPath = (p: string, max = 52) => p.length > max ? `…${p.slice(-(max - 1))}` : p;
 function renderHome(): void {
-  $('#homeLead').textContent = appState.onboarded ? 'Pick up where you left off, or start something new.' : 'Open a project to start building.';
   renderHomeProfile();
   renderHomeAgent();
   renderRecentList();
@@ -704,7 +703,7 @@ function renderRecentList(): void {
   const list = homeRecent;
   const el = $('#homeRecent');
   $('#homeRecentCount').textContent = list?.length ? String(list.length) : '';
-  const empty = `<div class="recent-empty">${svgIcon('folder', 20)}<span>Projects you open show up here, so you can jump straight back in.</span></div>`;
+  const empty = `<div class="recent-empty"><span>Projects you open show up here, so you can jump straight back in.</span></div>`;
   const html = !list ? skeletonRows(4) : list.length ? list.map(recentRowHtml).join('') : empty;
   // Start-up draws Home more than once; redrawing the same rows would replay their rise and make them jump.
   if (html === recentListHtml && el.childElementCount) return;
@@ -721,55 +720,99 @@ function renderRecentList(): void {
   });
 }
 // Every agent found on this computer: picking a row makes it the default (as "Make default" on its chip does).
+// A found agent is a radio (picking it makes it the default); a missing one is greyed out with a Get button that
+// opens its download page. The default's "Default ·" label is added by markHomeDefault, not here, so switching the
+// default never redraws the rows.
 function homeAgentRowHtml(a: DetectedAgent): string {
-  const on = a.id === appState.agent;
   const st = AGENT_STYLE[a.id] ?? { letter: a.name[0], tint: a.id };
+  const mark = brandMark('start-ico agent-mark', st.tint, st.letter);
+  if (!a.found) {
+    return `<div class="agent-row missing" role="group" aria-label="${escAttr(`${a.name}, not installed`)}">
+      ${mark}<span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">Not installed</span></span>
+      <button class="btn btn-sm" data-get="${escAttr(a.url)}" aria-label="${escAttr(`Get ${a.name}`)}" title="${escAttr(`Opens the ${a.name} download page`)}">Get</button>
+    </div>`;
+  }
   // A local server's vendor line (every server it can talk to) is too long for a row.
   const about = a.api ? 'Runs on this computer' : a.vendor;
-  return `<div class="agent-row${on ? ' on' : ''}" role="radio" aria-checked="${on}" tabindex="${on ? 0 : -1}" data-agent="${escAttr(a.id)}">
-    ${brandMark('start-ico agent-mark', st.tint, st.letter)}
-    <span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${on ? '<span class="def"><b>Default</b> · </span>' : ''}${esc(about)}</span></span>
+  return `<div class="agent-row" role="radio" aria-checked="false" tabindex="-1" data-agent="${escAttr(a.id)}">
+    ${mark}<span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(about)}</span></span>
   </div>`;
 }
+let homeAgentsHtml = '';
 function renderHomeAgent(): void {
   const el = $('#homeAgents');
-  if (!appState.detect) { el.innerHTML = skeletonRows(2); return; }
-  // Measured before the redraw, so a new default picked anywhere (here or in the agent picker) slides over.
-  const from = el.querySelector('.agent-row.on')?.getBoundingClientRect();
-  const found = appState.detect.agents.filter(a => a.found);
-  el.innerHTML = found.length
-    ? found.map(homeAgentRowHtml).join('')
-    : `<div class="recent-empty">${svgIcon('sparkles', 20)}<span>No AI agents found on this computer yet.</span><button class="btn btn-sm" data-act-agents>Set up an agent</button></div>`;
+  if (!appState.detect) { homeAgentsHtml = ''; el.innerHTML = skeletonRows(2); return; }
+  const agents = appState.detect.agents;
+  const found = agents.filter(a => a.found);
+  // Found agents first, so the ones you can pick sit together.
+  const html = [...found, ...agents.filter(a => !a.found)].map(homeAgentRowHtml).join('');
+  $('#homeAgentNote').textContent = found.length
+    ? 'New chats and plans go to the one you pick.'
+    : 'None installed yet. The editor, terminal and Git work without one.';
+  // The same agents as last time (a rescan that found nothing new, or a new default): keep the rows, just move the
+  // selection, so nothing rises in again.
+  if (html !== homeAgentsHtml || !el.childElementCount) {
+    homeAgentsHtml = html;
+    el.innerHTML = html;
+    // Each agent rises in turn, so the roster reads as the scan's result.
+    $$('.agent-row', el).forEach((row, i) => row.style.setProperty('--i', String(i)));
+    $$<HTMLElement>('[data-get]', el).forEach(b => b.onclick = () => background(api.sys.openExternal(b.dataset.get ?? '')));
+  }
+  markHomeDefault();
+}
+// Moves the default's look and "Default ·" label onto the current default's row, gliding over from the old one.
+function markHomeDefault(): void {
+  const el = $('#homeAgents');
+  const rows = $$<HTMLElement>('.agent-row[role="radio"]', el);
+  const old = el.querySelector<HTMLElement>('.agent-row.on');
+  const now = rows.find(r => r.dataset.agent === appState.agent) ?? null;
+  if (old === now && now) return;
+  const from = old?.getBoundingClientRect();
+  old?.querySelector('.def')?.remove();
+  for (const r of rows) {
+    const on = r === now;
+    r.classList.toggle('on', on);
+    r.setAttribute('aria-checked', String(on));
+    r.tabIndex = on ? 0 : -1;
+  }
+  now?.querySelector('.sub')?.insertAdjacentHTML('afterbegin', '<span class="def"><b>Default</b> · </span>');
   // Keyboard focus lands on the default; with none picked yet, on the first row.
-  const rows = $$('.agent-row', el);
-  if (rows.length && !rows.some(r => r.tabIndex === 0)) rows[0].tabIndex = 0;
-  slideSelected(el.querySelector<HTMLElement>('.agent-row.on'), from);
+  if (!now && rows.length) rows[0].tabIndex = 0;
+  slideSelected(now, from);
 }
 function pickHomeAgent(id: string): void {
   const ag = appState.detect?.agents.find(a => a.id === id && a.found);
   if (!ag || ag.id === appState.agent) return;
   makeDefaultAgent(ag);
-  renderHomeAgent();
+  markHomeDefault();
   $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`).focus();
 }
 $('#homeAgents').addEventListener('click', e => {
-  const t = e.target as HTMLElement;
-  if (t.closest('[data-act-agents]')) { openAgentPicker(); return; }
-  const row = t.closest<HTMLElement>('.agent-row');
+  const row = (e.target as HTMLElement).closest<HTMLElement>('.agent-row[role="radio"]');
   if (row) pickHomeAgent(row.dataset.agent ?? '');
 });
-// A radio group: the arrows move the default, Enter or Space picks the focused row.
+// A radio group: the arrows move the default between installed agents, Enter or Space picks the focused row.
 $('#homeAgents').addEventListener('keydown', e => {
-  const row = (e.target as HTMLElement).closest<HTMLElement>('.agent-row');
+  const row = (e.target as HTMLElement).closest<HTMLElement>('.agent-row[role="radio"]');
   if (!row || e.target !== row) return;
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickHomeAgent(row.dataset.agent ?? ''); return; }
   const d = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
   if (!d) return;
   e.preventDefault();
-  const rows = $$('.agent-row', $('#homeAgents'));
+  const rows = $$('.agent-row[role="radio"]', $('#homeAgents'));
   pickHomeAgent(rows[(rows.indexOf(row) + d + rows.length) % rows.length].dataset.agent ?? '');
 });
-$('#homeManageAgents').onclick = openAgentPicker;
+// Looks again right away (say, just after installing one); the icon turns while it looks.
+$('#homeRescan').onclick = () => {
+  const b = $('#homeRescan') as HTMLButtonElement;
+  if (b.classList.contains('busy')) return;
+  b.classList.add('busy');
+  b.setAttribute('aria-busy', 'true');
+  detectTools(true)
+    .then(d => { const n = d.agents.filter(a => a.found).length; toast(n ? `${n} agent${n === 1 ? '' : 's'} ready` : 'No agents found yet'); })
+    .catch((err: unknown) => toast(`Couldn't scan for agents: ${errMsg(err)}`))
+    .finally(() => { b.classList.remove('busy'); b.removeAttribute('aria-busy'); });
+};
 function leaveHome(): void {
   enterMode(appState.mode);
 }
@@ -821,8 +864,35 @@ async function chooseProject(create: boolean): Promise<void> {
   toast(create ? `Created ${r.name}` : `Opened ${r.name}`);
   leaveHome();
 }
+// "Open file" picks one file, "New file" names and creates one. Either opens it in the editor, with its folder as the
+// project unless it sits inside the one already open.
+async function chooseFile(create: boolean): Promise<void> {
+  if (!(await confirmDiscard())) return;
+  const r = await (create ? api.fs.newFile() : api.fs.openFile());
+  if (!r) return;
+  if (rootInfo?.root !== r.root) await loadWorkspace(r);
+  if (r.open) openFile(r.open);
+  toast(create ? `Created ${r.open ?? r.name}` : `Opened ${r.open ?? r.name}`);
+  enterMode('ide');
+}
 $('#pickFolder').onclick = () => background(chooseProject(false));
 $('#createFolder').onclick = () => background(chooseProject(true));
+$('#pickFile').onclick = () => background(chooseFile(false));
+$('#createFile').onclick = () => background(chooseFile(true));
+// The shortcuts Home shows; the IDE's own handler ignores keys while Home is up.
+const HOME_KEYS: Record<string, () => Promise<void>> = {
+  o: () => chooseProject(false),
+  N: () => chooseProject(true),
+  n: () => chooseFile(true),
+};
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const run = HOME_KEYS[e.shiftKey ? e.key.toUpperCase() : e.key.toLowerCase()];
+  if (!run) return;
+  if ($('.home-step').classList.contains('hidden') || $('#onboard').classList.contains('hidden') || modalOpen()) return;
+  e.preventDefault();
+  background(run());
+});
 // Switching between the onboarding, the IDE and Breeze Box: the old screen fades back, the new one rises in.
 let swapTimer: TimeoutId | undefined;
 let swapSeq = 0;

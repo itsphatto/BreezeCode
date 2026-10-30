@@ -148,6 +148,16 @@ function demoApi(): BreezeApi {
 
 
       },
+      // Browser preview: no file dialog, so "Open file" opens the demo project's README and "New file" adds an empty one.
+      openFile() { store.set('breeze.demoOpen', true); markOpened(); return Promise.resolve({ ...info, open: 'README.md', launched: true as const }); },
+      newFile() {
+        let name = 'untitled.txt';
+        for (let i = 2; files.has(name); i++) name = `untitled-${i}.txt`;
+        files.set(name, '');
+        store.set('breeze.demoOpen', true);
+        markOpened();
+        return Promise.resolve({ ...info, open: name, launched: true as const });
+      },
       restore() { return Promise.resolve(store.get('breeze.demoOpen', false) ? info : null); },
       // Explorer can't launch the browser preview.
       openLaunch() { return Promise.resolve(null); },
@@ -508,6 +518,9 @@ const LINE_ICONS: Record<string, IconNode> = {
   phone: [['rect', { x: 5, y: 2, width: 14, height: 20, rx: 2 }], ['path', { d: 'M12 18h.01' }]],
   trash: [['path', { d: 'M3 6h18' }], ['path', { d: 'M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6' }], ['path', { d: 'M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2' }], ['path', { d: 'M10 11v6' }], ['path', { d: 'M14 11v6' }]],
   folder: [['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }]],
+  folderPlus: [['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }], ['path', { d: 'M12 10v6' }], ['path', { d: 'M9 13h6' }]],
+  file: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }]],
+  filePlus: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }], ['path', { d: 'M12 12v6' }], ['path', { d: 'M9 15h6' }]],
 };
 const formatAttr = ([k, v]: [string, string | number]): string => `${k}="${v}"`;
 const iconBody = (name: string): string =>
