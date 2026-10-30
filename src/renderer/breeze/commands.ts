@@ -717,9 +717,21 @@ function moveKbSelection(down: boolean): void {
   const pos = usable.indexOf(kbIdx);
   kbIdx = usable[(pos + (down ? 1 : -1) + usable.length) % usable.length] ?? -1;
   $$('[data-mi]').forEach(b => b.classList.toggle('kb', Number(b.dataset.mi) === kbIdx));
+  slideKbHighlight();
+}
+// The keyboard highlight is one block (the menu's ::before) that slides to the selected row.
+function slideKbHighlight(): void {
+  const b = document.querySelector<HTMLElement>('#menuRoot .menu-item.kb');
+  const m = b?.closest<HTMLElement>('.menu');
+  if (!b || !m) return;
+  for (const [k, v] of [['x', b.offsetLeft], ['y', b.offsetTop], ['w', b.offsetWidth], ['h', b.offsetHeight]] as const) m.style.setProperty(`--kb-${k}`, `${v}px`);
+  if (m.classList.contains('kb-on')) return;
+  m.classList.add('kb-on'); // first placement jumps; later moves slide
+  void m.offsetWidth; // apply that placement before turning the slide on
+  m.classList.add('kb-slide');
 }
 function menuKeys(e: KeyboardEvent): boolean {
-  if (openMenuIdx === -1) return false;
+  if (openMenuIdx === -1 || mentionOpen()) return false; // the "@" menu's keys are handled on its prompt
   if (e.key === 'Escape') closeMenu();
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') moveKbSelection(e.key === 'ArrowDown');
   else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && openMenuIdx >= 0) {

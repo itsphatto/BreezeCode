@@ -24,6 +24,8 @@ try {
   // Available when installed; only needed for packaged application updates.
 }
 
+// Windows "Animation effects" off makes Chromium report prefers-reduced-motion: reduce; play every animation anyway.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', '.cache', '__pycache__', '.venv']);
@@ -34,6 +36,8 @@ const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i;
 // Played from their file URL (streamed, so any size), never read in.
 const VIDEO_FILE = /\.(mp4|m4v|webm|ogv|mov|mkv)$/i;
+// Shown in Chromium's PDF viewer from their preview URL, never read in.
+const PDF_FILE = /\.pdf$/i;
 const MAX_LISTED_FILES = 10000;
 const MAX_SEARCH_RESULTS = 500;
 
@@ -371,6 +375,7 @@ async function servePreview(req) {
 async function startApp() {
   await app.whenReady();
   protocol.handle(PREVIEW_SCHEME, servePreview);
+  fsp.rm(UNDO_DIR, { recursive: true, force: true }).catch(logError('undo dir')); // last session's undo copies
   // The menu bar is drawn in HTML; the native one would only duplicate it.
   Menu.setApplicationMenu(null);
   if (process.platform === 'darwin') app.dock?.setIcon(APP_ICON);
@@ -635,6 +640,7 @@ handle('fs:readFile', async (_e, rel) => {
   // Images are shown from their file URL, so only their size is needed here.
   if (IMAGE_FILE.test(abs)) return { image: true, size: st.size };
   if (VIDEO_FILE.test(abs)) return { video: true, size: st.size };
+  if (PDF_FILE.test(abs)) return { pdf: true, size: st.size };
   if (st.size > MAX_FILE_BYTES) return { tooLarge: true, size: st.size };
   const buf = await fsp.readFile(abs);
   if (buf.subarray(0, 8000).includes(0)) return { binary: true, size: st.size };
@@ -668,10 +674,23 @@ async function sameFile(a, b) {
   } catch { return false; }
 }
 
-// Deleting moves to the Recycle Bin / Trash so it can be undone.
-handle('fs:trash', async (_e, rel) => {
+// Deleting moves to the Recycle Bin / Trash so it can be undone. With `keep`, a copy goes to UNDO_DIR first and
+// its id comes back, so Ctrl+Z can put it back (Electron can't restore from the Recycle Bin itself).
+// shortcut: a huge folder is copied in full before it's deleted; skip the copy above some size if that gets slow.
+const UNDO_DIR = path.join(app.getPath('userData'), 'deleted');
+handle('fs:trash', async (_e, rel, keep) => {
   if (!rel) throw new Error('Refusing to delete the project folder');
-  await shell.trashItem(resolveIn(rel));
+  const abs = resolveIn(rel);
+  const id = keep ? crypto.randomUUID() : null;
+  if (id) await fsp.cp(abs, path.join(UNDO_DIR, id), { recursive: true });
+  await shell.trashItem(abs);
+  return id;
+});
+handle('fs:untrash', async (_e, id, rel) => {
+  if (!/^[0-9a-f-]{36}$/.test(String(id))) throw new Error('Nothing to restore');
+  const dest = resolveIn(rel);
+  if (fs.existsSync(dest)) throw new Error('Something with that name already exists');
+  await fsp.cp(path.join(UNDO_DIR, id), dest, { recursive: true, errorOnExist: true, force: false });
 });
 
 handle('fs:fileUrl', (_e, rel) => {
@@ -958,7 +977,8 @@ handle('run:file', async (_e, rel) => {
       try {
         const { cancel } = runSteps(plan.steps, {
           spawn,
-          env: toolEnv(process.env, tools.binDirs, process.platform, pathValue),
+          // Output is piped, not a TTY: ask for colour like term:run does (Python 3.13+ colours tracebacks on FORCE_COLOR).
+          env: { ...toolEnv(process.env, tools.binDirs, process.platform, pathValue), FORCE_COLOR: '1' },
           onStart: step => send(`${step.cwd}> ${step.display}\n`),
           onData: send,
           onChild: child => { terms.set(id, child); child.stdin.on('error', ignoreEpipe); },

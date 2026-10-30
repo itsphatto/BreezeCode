@@ -15,7 +15,7 @@ then watch Claude Code, Codex, Antigravity or a local model build it, live, righ
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.5.9-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.6.0-007AFF?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows_10_%26_11-64--bit-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![Price](https://img.shields.io/badge/price-free-1d1d1f?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-1d1d1f?style=for-the-badge)

@@ -2,7 +2,7 @@
 interface Snapshot { text: string; sel: [number, number]; }
 interface EditorBuffer {
   path: string;
-  kind: 'text' | 'binary' | 'large' | 'image' | 'video';
+  kind: 'text' | 'binary' | 'large' | 'image' | 'video' | 'pdf';
   text: string;
   saved: string;
   eol: '\n' | '\r\n';
