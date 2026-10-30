@@ -884,6 +884,7 @@ const HOME_KEYS: Record<string, () => Promise<void>> = {
   o: () => chooseProject(false),
   N: () => chooseProject(true),
   n: () => chooseFile(true),
+  k: () => chooseFile(false),
 };
 document.addEventListener('keydown', e => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
