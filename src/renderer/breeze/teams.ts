@@ -432,6 +432,22 @@ function onAgentError(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   errorCard(ev.text ?? 'Unknown error', ev.hint, tab);
 }
 
+// The local agent asks before a command Breeze can't tell is harmless; the run waits for the answer.
+function approveCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  const id = ev.id;
+  if (!id || !ev.command) return;
+  r.lastMsg = undefined;
+  setAgent(r.phase, 'waiting', 'Waiting for your OK to run a command', r.tools);
+  sfx.play('plan');
+  const el = addMsg(`<div class="card warn"><h5>${svgIcon('alert', 14)} Run this command?</h5><pre>${esc(ev.command)}</pre><div class="row" data-live><button class="btn btn-primary btn-sm" data-ask="once">Run it</button><button class="btn btn-sm" data-ask="all">Allow all this run</button><button class="btn btn-sm" data-ask="deny">Don’t run</button></div></div>`, tab);
+  $$<HTMLElement>('[data-ask]', el).forEach(b => b.onclick = () => {
+    const answer = b.dataset.ask === 'once' || b.dataset.ask === 'all' ? b.dataset.ask : 'deny';
+    $('[data-live]', el).outerHTML = `<div class="resolved">${answer === 'deny' ? '✕ Not run' : '✓ Allowed'}</div>`;
+    setAgent(r.phase, 'working', 'Working on your request', r.tools);
+    background(api.agent.answer(id, answer));
+  });
+}
+
 function onFirstReply(r: Run, tab: AgentTabState): void {
   r.replied = true;
   if (r.announce) teamNeed = TEAM_SIZE[r.uiMode] ?? 1;
@@ -470,6 +486,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   },
   file: (r, ev) => { if (ev.path) onAgentFile(r, ev.path); },
   plan: (r, ev) => { r.plan = ev.text ?? ''; },
+  approve: (r, ev, tab) => approveCard(r, ev, tab),
   note: (_r, ev, tab) => { if (ev.text) toolLine('note', ev.text, tab); },
   auth: (_r, ev, tab) => {
     const url = ev.url;

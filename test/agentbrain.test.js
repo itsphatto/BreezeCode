@@ -147,3 +147,60 @@ test('compactHistory cuts a single result that is too big on its own', () => {
   assert.ok(brain.historyTokens(out) <= 3000);
   assert.match(out[3].content, /cut to fit the context/);
 });
+
+test('pathFilter takes a folder, a file name pattern or a path pattern', () => {
+  const all = brain.pathFilter('');
+  assert.equal(all('anything/at/all.js'), true);
+  const folder = brain.pathFilter('src/main/');
+  assert.equal(folder('src/main/main.js'), true);
+  assert.equal(folder('src/mainly.js'), false);
+  assert.equal(brain.pathFilter('README.md')('readme.md'), true);
+  const css = brain.pathFilter('*.css');
+  assert.equal(css('a/b/site.css'), true);
+  assert.equal(css('a/site.css.map'), false);
+  const ts = brain.pathFilter('src/**/*.ts');
+  assert.equal(ts('src/a.ts'), true);
+  assert.equal(ts('src/x/y/a.ts'), true);
+  assert.equal(ts('lib/a.ts'), false);
+  assert.equal(brain.pathFilter(String.raw`.\src\*.js`)('src/a.js'), true); // Windows separators
+});
+
+test('lineMatcher finds plain text or a regex, and explains a bad regex', () => {
+  assert.equal(brain.lineMatcher('Foo')('a foo b'), 2);
+  assert.equal(brain.lineMatcher('Foo', { caseSensitive: true })('a foo b'), -1);
+  assert.equal(brain.lineMatcher('a.c')('abc'), -1); // plain text: the dot is a dot
+  assert.equal(brain.lineMatcher(String.raw`function\s+\w+`, { regex: true })('x = function  go() {}'), 4);
+  assert.throws(() => brain.lineMatcher('(', { regex: true }), /regex doesn't work/);
+  assert.throws(() => brain.lineMatcher(''), /empty/);
+});
+
+test('replyReader rebuilds a streamed reply from pieces of any size', () => {
+  const seen = [];
+  const r = brain.replyReader((text, thinking) => seen.push([text, thinking]), () => 'call_x');
+  const events = [
+    { choices: [{ delta: { reasoning_content: 'hmm' } }] },
+    { choices: [{ delta: { content: 'Hel' } }] },
+    { choices: [{ delta: { content: 'lo' } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'read_file', arguments: '{"pa' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'th":"a.js"}' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 1, function: { name: 'list_files', arguments: '{}' } }] } }] },
+    { choices: [], usage: { total_tokens: 42 } },
+  ];
+  const body = `${events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('')}data: [DONE]\n\n`;
+  for (let i = 0; i < body.length; i += 7) r.push(body.slice(i, i + 7)); // cut mid-line on purpose
+  const out = r.end();
+  assert.equal(out.usage.total_tokens, 42);
+  const msg = out.choices[0].message;
+  assert.equal(msg.content, 'Hello');
+  assert.deepEqual(msg.tool_calls.map(c => [c.id, c.function.name, c.function.arguments]), [['c1', 'read_file', '{"path":"a.js"}'], ['call_x', 'list_files', '{}']]);
+  assert.deepEqual(seen[0], ['', true]);
+  assert.ok(seen.some(([t]) => t === 'Hel'));
+});
+
+test('replyReader with no tool calls leaves tool_calls out, and throws a streamed error', () => {
+  const r = brain.replyReader();
+  r.push('data: {"choices":[{"delta":{"content":"hi"}}]}');
+  assert.deepEqual(r.end().choices[0].message, { content: 'hi' });
+  const bad = brain.replyReader();
+  assert.throws(() => bad.push('data: {"error":{"message":"model not loaded"}}\n'), /model not loaded/);
+});

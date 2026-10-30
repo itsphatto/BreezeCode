@@ -300,6 +300,7 @@ function demoApi(): BreezeApi {
         return id;
       },
       async stop() { /* demo runs finish on their own */ },
+      async answer() { /* demo runs never ask */ },
       async setModel() { return true; },
       async fullAccess() { return store.get<boolean>('breeze.demoFullAccess', false); },
       async setFullAccess(on) { store.set('breeze.demoFullAccess', on); return on; },

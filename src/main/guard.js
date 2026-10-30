@@ -84,4 +84,25 @@ function shellCommand(bin, args) {
   return [`"${bin}"`, ...args].join(' ');
 }
 
-module.exports = { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, OUTSIDE };
+/* ----- The local agent's shell commands ----- */
+// Commands it may run without asking: one plain check or build, with no chaining, pipes, redirects or
+// variables that could turn it into something else. Anything else waits for the user's OK.
+const SHELL_SYNTAX = /[&|;<>`$%^!\n\r(){}"']/;
+const AUTO_COMMANDS = [
+  /^git (?:status|diff|log|show|branch)(?: [\w./@~:=-]+)*$/i,
+  /^node --check [\w./\\-]+$/i,
+  /^(?:npx )?tsc(?: -{1,2}[\w-]+)*$/i,
+];
+// npm scripts run whatever package.json says, so they only skip the question while the agent hasn't changed it.
+const SCRIPT_COMMAND = /^(?:npm|pnpm|yarn) (?:test|run [\w:-]+)$/i;
+function autoCommand(command, { packageChanged = false } = {}) {
+  const c = String(command ?? '').trim().replace(/[ \t]+/g, ' ');
+  if (!c || SHELL_SYNTAX.test(c) || /\s--(?:output|ext-diff|textconv)\b/i.test(c)) return false;
+  if (SCRIPT_COMMAND.test(c)) return !packageChanged;
+  return AUTO_COMMANDS.some(re => re.test(c));
+}
+// The environment a command gets, minus anything that looks like a secret: what it prints goes to the LLM server.
+const SECRET_VAR = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE/i;
+const cleanEnv = env => Object.fromEntries(Object.entries(env).filter(([k]) => !SECRET_VAR.test(k)));
+
+module.exports = { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv, OUTSIDE };

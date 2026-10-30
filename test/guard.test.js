@@ -141,3 +141,17 @@ test('isLocalHost accepts only this computer on the right port', () => {
   assert.equal(isLocalHost('127.0.0.1', 2026), false);
   assert.equal(isLocalHost(undefined, 2026), false);
 });
+
+test('autoCommand lets plain checks run without asking, and nothing that could be more', () => {
+  const { autoCommand } = require('../src/main/guard');
+  for (const ok of ['git status', 'git diff src/a.js', 'git log --oneline -5', 'node --check src/app.js', 'tsc', 'npx tsc --noEmit', 'npm test', 'npm run build', 'pnpm run lint:fix'])
+    assert.equal(autoCommand(ok), true, ok);
+  for (const no of ['', 'rm -rf .', 'type .env', 'git status && del x', 'git diff --output=x.txt', 'npm test > out.txt', 'npm run build | more', 'echo %PATH%', 'node -e "x"', 'git push', 'npm install left-pad', 'git log $(whoami)'])
+    assert.equal(autoCommand(no), false, no);
+  assert.equal(autoCommand('npm test', { packageChanged: true }), false); // the agent changed what the script runs
+});
+
+test('cleanEnv drops variables that look like secrets', () => {
+  const { cleanEnv } = require('../src/main/guard');
+  assert.deepEqual(cleanEnv({ PATH: '/bin', OPENAI_API_KEY: 'x', GITHUB_TOKEN: 'y', DB_PASSWORD: 'z', HOME: '/h' }), { PATH: '/bin', HOME: '/h' });
+});

@@ -87,6 +87,76 @@ function formatHits(hits, max = 40) {
   return out.join('\n');
 }
 
+// Where search_files looks: a folder or file ("src/main"), a file name pattern ("*.css") anywhere, or a
+// pattern on the whole path ("src/**/*.ts"). Returns a test on project-relative paths with forward slashes.
+function pathFilter(pattern) {
+  const p = String(pattern ?? '').trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  if (!p || p === '.') return () => true;
+  if (!/[*?]/.test(p)) {
+    const want = p.toLowerCase();
+    return rel => { const r = rel.toLowerCase(); return r === want || r.startsWith(`${want}/`); };
+  }
+  const glob = p.split(/(\*\*\/|\*\*|\*|\?)/).map(part => ({ '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*', '?': '[^/]' })[part]
+    ?? part.replace(/[.+^${}()|[\]\\]/g, String.raw`\$&`)).join('');
+  const re = new RegExp(`^${glob}$`, 'i');
+  return p.includes('/') ? rel => re.test(rel) : rel => re.test(rel.slice(rel.lastIndexOf('/') + 1));
+}
+// What search_files looks for: a function from a line to the column of the first match, or -1.
+function lineMatcher(query, { regex = false, caseSensitive = false } = {}) {
+  const q = String(query ?? '');
+  if (!q) throw new Error('query is empty.');
+  if (regex) {
+    let re;
+    try { re = new RegExp(q, caseSensitive ? '' : 'i'); } catch (err) { throw new Error(`That regex doesn't work (${err.message}). Fix it, or search for plain text.`); }
+    return line => re.exec(line)?.index ?? -1;
+  }
+  const needle = caseSensitive ? q : q.toLowerCase();
+  return line => (caseSensitive ? line : line.toLowerCase()).indexOf(needle);
+}
+
+/* ----- A streamed reply (server-sent events from /chat/completions) ----- */
+// push() takes the body as it arrives, in pieces of any size; end() gives the reply in the shape a reply that
+// wasn't streamed has. `onDelta(text, thinking)` hears the text so far, and whether the model thought in a
+// separate field (Ollama, LM Studio and llama.cpp send it as reasoning or reasoning_content).
+function replyReader(onDelta = () => {}, newId = () => 'call_0') {
+  const calls = [];
+  let buf = '', text = '', thinking = false, usage;
+  const take = data => {
+    if (data === '[DONE]') return;
+    let j;
+    try { j = JSON.parse(data); } catch { return; }
+    if (j.error) throw new Error(j.error.message || String(j.error));
+    if (j.usage) usage = j.usage;
+    const d = j.choices?.[0]?.delta;
+    if (!d) return;
+    if (d.reasoning || d.reasoning_content) thinking = true;
+    for (const c of d.tool_calls || []) {
+      const call = calls[c.index ?? calls.length] ??= { id: '', type: 'function', function: { name: '', arguments: '' } };
+      if (c.id) call.id = c.id;
+      call.function.name ||= c.function?.name ?? '';
+      call.function.arguments += c.function?.arguments ?? '';
+    }
+    if (d.content) text += d.content;
+    onDelta(text, thinking);
+  };
+  const line = l => { const t = l.trim(); if (t.startsWith('data:')) take(t.slice(5).trim()); };
+  return {
+    push(piece) {
+      buf += piece;
+      for (let nl = buf.indexOf('\n'); nl !== -1; nl = buf.indexOf('\n')) {
+        line(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+      }
+    },
+    end() {
+      line(buf);
+      buf = '';
+      const toolCalls = calls.filter(c => c?.function.name).map(c => ({ ...c, id: c.id || newId() }));
+      return { usage, choices: [{ message: { content: text, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] };
+    },
+  };
+}
+
 /* ----- Repeated calls ----- */
 // The same tool with the same arguments, whatever the key order.
 function callKey(name, args) {
@@ -156,6 +226,6 @@ function compactHistory(messages, budget) {
 }
 
 module.exports = {
-  tokensOf, messageTokens, historyTokens, projectMap, readRange, stripLineNumbers, applyEdit, formatHits, callKey,
+  tokensOf, messageTokens, historyTokens, projectMap, readRange, stripLineNumbers, applyEdit, formatHits, pathFilter, lineMatcher, replyReader, callKey,
   slimArgs, settle, compactHistory, READ_LINES, READ_MAX_LINES,
 };

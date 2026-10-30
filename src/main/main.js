@@ -11,7 +11,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const vm = require('node:vm');
 const { findTools, freshPath, toolEnv, runPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
-const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand } = require('./guard');
+const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
 const { AntigravityAgentService } = require('./antigravityAgentService.js');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
@@ -814,23 +814,27 @@ async function readSearchable(abs) {
     return null; // deleted or locked while searching
   }
 }
-function searchText(text, rel, needle, matchCase, results) {
+// `find(line)` gives the column of a match, or -1.
+function searchText(text, rel, find, results) {
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length && results.length < MAX_SEARCH_RESULTS; i++) {
-    const col = (matchCase ? lines[i] : lines[i].toLowerCase()).indexOf(needle);
+    const col = find(lines[i]);
     if (col !== -1) results.push({ path: rel, line: i, col, text: lines[i].slice(0, 300) });
   }
 }
-// Reads files a batch at a time and stops once there are enough results. `skip(rel)` leaves files out.
 async function searchProject(query, matchCase, base = resolveIn(''), skip = () => false) {
   if (!query) return [];
-  const files = (await listFiles(base)).filter(f => !skip(relTo(base, f)));
   const needle = matchCase ? query : query.toLowerCase();
+  return searchFiles(line => (matchCase ? line : line.toLowerCase()).indexOf(needle), base, skip);
+}
+// Reads files a batch at a time and stops once there are enough results. `skip(rel)` leaves files out.
+async function searchFiles(find, base, skip) {
+  const files = (await listFiles(base)).filter(f => !skip(relTo(base, f)));
   const results = [];
   const batch = async start => {
     if (start >= files.length || results.length >= MAX_SEARCH_RESULTS) return;
     const texts = await Promise.all(files.slice(start, start + 32).map(readSearchable));
-    texts.forEach((text, k) => { if (text != null) searchText(text, relTo(base, files[start + k]), needle, matchCase, results); });
+    texts.forEach((text, k) => { if (text != null) searchText(text, relTo(base, files[start + k]), find, results); });
     await batch(start + 32);
   };
   await batch(0);
@@ -2082,15 +2086,41 @@ function codexEvent(runId, d, ctx, mode) {
 // request is fitted to the model's context by agentbrain.compactHistory. Repeated calls and endless loops stop early.
 const brain = require('./agentbrain');
 const llmSessions = new Map(); // session id -> chat messages (earlier turns already settled)
+// Chats are kept on disk too, so one picks up where it left off after Breeze restarts. The newest few are kept.
+const LLM_SESSION_DIR = path.join(app.getPath('userData'), 'llm-sessions');
+const LLM_SESSIONS_KEPT = 50;
+const STREAM_MS = 60; // at most one text update this often while a reply streams
+const llmSessionFile = sid => path.join(LLM_SESSION_DIR, `${sid}.json`);
+// The chat's messages, or null when there is none for this folder.
+function loadLlmSession(sid, base) {
+  if (llmSessions.has(sid)) return llmSessions.get(sid);
+  try {
+    const saved = JSON.parse(fs.readFileSync(llmSessionFile(sid), 'utf8'));
+    if (saved.base !== base || !Array.isArray(saved.messages) || saved.messages[0]?.role !== 'system') return null;
+    llmSessions.set(sid, saved.messages);
+    return saved.messages;
+  } catch { return null; }
+}
+async function saveLlmSession(sid, base, messages) {
+  await fsp.mkdir(LLM_SESSION_DIR, { recursive: true });
+  await fsp.writeFile(llmSessionFile(sid), JSON.stringify({ base, messages }));
+  const names = (await fsp.readdir(LLM_SESSION_DIR)).filter(n => n.endsWith('.json'));
+  if (names.length <= LLM_SESSIONS_KEPT) return;
+  const dated = await Promise.all(names.map(async n => ({ n, t: (await fsp.stat(path.join(LLM_SESSION_DIR, n)).catch(() => null))?.mtimeMs ?? 0 })));
+  dated.sort((a, b) => b.t - a.t);
+  await Promise.all(dated.slice(LLM_SESSIONS_KEPT).map(({ n }) => fsp.rm(path.join(LLM_SESSION_DIR, n), { force: true })));
+}
 const LLM_TOOLS = [
   { name: 'list_files', description: 'List the files and folders under a folder, two levels deep. Folders end with "/".', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Folder relative to the project root; "." for the root' } } } },
   { name: 'read_file', description: `Read numbered lines of a text file (${brain.READ_LINES} lines unless end_line says otherwise). Read only the part you need.`, parameters: { type: 'object', properties: { path: { type: 'string' }, start_line: { type: 'integer', description: 'First line to read, from 1' }, end_line: { type: 'integer', description: 'Last line to read' } }, required: ['path'] } },
-  { name: 'search_files', description: 'Find lines containing some text (plain text, not a regex) across the project. Use it to find code before reading files.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+  { name: 'search_files', description: 'Find lines that match across the project (plain text unless regex is true). Use it to find code before reading files.', parameters: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string', description: 'Only search here: a folder ("src"), or a file pattern ("*.css", "src/**/*.ts")' }, regex: { type: 'boolean', description: 'Treat query as a regular expression' }, case_sensitive: { type: 'boolean' } }, required: ['query'] } },
   { name: 'edit_file', description: 'Change a file by replacing one exact snippet. old_text must appear exactly once in the file: copy it from read_file, without the line numbers.', parameters: { type: 'object', properties: { path: { type: 'string' }, old_text: { type: 'string' }, new_text: { type: 'string' } }, required: ['path', 'old_text', 'new_text'] } },
   { name: 'write_file', description: 'Create a new file, or replace a whole file, with its complete contents. For changes to an existing file use edit_file.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
-  { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
+  { name: 'delete_file', description: 'Delete one file (it goes to the Recycle Bin, so the user can get it back).', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+  { name: 'move_file', description: 'Move or rename a file or folder. new_path must not exist yet.', parameters: { type: 'object', properties: { path: { type: 'string' }, new_path: { type: 'string' } }, required: ['path', 'new_path'] } },
+  { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. The user may be asked to OK it first. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
 ].map(fn => ({ type: 'function', function: fn }));
-const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'run_command']);
+const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'delete_file', 'move_file', 'run_command']);
 const LIST_MAX = 200;
 const COMMAND_MS = 2 * 60 * 1000;
 const COMMAND_OUT_MAX = 8000; // characters of output the model gets back; the end is kept, where errors show
@@ -2115,6 +2145,23 @@ async function checkTeamWrite(ctx, rel) {
   const name = coordinator.members.find(m => m.agentId === owner)?.name || owner;
   throw new Error(`That file belongs to ${name} on this team. Leave it and mention what you need in your final message.`);
 }
+// A command can read secrets or reach past the project, so run_command asks the user first. Full access, plain
+// checks and builds (guard.autoCommand) and "Allow all" for the rest of the run skip the question.
+const pendingAsks = new Map(); // ask id -> answer function
+async function mayRun(ctx, command) {
+  if (ctx.full || ctx.allowAll || autoCommand(command, { packageChanged: ctx.touched.has('package.json') })) return true;
+  const id = crypto.randomUUID();
+  const answer = await new Promise(resolve => {
+    const done = a => { pendingAsks.delete(id); ctx.signal?.removeEventListener('abort', deny); resolve(a); };
+    const deny = () => done('deny'); // stopping the run says no
+    pendingAsks.set(id, done);
+    ctx.signal?.addEventListener('abort', deny, { once: true });
+    emit(ctx.runId, { t: 'approve', id, command });
+  });
+  if (answer === 'all') ctx.allowAll = true;
+  return answer !== 'deny';
+}
+handle('agent:answer', (_e, id, answer) => pendingAsks.get(String(id))?.(['once', 'all'].includes(answer) ? answer : 'deny'));
 const LLM_TOOL_FNS = {
   async list_files(ctx, a) {
     const dir = agentPath(ctx, a.path || '.');
@@ -2146,16 +2193,24 @@ const LLM_TOOL_FNS = {
     return brain.readRange(text, rel, a.start_line, a.end_line);
   },
   async search_files(ctx, a) {
-    emit(ctx.runId, { t: 'tool', kind: 'search', label: `Searched for ${a.query}` });
-    return brain.formatHits(await searchProject(String(a.query || ''), false, ctx.base, ctx.full ? undefined : blockedRel));
+    const find = brain.lineMatcher(a.query, { regex: !!a.regex, caseSensitive: !!a.case_sensitive });
+    const inPath = brain.pathFilter(a.path);
+    const where = a.path && a.path !== '.' ? ` in ${a.path}` : '';
+    emit(ctx.runId, { t: 'tool', kind: 'search', label: `Searched for ${a.query}${where}` });
+    const skip = rel => !inPath(rel) || (!ctx.full && !!blockedRel(rel));
+    return brain.formatHits(await searchFiles(find, ctx.base, skip));
   },
   // The shell's output, both streams as they came. The whole process tree stops at the time limit or when the run is stopped.
-  run_command(ctx, a) {
+  async run_command(ctx, a) {
     const command = String(a.command ?? '').trim();
     if (!command) throw new Error('command is empty.');
+    if (!await mayRun(ctx, command)) {
+      emit(ctx.runId, { t: 'tool', kind: 'note', label: `Didn’t run $ ${command}` });
+      return 'The user chose not to run this command. Don\'t run it again: carry on without it, or say in your final message what you needed it for.';
+    }
     emit(ctx.runId, { t: 'tool', kind: 'run', label: `$ ${command}` });
     return new Promise(resolve => {
-      const child = spawn(command, { cwd: ctx.base, shell: true, windowsHide: true, env: process.env });
+      const child = spawn(command, { cwd: ctx.base, shell: true, windowsHide: true, env: ctx.full ? process.env : cleanEnv(process.env) });
       let out = '', timedOut = false;
       const add = d => { out = (out + d).slice(-COMMAND_OUT_MAX * 2); };
       child.stdout.on('data', add);
@@ -2179,6 +2234,7 @@ const LLM_TOOL_FNS = {
     await checkTeamWrite(ctx, rel);
     const { text, line } = brain.applyEdit(await fsp.readFile(abs, 'utf8'), a.old_text, a.new_text);
     await fsp.writeFile(abs, text, 'utf8');
+    ctx.touched.add(rel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Edited ${rel}` });
     emit(ctx.runId, { t: 'file', path: relOut(abs) });
     return `Edited ${rel} at line ${line}.`;
@@ -2189,9 +2245,40 @@ const LLM_TOOL_FNS = {
     const content = String(a.content ?? '');
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     await fsp.writeFile(abs, content, 'utf8');
+    ctx.touched.add(relTo(ctx.base, abs));
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Wrote ${relTo(ctx.base, abs)}` });
     emit(ctx.runId, { t: 'file', path: relOut(abs) });
     return `Saved ${relTo(ctx.base, abs)} (${content.split('\n').length} lines).`;
+  },
+  // Files only: a folder may hold a teammate's files. The Recycle Bin keeps it, so the user can undo it.
+  async delete_file(ctx, a) {
+    const abs = agentPath(ctx, a.path);
+    const rel = relTo(ctx.base, abs);
+    if (!rel) throw new Error('That is the project folder itself.');
+    if ((await fsp.stat(abs)).isDirectory()) throw new Error(`${rel} is a folder. Delete the files in it one at a time.`);
+    await checkTeamWrite(ctx, rel);
+    await shell.trashItem(abs);
+    ctx.touched.add(rel);
+    emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Deleted ${rel}` });
+    emit(ctx.runId, { t: 'file', path: relOut(abs) });
+    return `Deleted ${rel} (it is in the Recycle Bin).`;
+  },
+  async move_file(ctx, a) {
+    const from = agentPath(ctx, a.path), to = agentPath(ctx, a.new_path);
+    const fromRel = relTo(ctx.base, from), toRel = relTo(ctx.base, to);
+    if (!fromRel || !toRel) throw new Error('The project folder itself can’t be moved.');
+    await fsp.stat(from);
+    // Only a change of case may land on a name that exists (Windows sees it as the same file).
+    if (from.toLowerCase() !== to.toLowerCase() && fs.existsSync(to)) throw new Error(`${toRel} already exists. Pick another name, or delete it first.`);
+    await checkTeamWrite(ctx, fromRel);
+    await checkTeamWrite(ctx, toRel);
+    await fsp.mkdir(path.dirname(to), { recursive: true });
+    await fsp.rename(from, to);
+    ctx.touched.add(fromRel).add(toRel);
+    emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Moved ${fromRel} to ${toRel}` });
+    emit(ctx.runId, { t: 'file', path: relOut(from) });
+    emit(ctx.runId, { t: 'file', path: relOut(to) });
+    return `Moved ${fromRel} to ${toRel}.`;
   },
 };
 async function llmTool(ctx, call) {
@@ -2209,14 +2296,23 @@ async function llmTool(ctx, call) {
   }
   return fn(ctx, args);
 }
-// Runs a reply's tool calls one after another (a later call may read what an earlier one wrote).
-function runToolCalls(ctx, calls) {
-  return calls.reduce(async (prev, call) => {
-    const replies = await prev;
+// Runs a reply's tool calls in order. Reads and searches next to each other run together; a change runs alone,
+// after the calls before it and before the ones after it (a later call may read what it wrote).
+async function runToolCalls(ctx, calls) {
+  const reply = async call => {
     let content;
     try { content = String(await llmTool(ctx, call)); } catch (err) { content = `Error: ${err.message}`; }
-    return [...replies, { role: 'tool', tool_call_id: call.id, content }];
-  }, Promise.resolve([]));
+    return { role: 'tool', tool_call_id: call.id, content };
+  };
+  const out = [];
+  for (let i = 0; i < calls.length;) {
+    let j = i;
+    while (j < calls.length && !WRITE_TOOLS.has(calls[j].function?.name)) j++;
+    if (j === i) j++;
+    out.push(...await Promise.all(calls.slice(i, j).map(reply)));
+    i = j;
+  }
+  return out;
 }
 const LLM_MODE_NOTE = {
   build: 'Build mode: make the change with edit_file (write_file only for new files), run_command to build or test it, then say what you changed.',
@@ -2244,16 +2340,47 @@ async function llmPost(cfg, body, signal) {
   if (!r.ok) throw new Error(j.error?.message || j.error || `The server answered with status ${r.status}`);
   return j;
 }
-// Some local models can't call tools; they still answer, just without looking at files.
-async function llmRequest(ctx, body, signal) {
-  if (ctx.noTools || !body.tools) return llmPost(ctx.cfg, { ...body, tools: undefined }, signal);
+// One reply as it is written. `onDelta(text, thinking)` hears the text so far, and whether the model has been
+// thinking in a separate field (Ollama, LM Studio and llama.cpp send it as reasoning or reasoning_content).
+// Returns the same shape as a reply that wasn't streamed.
+async function llmStream(cfg, body, signal, onDelta) {
+  const r = await fetch(`${cfg.url}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...llmHeaders(cfg.key) },
+    body: JSON.stringify({ ...body, stream: true, stream_options: { include_usage: true } }),
+    signal,
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.error?.message || j.error || `The server answered with status ${r.status}`);
+  }
+  if (!/event-stream/i.test(r.headers.get('content-type') || '')) return r.json(); // it answered in one piece
+  const decoder = new TextDecoder();
+  const reader = brain.replyReader(onDelta, () => `call_${crypto.randomUUID().slice(0, 8)}`);
+  for await (const chunk of r.body) reader.push(decoder.decode(chunk, { stream: true }));
+  return reader.end();
+}
+// Replies stream when the server can; one that can't (or can't with tools) gets the whole reply at once.
+// Some local models can't call tools at all; they still answer, just without looking at files.
+async function llmRequest(ctx, body, signal, onDelta) {
+  const post = async b => {
+    if (ctx.noStream) return llmPost(ctx.cfg, b, signal);
+    try {
+      return await llmStream(ctx.cfg, b, signal, onDelta);
+    } catch (err) {
+      if (signal.aborted || /tool/i.test(err.message)) throw err; // a tool refusal is handled below
+      ctx.noStream = true;
+      return llmPost(ctx.cfg, b, signal);
+    }
+  };
+  if (ctx.noTools || !body.tools) return post({ ...body, tools: undefined });
   try {
-    return await llmPost(ctx.cfg, body, signal);
+    return await post(body);
   } catch (err) {
     if (!/tool/i.test(err.message)) throw err;
     ctx.noTools = true;
     emit(ctx.runId, { t: 'note', text: `${ctx.cfg.model} can't use tools, so it answers without looking at your files.` });
-    return llmPost(ctx.cfg, { ...body, tools: undefined }, signal);
+    return post({ ...body, tools: undefined });
   }
 }
 // A reply that is only a tool call written as text ({"name": "read_file", "arguments": {...}}), possibly fenced,
@@ -2301,7 +2428,7 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
   const cfg = await llmConfig(false);
   if (!cfg?.model) throw new Error('Connect a local LLM server first (Settings → Run Setup Again).');
   await llmReachable(cfg);
-  const sid = session && llmSessions.has(session) ? session : crypto.randomUUID();
+  const sid = session && loadLlmSession(session, base) ? session : crypto.randomUUID();
   const fresh = !llmSessions.has(sid);
   const messages = llmSessions.get(sid) || [{ role: 'system', content: llmSystemPrompt(base) }];
   llmSessions.set(sid, messages);
@@ -2312,17 +2439,39 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
   const tools = LLM_TOOLS.filter(t => mode === 'build' || !WRITE_TOOLS.has(t.function.name));
   run.abort = new AbortController();
   const full = mode === 'build' && fullAccess();
-  const ctx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, seen: new Map(), turn: 0, toolNames: tools.map(t => t.function.name) };
+  const ctx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, noStream: false, allowAll: false, seen: new Map(), touched: new Set(), turn: 0, toolNames: tools.map(t => t.function.name) };
   const started = Date.now();
   let tokens = 0, lastText = '';
   // One request; only the assistant's text and tool calls are kept (servers add extra fields).
   const ask = async withTools => {
     const body = { model: cfg.model, messages: brain.compactHistory(messages, budget), temperature: 0.2, stream: false };
     if (withTools) body.tools = tools;
-    const j = await llmRequest(ctx, body, run.abort.signal);
+    // The text shows as it is written. Thinking isn't shown, only how long it took.
+    const sent = Date.now();
+    let shown = '', shownAt = 0, thought = false, noted = false;
+    const noteThought = () => {
+      if (noted || !thought) return;
+      noted = true;
+      const s = Math.round((Date.now() - sent) / 1000);
+      if (s >= 2) emit(runId, { t: 'note', text: `Thought for ${s}s` });
+    };
+    const onDelta = (raw, thinking) => {
+      thought ||= thinking || raw.includes('<think>');
+      const visible = withoutThinking(raw);
+      if (!visible) return;
+      noteThought();
+      if (withTools && /^(?:```[\w-]*\s*)?[[{]/.test(visible)) return; // maybe a tool call written as text: run, not shown
+      if (visible === shown || Date.now() - shownAt < STREAM_MS) return;
+      shown = visible;
+      shownAt = Date.now();
+      emit(runId, { t: 'text', text: visible });
+    };
+    const j = await llmRequest(ctx, body, run.abort.signal, onDelta);
     tokens += j.usage?.total_tokens || 0;
     const msg = j.choices?.[0]?.message;
     if (!msg) throw new Error('The model returned no answer');
+    thought ||= String(msg.content ?? '').includes('<think>');
+    noteThought();
     let text = withoutThinking(msg.content);
     let calls = msg.tool_calls?.length ? msg.tool_calls : null;
     // Small models often print the call as JSON text instead of using the tool API: run it rather than show it.
@@ -2341,6 +2490,7 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
   } finally {
     // Later turns keep the conversation, not this turn's raw tool output.
     messages.splice(0, messages.length, ...brain.settle(messages));
+    saveLlmSession(sid, base, messages).catch(logError('llm session'));
   }
   runs.delete(runId);
   if (run.stopped) { emit(runId, { t: 'done', ok: false, stopped: true }); return; }
