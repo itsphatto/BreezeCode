@@ -2360,6 +2360,47 @@ svg.ico-svg:active {
   position: relative;
 }
 
+/* Line marks: a dot before the number, grey while the pointer is on the line, red once clicked. */
+.mark-dot {
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  cursor: pointer;
+}
+
+.mark-dot::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--text-3);
+  opacity: 0;
+  transition: opacity .12s ease, background-color .12s ease, transform .12s ease;
+}
+
+.gutter>div>div>div:hover .mark-dot::after {
+  opacity: .55;
+}
+
+.gutter .mark-dot:hover::after {
+  opacity: .85;
+}
+
+.gutter .mark-dot.on::after {
+  background: var(--err);
+  opacity: 1;
+}
+
+.gutter .mark-dot:active::after {
+  transform: scale(.8);
+}
+
 .gutter .git-add::before {
   content: "";
   position: absolute;

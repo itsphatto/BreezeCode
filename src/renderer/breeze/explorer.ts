@@ -324,6 +324,7 @@ async function moveEntry(p: string, to: string): Promise<void> {
     if (x === p) return to;
     return x.startsWith(p + '/') ? to + x.slice(p.length) : x;
   };
+  renameMarks(move);
   const moved = [...buffers.values()].filter(b => move(b.path) !== b.path);
   for (const b of moved) { const from = b.path; buffers.delete(b.path); b.path = move(b.path); buffers.set(b.path, b); scheduleLint(b, 0); lspRenamed(from, b); }
   await Promise.all(moved.filter(b => b.kind === 'image' || b.kind === 'video').map(async b => { b.url = await api.fs.fileUrl(b.path).catch(() => ''); }));

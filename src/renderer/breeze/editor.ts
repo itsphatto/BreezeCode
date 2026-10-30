@@ -419,10 +419,75 @@ function lineHtml(h: string, i: number, add: Set<number> | undefined, d: Diag | 
   const msg = d ? `<span class="diag-msg">${esc(d.msg)}</span>` : '';
   return `<div class="${cls}">${h}${msg}</div>`;
 }
-function gutterHtml(i: number, d: Diag | undefined, mark?: ChangeMark): string {
+function gutterHtml(i: number, d: Diag | undefined, mark?: ChangeMark, marked = false): string {
   const cls = [i === curLine ? 'cur' : '', d ? 'err' : '', mark ? `git-${mark}` : ''].filter(Boolean).join(' ');
   const attrs = (cls ? ` class="${cls}"` : '') + (d ? ` title="${escAttr(d.msg)}"` : '');
-  return `<div${attrs}>${i + 1}</div>`;
+  return `<div${attrs}>${markDot(i, marked)}${i + 1}</div>`;
+}
+
+/* ----- Line marks ----- */
+// A dot before a line number: grey while the pointer is on the line, red once clicked, for marking lines to come
+// back to. Kept per file in each folder, and moved with their lines as the file is edited.
+const lineMarks = new Map<string, Set<number>>(); // path → 0-based lines
+const marksKey = () => `breeze.marks:${rootInfo?.root ?? ''}`;
+const markDot = (i: number, on: boolean) => `<span class="mark-dot${on ? ' on' : ''}" data-mark="${i}" title="${on ? 'Remove mark' : 'Mark this line'}"></span>`;
+function loadMarks(): void {
+  lineMarks.clear();
+  for (const [p, lines] of Object.entries(store.get<Record<string, number[]>>(marksKey(), {}))) lineMarks.set(p, new Set(lines));
+}
+function saveMarks(): void {
+  const saved = [...lineMarks].filter(([, s]) => s.size).map(([p, s]) => [p, [...s].sort((a, c) => a - c)]);
+  store.set(marksKey(), Object.fromEntries(saved));
+}
+function repaintMarks(path: string): void {
+  if (path === active) queueRender();
+  if (path === splitPath) paintSplit();
+}
+function toggleMark(path: string | null, line: number): void {
+  if (!path) return;
+  const s = lineMarks.get(path) ?? new Set<number>();
+  if (!s.delete(line)) s.add(line);
+  lineMarks.set(path, s);
+  saveMarks();
+  repaintMarks(path);
+}
+// After an edit, marks below it move with their lines; marks on removed lines go too.
+function shiftMarks(path: string, before: string, after: string): void {
+  const s = lineMarks.get(path);
+  if (!s?.size) return;
+  const count = (t: string) => { let n = 0; for (let i = t.indexOf('\n'); i !== -1; i = t.indexOf('\n', i + 1)) n++; return n; };
+  const delta = count(after) - count(before);
+  if (!delta) return;
+  // Where the edit starts: the shared start, measured after the shared end, so a removed line that begins like the
+  // next one ("const a…", "const b…") counts as that line and not the text after it.
+  let suf = 0;
+  while (suf < before.length && suf < after.length && before[before.length - 1 - suf] === after[after.length - 1 - suf]) suf++;
+  const most = Math.min(before.length, after.length) - suf;
+  let p = 0;
+  while (p < most && before[p] === after[p]) p++;
+  // The last line the edit leaves in place. Lines added or removed whole, at a line's start, start after the one above.
+  let anchor = count(before.slice(0, p));
+  if (p === 0 || before[p - 1] === '\n') anchor--;
+  const moved = new Set<number>();
+  for (const m of s) {
+    if (m <= anchor) moved.add(m);
+    else if (delta > 0 || m > anchor - delta) moved.add(m + delta);
+  }
+  lineMarks.set(path, moved);
+  saveMarks();
+}
+// A file or folder was moved: `move` maps each old path to its new one.
+function renameMarks(move: (path: string) => string): void {
+  const moved = [...lineMarks].map(([p, s]) => [move(p), s] as const);
+  lineMarks.clear();
+  for (const [p, s] of moved) lineMarks.set(p, s);
+  saveMarks();
+}
+for (const [gutter, path] of [['#gutter', () => active], ['#splitGutter', () => splitPath]] as const) {
+  $(gutter).addEventListener('click', e => {
+    const dot = (e.target as HTMLElement).closest<HTMLElement>('[data-mark]');
+    if (dot) toggleMark(path(), Number(dot.dataset.mark));
+  });
 }
 
 
@@ -472,14 +537,14 @@ function renderCode(): void {
   const cw = measureChar();
   const errAt = visibleDiags(b, count);
   const add = added[b.path];
-  const marks = changeMarks(b);
+  const marks = changeMarks(b), marked = lineMarks.get(b.path);
   const [vf, vl] = visibleLines(b.ta, count);
   winFirst = Math.max(0, vf - OVERSCAN);
   winLast = Math.min(count, vl + OVERSCAN);
   const rows: string[] = [], nums: string[] = [];
   for (let i = winFirst; i < winLast; i++) {
     rows.push(lineHtml(lineHtmlOf(doc, i), i, add, errAt.get(i)));
-    nums.push(gutterHtml(i, errAt.get(i), marks?.get(i)));
+    nums.push(gutterHtml(i, errAt.get(i), marks?.get(i), !!marked?.has(i)));
   }
   hlLines.innerHTML = rows.join('');
   hlLines.style.top = `${winFirst * LINE_H}px`;
@@ -487,7 +552,7 @@ function renderCode(): void {
   gutLines.style.top = `${winFirst * LINE_H}px`;
   hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
   tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
-  $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 32}px`;
+  $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 40}px`; // +8 for the mark dot
   // The surface painted before these lines were drawn; repaint so carets on measured (non-ASCII) lines match them.
   b.ta.refresh();
   syncScroll();
@@ -657,12 +722,12 @@ function paintSplit(): void {
   for (let i = splitWin.first; i < splitWin.last; i++) {
     rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lineHtmlOf(doc, i)}</div>`);
     const cls = [i === cur ? 'cur' : '', marks?.has(i) ? `git-${marks.get(i)}` : ''].filter(Boolean).join(' ');
-    nums.push(`<div${cls ? ` class="${cls}"` : ''}>${i + 1}</div>`);
+    nums.push(`<div${cls ? ` class="${cls}"` : ''}>${markDot(i, !!lineMarks.get(b.path)?.has(i))}${i + 1}</div>`);
   }
   splitLines.innerHTML = rows.join('');
   splitLines.style.top = splitGutLines.style.top = `${splitWin.first * LINE_H}px`;
   splitGutLines.innerHTML = nums.join('');
-  $('#splitGutter').style.width = `${Math.max(3, String(count).length) * 8 + 32}px`;
+  $('#splitGutter').style.width = `${Math.max(3, String(count).length) * 8 + 40}px`; // +8 for the mark dot
   splitInner.querySelectorAll('.guide').forEach(g => g.remove());
   splitInner.append(...guideBoxes(b, splitTa.selectionStart, measureChar(), splitWin.first, splitWin.last));
   syncSplitScroll();
