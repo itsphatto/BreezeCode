@@ -38,7 +38,7 @@ function treeRow(e: DirEntry, p: string, depth: number, decor: ReturnType<typeof
   // Changed on the remote and not pulled yet; shows beside the local letter when both apply.
   const inTag = !e.dir && decor.incoming.has(p) && !lock ? INCOMING_TAG : '';
   const cls = ['tree-item', p === active || (e.dir && p === treeSel) ? 'on' : '', isDirty(buffers.get(p)) ? 'dirty' : '', p === ctxPath ? 'ctx' : '', g, e.dir && decor.incomingDirs.has(p) ? 'has-incoming' : '', isIgnored ? 'git-ignored' : '', enter ? 'enter' : ''].filter(Boolean).join(' ');
-  const icon = e.dir ? folderIcon(e.name, open) : fileIcon(e.name);
+  const icon = e.dir ? folderIcon(e.name, open) : fileIcon(p);
   const nameHtml = e.dir ? `<span class="nm-base">${esc(e.name)}</span>` : fileNameHtml(e.name);
   return `<div class="${cls}" data-depth="${depth}" data-path="${escAttr(p)}" ${e.dir ? 'data-dir="1" ' : ''}draggable="true" title="${escAttr(p)}">
     <span class="chev ${chevClass(e, open)}">${CHEV}</span><span class="ico">${icon}</span><span class="nm">${nameHtml}</span>${lockTag}${gitTag}${inTag}</div>`;

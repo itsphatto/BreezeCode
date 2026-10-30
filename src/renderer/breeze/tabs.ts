@@ -56,7 +56,7 @@ function tabHtml(n: string): string {
   const st = f && statusOf(f);
   const gitTag = st ? `<span class="gst ${st.cls}" title="${st.title}">${st.letter}</span>` : '';
   const nameHtml = fileNameHtml(baseName(n));
-  return `<div class="${cls}" data-tab="${escAttr(n)}" title="${escAttr(n)}">${dot}<span class="ico">${fileIcon(baseName(n))}</span><span class="nm">${nameHtml}</span>${gitTag}<span class="x" data-close-tab="1" title="Close (Ctrl+W)">${svgIcon('x', 12)}</span></div>`;
+  return `<div class="${cls}" data-tab="${escAttr(n)}" title="${escAttr(n)}">${dot}<span class="ico">${fileIcon(n)}</span><span class="nm">${nameHtml}</span>${gitTag}<span class="x" data-close-tab="1" title="Close (Ctrl+W)">${svgIcon('x', 12)}</span></div>`;
 }
 function renderTabs(): void {
   // Re-rendering mid-drag would drop the tab being dragged; catch up when it lands.

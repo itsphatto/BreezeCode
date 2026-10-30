@@ -846,6 +846,24 @@ const ICONS: Record<string, string> = {
   sourcemap: page('#9aa5b1', '<path d="M5.5 8.5h2v3h3M8.5 7.5l2 1-2 1" fill="none" stroke="#9aa5b1" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>'),
   robots: svg16('<rect x="3" y="5" width="10" height="8" rx="2" fill="#78909c" fill-opacity=".2" stroke="#90a4ae" stroke-width="1.2"/><path d="M8 5V2.6" stroke="#90a4ae" stroke-width="1.2" stroke-linecap="round"/><circle cx="8" cy="2.2" r=".9" fill="#90a4ae"/><circle cx="6" cy="8.5" r="1" fill="#90a4ae"/><circle cx="10" cy="8.5" r="1" fill="#90a4ae"/><path d="M6.3 11h3.4" stroke="#90a4ae" stroke-width="1" stroke-linecap="round"/>'),
   test: svg16('<path d="M6 1.8h4M6.8 1.8v4L2.6 12.6a1.1 1.1 0 0 0 1 1.6h8.8a1.1 1.1 0 0 0 1-1.6L9.2 5.8v-4" fill="none" stroke="#22c55e" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M4.2 10h7.6l1.1 2.6a.7.7 0 0 1-.6 1H3.7a.7.7 0 0 1-.6-1z" fill="#22c55e"/>'),
+  mdx: badge('#f9ac00', '#1e1e1e', 'MDX', 4.6),
+  prisma: svg16('<path d="M8.8 1.5 2.4 11.6l6.3 2.9 4.9-1.6z" fill="#5a67d8" fill-opacity=".22" stroke="#7f8cf0" stroke-width="1.2" stroke-linejoin="round"/><path d="m8.8 1.5-.1 13" stroke="#7f8cf0" stroke-width="1.1" stroke-linecap="round"/>'),
+  solidity: svg16('<path d="M8 1.5 4.4 7.1 8 9.3l3.6-2.2z" fill="#aab1c6" fill-opacity=".35" stroke="#aab1c6" stroke-width="1" stroke-linejoin="round"/><path d="M4.4 8.9 8 14.5l3.6-5.6L8 11.1z" fill="#aab1c6" stroke="#aab1c6" stroke-width="1" stroke-linejoin="round"/>'),
+  godot: svg16('<path d="M4.2 4.4 3.4 2.4M11.8 4.4l.8-2" stroke="#478cbf" stroke-width="1.2" stroke-linecap="round"/><rect x="1.8" y="4" width="12.4" height="9.5" rx="3.2" fill="#478cbf"/><circle cx="5.6" cy="8.3" r="1.7" fill="#fff"/><circle cx="10.4" cy="8.3" r="1.7" fill="#fff"/><circle cx="5.9" cy="8.5" r=".8" fill="#1e1e1e"/><circle cx="10.1" cy="8.5" r=".8" fill="#1e1e1e"/><path d="M7 11.8h2" stroke="#fff" stroke-width="1" stroke-linecap="round"/>'),
+  asm: svg16('<rect x="4" y="4" width="8" height="8" rx="1.2" fill="#a78bfa" fill-opacity=".22" stroke="#a78bfa" stroke-width="1.2"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2" stroke="#a78bfa" stroke-width="1.1" stroke-linecap="round"/><rect x="6.4" y="6.4" width="3.2" height="3.2" rx=".5" fill="#a78bfa"/>'),
+  http: svg16('<path d="M2.5 5.5h10M10 3l2.5 2.5L10 8M13.5 10.5h-10M6 8l-2.5 2.5L6 13" fill="none" stroke="#26a69a" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'),
+  julia: svg16('<circle cx="8" cy="4.4" r="2.6" fill="#389826"/><circle cx="4.3" cy="10.9" r="2.6" fill="#cb3c33"/><circle cx="11.7" cy="10.9" r="2.6" fill="#9558b2"/>'),
+  fsharp: badge('#378bba', '#ffffff', 'F#'),
+  vb: badge('#945db7', '#ffffff', 'VB'),
+  objc: badge('#438eff', '#ffffff', 'OC', 5.8),
+  powershell: svg16('<path d="M3.4 2.5h11.1l-1.9 11H1.5z" fill="#012456" stroke="#2d7dd2" stroke-width="1" stroke-linejoin="round"/><path d="m5 5.4 3.1 2.6-3.7 2.6M8.3 10.6h2.9" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>'),
+  batch: svg16('<rect x="1.5" y="2.5" width="13" height="11" rx="1.6" fill="#c1c1c1" fill-opacity=".12" stroke="#c1c1c1" stroke-width="1.1"/><path d="M1.5 5h13" stroke="#c1c1c1" stroke-width="1.1"/><path d="m4.2 7.4 2.1 1.7-2.1 1.7M7.6 11h3.4" fill="none" stroke="#c1c1c1" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>'),
+  dotnet: badge('#512bd4', '#ffffff', '.NET', 4.3),
+  csv: svg16('<rect x="1.5" y="2.5" width="13" height="11" rx="1.6" fill="#1d9f5d" fill-opacity=".16" stroke="#1d9f5d" stroke-width="1.1"/><path d="M1.5 6h13M1.5 9.7h13M6 2.5v11M10.3 2.5v11" stroke="#1d9f5d" stroke-width="1"/>'),
+  wasm: svg16('<path d="M1.5 2.5h4.2a2.3 2.3 0 0 0 4.6 0h4.2v11h-13z" fill="#654ff0"/><text x="8" y="12" text-anchor="middle" font-family="Instrument Sans,Segoe UI,sans-serif" font-weight="800" font-size="5.2" fill="#fff">WA</text>'),
+  actions: svg16('<circle cx="4" cy="4" r="2.1" fill="none" stroke="#2088ff" stroke-width="1.2"/><circle cx="12" cy="12" r="2.1" fill="none" stroke="#2088ff" stroke-width="1.2"/><path d="M4 6.1v2.4a2 2 0 0 0 2 2h3.9" fill="none" stroke="#2088ff" stroke-width="1.2" stroke-linecap="round"/><path d="m11.2 3.2 2.6 1.6-2.6 1.6z" fill="#2088ff"/>'),
+  next: svg16('<circle cx="8" cy="8" r="6.5" fill="#1e1e1e" stroke="#e5e5e5" stroke-width="1"/><path d="M5.9 10.8V5.2l5 6.6M10.3 5.2v3.6" fill="none" stroke="#e5e5e5" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>'),
+  webpack: svg16('<path d="M8 1.5 14 5v6l-6 3.5L2 11V5z" fill="#8ed6fb" fill-opacity=".2" stroke="#8ed6fb" stroke-width="1.1" stroke-linejoin="round"/><path d="M8 5.2 10.6 6.7v3L8 11.2 5.4 9.7v-3z" fill="#1c78c0" stroke="#1c78c0" stroke-width=".8" stroke-linejoin="round"/>'),
 };
 const EXT_ICON: Record<string, string> = {
   html: 'html', htm: 'html', xhtml: 'html', xml: 'xml', xsd: 'xml', xsl: 'xml', xslt: 'xml', plist: 'xml', rss: 'xml', atom: 'xml', resx: 'xml', vue: 'vue', svelte: 'svelte', astro: 'astro', css: 'css', less: 'css', scss: 'scss', sass: 'scss',
@@ -854,8 +872,25 @@ const EXT_ICON: Record<string, string> = {
   py: 'py', java: 'java', jar: 'java', rs: 'rust', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp', cs: 'cs', csx: 'cs', csproj: 'config', sln: 'config', sh: 'shell', bash: 'shell', ps1: 'shell', bat: 'shell', cmd: 'shell', yml: 'yaml', yaml: 'yaml', toml: 'toml', ini: 'config', cfg: 'config', conf: 'config', properties: 'config', editorconfig: 'config', dart: 'dart', lua: 'lua', r: 'r', rmd: 'r', scala: 'scala', sc: 'scala', zig: 'zig', ex: 'elixir', exs: 'elixir', hs: 'haskell', lhs: 'haskell', pl: 'perl', pm: 'perl', graphql: 'graphql', gql: 'graphql', proto: 'proto', tf: 'terraform', tfvars: 'terraform', hcl: 'terraform', ipynb: 'notebook', gradle: 'gradle', cmake: 'cmake', mk: 'make', vim: 'vim', tex: 'tex', bib: 'tex', diff: 'diff', patch: 'diff', pem: 'cert', crt: 'cert', cer: 'cert', p12: 'cert', pfx: 'cert', key: 'key', pub: 'key', map: 'sourcemap', fish: 'shell', zsh: 'shell', psm1: 'shell', m: 'c', mm: 'cpp', fs: 'cs', fsx: 'cs', vb: 'cs', csh: 'shell', jl: 'py', pyw: 'py', pyi: 'py', ejs: 'html', hbs: 'html', pug: 'html', njk: 'html', twig: 'html', liquid: 'html', styl: 'css', pcss: 'css', postcss: 'css',
   txt: 'text', log: 'text', csv: 'text', tsv: 'text', rtf: 'text', lock: 'lock', exe: 'exe', msi: 'exe', app: 'exe', apk: 'exe', com: 'exe', scr: 'exe', dll: 'bin', so: 'bin', dylib: 'bin', bin: 'bin', o: 'bin', obj: 'bin', a: 'bin', lib: 'bin', class: 'bin', pyc: 'bin', wasm: 'bin', iso: 'bin', img: 'bin', dat: 'bin', zip: 'archive', rar: 'archive', '7z': 'archive', tar: 'archive', gz: 'archive', tgz: 'archive', bz2: 'archive', xz: 'archive', pdf: 'pdf', doc: 'doc', docx: 'doc', odt: 'doc', xls: 'xls', xlsx: 'xls', ods: 'xls', ppt: 'ppt', pptx: 'ppt', odp: 'ppt', c: 'c', h: 'h', go: 'go', php: 'php', rb: 'rb', kt: 'kt', kts: 'kt', swift: 'swift', sql: 'sql', db: 'sql', sqlite: 'sql', sqlite3: 'sql', mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio', m4a: 'audio', aac: 'audio', mp4: 'video', mkv: 'video', mov: 'video', avi: 'video', webm: 'video', ttf: 'font', otf: 'font', woff: 'font', woff2: 'font', tiff: 'image', heic: 'image', psd: 'image',
 };
+// Own logos for files that used to borrow another's (or had none); they win over EXT_ICON.
+const EXT_ICON_OWN: Record<string, string> = {
+  mdx: 'mdx', prisma: 'prisma', sol: 'solidity', gd: 'godot', tscn: 'godot', tres: 'godot', asm: 'asm', s: 'asm', nasm: 'asm', http: 'http', rest: 'http',
+  jl: 'julia', fs: 'fsharp', fsx: 'fsharp', fsi: 'fsharp', vb: 'vb', vbs: 'vb', m: 'objc',
+  ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', bat: 'batch', cmd: 'batch',
+  csproj: 'dotnet', fsproj: 'dotnet', vbproj: 'dotnet', sln: 'dotnet', slnx: 'dotnet', props: 'dotnet', targets: 'dotnet',
+  csv: 'csv', tsv: 'csv', wasm: 'wasm', wat: 'wasm',
+};
+// Takes a file name, or a path when the folder matters (GitHub's workflow files are ordinary .yml files).
 function fileIcon(name: string): string {
+  if (/(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/i.test(name)) return ICONS.actions;
+  name = baseName(name);
   const n = name.toLowerCase();
+  if (n === 'go.mod' || n === 'go.sum' || n === 'go.work') return ICONS.go;
+  if (n === 'requirements.txt' || n === 'pyproject.toml' || n === 'pipfile' || n === 'pipfile.lock' || n === 'setup.py' || n === 'setup.cfg') return ICONS.py;
+  if (n === 'gemfile' || n === 'gemfile.lock' || n === 'rakefile') return ICONS.rb;
+  if (n === 'pom.xml') return ICONS.java;
+  if (/^next\.config\./.test(n)) return ICONS.next;
+  if (/^webpack(\.[\w-]+)*\.config\./.test(n)) return ICONS.webpack;
   if (n.startsWith('.env')) return ICONS.env;
   if (n.startsWith('.git')) return ICONS.git;
   if (n === 'package.json' || n === 'package-lock.json' || n === '.npmrc' || n === '.nvmrc') return ICONS.node;
@@ -877,7 +912,7 @@ function fileIcon(name: string): string {
   if (n.endsWith('.d.ts')) return ICONS.ts;
   if (n === '.vimrc' || n === '.gvimrc') return ICONS.vim;
   const ext = n.includes('.') ? n.slice(n.lastIndexOf('.') + 1) : '';
-  return ICONS[EXT_ICON[ext] ?? 'file'];
+  return ICONS[EXT_ICON_OWN[ext] ?? EXT_ICON[ext] ?? 'file'];
 }
 // Folder colours follow what the folder usually holds.
 const FOLDER_COLORS: [RegExp, string][] = [

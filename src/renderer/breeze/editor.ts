@@ -634,7 +634,7 @@ function renderSplit(): void {
   const html = opts.map(p => `<option value="${escAttr(p)}"${p === splitPath ? ' selected' : ''}>${esc(baseName(p))}${dirName(p) ? ` — ${esc(dirName(p))}` : ''}</option>`).join('');
   if (sel.innerHTML !== html) sel.innerHTML = html;
   sel.value = splitPath;
-  $('#splitIco').innerHTML = fileIcon(baseName(splitPath));
+  $('#splitIco').innerHTML = fileIcon(splitPath);
   $('#splitDirty').classList.toggle('hidden', !isDirty(b));
   if (splitTa.value !== b.text) {
     const { selectionStart: s, selectionEnd: e, scrollTop } = splitTa;
@@ -1153,7 +1153,7 @@ function quickOpen(): void {
       shown = all.map(p => [p, fileScore(p, q)] as [string, number]).filter(x => x[1] > 0)
         .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length).slice(0, 60).map(x => x[0]);
       sel = clamp(sel, 0, Math.max(0, shown.length - 1));
-      const rows = shown.map((p, i) => `<div class="qo-item ${i === sel ? 'on' : ''}" data-i="${i}"><span>${fileIcon(baseName(p))}&nbsp; ${esc(baseName(p))}</span><small>${esc(dirName(p))}</small></div>`);
+      const rows = shown.map((p, i) => `<div class="qo-item ${i === sel ? 'on' : ''}" data-i="${i}"><span>${fileIcon(p)}&nbsp; ${esc(baseName(p))}</span><small>${esc(dirName(p))}</small></div>`);
       $('#qoList', m).innerHTML = rows.join('') || '<div class="side-note">No matching files.</div>';
       $$('[data-i]', m).forEach(el => el.onclick = () => { closeModal(); openFile(shown[Number(el.dataset.i)]); });
     };
@@ -1175,23 +1175,40 @@ function hitLineHtml(h: SearchHit, i: number, qLen: number): string {
   const pre = h.text.slice(start, h.col).trimStart(), hit = h.text.slice(h.col, h.col + qLen), post = h.text.slice(h.col + qLen, h.col + qLen + 80);
   return `<div class="result-line" data-p="${escAttr(h.path)}" data-i="${i}">${esc(pre)}<mark>${esc(hit)}</mark>${esc(post)}</div>`;
 }
-async function runSearch(): Promise<void> {
-  const q = $<HTMLInputElement>('#searchInput').value;
+// The search the results show, so they can be run again when files change.
+let searched: { q: string; matchCase: boolean; root: string } | null = null;
+let searchSeq = 0;
+// `again` re-runs the shown search after a file change: no "Searching" flash, and the list keeps its scroll.
+async function runSearch(again = false): Promise<void> {
+  const q = again && searched ? searched.q : $<HTMLInputElement>('#searchInput').value;
+  const matchCase = again && searched ? searched.matchCase : searchCase;
   const out = $('#searchResults');
+  searched = null;
   if (!rootInfo) { out.innerHTML = '<p class="side-note">Open a folder to search it.</p>'; return; }
   if (!q) { out.innerHTML = '<p class="side-note">Type and press Enter to search across files.</p>'; return; }
-  out.innerHTML = '<p class="side-note">Searching</p>';
+  searched = { q, matchCase, root: rootInfo.root };
+  const seq = ++searchSeq, scroll = out.scrollTop;
+  if (!again) out.innerHTML = '<p class="side-note">Searching</p>';
   let hits: SearchHit[];
-  try { hits = await api.fs.search(q, searchCase); } catch (e) { out.innerHTML = `<p class="side-note">${esc(errMsg(e))}</p>`; return; }
+  try { hits = await api.fs.search(q, matchCase); } catch (e) { if (seq === searchSeq) out.innerHTML = `<p class="side-note">${esc(errMsg(e))}</p>`; return; }
+  if (seq !== searchSeq) return; // a newer search started meanwhile
+  if (again) requestAnimationFrame(() => { out.scrollTop = scroll; });
   if (!hits.length) { out.innerHTML = '<p class="side-note">No results.</p>'; return; }
   const byFile = new Map<string, SearchHit[]>();
   for (const h of hits) byFile.set(h.path, [...(byFile.get(h.path) ?? []), h]);
   const more = hits.length >= 500 ? '+' : '';
-  const groups = [...byFile].map(([p, hs]) => `<div class="result-file">${fileIcon(baseName(p))} ${esc(baseName(p))} <small>${esc(dirName(p))}</small></div>` + hs.map((h, i) => hitLineHtml(h, i, q.length)).join(''));
+  const groups = [...byFile].map(([p, hs]) => `<div class="result-file">${fileIcon(p)} ${esc(baseName(p))} <small>${esc(dirName(p))}</small></div>` + hs.map((h, i) => hitLineHtml(h, i, q.length)).join(''));
   out.innerHTML = `<p class="side-note pt-0">${hits.length}${more} results in ${plural(byFile.size, 'file')}</p>` + groups.join('');
   $$('.result-line', out).forEach(el => el.onclick = () => {
     const h = (byFile.get(el.dataset.p as string) ?? [])[Number(el.dataset.i)];
     if (h) openFile(h.path, { line: h.line, col: h.col, len: q.length });
   });
 }
+// Files saved, created, deleted or changed by an agent: the shown results follow, a moment after the changes stop.
+let searchAgain: TimeoutId | undefined;
+api.fs.onChange(() => {
+  if (!searched) return;
+  clearTimeout(searchAgain);
+  searchAgain = setTimeout(() => { if (searched && searched.root === rootInfo?.root) void runSearch(true); }, 400);
+});
 

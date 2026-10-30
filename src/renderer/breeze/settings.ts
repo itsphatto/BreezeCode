@@ -75,7 +75,7 @@ const segHtml = (id: string, opts: [string, string][], cur: string) =>
 const THEMES: [Theme, string, string, boolean?][] = [
   ['dark', 'Default Dark', 'Soft charcoal.'],
   ['contrast', 'High Contrast Dark', 'True black, sharper edges.'],
-  ['light', 'Light', 'May the lumens be with you.', true],
+  ['light', 'Light', 'Warning light attacts bug!', true],
 ];
 const themeCardHtml = ([id, name, sub, warn]: [Theme, string, string, boolean?]) =>
   `<button class="set-theme ${id === theme ? 'on' : ''}" data-theme-pick="${id}" aria-pressed="${id === theme}">

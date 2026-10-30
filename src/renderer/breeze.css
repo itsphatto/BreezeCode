@@ -1183,12 +1183,12 @@ textarea:focus-visible {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  /* 1px past the 44px window-button overlay (main.js), so the bottom line runs under the buttons too. */
+  /* 1px past the 44px window-button overlay (main.js), the first grid row's height. */
   min-height: 45px;
   height: 45px;
   padding: 0 calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px) 0 10px;
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--line);
+  /* The window's base layer (behind the panels), so the bar and the gaps between panels read as one surface. */
+  background: var(--bg);
   -webkit-app-region: drag;
   overflow: visible;
 }
@@ -4120,7 +4120,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   align-items: center;
   gap: 2px;
   padding: 0 6px;
-  background: var(--bg-1);
+  background: var(--bg); /* the window's base layer, like the title bar */
   border-top: 1px solid var(--line);
   font-size: 11.5px;
   color: var(--text-2);

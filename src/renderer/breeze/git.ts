@@ -98,7 +98,7 @@ function scmRowHtml(f: GitFile, inStaged: boolean): string {
     ? `<button class="icon-btn" data-scm="unstage" title="Unstage Changes">${svgIcon('minus')}</button>`
     : `<button class="icon-btn" data-scm="stage" title="Stage Changes">${svgIcon('plus')}</button>`;
   return `<div class="scm-row ${st.cls}${enter}" data-file="${escAttr(f.path)}" data-staged="${inStaged ? 1 : ''}" title="${escAttr(f.path)} · ${st.title}">
-    <span class="ico">${fileIcon(baseName(f.path))}</span><span class="nm">${fileNameHtml(baseName(f.path))}</span><span class="dir">${esc(dirName(f.path))}</span>
+    <span class="ico">${fileIcon(f.path)}</span><span class="nm">${fileNameHtml(baseName(f.path))}</span><span class="dir">${esc(dirName(f.path))}</span>
     <span class="acts"><button class="icon-btn" data-scm="open" title="Open File">${svgIcon('external')}</button>${discard}${toggle}</span><span class="st">${st.letter}</span></div>`;
 }
 function scmSectionHtml(key: string, title: string, list: GitFile[], inStaged: boolean, acts: string): string {
@@ -360,7 +360,7 @@ function incomingSectionHtml(): string {
   const list = gitState.incoming ?? [];
   if (!list.length) return '';
   const rows = list.map(p => `<div class="scm-row git-in" title="${escAttr(p)} · Changed on the remote, not pulled yet">
-    <span class="ico">${fileIcon(baseName(p))}</span><span class="nm">${fileNameHtml(baseName(p))}</span><span class="dir">${esc(dirName(p))}</span><span class="st">M↓</span></div>`).join('');
+    <span class="ico">${fileIcon(p)}</span><span class="nm">${fileNameHtml(baseName(p))}</span><span class="dir">${esc(dirName(p))}</span><span class="st">M↓</span></div>`).join('');
   return `<div class="scm-sec ${scmCollapsed.has('incoming') ? 'closed' : ''}" data-sec="incoming">
     <div class="scm-head"><span class="chev"><svg width="10" height="10"><use href="#i-chev"/></svg></span><span class="title">Incoming (not pulled)</span><span class="acts"><button class="icon-btn" data-act="git.sync" title="Pull">${svgIcon('down')}</button></span><span class="count">${list.length}</span></div>
     <div class="scm-list">${rows}</div></div>`;
@@ -511,7 +511,7 @@ async function showDiff(f: GitFile, staged: boolean): Promise<void> {
   } catch (e) { toast(errMsg(e)); return; }
   const lines = text.split('\n').filter(l => !/^(?:diff --git|index |--- |\+\+\+ )/.test(l));
   const body = lines.map(l => `<div class="dl ${diffLineClass(l)}">${esc(l) || ' '}</div>`).join('') || '<div class="dl">No textual changes.</div>';
-  openModal(`<div class="diff-head"><span class="ico">${fileIcon(baseName(f.path))}</span><b>${esc(f.path)}</b><span class="pill">${staged ? 'Staged' : statusOf(f).title}</span></div>
+  openModal(`<div class="diff-head"><span class="ico">${fileIcon(f.path)}</span><b>${esc(f.path)}</b><span class="pill">${staged ? 'Staged' : statusOf(f).title}</span></div>
     <div class="diff">${body}</div>
     <div class="row end mt-12"><button class="btn" id="diffOpen">Open File</button><button class="btn btn-primary" id="diffStage">${staged ? 'Unstage' : 'Stage'}</button></div>`, m => {
     $('#diffOpen', m).onclick = () => { closeModal(); openFile(f.path); };
@@ -611,7 +611,7 @@ function commitDetailHtml(c: GitCommit, d?: GitCommitDetail): string {
   const files = d
     ? d.files.map(f => {
         const { name, ext } = splitFilePath(f.path);
-        return `<div class="file" data-open-file="${escAttr(f.path)}" title="${escAttr(f.path)}"><span class="ico">${fileIcon(baseName(f.path))}</span><span class="fp"><span class="fp-name">${esc(name)}</span><span class="fp-ext">${esc(ext)}</span></span><span class="file-stats"><span class="add">+${f.added}</span> <span class="del">−${f.removed}</span></span></div>`;
+        return `<div class="file" data-open-file="${escAttr(f.path)}" title="${escAttr(f.path)}"><span class="ico">${fileIcon(f.path)}</span><span class="fp"><span class="fp-name">${esc(name)}</span><span class="fp-ext">${esc(ext)}</span></span><span class="file-stats"><span class="add">+${f.added}</span> <span class="del">−${f.removed}</span></span></div>`;
       }).join('')
     : '<div class="side-note shimmer-text">Loading changed files</div>';
   // The whole checkpoint at a glance: how many files, and the lines added and removed across all of them.

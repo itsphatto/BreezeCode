@@ -132,7 +132,7 @@ async function findReferences(): Promise<void> {
   let refs: LspLocation[];
   try { refs = await api.lsp.references(t.b.path, p.line, p.ch); } catch (e) { toast(errMsg(e)); return; }
   if (!refs.length) { toast('No references found'); return; }
-  const rows = refs.map((r, i) => `<div class="qo-item" data-i="${i}"><span>${fileIcon(baseName(r.path ?? ''))}&nbsp; ${esc(baseName(r.path ?? ''))}<small>:${r.line + 1}</small></span><small class="ref-text">${esc((r.text ?? '').trim())}</small></div>`);
+  const rows = refs.map((r, i) => `<div class="qo-item" data-i="${i}"><span>${fileIcon(r.path ?? '')}&nbsp; ${esc(baseName(r.path ?? ''))}<small>:${r.line + 1}</small></span><small class="ref-text">${esc((r.text ?? '').trim())}</small></div>`);
   openModal(`<h3>${plural(refs.length, 'reference')}</h3><div class="qo-list">${rows.join('')}</div>`, m => {
     $$('[data-i]', m).forEach(el => el.onclick = () => { closeModal(); openLocation(refs[Number(el.dataset.i)]); });
   }, undefined, 'top');
