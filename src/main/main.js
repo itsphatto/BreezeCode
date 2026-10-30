@@ -1002,7 +1002,11 @@ const lsp = new LspManager({ findServer, env: lspEnv });
 const lspPos = (line, character) => ({ line: Number(line) | 0, character: Number(character) | 0 });
 // Every file goes through resolveIn first: the servers only ever hear about files inside the open folder.
 handle('lsp:open', (_e, rel, text) => { resolveIn(rel); lsp.setRoot(root); return lsp.open(rel, String(text)); });
-handle('lsp:change', (_e, rel, text) => { resolveIn(rel); return lsp.change(rel, String(text)); });
+handle('lsp:change', (_e, rel, change) => {
+  resolveIn(rel);
+  const edit = change && typeof change === 'object' ? { start: Number(change.start) | 0, end: Number(change.end) | 0, text: String(change.text) } : null;
+  return lsp.change(rel, edit && edit.start >= 0 && edit.end >= edit.start ? edit : String(change));
+});
 handle('lsp:close', (_e, rel) => lsp.close(rel));
 handle('lsp:completion', (_e, rel, line, ch) => lsp.completion(rel, lspPos(line, ch)));
 handle('lsp:hover', (_e, rel, line, ch) => lsp.hover(rel, lspPos(line, ch)));
@@ -2391,12 +2395,13 @@ function parseGitStatusPorcelain(out, top, currentRoot) {
 
 handle('git:status', async () => {
   if (!root) return { repo: false };
+  // All three at once; outside a repository the first fails and the others are dropped.
+  const status = git(['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all', '--ignored=matching']);
+  const remoteList = git(['remote']).catch(() => '');
+  status.catch(() => undefined); // awaited below only inside a repository
   let top;
   try { top = (await git(['rev-parse', '--show-toplevel'])).trim(); } catch { return { repo: false }; } // not a repository
-  const [out, remotes] = await Promise.all([
-    git(['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all', '--ignored=matching']),
-    git(['remote']).catch(() => ''),
-  ]);
+  const [out, remotes] = await Promise.all([status, remoteList]);
   const parsed = parseGitStatusPorcelain(out, top, root);
   // Files changed on the upstream branch that are not pulled yet (known since the last fetch).
   const incoming = parsed.behind && parsed.upstream
@@ -2405,14 +2410,28 @@ handle('git:status', async () => {
   return { repo: true, ...parsed, incoming, hasCommits: true, hasRemote: !!remotes.trim() };
 });
 
+// The log with file stats takes a while on a big history, and git status asks for it after every file change.
+// It only changes when a ref moves (or the "2 hours ago" times age), so it's kept until then.
+let gitLogCache = { key: '', at: 0, value: null };
+const GIT_LOG_FRESH_MS = 60_000;
 handle('git:log', async () => {
+  const [head, refs] = await Promise.all([
+    git(['rev-parse', 'HEAD']).then(s => s.trim(), () => ''),
+    git(['for-each-ref', '--format=%(objectname) %(refname)']).catch(() => ''),
+  ]);
+  const key = `${root}\n${head}\n${refs}`;
+  if (gitLogCache.value && gitLogCache.key === key && Date.now() - gitLogCache.at < GIT_LOG_FRESH_MS) return gitLogCache.value;
+  const value = await readGitLog(head);
+  gitLogCache = { key, at: Date.now(), value };
+  return value;
+});
+async function readGitLog(head) {
   let out;
   try {
     out = await git(['log', '--all', '--topo-order', '-n', '150', '--numstat', '--format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%ar%x1f%D%x1f%s%x1f%B%x1f']);
   } catch {
     return { head: null, commits: [], details: [] };
   }
-  const head = (await git(['rev-parse', 'HEAD']).catch(() => '')).trim();
   const commits = [];
   const details = [];
   const records = out.split('\x1e').filter(Boolean);
@@ -2441,7 +2460,7 @@ handle('git:log', async () => {
     });
   }
   return { head, commits, details };
-});
+}
 
 handle('git:show', async (_e, hash) => {
   if (!HASH.test(hash)) throw new Error('Bad commit id');

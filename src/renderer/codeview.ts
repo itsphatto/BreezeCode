@@ -127,7 +127,8 @@ class CodeSurface extends EventTarget {
     const len = this.text.length;
     start = Math.min(start, len); end = Math.min(end, len);
     this.text = this.text.slice(0, start) + text + this.text.slice(end);
-    this.starts = null;
+    this.starts = this.starts && shiftLineStarts(this.starts, start, end, text);
+    if (this.starts) rememberLineStarts(this.text, this.starts);
     const newEnd = start + text.length, delta = text.length - (end - start);
     let a = this.selStart, b = this.selEnd;
     if (mode === 'select') { a = start; b = newEnd; }
@@ -339,7 +340,7 @@ class CodeSurface extends EventTarget {
   }
 
   private lines(): number[] {
-    return this.starts ??= lineStarts(this.text);
+    return this.starts ??= lineStartsOf(this.text);
   }
   private lineText(line: number): string {
     const s = this.lines()[line];

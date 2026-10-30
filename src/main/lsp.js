@@ -179,7 +179,7 @@ class LspManager {
     const [lang, kind] = l;
     if (this.docs.has(rel)) { void this.change(rel, text); return { available: true }; }
     // Known before the server is up, so edits made meanwhile follow the open (they wait for the same server).
-    const doc = { kind, lang, version: 1 };
+    const doc = { kind, lang, version: 1, text };
     this.docs.set(rel, doc);
     let c;
     try { c = await this.client(kind); } catch (e) { this.docs.delete(rel); return { available: false, error: e.message }; }
@@ -188,12 +188,21 @@ class LspManager {
     c.notify('textDocument/didOpen', { textDocument: { uri: this.uri(rel), languageId: lang, version: 1, text } });
     return { available: true };
   }
-  async change(rel, text) {
+  // `change` is the whole new text, or one edit { start, end, text } in offsets of the text before it. A server
+  // that takes ranges gets just the edit, so a big file isn't sent and re-read in full on every keystroke.
+  async change(rel, change) {
     const doc = this.docs.get(rel);
     if (!doc) return;
+    const before = doc.text;
+    const edit = typeof change === 'string' ? null : change;
+    doc.text = edit ? before.slice(0, edit.start) + edit.text + before.slice(edit.end) : change;
     const c = await this.client(doc.kind).catch(() => null);
     doc.version++;
-    c?.notify('textDocument/didChange', { textDocument: { uri: this.uri(rel), version: doc.version }, contentChanges: [{ text }] });
+    const sync = c?.caps?.textDocumentSync, kind = typeof sync === 'number' ? sync : sync?.change;
+    const contentChanges = edit && kind === 2
+      ? [{ range: { start: lspPos(before, edit.start), end: lspPos(before, edit.end) }, text: edit.text }]
+      : [{ text: doc.text }];
+    c?.notify('textDocument/didChange', { textDocument: { uri: this.uri(rel), version: doc.version }, contentChanges });
   }
   async close(rel) {
     const doc = this.docs.get(rel);
@@ -272,6 +281,12 @@ class LspManager {
 }
 
 // A snippet's text without its tab stops: "log(${1:msg})$0" → "log(msg)".
+// An offset as an LSP position: line, and UTF-16 column (what JavaScript strings count).
+function lspPos(text, off) {
+  let line = 0, start = 0;
+  for (let i = text.indexOf('\n'); i !== -1 && i < off; i = text.indexOf('\n', i + 1)) { line++; start = i + 1; }
+  return { line, character: off - start };
+}
 function plainSnippet(text, isSnippet) {
   if (!isSnippet) return text;
   return text.replace(/\$\{\d+(?::([^}]*))?\}|\$\d+/g, (_m, def) => def ?? '').replace(/\\([$}\\])/g, '$1');
@@ -299,4 +314,4 @@ function findOnPath(names, pathValue, platform = process.platform) {
   return null;
 }
 
-module.exports = { LANGS, SERVERS, langOf, frame, Reader, Client, LspManager, plainSnippet, hoverText, findOnPath };
+module.exports = { LANGS, SERVERS, langOf, frame, Reader, Client, LspManager, lspPos, plainSnippet, hoverText, findOnPath };

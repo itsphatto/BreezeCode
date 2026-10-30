@@ -503,6 +503,7 @@ for (const [gutter, path] of [['#gutter', () => active], ['#splitGutter', () => 
 
 const OVERSCAN = 40;
 let winFirst = 0, winLast = 0, winTotal = 1;
+
 const hlCache = new WeakMap<EditorBuffer, HlDoc>();
 // Re-lexes only when the text changed (and then only around the edit), so scrolling never re-highlights.
 function highlighted(b: EditorBuffer): HlDoc {
@@ -587,9 +588,9 @@ function renderCode(): void {
     rows.push(lineHtml(lineHtmlOf(doc, i, shownOf(b, i)), i, add, errAt.get(i)));
     nums.push(gutterHtml(i, errAt.get(i), marks?.get(i), !!marked?.has(i)));
   }
-  hlLines.innerHTML = rows.join('');
+  patchRows(hlLines, rows);
   hlLines.style.top = `${winFirst * LINE_H}px`;
-  gutLines.innerHTML = nums.join('');
+  patchRows(gutLines, nums);
   gutLines.style.top = `${winFirst * LINE_H}px`;
   hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
   tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
@@ -765,9 +766,9 @@ function paintSplit(): void {
     const cls = [i === cur ? 'cur' : '', marks?.has(i) ? `git-${marks.get(i)}` : ''].filter(Boolean).join(' ');
     nums.push(`<div${cls ? ` class="${cls}"` : ''}>${markDot(i, !!lineMarks.get(b.path)?.has(i))}${i + 1}</div>`);
   }
-  splitLines.innerHTML = rows.join('');
+  patchRows(splitLines, rows);
   splitLines.style.top = splitGutLines.style.top = `${splitWin.first * LINE_H}px`;
-  splitGutLines.innerHTML = nums.join('');
+  patchRows(splitGutLines, nums);
   $('#splitGutter').style.width = `${Math.max(3, String(count).length) * 8 + 40}px`; // +8 for the mark dot
   splitInner.querySelectorAll('.guide').forEach(g => g.remove());
   splitInner.append(...guideBoxes(b, splitTa.selectionStart, measureChar(), splitWin.first, splitWin.last));
@@ -841,6 +842,7 @@ function updateCaret(): void {
   if (!b) return;
   const i = lineAt(b.text, b.ta.selectionStart);
   if (i !== curLine) {
+    for (const l of [curLine, i]) { forgetRow(hlLines.children[l - winFirst]); forgetRow(gutLines.children[l - winFirst]); }
     hlLines.children[curLine - winFirst]?.classList.remove('cur-line');
     gutLines.children[curLine - winFirst]?.classList.remove('cur');
     hlLines.children[i - winFirst]?.classList.add('cur-line');

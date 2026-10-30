@@ -243,7 +243,10 @@ const sfx = (() => {
     }
     return n;
   };
-  const removals = new MutationObserver(records => {
+  const removals = new MutationObserver(all => {
+    // Code lines and terminal rows are redrawn constantly; nothing there is a removal worth hearing.
+    const records = all.filter(r => !(r.target as Element).closest?.('.editor, .term-body'));
+    if (!records.length) return;
     const gone = count(records.map(r => r.removedNodes));
     if (!gone || gone <= count(records.map(r => r.addedNodes))) return;
     // The control that removed it already made its sound (a tab's X sounds on the press, before the fold-away ends).

@@ -101,7 +101,8 @@ interface BreezeApi {
   lint: { check(code: string, ext: string): Promise<SyntaxResult>; };
   lsp: {
     open(rel: string, text: string): Promise<LspOpen>;
-    change(rel: string, text: string): Promise<void>;
+    // The whole new text, or one edit in offsets of the text sent before.
+    change(rel: string, change: string | { start: number; end: number; text: string }): Promise<void>;
     close(rel: string): Promise<void>;
     completion(rel: string, line: number, ch: number): Promise<LspCompletion[]>;
     hover(rel: string, line: number, ch: number): Promise<string | null>;
@@ -272,3 +273,48 @@ const savedTheme = store.get<string>('breeze.theme', 'dark');
 let theme: Theme = THEME_IDS.find(t => t === savedTheme) ?? 'dark';
 document.documentElement.dataset.theme = theme;
 
+/* ----- Redrawing lists: only the rows that changed ----- */
+// Replacing a whole list (the code window per keystroke, the file tree per file change) makes the browser style
+// and lay out every row again. Instead each row keeps the
+// html it was drawn from; rows whose html is unchanged stay, new ones are made, and old ones nobody wants go.
+// Rows are matched by html in order, so lines that slid up or down (Enter, scrolling) are kept and not redrawn.
+const drawnHtml = new WeakMap<Element, string>();
+const rowMaker = document.createElement('template');
+function patchRows(el: HTMLElement, rows: string[]): void {
+  const old = Array.from(el.children);
+  const free = new Map<string, number[]>(); // html → old row indexes, in order
+  old.forEach((n, i) => {
+    const h = drawnHtml.get(n);
+    if (h !== undefined) { const at = free.get(h); if (at) at.push(i); else free.set(h, [i]); }
+  });
+  const used = new Set<number>();
+  let lastOld = -1;
+  const nodes: (Element | undefined)[] = rows.map(h => {
+    const at = free.get(h);
+    if (!at?.length) return undefined;
+    // Prefer the first match after the last row kept, so a run of lines that slid keeps its order.
+    let k = at.findIndex(i => i > lastOld);
+    if (k < 0) k = 0;
+    const i = at.splice(k, 1)[0];
+    used.add(i); lastOld = i;
+    return old[i];
+  });
+  const fresh = rows.filter((_, j) => !nodes[j]);
+  if (fresh.length === rows.length) { // nothing to keep: one parse is quickest
+    el.innerHTML = rows.join('');
+    Array.from(el.children).forEach((n, j) => drawnHtml.set(n, rows[j]));
+    return;
+  }
+  rowMaker.innerHTML = fresh.join('');
+  const made = Array.from(rowMaker.content.children);
+  let m = 0;
+  rows.forEach((h, j) => { if (!nodes[j]) { nodes[j] = made[m++]; drawnHtml.set(nodes[j]!, h); } });
+  old.forEach((n, i) => { if (!used.has(i)) n.remove(); });
+  let cur = el.firstElementChild;
+  for (const n of nodes as Element[]) {
+    if (n === cur) cur = cur.nextElementSibling;
+    else el.insertBefore(n, cur);
+  }
+}
+// A row changed by hand (the current line's highlight, a folder's chevron) no longer matches its html, so it is never kept.
+const forgetRow = (n: Element | undefined) => { if (n) drawnHtml.delete(n); };
