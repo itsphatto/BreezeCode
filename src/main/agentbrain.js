@@ -116,8 +116,9 @@ function lineMatcher(query, { regex = false, caseSensitive = false } = {}) {
 
 /* ----- A streamed reply (server-sent events from /chat/completions) ----- */
 // push() takes the body as it arrives, in pieces of any size; end() gives the reply in the shape a reply that
-// wasn't streamed has. `onDelta(text, thinking)` hears the text so far, and whether the model thought in a
-// separate field (Ollama, LM Studio and llama.cpp send it as reasoning or reasoning_content).
+// wasn't streamed has. `onDelta(text, thinking, calls)` hears the text so far, whether the model thought in a
+// separate field (Ollama, LM Studio and llama.cpp send it as reasoning or reasoning_content), and the tool
+// calls so far, their arguments maybe cut off mid-way.
 function replyReader(onDelta = () => {}, newId = () => 'call_0') {
   const calls = [];
   let buf = '', text = '', thinking = false, usage;
@@ -137,7 +138,7 @@ function replyReader(onDelta = () => {}, newId = () => 'call_0') {
       call.function.arguments += c.function?.arguments ?? '';
     }
     if (d.content) text += d.content;
-    onDelta(text, thinking);
+    onDelta(text, thinking, calls);
   };
   const line = l => { const t = l.trim(); if (t.startsWith('data:')) take(t.slice(5).trim()); };
   return {
@@ -155,6 +156,33 @@ function replyReader(onDelta = () => {}, newId = () => 'call_0') {
       return { usage, choices: [{ message: { content: text, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] };
     },
   };
+}
+
+// One string field of a tool call's arguments while they are still arriving: { text, done }, or null before
+// the field starts. A half-sent escape at the end is left for the next piece.
+const ESCAPES = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f' };
+function partialString(json, key) {
+  const src = String(json ?? '');
+  const m = new RegExp(String.raw`"${key}"\s*:\s*"`).exec(src);
+  if (!m) return null;
+  let text = '';
+  for (let i = m.index + m[0].length; i < src.length;) {
+    const ch = src[i];
+    if (ch === '"') return { text, done: true };
+    if (ch !== '\\') { text += ch; i++; continue; }
+    const e = src[i + 1];
+    if (e === undefined) break;
+    if (e === 'u') {
+      const hex = src.slice(i + 2, i + 6);
+      if (!/^[0-9a-f]{4}$/i.test(hex)) break;
+      text += String.fromCharCode(Number.parseInt(hex, 16));
+      i += 6;
+    } else {
+      text += ESCAPES[e] ?? e;
+      i += 2;
+    }
+  }
+  return { text, done: false };
 }
 
 /* ----- Repeated calls ----- */
@@ -226,6 +254,6 @@ function compactHistory(messages, budget) {
 }
 
 module.exports = {
-  tokensOf, messageTokens, historyTokens, projectMap, readRange, stripLineNumbers, applyEdit, formatHits, pathFilter, lineMatcher, replyReader, callKey,
+  tokensOf, messageTokens, historyTokens, projectMap, readRange, stripLineNumbers, applyEdit, formatHits, pathFilter, lineMatcher, replyReader, partialString, callKey,
   slimArgs, settle, compactHistory, READ_LINES, READ_MAX_LINES,
 };

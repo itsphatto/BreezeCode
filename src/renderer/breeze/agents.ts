@@ -108,6 +108,7 @@ interface Run {
   phase: AgentKey;
   tools: number;
   files: Set<string>;
+  drafts?: Set<string>; // files it began creating, shown before they were written
   plan: string | null;
   lastText: string;
   lastMsg?: HTMLElement;

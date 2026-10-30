@@ -91,6 +91,16 @@ async function loadBuffer(path: string): Promise<EditorBuffer | null> {
   return b;
 }
 
+// An empty text tab for a file an agent is about to create, so its text can type in. Null for a path outside
+// the open folder or one that holds secrets.
+function blankBuffer(path: string): EditorBuffer | null {
+  if (!rootInfo || /^(?:[a-z]:|[\\/])/i.test(path) || path.split('/').includes('..') || baseName(path).startsWith('.env')) return null;
+  const b: EditorBuffer = { path, size: 0, kind: 'text', eol: '\n', text: '', saved: '', ta: null, undo: [], redo: [], lastEdit: null };
+  b.ta = createSurface(b);
+  buffers.set(path, b);
+  return b;
+}
+
 /* ----- Syntax errors for a buffer ----- */
 function scheduleLint(b: EditorBuffer, delay = 450): void {
   clearTimeout(b.lintTimer);

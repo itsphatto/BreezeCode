@@ -513,6 +513,16 @@ async function typeAgentEdit(b: EditorBuffer, text: string): Promise<void> {
     setTimeout(() => { if (!typingTo.has(b.path)) { delete added[b.path]; if (b.path === active) renderCode(); } }, 2500);
   }
 }
+// A file the agent is still creating: its tab opens while it is empty and its text types in as it arrives.
+// False when there is nothing to type into (a path Breeze won't show, or a tab the person is editing).
+function typeAgentDraft(path: string, text: string): boolean {
+  const b = buffers.get(path) ?? blankBuffer(path);
+  if (b?.kind !== 'text' || holdsUserEdits(b)) return false;
+  followAgentTo(path);
+  if (typingTo.has(path)) typingTo.set(path, text);
+  else void typeAgentEdit(b, text);
+  return true;
+}
 // Types `after` into the buffer; false when the person started editing it (the rest then lands at once).
 async function typeOut(b: EditorBuffer, after: string): Promise<boolean> {
   const before = b.text;

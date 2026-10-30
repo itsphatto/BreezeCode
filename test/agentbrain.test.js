@@ -204,3 +204,15 @@ test('replyReader with no tool calls leaves tool_calls out, and throws a streame
   const bad = brain.replyReader();
   assert.throws(() => bad.push('data: {"error":{"message":"model not loaded"}}\n'), /model not loaded/);
 });
+
+test('partialString reads a string field from arguments that are still arriving', () => {
+  assert.equal(brain.partialString('{"pa', 'path'), null);
+  const args = String.raw`{"path": "src/a.js", "content": "line1\nli`;
+  assert.deepEqual(brain.partialString(args, 'path'), { text: 'src/a.js', done: true });
+  assert.deepEqual(brain.partialString(args, 'content'), { text: 'line1\nli', done: false });
+  const bs = String.fromCharCode(92);
+  assert.deepEqual(brain.partialString(`{"content":"say ${bs}"hi${bs}"${bs}`, 'content'), { text: 'say "hi"', done: false }); // half an escape waits
+  assert.deepEqual(brain.partialString(`{"content":"${bs}u00e9${bs}u00`, 'content'), { text: String.fromCharCode(0xe9), done: false });
+  assert.deepEqual(brain.partialString(String.raw`{"content":"a\\b"}`, 'content'), { text: String.raw`a\b`, done: true });
+  assert.equal(brain.partialString(String.raw`{"content":"x \"path\": \"y"`, 'path'), null); // a key inside the text isn't one
+});

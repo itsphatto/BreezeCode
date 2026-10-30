@@ -52,9 +52,23 @@ const DEMO_IMAGE = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http:
 let demoRun = 0;
 const agentListeners: ((runId: number, ev: AgentEvent) => void)[] = [];
 const authListeners: ((ev: AuthEvent) => void)[] = [];
-// Browser preview: replays a short, canned agent run.
-async function demoReplay(id: number, mode: AgentMode): Promise<void> {
-  const steps: [AgentEvent, number][] = [
+// The file the canned build run creates, so the preview shows a new file typing in.
+const DEMO_NEW_FILE = 'menu.js';
+const DEMO_NEW_TEXT = [
+  '// The menu cards, filled from one list.',
+  'const MENU = [',
+  "  { name: 'Espresso', price: 3.0 },",
+  "  { name: 'Flat white', price: 3.8 },",
+  "  { name: 'Oat latte', price: 4.2 },",
+  '];',
+  "document.querySelector('#menu').innerHTML = MENU",
+  "  .map(item => `<article class=\"card\"><h3>${item.name}</h3><p>$${item.price.toFixed(2)}</p></article>`)",
+  "  .join('');",
+  '',
+].join('\n');
+// Browser preview: replays a short, canned agent run. `save` writes a file into the demo project.
+async function demoReplay(id: number, mode: AgentMode, save: (rel: string, text: string) => void): Promise<void> {
+  const steps: [AgentEvent, number, (() => void)?][] = [
     [{ t: 'session', id: 'demo-session', model: 'demo' }, 100],
     [{ t: 'tool', kind: 'read', label: 'Read index.html' }, 600],
     [{ t: 'tool', kind: 'read', label: 'Read styles.css' }, 900],
@@ -62,8 +76,12 @@ async function demoReplay(id: number, mode: AgentMode): Promise<void> {
   if (mode === 'build') {
     steps.push(
       [{ t: 'tool', kind: 'edit', label: 'Edited styles.css' }, 2500],
+      // The new file's text arrives a line at a time, as a local model writes it, then lands on disk.
+      ...DEMO_NEW_TEXT.split('\n').map((_, i, lines): [AgentEvent, number] => [{ t: 'draft', path: DEMO_NEW_FILE, text: lines.slice(0, i + 1).join('\n') }, i ? 300 : 1200]),
+      [{ t: 'tool', kind: 'edit', label: `Wrote ${DEMO_NEW_FILE}` }, 300, () => save(DEMO_NEW_FILE, DEMO_NEW_TEXT)],
+      [{ t: 'file', path: DEMO_NEW_FILE, created: true }, 0],
       [{ t: 'tool', kind: 'run', label: '$ npx prettier --check styles.css' }, 3000],
-      [{ t: 'text', text: 'Done — I warmed up the hero colours in styles.css. (Browser preview: no files were really changed.)' }, 2500],
+      [{ t: 'text', text: 'Done — I warmed up the hero colours in styles.css and added menu.js. (Browser preview: no files were really changed.)' }, 2500],
     );
   } else if (mode === 'plan') {
     steps.push(
@@ -75,9 +93,10 @@ async function demoReplay(id: number, mode: AgentMode): Promise<void> {
   }
   steps.push([{ t: 'done', ok: true, ms: 2400 }, 300]);
   // Each step waits for the one before it.
-  await steps.reduce(async (prev, [ev, ms]) => {
+  await steps.reduce(async (prev, [ev, ms, before]) => {
     await prev;
     await wait(ms);
+    before?.();
     agentListeners.forEach(cb => cb(id, ev));
   }, Promise.resolve());
 }
@@ -296,7 +315,7 @@ function demoApi(): BreezeApi {
     agent: {
       async run({ mode }) {
         const id = ++demoRun;
-        background(demoReplay(id, mode));
+        background(demoReplay(id, mode, (rel, text) => files.set(rel, text)));
         return id;
       },
       async stop() { /* demo runs finish on their own */ },

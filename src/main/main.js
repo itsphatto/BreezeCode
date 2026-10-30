@@ -1911,7 +1911,11 @@ function claudeContent(runId, c, ctx) {
   if (c.type !== 'tool_use') return;
   const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
   emit(runId, { t: 'tool', kind, label });
-  if (file) emit(runId, { t: 'file', path: relOut(file) });
+  if (!file) return;
+  // A new file's whole text is in the call, before Claude writes it: the editor opens it and types it in.
+  const created = c.name === 'Write' && typeof c.input?.content === 'string' && !fs.existsSync(path.resolve(root || HOME, file));
+  if (created) emit(runId, { t: 'draft', path: relOut(file), text: c.input.content });
+  emit(runId, { t: 'file', path: relOut(file), created });
 }
 function claudeResult(runId, d, ctx, mode) {
   if (d.is_error || d.subtype !== 'success') {
@@ -2053,7 +2057,7 @@ const CODEX_ITEMS = {
   file_change: (runId, it) => {
     for (const ch of it.changes || []) {
       emit(runId, { t: 'tool', kind: 'edit', label: `${CHANGE_VERB[ch.kind] || 'Edited'} ${relOut(ch.path)}` });
-      emit(runId, { t: 'file', path: relOut(ch.path) });
+      emit(runId, { t: 'file', path: relOut(ch.path), created: ch.kind === 'add' });
     }
   },
   mcp_tool_call: (runId, it) => emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }),
@@ -2162,6 +2166,36 @@ async function mayRun(ctx, command) {
   return answer !== 'deny';
 }
 handle('agent:answer', (_e, id, answer) => pendingAsks.get(String(id))?.(['once', 'all'].includes(answer) ? answer : 'deny'));
+// While a write_file call is still arriving, a file that doesn't exist yet opens in the editor and its text types
+// in as the model writes it ('draft' events). Only new files: rewriting a whole file would flicker.
+const DRAFT_MS = 80;
+function draftWrites(ctx, calls) {
+  for (const call of calls) {
+    if (call?.function.name !== 'write_file') continue;
+    const rel = brain.partialString(call.function.arguments, 'path');
+    const content = rel?.done && brain.partialString(call.function.arguments, 'content');
+    if (!content) continue;
+    let d = ctx.drafts.get(rel.text);
+    if (!d) ctx.drafts.set(rel.text, d = { out: draftTarget(ctx, rel.text), at: 0, sent: null });
+    if (!content.done && Date.now() - d.at < DRAFT_MS) continue;
+    d.at = Date.now();
+    const { text } = content;
+    d.out.then(out => {
+      if (!out || text === d.sent) return;
+      d.sent = text;
+      emit(ctx.runId, { t: 'draft', path: out, text });
+    });
+  }
+}
+// Where a draft shows, or null: a path the agent can't write, a file that exists, or a teammate's file.
+async function draftTarget(ctx, rel) {
+  try {
+    const abs = agentPath(ctx, rel);
+    if (fs.existsSync(abs)) return null;
+    if (ctx.team && await ctx.team.coordinator.foreignOwner(ctx.team.agentId, relTo(ctx.base, abs))) return null;
+    return relOut(abs);
+  } catch { return null; }
+}
 const LLM_TOOL_FNS = {
   async list_files(ctx, a) {
     const dir = agentPath(ctx, a.path || '.');
@@ -2243,11 +2277,12 @@ const LLM_TOOL_FNS = {
     const abs = agentPath(ctx, a.path);
     await checkTeamWrite(ctx, relTo(ctx.base, abs));
     const content = String(a.content ?? '');
+    const created = !fs.existsSync(abs);
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     await fsp.writeFile(abs, content, 'utf8');
     ctx.touched.add(relTo(ctx.base, abs));
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Wrote ${relTo(ctx.base, abs)}` });
-    emit(ctx.runId, { t: 'file', path: relOut(abs) });
+    emit(ctx.runId, { t: 'file', path: relOut(abs), created });
     return `Saved ${relTo(ctx.base, abs)} (${content.split('\n').length} lines).`;
   },
   // Files only: a folder may hold a teammate's files. The Recycle Bin keeps it, so the user can undo it.
@@ -2439,7 +2474,7 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
   const tools = LLM_TOOLS.filter(t => mode === 'build' || !WRITE_TOOLS.has(t.function.name));
   run.abort = new AbortController();
   const full = mode === 'build' && fullAccess();
-  const ctx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, noStream: false, allowAll: false, seen: new Map(), touched: new Set(), turn: 0, toolNames: tools.map(t => t.function.name) };
+  const ctx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, noStream: false, allowAll: false, seen: new Map(), touched: new Set(), drafts: new Map(), turn: 0, toolNames: tools.map(t => t.function.name) };
   const started = Date.now();
   let tokens = 0, lastText = '';
   // One request; only the assistant's text and tool calls are kept (servers add extra fields).
@@ -2455,7 +2490,9 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
       const s = Math.round((Date.now() - sent) / 1000);
       if (s >= 2) emit(runId, { t: 'note', text: `Thought for ${s}s` });
     };
-    const onDelta = (raw, thinking) => {
+    ctx.drafts.clear(); // a file written last step exists now, so it isn't a draft any more
+    const onDelta = (raw, thinking, calls) => {
+      if (calls?.length) draftWrites(ctx, calls);
       thought ||= thinking || raw.includes('<think>');
       const visible = withoutThinking(raw);
       if (!visible) return;

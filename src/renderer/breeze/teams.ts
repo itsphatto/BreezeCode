@@ -406,25 +406,47 @@ function errorCard(text: string, hint?: string, tab?: AgentTabState): void {
   addMsg(`<div class="card error"><h5>${svgIcon('alert', 14)} The agent hit a problem</h5><pre>${esc(text)}</pre>${hintHtml}</div>`, tab);
 }
 
-function onAgentFile(r: Run, path: string): void {
+function onAgentFile(r: Run, path: string, created = false): void {
   r.files.add(path);
   locks[path] = { phase: r.phase, agent: r.agent };
   renderTree(); renderTabs();
   queueGitRefresh();
-  if (r.surfaceName === 'ide') background(openAgentFile(path));
+  if (r.surfaceName === 'ide') background(openAgentFile(path, created));
 }
 // Opens the file an agent is editing and shows it, so its changes type out in front of the person.
-async function openAgentFile(path: string): Promise<void> {
+async function openAgentFile(path: string, created = false): Promise<void> {
   if (baseName(path).startsWith('.env') || !rootInfo) return;
   if (!buffers.has(path)) {
-    const r = await api.fs.readFile(path).catch(() => null);
-    if (r?.text == null || kindOf(r) !== 'text') return; // deleted, binary or too large
-    if (!await loadBuffer(path)) return;
+    // A new file opens empty, so its text types in instead of appearing all at once.
+    if (created) {
+      if (!typeAgentDraft(path, '')) return;
+    } else {
+      const r = await api.fs.readFile(path).catch(() => null);
+      if (r?.text == null || kindOf(r) !== 'text') return; // deleted, binary or too large
+      if (!await loadBuffer(path)) return;
+    }
   }
   followAgentTo(path);
   // Some agents report the file before writing it: catch a write that landed while it was opening.
   const b = buffers.get(path);
-  if (b?.kind === 'text') for (const ms of [400, 1500]) setTimeout(() => { if (!holdsUserEdits(b)) void reloadText(b); }, ms);
+  if (b?.kind === 'text') for (const ms of created ? [0, 400, 1500] : [400, 1500]) setTimeout(() => { if (!holdsUserEdits(b)) void reloadText(b); }, ms);
+}
+// The agent's text for a file it is creating, as it writes it.
+function onAgentDraft(r: Run, path: string, text: string): void {
+  if (r.surfaceName !== 'ide' || !typeAgentDraft(path, text)) return;
+  (r.drafts ??= new Set()).add(path);
+}
+// Draft tabs whose file never got written (the run stopped, or the write was refused) close again.
+function dropUnwrittenDrafts(r: Run): void {
+  let dropped = false;
+  for (const path of r.drafts ?? []) {
+    const b = buffers.get(path);
+    if (r.files.has(path) || !b || isDirty(b)) continue;
+    if (openTabs.includes(path)) dropTab(path);
+    else { b.ta?.remove(); buffers.delete(path); }
+    dropped = true;
+  }
+  if (dropped) { renderTabs(); renderEditor(); }
 }
 
 function onAgentError(r: Run, ev: AgentEvent, tab: AgentTabState): void {
@@ -484,7 +506,8 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
     toolLine(ev.kind ?? 'tool', ev.label ?? '', tab);
     setAgent(r.phase, 'working', ev.label ?? 'Working', r.tools);
   },
-  file: (r, ev) => { if (ev.path) onAgentFile(r, ev.path); },
+  file: (r, ev) => { if (ev.path) onAgentFile(r, ev.path, !!ev.created); },
+  draft: (r, ev) => { if (ev.path) onAgentDraft(r, ev.path, ev.text ?? ''); },
   plan: (r, ev) => { r.plan = ev.text ?? ''; },
   approve: (r, ev, tab) => approveCard(r, ev, tab),
   note: (_r, ev, tab) => { if (ev.text) toolLine('note', ev.text, tab); },
@@ -509,7 +532,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
     AGENT_EVENTS.auth?.(r, ev, tab);
   },
   error: (r, ev, tab) => onAgentError(r, ev, tab),
-  done: (r, ev, tab) => finishRun(r, ev, tab),
+  done: (r, ev, tab) => { dropUnwrittenDrafts(r); finishRun(r, ev, tab); },
   crossing: (r, ev, tab) => crossingCard(r, ev, tab),
   'team-done': (r, ev, tab) => onTeamDone(r, ev, tab),
 };
