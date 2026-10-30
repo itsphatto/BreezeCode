@@ -476,6 +476,16 @@ function shiftMarks(path: string, before: string, after: string): void {
   lineMarks.set(path, moved);
   saveMarks();
 }
+// Next or previous mark from the caret, through every marked file in path order, round to the start again.
+function jumpMark(dir: 1 | -1): void {
+  const before = (a: { path: string; line: number }, b: { path: string; line: number }) => (a.path === b.path ? a.line - b.line : a.path < b.path ? -1 : 1);
+  const all = [...lineMarks].flatMap(([path, s]) => [...s].map(line => ({ path, line }))).sort(before);
+  if (!all.length) { toast('No marks yet. Click the dot before a line number to add one.'); return; }
+  const b = activeText();
+  const here = { path: active ?? '', line: b ? lineAt(b.text, b.ta.selectionStart) : -1 };
+  const to = dir > 0 ? all.find(m => before(m, here) > 0) ?? all[0] : [...all].reverse().find(m => before(m, here) < 0) ?? all[all.length - 1];
+  openFile(to.path, { line: to.line, col: 0 });
+}
 // A file or folder was moved: `move` maps each old path to its new one.
 function renameMarks(move: (path: string) => string): void {
   const moved = [...lineMarks].map(([p, s]) => [move(p), s] as const);

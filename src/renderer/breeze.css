@@ -9382,6 +9382,79 @@ body.layout-animating #previewPane {
   cursor: pointer;
 }
 
+/* ---------- Settings → Controls: key binds ---------- */
+.kb-tools {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+
+.kb-tools .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.kb-group {
+  margin: 14px 0 2px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--glass-line);
+}
+
+.kb-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.kb-key {
+  min-width: 92px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-3);
+  color: var(--text-2);
+  font: 12px var(--font-code);
+  text-align: center;
+  cursor: pointer;
+}
+
+.kb-key:hover {
+  border-color: var(--text-3);
+  color: var(--text);
+}
+
+.kb-key.none {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+}
+
+.kb-key.changed {
+  color: var(--blue-text);
+}
+
+.kb-key.recording {
+  border-color: var(--blue);
+  color: var(--text);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, .25);
+  font-family: var(--font-ui);
+}
+
+.kb-reset {
+  color: var(--text-3);
+}
+
 /* ---------- on/off switch ----------
    A rounded-rect track with a rounded-square knob. --complete runs 0 (off) → 100 (on) and drives the colour and the
    knob's place, so dragging just sets it inline. The knob stretches toward the middle of its travel and settles

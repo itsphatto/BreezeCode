@@ -89,6 +89,10 @@ const commands: Record<string, () => unknown> = {
   'go.file': quickOpen,
   'go.line': goToLine,
   'go.nextProblem': nextProblem,
+  'mark.toggle': () => { const b = activeText(); if (b) toggleMark(b.path, lineAt(b.text, b.ta.selectionStart)); },
+  'mark.next': () => jumpMark(1),
+  'mark.prev': () => jumpMark(-1),
+  'mark.clear': () => { if (active && lineMarks.delete(active)) { saveMarks(); repaintMarks(active); } },
   'go.nextEditor': () => cycleTab(1),
   'go.prevEditor': () => cycleTab(-1),
   'run.file': runFile,
@@ -338,6 +342,11 @@ const MENUS: Menu[] = [
       // F2 renames the file in the explorer and the symbol in the editor (editorKeys).
       { label: 'Rename Symbol', act: 'go.rename', key: 'F2', native: true, enabled: hasFile },
       { sep: true },
+      { label: 'Toggle Mark', act: 'mark.toggle', key: 'Ctrl+Alt+K', enabled: hasFile },
+      { label: 'Next Mark', act: 'mark.next', key: 'Ctrl+Alt+L' },
+      { label: 'Previous Mark', act: 'mark.prev', key: 'Ctrl+Alt+J' },
+      { label: 'Clear Marks in File', act: 'mark.clear', enabled: hasFile },
+      { sep: true },
       { label: 'Next Editor', act: 'go.nextEditor', key: 'Ctrl+Tab' },
       { label: 'Previous Editor', act: 'go.prevEditor', key: 'Ctrl+Shift+Tab' },
     ]
@@ -395,8 +404,56 @@ const canonKey = (combo: string): string => {
   return ['Ctrl', 'Shift', 'Alt'].filter(m => mods.has(m)).concat(key.length === 1 ? key.toUpperCase() : key).join('+');
 };
 const keymap = new Map<string, string>();
-for (const { items } of MENUS) for (const it of items) if (it.key && it.act && !it.native) keymap.set(canonKey(it.key), it.act);
-for (const [k, act] of EXTRA_KEYS) keymap.set(canonKey(k), act);
+
+/* ----- Key binds: the menu shortcuts, changed in Settings → Controls ----- */
+// The menus' own keys ('' for a command without one), kept before any change. Native ones (copy, paste, undo…)
+// belong to the editor and stay put.
+const DEFAULT_KEYS = new Map<string, string>();
+for (const { items } of MENUS) for (const it of items) if (it.act && it.label && !it.native && !DEFAULT_KEYS.has(it.act)) DEFAULT_KEYS.set(it.act, it.key ?? '');
+// The user's changes: command → combo, '' for one with its key removed.
+let keyBinds = store.get<Record<string, string>>('breeze.keys', {});
+const keyOf = (act: string): string => (act in keyBinds ? keyBinds[act] : DEFAULT_KEYS.get(act) ?? '');
+// The menus show, and the keymap runs, the keys in use now.
+function applyKeyBinds(): void {
+  for (const { items } of MENUS) for (const it of items) if (it.act && DEFAULT_KEYS.has(it.act)) it.key = keyOf(it.act) || undefined;
+  keymap.clear();
+  for (const [k, act] of EXTRA_KEYS) keymap.set(canonKey(k), act);
+  for (const act of DEFAULT_KEYS.keys()) { const k = keyOf(act); if (k) keymap.set(canonKey(k), act); }
+}
+// Gives `act` the combo ('' removes its key). A command that had that combo loses it; its name is returned.
+function setKeyBind(act: string, combo: string): string | null {
+  let took: string | null = null;
+  if (combo) {
+    for (const other of DEFAULT_KEYS.keys()) {
+      if (other !== act && keyOf(other) && canonKey(keyOf(other)) === canonKey(combo)) { keyBinds[other] = ''; took = other; }
+    }
+  }
+  if (combo === (DEFAULT_KEYS.get(act) ?? '')) delete keyBinds[act]; else keyBinds[act] = combo;
+  store.set('breeze.keys', keyBinds);
+  applyKeyBinds();
+  return took;
+}
+function resetKeyBinds(act?: string): void {
+  if (act) delete keyBinds[act]; else keyBinds = {};
+  // A reset key may still be in use by another command's change: that one gives it back.
+  if (act) { const k = DEFAULT_KEYS.get(act); for (const other of Object.keys(keyBinds)) if (k && keyBinds[other] && canonKey(keyBinds[other]) === canonKey(k)) keyBinds[other] = ''; }
+  store.set('breeze.keys', keyBinds);
+  applyKeyBinds();
+}
+// Every rebindable command, by menu, for the Controls list.
+function keyBindRows(): { menu: string; act: string; label: string }[] {
+  const rows: { menu: string; act: string; label: string }[] = [];
+  const seen = new Set<string>();
+  for (const { name, items } of MENUS) {
+    for (const it of items) {
+      if (!it.act || !it.label || !DEFAULT_KEYS.has(it.act) || seen.has(it.act)) continue;
+      seen.add(it.act);
+      rows.push({ menu: name, act: it.act, label: it.label });
+    }
+  }
+  return rows;
+}
+applyKeyBinds();
 const KEY_BY_CODE: Record<string, string> = { Backquote: '`', Slash: '/', Backslash: '\\', Comma: ',' };
 function keyName(e: KeyboardEvent): string {
   if (KEY_BY_CODE[e.code]) return KEY_BY_CODE[e.code];

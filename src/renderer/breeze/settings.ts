@@ -1,9 +1,10 @@
 /* ================= Settings ================= */
 // One pop-up for everything: the gear opens it (in the IDE and in Breeze Box) and turns while it is open.
-type SettingsTab = 'general' | 'appearance' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
+type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
 const SETTINGS_TABS: [SettingsTab, string, string][] = [
   ['general', 'General', 'gear'],
   ['appearance', 'Appearance', 'palette'],
+  ['controls', 'Controls', 'keyboard'],
   ['agents', 'Agents', 'terminal'],
   ['discord', 'Discord', 'discord'],
   ['help', 'Help & About', 'info'],
@@ -219,15 +220,20 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Box']], appState.mode))}
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
       <h5>Layout</h5>
-      ${settingRow('Side bar', 'Ctrl+B', switchHtml('sSide', layout.sideOpen, 'Side bar'))}
-      ${settingRow('Agents panel', 'Ctrl+Alt+B', switchHtml('sAgents', layout.agentsOpen, 'Agents panel'))}
-      ${settingRow('Terminal', 'Ctrl+`', switchHtml('sTerm', layout.termOpen, 'Terminal'))}
+      ${settingRow('Side bar', esc(keyOf('view.toggleSide')), switchHtml('sSide', layout.sideOpen, 'Side bar'))}
+      ${settingRow('Agents panel', esc(keyOf('view.toggleAgents')), switchHtml('sAgents', layout.agentsOpen, 'Agents panel'))}
+      ${settingRow('Terminal', esc(keyOf('term.toggle')), switchHtml('sTerm', layout.termOpen, 'Terminal'))}
       ${settingRow('Preview', '', switchHtml('sPreview', layout.previewOpen, 'Preview'))}
       ${settingRow('Reset layout', 'Put every panel back where it started.', '<button class="btn btn-sm" id="sResetLayout">Reset</button>')}`;
     case 'appearance': return `<h4>Appearance</h4>
       <h5>Theme</h5>
       <div class="set-themes">${THEMES.map(themeCardHtml).join('')}</div>
       <p class="set-sub">Sign-in and Home keep their dark glass over the river photo in every theme.</p>`;
+    case 'controls': return `<h4>Controls</h4>
+      <h5>Key binds</h5>
+      <p class="set-sub">Click a shortcut, then press the new keys. Backspace removes it, Escape cancels.</p>
+      <div class="kb-tools"><input class="input" id="kbSearch" aria-label="Search key binds" placeholder="Search commands or keys" spellcheck="false" autocomplete="off"><button class="btn btn-sm" id="kbResetAll">Reset all</button></div>
+      <div class="kb-list" id="kbList">${keyBindListHtml('')}</div>`;
     case 'agents': {
       const agents =[...appState.detect?.agents ?? []].sort((a, b) => agentRank(a) - agentRank(b));
       const list = agents.length
@@ -284,11 +290,70 @@ function settingsBody(tab: SettingsTab): string {
     }
     case 'dev': return `<h4>Developer</h4>
       ${settingRow('Run setup again', 'Pick your agent and workspace again.', '<button class="btn btn-sm" data-set-cmd="help.setup">Start</button>')}
-      ${settingRow('Developer tools', 'Ctrl+Shift+I', '<button class="btn btn-sm" data-set-cmd="win.devtools">Toggle</button>')}
-      ${settingRow('Reload window', 'Ctrl+R', '<button class="btn btn-sm" data-set-cmd="win.reload">Reload</button>')}
+      ${settingRow('Developer tools', esc(keyOf('win.devtools')), '<button class="btn btn-sm" data-set-cmd="win.devtools">Toggle</button>')}
+      ${settingRow('Reload window', esc(keyOf('win.reload')), '<button class="btn btn-sm" data-set-cmd="win.reload">Reload</button>')}
       ${settingRow('Turn off Developer', 'Hide this section again.', '<button class="btn btn-sm" id="sDevOff">Turn off</button>')}`;
   }
 }
+
+/* ----- Controls: key binds ----- */
+// The rebindable commands by menu, filtered by name or key; each key is a button that records a new one.
+function keyBindListHtml(query: string): string {
+  const q = query.trim().toLowerCase();
+  const rows = keyBindRows().filter(r => !q || r.label.toLowerCase().includes(q) || keyOf(r.act).toLowerCase().includes(q) || r.menu.toLowerCase().includes(q));
+  if (!rows.length) return '<p class="set-sub">No matching commands.</p>';
+  let menu = '';
+  return rows.map(r => {
+    const head = r.menu !== menu ? `<div class="kb-group">${esc((menu = r.menu))}</div>` : '';
+    const key = keyOf(r.act), changed = key !== (DEFAULT_KEYS.get(r.act) ?? '');
+    const reset = changed ? `<button class="icon-btn kb-reset" data-kb-reset="${escAttr(r.act)}" title="Back to ${escAttr(DEFAULT_KEYS.get(r.act) || 'no key')}" aria-label="Reset ${escAttr(r.label)}">${svgIcon('rotateCcw', 13)}</button>` : '';
+    return `${head}<div class="kb-row"><span class="kb-label">${esc(r.label)}</span>${reset}<button class="kb-key${key ? '' : ' none'}${changed ? ' changed' : ''}" data-kb="${escAttr(r.act)}" aria-label="${escAttr(`${r.label}: ${key || 'no key'}. Click to change`)}">${esc(key || 'Add key')}</button></div>`;
+  }).join('');
+}
+// Keys alone (a letter, Enter) would stop working for typing, so a bind needs Ctrl or Alt, or is a function key.
+const FN_KEY = /^F\d{1,2}$/;
+const MOD_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'CapsLock']);
+let recording: { el: HTMLElement; done: () => void } | null = null;
+function stopRecording(): void {
+  if (!recording) return;
+  const { done } = recording;
+  recording = null;
+  done();
+}
+function recordKeyBind(el: HTMLElement, redraw: () => void): void {
+  if (recording) { // another key was waiting: it shows its key again
+    const prev = recording.el;
+    prev.classList.remove('recording');
+    prev.textContent = keyOf(prev.dataset.kb as string) || 'Add key';
+    recording = null;
+  }
+  el.classList.add('recording');
+  el.textContent = 'Press keys';
+  recording = { el, done: redraw };
+  el.focus();
+}
+// Window, capture phase: runs before the app's own shortcuts and before Escape closes Settings.
+window.addEventListener('keydown', e => {
+  if (!recording) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const { el } = recording;
+  const act = el.dataset.kb as string;
+  const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+  if (e.key === 'Escape' && plain) { stopRecording(); return; }
+  if ((e.key === 'Backspace' || e.key === 'Delete') && plain) { setKeyBind(act, ''); stopRecording(); return; }
+  const mods = [e.ctrlKey || e.metaKey ? 'Ctrl' : '', e.shiftKey ? 'Shift' : '', e.altKey ? 'Alt' : ''].filter(Boolean);
+  if (MOD_KEYS.has(e.key)) { el.textContent = `${mods.join('+')}+…`; return; } // still holding modifiers
+  const combo = comboOf(e);
+  if (!FN_KEY.test(keyName(e)) && !e.ctrlKey && !e.metaKey && !e.altKey) { el.textContent = 'Add Ctrl or Alt'; return; }
+  const took = setKeyBind(act, combo);
+  stopRecording();
+  if (took) toast(`${combo} moved here from ${keyBindRows().find(r => r.act === took)?.label ?? took}`);
+}, true);
+// Clicking anywhere else, or closing Settings, ends the recording unchanged.
+document.addEventListener('pointerdown', e => {
+  if (recording && !(e.target as HTMLElement).closest?.('[data-kb]')) stopRecording();
+}, true);
 
 function settingsNavHtml(): string {
   return visibleSettingsTabs().map(([id, label, icon]) => {
@@ -358,6 +423,20 @@ function bindSettings(m: HTMLElement): void {
     refreshSettings();
     slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
   });
+  // Controls
+  const kbList = $('#kbList', pane), kbSearch = $<HTMLInputElement>('#kbSearch', pane);
+  if (kbList && kbSearch) {
+    const redraw = () => { kbList.innerHTML = keyBindListHtml(kbSearch.value); };
+    kbSearch.oninput = redraw;
+    $('#kbResetAll', pane).onclick = () => { resetKeyBinds(); redraw(); toast('Every shortcut is back to its default'); };
+    kbList.onclick = e => {
+      const t = e.target as HTMLElement;
+      const reset = t.closest<HTMLElement>('[data-kb-reset]');
+      if (reset) { resetKeyBinds(reset.dataset.kbReset); redraw(); return; }
+      const key = t.closest<HTMLElement>('[data-kb]');
+      if (key) recordKeyBind(key, redraw);
+    };
+  }
   // Agents
   $$('[data-agent-pick]', pane).forEach(b => b.onclick = () => {
     const ag = appState.detect?.agents.find(a => a.id === b.dataset.agentPick);
