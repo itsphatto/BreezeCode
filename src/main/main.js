@@ -27,8 +27,13 @@ try {
 
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', '.cache', '__pycache__', '.venv']);
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
+// The editor draws only the lines in view, so big files open; past 5 MB (HL_MAX) they show uncoloured.
+// shortcut: the scroll height is lines × line height, which Chromium caps near 33M px (~1.6M lines); a file with
+// more lines can't scroll to its end. Raise only with a scroll model that isn't one tall spacer.
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i;
+// Played from their file URL (streamed, so any size), never read in.
+const VIDEO_FILE = /\.(mp4|m4v|webm|ogv|mov|mkv)$/i;
 const MAX_LISTED_FILES = 10000;
 const MAX_SEARCH_RESULTS = 500;
 
@@ -190,8 +195,8 @@ function handle(channel, fn) {
 
 // The launch intro (launch.html) plays in its own see-through, click-through window, so the light bubbles over the
 // desktop itself, darkened but sharp. Only a transparent window shows the desktop unblurred, and a transparent window
-// can't be resized, so the app window is a normal one: it loads hidden behind the splash, already showing the intro's
-// last frame, and takes over at LAUNCH_HANDOFF (win:launchWait, then win:launchShow), when it lifts onto the app.
+// can't be resized, so the app window is a normal one: it loads hidden behind the splash and takes over at
+// LAUNCH_HANDOFF (win:launchWait, then win:launchShow), fading in straight onto the welcome or Home.
 const SPLASH_PAGE = path.join(ROOT, 'src', 'renderer', 'launch.html');
 const LAUNCH_HANDOFF = 3900; // ms: 0.8s bubbling, 1s opening, the swirl in by 2.1s, then held 1.8s
 let splash = null;
@@ -228,12 +233,34 @@ function createSplash(bounds) {
   splash.loadFile(SPLASH_PAGE).catch(logError('splash'));
 }
 
-// Shows the app window and, once it has drawn over the splash, closes the splash.
-function showMain() {
-  if (win && !win.isVisible()) win.show();
-  const s = splash;
+// The hand-off is two steps. win:launchShow puts the app window up still see-through over the splash, so it draws its
+// first frames unseen (a slow machine would otherwise stutter through the fade); win:launchFade then fades it in, the
+// intro dissolving into the app, and closes the splash.
+const LAUNCH_FADE = 1100; // ms
+function revealMain() {
+  if (!win || win.isVisible()) return;
+  if (splash) {
+    win.setOpacity(0);
+    setTimeout(fadeMain, 4000); // a page that never says it's ready still shows
+  }
+  win.show();
+}
+function fadeMain() {
+  const s = splash, w = win;
   splash = null;
-  if (s) setTimeout(() => { if (!s.isDestroyed()) s.destroy(); }, 150);
+  if (!s || !w) return;
+  const t0 = Date.now();
+  const tick = setInterval(() => {
+    const k = Math.min(1, (Date.now() - t0) / LAUNCH_FADE);
+    if (!w.isDestroyed()) w.setOpacity(k * k * (3 - 2 * k)); // ease-in-out
+    if (k < 1) return;
+    clearInterval(tick);
+    if (!s.isDestroyed()) s.destroy();
+  }, 16);
+}
+function showMain() {
+  revealMain();
+  fadeMain();
 }
 
 // The page waits here until the intro has played through, then gets how long it has been running, so it can match
@@ -245,7 +272,8 @@ handle('win:launchWait', async () => {
   if (splashStart && left > 0) await new Promise(done => setTimeout(done, left));
   return splashStart ? Date.now() - splashStart : 0;
 });
-handle('win:launchShow', () => showMain());
+handle('win:launchShow', () => revealMain());
+handle('win:launchFade', () => fadeMain());
 
 function createWindow() {
   win = new BrowserWindow({
@@ -258,7 +286,7 @@ function createWindow() {
     icon: APP_ICON,
     backgroundColor: '#1d1d1f',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#232325', symbolColor: '#aaaaaa', height: 44 },
+    titleBarOverlay: { color: '#00000000', symbolColor: '#aaaaaa', height: 44 },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -606,6 +634,7 @@ handle('fs:readFile', async (_e, rel) => {
   const st = await fsp.stat(abs);
   // Images are shown from their file URL, so only their size is needed here.
   if (IMAGE_FILE.test(abs)) return { image: true, size: st.size };
+  if (VIDEO_FILE.test(abs)) return { video: true, size: st.size };
   if (st.size > MAX_FILE_BYTES) return { tooLarge: true, size: st.size };
   const buf = await fsp.readFile(abs);
   if (buf.subarray(0, 8000).includes(0)) return { binary: true, size: st.size };
@@ -1183,16 +1212,15 @@ handle('win:devtools', () => win?.webContents.toggleDevTools());
 handle('win:quit', () => app.quit());
 // The window's own background and the title bar's min/max/close buttons follow Settings → Appearance.
 const THEME_CHROME = {
-  dark: { bg: '#1d1d1f', bar: '#232325', symbols: '#aaaaaa' },
-  contrast: { bg: '#000000', bar: '#0b0b0d', symbols: '#a1a1aa' },
-  light: { bg: '#fbf9f4', bar: '#f4f1e8', symbols: '#5f5f64' },
+  dark: { bg: '#1d1d1f', symbols: '#aaaaaa' },
+  contrast: { bg: '#000000', symbols: '#a1a1aa' },
+  light: { bg: '#fbf9f4', symbols: '#5f5f64' },
 };
 let chrome = THEME_CHROME.dark;
-// Over Home's sky and the setup backdrop the buttons drop their bar and draw light straight onto the picture.
+// Over Home's sky and the setup backdrop the buttons draw light, to read on the picture.
 let clearBar = false;
-const paintTitleBar = () => win?.setTitleBarOverlay(clearBar
-  ? { color: '#00000000', symbolColor: '#e8ecff', height: 44 }
-  : { color: chrome.bar, symbolColor: chrome.symbols, height: 44 });
+// The buttons never paint a bar of their own: the page's title bar shows through, so a dialog's dim covers them too.
+const paintTitleBar = () => win?.setTitleBarOverlay({ color: '#00000000', symbolColor: clearBar ? '#e8ecff' : chrome.symbols, height: 44 });
 handle('win:theme', (_e, theme) => {
   const c = THEME_CHROME[theme];
   if (!c || !win) return;
@@ -1381,7 +1409,18 @@ async function claudeLiveLimits() {
   claudeLive.at = Date.now();
   try {
     const file = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
-    const token = JSON.parse(await fs.promises.readFile(file, 'utf8')).claudeAiOauth?.accessToken;
+    const readAuth = async () => JSON.parse(await fs.promises.readFile(file, 'utf8')).claudeAiOauth;
+    let auth = await readAuth();
+    // Claude Code only refreshes its token when it runs, so an idle day leaves an expired one; `claude auth status`
+    // makes it refresh (and save) its own token, so Breeze never touches the refresh token.
+    const bin = agentBins.get('claude');
+    if (auth?.expiresAt && auth.expiresAt < Date.now() + 60_000 && bin) {
+      await new Promise(res => (/\.(?:cmd|bat)$/i.test(bin)
+        ? exec(shellCommand(bin, ['auth', 'status']), { windowsHide: true, timeout: 15000 }, res)
+        : execFile(bin, ['auth', 'status'], { windowsHide: true, timeout: 15000 }, res)));
+      auth = await readAuth();
+    }
+    const token = auth?.accessToken;
     if (!token) return (claudeLive.windows = null);
     const res = await net.fetch('https://api.anthropic.com/api/oauth/usage', {
       headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' },

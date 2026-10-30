@@ -745,14 +745,9 @@ button {
   background: rgba(50, 50, 52, .35);
 }
 
-.ob-step[data-step="0"] h1 {
-  text-shadow: 0 2px 28px rgba(0, 0, 0, .55);
-}
-
 .ob-step[data-step="0"] p.lead {
   color: rgba(255, 255, 255, .86);
   font-size: 16px;
-  text-shadow: 0 1px 14px rgba(0, 0, 0, .7);
 }
 
 .ob-step[data-step="0"] .btn-primary {
@@ -1163,7 +1158,7 @@ textarea:focus-visible {
 /* ---------- IDE shell ---------- */
 .ide {
   display: grid;
-  grid-template-rows: 44px 1fr 24px;
+  grid-template-rows: 45px 1fr 24px;
   height: 100vh;
   transition: filter .6s ease, opacity .6s ease, transform .6s cubic-bezier(.2, .8, .2, 1);
 }
@@ -1174,8 +1169,9 @@ textarea:focus-visible {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 44px;
-  height: 44px;
+  /* 1px past the 44px window-button overlay (main.js), so the bottom line runs under the buttons too. */
+  min-height: 45px;
+  height: 45px;
   padding: 0 calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px) 0 10px;
   background: var(--bg-1);
   border-bottom: 1px solid var(--line);
@@ -2621,7 +2617,16 @@ svg.ico-svg:active {
   animation: imgOpenIn .28s cubic-bezier(.16, 1, .3, 1) both;
 }
 
-.img-stage.fit img {
+.editor-empty .img-stage video {
+  display: block;
+  margin: auto;
+  border-radius: 6px;
+  background: #000;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  animation: imgOpenIn .28s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.img-stage.fit :is(img, video) {
   position: absolute;
   inset: 0;
   max-width: calc(100% - 48px);
@@ -4081,30 +4086,44 @@ textarea:not(:placeholder-shown) + .ph-rot {
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, .38);
-  backdrop-filter: blur(6px);
   display: grid;
   place-items: center;
   /* Above Home and setup (50), so "Sign in" and "Manage agents" open over them; below menus (70) and toasts. */
   z-index: 55;
+}
+
+/* The dim and blur sit on a layer of their own, so closing fades that layer out (cheap) instead of shrinking the
+   blur radius, which re-blurs the whole window every frame and made the close stutter over Home's moving sky. */
+.scrim::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(0, 0, 0, .38);
+  backdrop-filter: blur(6px);
+  /* Faded here, not on the scrim: a fading parent cuts the blur off from the page behind until it's fully opaque. */
   animation: fade .35s cubic-bezier(.16, 1, .3, 1);
 }
 
 /* Fading the whole scrim would fade the panel with it and hide the roll-up, so only the dim and blur clear away. */
 .scrim.closing {
-  animation: scrimClear .36s cubic-bezier(.4, 0, .2, 1) forwards;
   pointer-events: none;
+}
+
+.scrim.closing::before {
+  animation: scrimClear .36s cubic-bezier(.4, 0, .2, 1) forwards;
 }
 
 @keyframes scrimClear {
   to {
-    background: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0);
+    opacity: 0;
   }
 }
 
-/* A modal closes with its opening played backwards: the parts leave last-in first-out, then the panel rolls up. */
+/* A modal closes with its opening played backwards: the parts leave last-in first-out, then the panel rolls up.
+   will-change keeps the shrinking panel on its own layer, so it is scaled rather than redrawn each frame. */
 .scrim.closing .modal {
+  will-change: transform, opacity;
   animation: settingsRoll .36s cubic-bezier(.55, 0, .25, 1) both, settingsFade .36s both;
 }
 
@@ -4115,6 +4134,12 @@ textarea:not(:placeholder-shown) + .ph-rot {
 
 .scrim.closing .modal.grow-from {
   animation: growBack .32s cubic-bezier(.55, 0, .25, 1) both;
+}
+
+/* Its parts are gone before it gets small, so they never show squeezed inside the shrinking panel. */
+.scrim.closing .modal.grow-from .stagger-item {
+  animation: staggerRowOut .12s ease-in forwards;
+  animation-delay: 0s;
 }
 
 @keyframes growOut {
@@ -5959,14 +5984,12 @@ body.vibing .ide {
 .home-head h2 {
   margin-bottom: 10px;
   font-size: 40px;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, .55);
 }
 
 .home-head p.lead {
   margin: 0;
   color: rgba(255, 255, 255, .8);
   font-size: 18px;
-  text-shadow: 0 1px 14px rgba(0, 0, 0, .7);
 }
 
 /* Coming off the launch screen (init.ts), the greeting comes into focus as the sky lifts, the line under it a beat
@@ -6124,8 +6147,9 @@ body.vibing .ide {
   position: relative;
   isolation: isolate;
   gap: 14px;
-  /* Same right inset as the rows below, so Continue lines up with their times. */
-  padding: 14px 42px 14px 16px;
+  /* Same right inset as the rows below, so Continue lines up with their times; 17px top and bottom end it level
+     with the default agent row beside it. */
+  padding: 17px 42px 17px 16px;
   border-color: rgba(var(--ink), .08);
   background: linear-gradient(120deg, rgba(10, 108, 216, .24), transparent 70%);
   transition: background-color .15s, border-color .3s, opacity .2s;
@@ -6140,15 +6164,15 @@ body.vibing .ide {
   background: var(--sig-accent);
   filter: brightness(.72);
   pointer-events: none;
-  /* A soft-edged wipe: the mask is three widths wide, opaque on its left third and clear on its right third.
-     Sliding it from its right end to its left end carries the edge across the card from left to right. */
-  -webkit-mask-image: linear-gradient(90deg, #000 33%, transparent 66%);
-  mask-image: linear-gradient(90deg, #000 33%, transparent 66%);
-  -webkit-mask-size: 300% 100%;
-  mask-size: 300% 100%;
+  /* A soft-edged wipe: the mask is 2.5 widths wide, opaque on its first width and clear past 1.5 widths, so the soft
+     edge starts right at the card's left side and the sweep shows from the first frame of the hover. */
+  -webkit-mask-image: linear-gradient(90deg, #000 40%, transparent 60%);
+  mask-image: linear-gradient(90deg, #000 40%, transparent 60%);
+  -webkit-mask-size: 250% 100%;
+  mask-size: 250% 100%;
   -webkit-mask-position: 100% 0;
   mask-position: 100% 0;
-  transition: -webkit-mask-position .6s cubic-bezier(.65, 0, .35, 1), mask-position .6s cubic-bezier(.65, 0, .35, 1);
+  transition: -webkit-mask-position .5s cubic-bezier(.2, .8, .2, 1), mask-position .5s cubic-bezier(.2, .8, .2, 1);
 }
 
 .recent-row.lead:hover .recent-open {
@@ -6343,7 +6367,9 @@ body.vibing .ide {
 
 .agent-row.on {
   border-color: var(--blue);
-  background: rgba(0, 122, 255, .08);
+  /* The manage-agents modal's tint: strong enough that the sliding box (slideSelected) reads as one solid box
+     over the see-through rows, not a thin outline crossing theirs. */
+  background: var(--blue-soft);
 }
 
 .agent-row .start-txt .sub b {
@@ -6404,8 +6430,6 @@ body.vibing .ide {
 .home-profile:has(> .avatar) .avatar {
   width: 40px;
   height: 40px;
-  /* A thin, soft dark ring so the picture holds its edge against the sky. */
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, .4);
 }
 
 .home-profile:focus-visible {
@@ -6471,7 +6495,7 @@ body.vibing .ide {
 .box {
   display: grid;
   /* title bar · chat tabs · conversation (takes the rest) · composer */
-  grid-template-rows: 44px auto minmax(0, 1fr) auto;
+  grid-template-rows: 45px auto minmax(0, 1fr) auto;
   height: 100vh;
   transition: filter .6s ease, opacity .6s ease, transform .6s cubic-bezier(.2, .8, .2, 1);
   background: radial-gradient(900px 420px at 50% -12%, rgba(0, 122, 255, .16), transparent 70%), var(--bg);
@@ -7489,6 +7513,16 @@ body.vibing .box {
 }
 
 /* ================= Switching between the IDE and Breeze Box ================= */
+/* Waiting to come in (swapScreen): laid out at full size over the old screen and all but invisible. Not opacity 0,
+   which Chromium skips painting, and painting it now is the point. */
+.screen-prep {
+  position: fixed !important;
+  inset: 0;
+  z-index: 31;
+  opacity: .001;
+  pointer-events: none;
+}
+
 .screen-in {
   animation: screenIn .42s cubic-bezier(.2, .8, .2, 1) both;
 }
@@ -7501,11 +7535,11 @@ body.vibing .box {
   animation: screenOut .26s cubic-bezier(.4, 0, 1, 1) forwards;
 }
 
+/* No blur: blurring a whole screen every frame is what made these stutter on slower machines. */
 @keyframes screenIn {
   from {
     opacity: 0;
     transform: scale(.975) translateY(10px);
-    filter: blur(6px);
   }
 }
 
@@ -7513,7 +7547,6 @@ body.vibing .box {
   to {
     opacity: 0;
     transform: scale(1.02);
-    filter: blur(6px);
   }
 }
 
@@ -9588,6 +9621,7 @@ body.layout-animating #previewPane {
 .set-user .avatar {
   width: 46px;
   height: 46px;
+  border: 0;
   font-size: 17px;
 }
 
@@ -9756,12 +9790,25 @@ body.layout-animating #previewPane {
   color: #f5f5f7;
   font-size: 12px;
   font-weight: 600;
-  /* Hovering turns the refresh arrows once instead of changing the button colour. */
-  transition: background .15s, opacity .15s, transform .2s cubic-bezier(.34, 1.56, .64, 1);
+  isolation: isolate;
+  transition: background .15s, opacity .15s, transform .12s cubic-bezier(.16, 1, .3, 1);
 }
 
-.sync-btn:not(:disabled):hover { transform: scale(1.06); }
-.sync-btn:not(:disabled):active { transform: scale(.97); }
+/* The same --hover-dim layer the other buttons fade in; on ::before because ::after is the update dot. */
+.sync-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--hover-dim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease;
+}
+
+.sync-btn:not(:disabled):hover::before { opacity: 1; }
+.sync-btn:not(:disabled):active { transform: scale(.94); }
 .sync-btn svg { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
 .sync-btn:not(:disabled):hover svg { transform: rotate(360deg); }
 .sync-btn:active svg { transform: rotate(360deg) scale(.9); }
@@ -10672,49 +10719,61 @@ body.layout-animating #previewPane {
 .theme-swatch .sw-main b:nth-child(3) { width: 48%; }
 .theme-swatch .sw-main b:nth-child(4) { width: 70%; }
 
-/* Switching themes: the cards show as placeholders (same size as the real ones) while the new colours paint in. */
-.theme-skel-card {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 8px 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg-2);
-  animation: skelIn .2s ease backwards;
+/* Switching themes cross-fades the window (setTheme in settings.ts), quickly so the click feels instant. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: .22s;
+  animation-timing-function: ease-out;
 }
 
-.theme-skel-swatch {
-  display: block;
-  aspect-ratio: 16 / 10;
-  border-radius: 8px;
-  background: linear-gradient(90deg, var(--bg-3) 30%, var(--line) 50%, var(--bg-3) 70%) 0 0 / 300% 100%;
-  animation: skelShimmer 1.6s ease-in-out infinite;
+/* Onboarding and Home: each icon acts out what its button does, over and over while the pointer is on it. Each loop
+   moves straight away (no still frame first) and then rests a beat before the next. .icon-live (onboarding.ts) stands
+   in for :hover, so leaving can ease the icon home from wherever it is instead of snapping. */
+#pickFolder.icon-live svg { animation: icon-tilt 1.8s infinite; }
+#createFolder.icon-live svg,
+#onboard .recent-forget.icon-live svg { animation: icon-turn 1.6s cubic-bezier(.34, 1.56, .64, 1) infinite; }
+#onboard .recent-open.icon-live .recent-go svg { animation: icon-nudge 1.3s ease-in-out infinite; }
+#onboard .btn.icon-live svg { animation: icon-hop 1.3s ease-in-out infinite; }
+#homeProfile.icon-live svg { animation: icon-pulse 1.5s ease-in-out infinite; }
+#rescan.icon-live svg { animation: icon-spin 1.4s cubic-bezier(.4, 0, .2, 1) infinite; }
+
+/* The folder springs up at once (overshooting a little and wobbling still), holds there, then eases back down at the
+   end of each loop. The spring is a sampled damped spring, since cubic-bezier can only overshoot once. */
+@keyframes icon-tilt {
+  0% {
+    transform: none;
+    animation-timing-function: linear(0, .09, .304, .563, .809, 1.004, 1.132, 1.195, 1.203, 1.174, 1.126, 1.073, 1.025, .989, .967, .958, .96, .967, .978, .988, .998, 1.004, 1.008, 1.009, 1);
+  }
+  35% { transform: translateY(-2px) rotate(-8deg); }
+  62% {
+    transform: translateY(-2px) rotate(-8deg);
+    animation-timing-function: cubic-bezier(.65, 0, .35, 1);
+  }
+  82%, 100% { transform: none; }
 }
 
-.theme-skel-card .skel-row {
-  margin: 0 4px;
+/* Plus and ✕ look the same half a turn round, so each loop picks up where the last one ended. */
+@keyframes icon-turn {
+  0% { transform: none; }
+  60%, 100% { transform: rotate(180deg); }
 }
 
-.theme-skel-nm {
-  width: 52%;
-  height: 11px;
-  margin-top: 2px !important;
+@keyframes icon-nudge {
+  0%, 60%, 100% { transform: none; }
+  30% { transform: translateX(3px); }
 }
 
-.theme-skel-sub {
-  width: 70%;
+@keyframes icon-hop {
+  0%, 60%, 100% { transform: none; }
+  30% { transform: translateY(-2px) scale(1.08); }
 }
 
-.theme-skel-note {
-  width: 64%;
-  animation: skelIn .2s ease backwards, skelShimmer 1.6s ease-in-out infinite;
+@keyframes icon-pulse {
+  0%, 60%, 100% { transform: none; }
+  30% { transform: scale(1.12); }
 }
 
-/* Switching themes cross-fades the window instead of snapping. */
-:root.theme-fading,
-:root.theme-fading *,
-:root.theme-fading *::before,
-:root.theme-fading *::after {
-  transition: background-color .25s ease, border-color .25s ease, color .25s ease !important;
+@keyframes icon-spin {
+  0% { transform: none; }
+  65%, 100% { transform: rotate(360deg); }
 }

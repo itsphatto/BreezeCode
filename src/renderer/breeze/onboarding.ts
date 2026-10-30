@@ -34,7 +34,7 @@ $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
 let barCleared: boolean | undefined;
 function syncTitleBar(): void {
   const ob = $('#onboard');
-  const on = !ob.classList.contains('hidden') && !ob.classList.contains('screen-out');
+  const on = !ob.classList.contains('hidden') && !ob.classList.contains('screen-out') && !ob.classList.contains('screen-prep');
   if (on === barCleared) return;
   barCleared = on;
   background(api.win.clearBar(on));
@@ -225,3 +225,16 @@ api.auth.onEvent(ev => {
   } else if (ev.t === 'error') signinError(ev.text ?? 'Sign-in failed');
 });
 
+
+// Hover icons (breeze.css, .icon-live): the loop runs while the pointer is on the button; leaving eases the icon back
+// from its current pose, since dropping a CSS animation snaps it home.
+const ICON_HOVER = '#pickFolder, #createFolder, #onboard .recent-forget, #onboard .recent-open, #onboard .btn, #homeProfile, #rescan';
+document.addEventListener('pointerover', e => (e.target as Element).closest?.(ICON_HOVER)?.classList.add('icon-live'));
+document.addEventListener('pointerout', e => {
+  const b = (e.target as Element).closest?.(ICON_HOVER);
+  if (!b?.classList.contains('icon-live') || b.contains(e.relatedTarget as Node | null)) return;
+  const svg = b.querySelector('svg');
+  const pose = svg ? getComputedStyle(svg).transform : 'none';
+  b.classList.remove('icon-live');
+  if (svg && pose !== 'none') svg.animate([{ transform: pose }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+});

@@ -123,6 +123,7 @@ function offsetOf(v: string, line: number, col: number): number {
 function editorNote(b: EditorBuffer): string {
   if (b.kind === 'binary') return 'This file is binary, so Breeze can\'t show it as text.';
   if (b.kind === 'image') return 'Breeze couldn\'t load this image.';
+  if (b.kind === 'video') return 'Breeze couldn\'t play this video.';
   return `This file is too large to open (${(b.size / 1048576).toFixed(1)} MB).`;
 }
 function renderEditor(): void {
@@ -134,6 +135,7 @@ function renderEditor(): void {
     const wasHidden = empty.classList.contains('hidden');
     empty.classList.remove('hidden');
     if (b?.kind === 'image' && b.url) showImage(empty, b);
+    else if (b?.kind === 'video' && b.url) showVideo(empty, b);
     else {
       empty.classList.remove('img-mode');
       delete empty.dataset.img;
@@ -161,6 +163,17 @@ const fileNoteHtml = (path: string, note: string) => `<div><h4>${esc(baseName(pa
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;
   return n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+}
+// Videos open in a player fitted to the editor; Chromium streams the file, so size doesn't matter.
+function showVideo(el: HTMLElement, b: EditorBuffer): void {
+  el.classList.add('img-mode');
+  if (el.dataset.img === b.url) return; // already showing it: keep its place
+  el.dataset.img = b.url;
+  el.innerHTML = `<div class="img-stage fit"><video src="${escAttr(b.url ?? '')}" controls preload="metadata"></video></div>
+    <div class="img-meta"><span class="img-dims">Loading</span><span>${fmtSize(b.size)}</span></div>`;
+  const v = $<HTMLVideoElement>('video', el);
+  v.onloadedmetadata = () => { $('.img-dims', el).textContent = `${v.videoWidth} × ${v.videoHeight}`; };
+  v.onerror = () => { el.classList.remove('img-mode'); delete el.dataset.img; el.innerHTML = fileNoteHtml(b.path, editorNote(b)); };
 }
 // Images open in a viewer: fitted to the editor, click to see them at actual size.
 function showImage(el: HTMLElement, b: EditorBuffer): void {

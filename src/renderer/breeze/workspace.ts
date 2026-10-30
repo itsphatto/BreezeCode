@@ -2,13 +2,13 @@
 interface Snapshot { text: string; sel: [number, number]; }
 interface EditorBuffer {
   path: string;
-  kind: 'text' | 'binary' | 'large' | 'image';
+  kind: 'text' | 'binary' | 'large' | 'image' | 'video';
   text: string;
   saved: string;
   eol: '\n' | '\r\n';
   size: number;
   ta: CodeSurface | null;
-  url?: string;          // images: where the picture loads from
+  url?: string;          // images and videos: where the file loads from
   diags?: Diag[];        // syntax errors from the last check
   diagLines?: number;    // line count the errors were found at (they're hidden while it differs)
   runDiags?: Diag[];     // the entries of `diags` that came from the last failed run (cleared by the next run or lint)
