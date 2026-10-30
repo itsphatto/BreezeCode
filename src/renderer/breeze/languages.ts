@@ -298,16 +298,27 @@ function relex(prev: HlDoc, text: string): HlToks {
   if (last < text.length || !starts.length) push(null, last);
   return { starts, kinds };
 }
-function lineHtmlOf(d: HlDoc, i: number): string {
-  const done = d.html[i];
+// A line longer than LONG_LINE draws only its start, then a "Show more" chip: one 6 MB line (minified code, a data
+// dump) takes seconds to lay out and slows every redraw. Each press of the chip draws LONG_LINE_STEP more.
+const LONG_LINE = 10000;
+const LONG_LINE_STEP = 100000;
+const sizeLabel = (chars: number) => (chars < 1024 ? `${chars} B` : chars < 1048576 ? `${(chars / 1024).toFixed(1)} KB` : `${(chars / 1048576).toFixed(1)} MB`);
+// `shown`: how much of a long line to draw (only the default amount is cached).
+function lineHtmlOf(d: HlDoc, i: number, shown = LONG_LINE): string {
+  const cached = shown === LONG_LINE;
+  const done = cached ? d.html[i] : undefined;
   if (done !== undefined) return done;
   const from = d.lines[i], to = i + 1 < d.lines.length ? d.lines[i + 1] - 1 : d.text.length;
+  let cut = to - from > shown ? from + shown : to;
+  if (cut < to && /[\ud800-\udbff]/.test(d.text[cut - 1])) cut--; // not between an emoji's two halves
   let h = '';
-  for (let k = lineOfOffset(d.starts, from); k < d.starts.length && d.starts[k] < to; k++) {
-    const part = d.text.slice(Math.max(d.starts[k], from), Math.min(d.starts[k + 1] ?? to, to));
+  for (let k = lineOfOffset(d.starts, from); k < d.starts.length && d.starts[k] < cut; k++) {
+    const part = d.text.slice(Math.max(d.starts[k], from), Math.min(d.starts[k + 1] ?? cut, cut));
     if (part) h += d.kinds[k] ? `<span class="tk-${d.kinds[k]}">${esc(part)}</span>` : esc(part);
   }
-  return d.html[i] = h;
+  if (cut < to) h += `<span class="show-more" data-more="${i}" title="Draw ${sizeLabel(Math.min(LONG_LINE_STEP, to - cut))} more of this line">Show more<span class="show-more-size">${sizeLabel(to - cut)}</span></span>`;
+  if (cached) d.html[i] = h;
+  return h;
 }
 const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], yaml: ['# ', ''], toml: ['# ', ''], sh: ['# ', ''], ps: ['# ', ''], docker: ['# ', ''], env: ['# ', ''], bat: ['REM ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
 

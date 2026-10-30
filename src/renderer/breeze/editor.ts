@@ -536,6 +536,37 @@ function visibleLines(ta: CodeSurface, total: number): [number, number] {
   const last = clamp(Math.ceil((ta.scrollTop + (ta.clientHeight || 800)) / LINE_H), 0, total);
   return [first, last];
 }
+
+/* ----- Very long lines: "Show more" ----- */
+// How much of each long line the user has asked to see, per file (lineHtmlOf draws the rest as a chip).
+const longShown = new WeakMap<EditorBuffer, Map<number, number>>();
+const shownOf = (b: EditorBuffer, line: number) => longShown.get(b)?.get(line) ?? LONG_LINE;
+// The chip sits in the drawn lines, under the editing surface that takes the pointer, so it is found by position.
+const chipAt = (e: MouseEvent) => document.elementsFromPoint(e.clientX, e.clientY).find(el => el.classList.contains('show-more')) as HTMLElement | undefined;
+for (const [area, bufOf] of [[$('#editor .code'), activeBuf], [$('.split-editor .code'), () => splitBuf()]] as const) {
+  let hot: HTMLElement | undefined;
+  area.addEventListener('mousemove', e => {
+    const chip = chipAt(e);
+    if (chip === hot) return;
+    hot?.classList.remove('hot');
+    hot = chip;
+    hot?.classList.add('hot');
+    area.classList.toggle('over-more', !!hot);
+  });
+  area.addEventListener('mouseleave', () => { hot?.classList.remove('hot'); hot = undefined; area.classList.remove('over-more'); });
+  // Capture: the chip's press must not also place the caret.
+  area.addEventListener('pointerdown', e => {
+    const chip = chipAt(e), b = bufOf();
+    if (!chip || !b || e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const line = Number(chip.dataset.more), m = longShown.get(b) ?? new Map<number, number>();
+    m.set(line, shownOf(b, line) + LONG_LINE_STEP);
+    longShown.set(b, m);
+    hot = undefined; area.classList.remove('over-more');
+    if (b.path === active) renderCode();
+    if (b.path === splitPath) paintSplit();
+  }, true);
+}
 function renderCode(): void {
   const b = activeText();
   if (!b) return;
@@ -553,7 +584,7 @@ function renderCode(): void {
   winLast = Math.min(count, vl + OVERSCAN);
   const rows: string[] = [], nums: string[] = [];
   for (let i = winFirst; i < winLast; i++) {
-    rows.push(lineHtml(lineHtmlOf(doc, i), i, add, errAt.get(i)));
+    rows.push(lineHtml(lineHtmlOf(doc, i, shownOf(b, i)), i, add, errAt.get(i)));
     nums.push(gutterHtml(i, errAt.get(i), marks?.get(i), !!marked?.has(i)));
   }
   hlLines.innerHTML = rows.join('');
@@ -730,7 +761,7 @@ function paintSplit(): void {
   const marks = changeMarks(b);
   const rows: string[] = [], nums: string[] = [];
   for (let i = splitWin.first; i < splitWin.last; i++) {
-    rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lineHtmlOf(doc, i)}</div>`);
+    rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lineHtmlOf(doc, i, shownOf(b, i))}</div>`);
     const cls = [i === cur ? 'cur' : '', marks?.has(i) ? `git-${marks.get(i)}` : ''].filter(Boolean).join(' ');
     nums.push(`<div${cls ? ` class="${cls}"` : ''}>${markDot(i, !!lineMarks.get(b.path)?.has(i))}${i + 1}</div>`);
   }
