@@ -334,7 +334,7 @@ function finishTeamMember(r: Run, ev: AgentEvent, tab: AgentTabState, team: Agen
   labelAgent = label;
   if (!hasAnyActiveRun()) vibeDone(allOk);
   const s = SURFACES[tab.surfaceName];
-  s.prompt.placeholder = 'Describe what you want to build';
+  s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' ';
   if (lastRunFiles.length && running) void reloadPreview();
 }
 
@@ -597,7 +597,7 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const review = r.files.size ? '<button class="btn btn-sm" data-live data-review>Review changes</button>' : '';
   const el = addMsg(`<div class="run-done"><span>✓ Done${summary}</span>${review}</div>`, tab);
   el.querySelector<HTMLElement>('[data-review]')?.addEventListener('click', () => showView('git', true));
-  s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : 'Describe what you want to build';
+  s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' ';
   if (r.files.size && running) void reloadPreview();
 }
 

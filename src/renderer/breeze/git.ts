@@ -9,7 +9,8 @@ const commitDetails = new Map<string, GitCommitDetail>();
 const scmCollapsed = new Set<string>(store.get<string[]>('breeze.scmCollapsed', []));
 let gitTimer: TimeoutId | undefined;
 function queueGitRefresh(): void { clearTimeout(gitTimer); gitTimer = setTimeout(() => void refreshGit(), 400); }
-window.addEventListener('focus', () => { if (rootInfo) queueGitRefresh(); });
+// Not for the focus the window takes as it shows at launch: start-up has just read the status.
+window.addEventListener('focus', () => { if (rootInfo && !launching) queueGitRefresh(); });
 
 async function refreshGit(): Promise<void> {
   if (!rootInfo) { gitState = { repo: false }; gitLoaded = true; renderScm(); renderBranch(); return; }

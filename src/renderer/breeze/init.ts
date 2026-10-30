@@ -35,8 +35,6 @@ async function boot(): Promise<void> {
   renderTree(); renderScm();
   if (step === STEP.home) renderHome();
   renderBoxFolder();
-  // Refresh the tool and agent status in the background; the cached result shows meanwhile.
-  if (appState.onboarded) detectTools().catch(() => { /* shown in the setup card */ });
   // Wait for what the startup above set going, then for every picture on screen (logos, avatar) to be decoded.
   // Work started by that work (a git refresh queuing another) is caught by looping until nothing new was added.
   for (let seen = 0; startupWaits && seen < startupWaits.length;) {
@@ -44,8 +42,17 @@ async function boot(): Promise<void> {
     seen = startupWaits.length;
     await Promise.all(batch);
   }
-  await Promise.all([...document.querySelectorAll<HTMLImageElement>('#ide:not(.hidden) img, #box:not(.hidden) img, #onboard:not(.hidden) img')]
-    .map(img => img.decode().catch(() => undefined)));
+  // And the backdrop video's first frame, so its 9MB load and decoder start-up don't land in the fade (3s at most).
+  const video = $<HTMLVideoElement>('.ob-video');
+  await Promise.all([
+    ...[...document.querySelectorAll<HTMLImageElement>('#ide:not(.hidden) img, #box:not(.hidden) img, #onboard:not(.hidden) img')]
+      .map(img => img.decode().catch(() => undefined)),
+    video.readyState >= 2 || new Promise(done => {
+      video.addEventListener('loadeddata', done, { once: true });
+      video.addEventListener('error', done, { once: true });
+      setTimeout(done, 3000);
+    }),
+  ]);
   startupWaits = null;
   // One frame so the last renders are painted before start-up counts as done.
   await new Promise(r => { requestAnimationFrame(() => r(undefined)); setTimeout(r, 100); }); // a hidden window has no frames
@@ -82,6 +89,11 @@ async function boot(): Promise<void> {
     home.classList.add('home-in');
     setTimeout(() => home.classList.remove('home-in'), 1200);
   };
+  // Once the app is up: refresh the tool and agent status in the background (the cached result shows meanwhile).
+  const launched = () => {
+    launching = false;
+    if (appState.onboarded) detectTools().catch(() => { /* shown in the setup card */ });
+  };
   if (window.breeze) {
     // Desktop: the intro plays over the desktop in the splash window (main.js) while this window loads hidden. Once
     // start-up has finished and the intro has played through (about 3.9s in), this window comes up still see-through,
@@ -102,14 +114,20 @@ async function boot(): Promise<void> {
       $('.ob-sky').getAnimations({ subtree: true })
         .forEach(a => { if ((a as CSSAnimation).animationName === 'launch-drift') a.currentTime = now; });
       reveal(true);
+      // Let the welcome's first frame (its newly shown logo and text) paint before the fade starts, not during it.
+      await settleFrames(500);
+      // The sky's drift holds still through the fade: under Home's glass cards every moving frame re-blurs them all.
+      document.documentElement.setAttribute('data-handoff', '');
       await api.win.launchFade().catch(() => undefined);
-    })();
+      document.documentElement.removeAttribute('data-handoff');
+    })().finally(launched);
   } else {
     // Browser: the whole intro plays in the page. It lifts 1.8s after the swirl has fully appeared; animations only
     // advance while the page draws frames, so a clock-time cap makes sure it never stays up for good.
     const logoIn = $('.launch-logo', launch).getAnimations()[0]?.finished.catch(() => undefined) ?? Promise.resolve();
     void Promise.race([logoIn.then(() => wait(1800)), wait(6000)]).then(() => {
       reveal(true);
+      launched();
       launch.classList.add('done');
       launch.addEventListener('animationend', e => { if (e.target === launch) launch.remove(); });
       setTimeout(() => launch.remove(), 1500); // the lift-off never got a frame to play in

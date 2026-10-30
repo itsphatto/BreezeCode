@@ -76,12 +76,28 @@ const segHtml = (id: string, opts: [string, string][], cur: string) =>
 const THEMES: [Theme, string, string, boolean?][] = [
   ['dark', 'Default Dark', 'Soft charcoal.'],
   ['contrast', 'High Contrast Dark', 'True black, sharper edges.'],
-  ['light', 'Light', 'Warning light attacts bug!', true],
+  ['light', 'Light', '', true], // its line comes from LIGHT_JOKES
 ];
+// Light's warning is a different joke each visit to Appearance (picking a theme keeps it):
+// 40 film and cartoon characters × 25 reactions = 1000.
+const LIGHT_WHO = ['Dracula', 'Darth Vader', 'Batman', 'Gollum', 'Gandalf', 'Shrek', 'Wednesday Addams', 'Edward Cullen',
+  'Maleficent', 'Voldemort', 'Sauron', 'The Grinch', 'Squidward', 'Garfield', 'Scooby-Doo', 'Nemo', 'Buzz Lightyear', 'Elsa',
+  'Kylo Ren', 'Yoda', 'Neo', 'The Predator', 'Jack Skellington', 'Stitch', 'Megamind', 'Gru', 'Kevin the Minion', 'Pikachu',
+  'Homer Simpson', 'Bugs Bunny', 'Wile E. Coyote', 'SpongeBob', 'Plankton', 'Shaggy', 'Mr. Burns', 'Simba', 'Scar', 'WALL-E',
+  'Olaf', 'Toothless'];
+const LIGHT_WHAT = ['just squinted at this.', 'asked for sunglasses.', 'went back to the dark side.', 'filed a glare complaint.',
+  'thinks this is a jump scare.', 'lost a staring contest to it.', 'says the bugs love it.', 'refuses to code in this.',
+  'turned it off in two seconds.', 'needs a nap after one look.', 'now codes in a cave.', 'would rather face a dragon.',
+  'says even the moths showed up.', 'packed sunscreen for this.', 'thinks the screen is on fire.', 'got a tan from the editor.',
+  'approves, blindfolded.', 'just saw every bug at once.', 'calls this a flashbang.', 'is still seeing spots.',
+  'booked an eye exam.', 'says bugs come for the light.', 'only uses it at high noon.', 'hissed at the screen.',
+  'asked who turned the sun on.'];
+const LIGHT_JOKES = LIGHT_WHO.flatMap(who => LIGHT_WHAT.map(what => `${who} ${what}`));
+let lightJoke = '';
 const themeCardHtml = ([id, name, sub, warn]: [Theme, string, string, boolean?]) =>
   `<button class="set-theme ${id === theme ? 'on' : ''}" data-theme-pick="${id}" aria-pressed="${id === theme}">
     <span class="theme-swatch" data-swatch="${id}" aria-hidden="true"><span class="sw-bar"><i></i><i></i><i></i></span><span class="sw-side"><b></b><b></b><b></b></span><span class="sw-main"><b></b><b></b><b></b><b></b></span></span>
-    <span class="nm">${esc(name)}</span><span class="set-sub${warn ? ' set-warn' : ''}">${esc(sub)}</span></button>`;
+    <span class="nm">${esc(name)}</span><span class="set-sub${warn ? ' set-warn' : ''}">${esc(id === 'light' ? (lightJoke ||= pickOther(LIGHT_JOKES, '')) : sub)}</span></button>`;
 // While a new theme paints in, the cards (and the note under them) show as shimmering placeholders for a beat,
 // then the real ones rise back in, drawn in the new colours.
 function setTheme(t: Theme): void {
@@ -230,9 +246,9 @@ function settingsBody(tab: SettingsTab): string {
       <div class="set-themes">${THEMES.map(themeCardHtml).join('')}</div>
       <p class="set-sub">Sign-in and Home keep their dark glass over the river photo in every theme.</p>`;
     case 'controls': return `<h4>Controls</h4>
-      <h5>Key binds</h5>
+      <h5>Keybinds</h5>
       <p class="set-sub">Click a shortcut, then press the new keys. Backspace removes it, Escape cancels.</p>
-      <div class="kb-tools"><input class="input" id="kbSearch" aria-label="Search key binds" placeholder="Search commands or keys" spellcheck="false" autocomplete="off"><button class="btn btn-sm" id="kbResetAll">Reset all</button></div>
+      <div class="kb-tools"><input class="input" id="kbSearch" aria-label="Search keybinds" placeholder="Search commands or keys" spellcheck="false" autocomplete="off"><button class="btn btn-sm" id="kbResetAll">Reset all</button></div>
       <div class="kb-list" id="kbList">${keyBindListHtml('')}</div>`;
     case 'agents': {
       const agents =[...appState.detect?.agents ?? []].sort((a, b) => agentRank(a) - agentRank(b));
@@ -284,7 +300,7 @@ function settingsBody(tab: SettingsTab): string {
       return `<h4>Help & About</h4>
       ${settingRow('Keyboard shortcuts', '', '<button class="btn btn-sm" data-set-cmd="help.keys">Show</button>')}
       <h5>Tools</h5>
-      ${tools}
+      <div class="set-tools">${tools}</div>
       <h5>About</h5>
       ${settingRow('About Breeze Code', `${engine ? `${esc(engine)} · ` : ''}v${esc(appVersion)}`, '')}`;
     }
@@ -320,15 +336,23 @@ function stopRecording(): void {
   recording = null;
   done();
 }
+// Sets a key's text, replaying its fade-in when the text actually changes.
+function setKeyText(el: HTMLElement, text: string): void {
+  if (el.textContent === text) return;
+  el.textContent = text;
+  el.classList.remove('kb-swap');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('kb-swap');
+}
 function recordKeyBind(el: HTMLElement, redraw: () => void): void {
   if (recording) { // another key was waiting: it shows its key again
     const prev = recording.el;
     prev.classList.remove('recording');
-    prev.textContent = keyOf(prev.dataset.kb as string) || 'Add key';
+    setKeyText(prev, keyOf(prev.dataset.kb as string) || 'Add key');
     recording = null;
   }
   el.classList.add('recording');
-  el.textContent = 'Press keys';
+  setKeyText(el, 'Press keys');
   recording = { el, done: redraw };
   el.focus();
 }
@@ -343,9 +367,9 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && plain) { stopRecording(); return; }
   if ((e.key === 'Backspace' || e.key === 'Delete') && plain) { setKeyBind(act, ''); stopRecording(); return; }
   const mods = [e.ctrlKey || e.metaKey ? 'Ctrl' : '', e.shiftKey ? 'Shift' : '', e.altKey ? 'Alt' : ''].filter(Boolean);
-  if (MOD_KEYS.has(e.key)) { el.textContent = `${mods.join('+')}+…`; return; } // still holding modifiers
+  if (MOD_KEYS.has(e.key)) { setKeyText(el, `${mods.join('+')}+…`); return; } // still holding modifiers
   const combo = comboOf(e);
-  if (!FN_KEY.test(keyName(e)) && !e.ctrlKey && !e.metaKey && !e.altKey) { el.textContent = 'Add Ctrl or Alt'; return; }
+  if (!FN_KEY.test(keyName(e)) && !e.ctrlKey && !e.metaKey && !e.altKey) { setKeyText(el, 'Add Ctrl or Alt'); return; }
   const took = setKeyBind(act, combo);
   stopRecording();
   if (took) toast(`${combo} moved here from ${keyBindRows().find(r => r.act === took)?.label ?? took}`);
@@ -375,12 +399,17 @@ function bindSettings(m: HTMLElement): void {
   // Switches are rebuilt with the pane, so remember where each knob was (mid-drag or mid-slide too) and slide on from there.
   const prevSwitch = new Map<string, string>();
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => prevSwitch.set(s.id, getComputedStyle(s).getPropertyValue('--complete')));
+  if (pane.dataset.tab !== settingsTab) lightJoke = ''; // a fresh joke for each visit
   pane.innerHTML = settingsBody(settingsTab);
+  // Light's joke stays on one line: one that would wrap is swapped for another that fits.
+  const joke = pane.querySelector<HTMLElement>('[data-theme-pick="light"] .set-sub');
+  for (let i = 0; joke && joke.scrollWidth > joke.clientWidth && i < 40; i++) joke.textContent = lightJoke = pickOther(LIGHT_JOKES, lightJoke);
   // A new section's rows come in one after another; redraws of the same section (a switch flipped) just appear.
   if (pane.dataset.tab !== settingsTab) {
     pane.dataset.tab = settingsTab;
     staggerIn(pane.children);
-    staggerIn(pane.querySelectorAll('.set-agents > *'), 2);
+    staggerIn(pane.querySelectorAll('.set-agents > *, .set-tools > *'), 2);
+    pane.querySelector('.set-themes')?.classList.add('grow'); // the theme pictures' code lines grow in
   }
   // Just switched accounts: the account card turns over to the new one and Active pops onto its row.
   if (justSwitched) {
@@ -426,7 +455,15 @@ function bindSettings(m: HTMLElement): void {
   // Controls
   const kbList = $('#kbList', pane), kbSearch = $<HTMLInputElement>('#kbSearch', pane);
   if (kbList && kbSearch) {
-    const redraw = () => { kbList.innerHTML = keyBindListHtml(kbSearch.value); };
+    // Keys whose text changed in the redraw (a new bind, a reset, a key moved off another command) fade in.
+    const redraw = () => {
+      const before = new Map($$<HTMLElement>('[data-kb]', kbList).map(b => [b.dataset.kb, b.textContent]));
+      kbList.innerHTML = keyBindListHtml(kbSearch.value);
+      $$<HTMLElement>('[data-kb]', kbList).forEach(b => {
+        const was = before.get(b.dataset.kb);
+        if (was != null && was !== b.textContent) { const now = b.textContent ?? ''; b.textContent = was; setKeyText(b, now); }
+      });
+    };
     kbSearch.oninput = redraw;
     $('#kbResetAll', pane).onclick = () => { resetKeyBinds(); redraw(); toast('Every shortcut is back to its default'); };
     kbList.onclick = e => {

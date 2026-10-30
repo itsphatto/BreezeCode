@@ -126,7 +126,7 @@ function detectTools(force = false): Promise<Detection> {
 // anything changed. For ten minutes after an install starts (even during setup), every return to the window looks again.
 let lastAutoScan = 0;
 function autoRescan(): void {
-  if (detecting || (!appState.onboarded && !installStarted) || Date.now() - lastAutoScan < 30_000) return;
+  if (launching || detecting || (!appState.onboarded && !installStarted) || Date.now() - lastAutoScan < 30_000) return;
   lastAutoScan = Date.now();
   const before = JSON.stringify(appState.detect);
   detectTools(true).then(d => {
@@ -831,6 +831,9 @@ let booted = false;
 // finished (and sounds come on) once the app looks finished.
 let startupWaits: Promise<unknown>[] | null = [];
 const holdStartup = <T>(p: Promise<T>): Promise<T> => { startupWaits?.push(p.catch(() => undefined)); return p; };
+// True until the app has faded in over the launch (init.ts). Background work that starts processes (git, tool
+// checks) waits for it: on Windows each process start freezes the main process, which drives that fade.
+let launching = true;
 function swapScreen(to: string): void {
   const next = $(to);
   const screens = ['#onboard', '#ide', '#box'].map(id => $(id));

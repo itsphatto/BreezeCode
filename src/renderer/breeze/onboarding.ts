@@ -44,7 +44,11 @@ syncTitleBar();
 
 /* Welcome: it sits on the launch sky; Start breezing eases the sky away to the city video (the fade is in breeze.css). */
 const obBg = $('#obBg');
-const revealBackdrop = () => obBg.classList.add('revealed');
+// The video only plays once the sky lifts off it: decoding it unseen under the sky stutters the launch fade.
+const revealBackdrop = () => {
+  obBg.classList.add('revealed');
+  $<HTMLVideoElement>('.ob-video', obBg).play().catch(() => undefined);
+};
 $('#obStart').onclick = () => goStep(STEP.signIn);
 // The dots before the current one take you back to that step.
 $$('.ob-dots span').forEach((d, i) => {
@@ -107,9 +111,9 @@ async function removeAccount(a: User): Promise<void> {
   await refreshAccounts();
   toast(`Removed ${a.email ?? a.name}`);
 }
-// The hold-to-delete trash button (same as the branch picker's), used for anything that's hard to undo.
-const holdDelHtml = (label: string, attrs = '', tag: 'button' | 'span' = 'button') =>
-  `<${tag} class="br-del" ${tag === 'span' ? 'role="button" tabindex="0" ' : ''}${attrs} title="Hold for 5 seconds to remove" aria-label="Hold for 5 seconds to remove ${escAttr(label)}">${svgIcon('trash', 14)}</${tag}>`;
+// The hold-to-delete button (same as the branch picker's), used for anything that's hard to undo.
+const holdDelHtml = (label: string, attrs = '', tag: 'button' | 'span' = 'button', icon = 'trash') =>
+  `<${tag} class="br-del" ${tag === 'span' ? 'role="button" tabindex="0" ' : ''}${attrs} title="Hold for 5 seconds to remove" aria-label="Hold for 5 seconds to remove ${escAttr(label)}">${svgIcon(icon, 14)}</${tag}>`;
 function accountItems(): MenuItem[] {
   const list: MenuItem[] = accounts.accounts.map(a => ({
     label: a.name, key: a.provider, checked: () => accountKey(a) === accounts.active, run: () => background(switchAccount(a)),
