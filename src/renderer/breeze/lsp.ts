@@ -5,8 +5,17 @@ const lspTimers = new Map<string, TimeoutId>();
 const lspHinted = new Set<string>();      // install hints already shown, by command
 let lspAsk = 0;                           // the newest completion request; older answers are dropped
 
+const lspSent = new Map<string, string>(); // the text each server has, to send it only what changed since
+
+function lspSend(b: EditorBuffer): Promise<void> {
+  const before = lspSent.get(b.path), text = b.text;
+  lspSent.set(b.path, text);
+  return api.lsp.change(b.path, before == null ? text : textEdit(before, text));
+}
+
 async function lspOpen(b: EditorBuffer): Promise<void> {
   if (b.kind !== 'text') return;
+  lspSent.set(b.path, b.text);
   const r = await api.lsp.open(b.path, b.text).catch(() => ({ available: false }) as LspOpen);
   if (!buffers.has(b.path)) { void api.lsp.close(b.path); return; } // closed while the server started
   if (r.available) { lspOn.add(b.path); return; }
@@ -19,18 +28,19 @@ async function lspOpen(b: EditorBuffer): Promise<void> {
 function lspChanged(b: EditorBuffer): void {
   if (!lspOn.has(b.path)) return;
   clearTimeout(lspTimers.get(b.path));
-  lspTimers.set(b.path, setTimeout(() => { lspTimers.delete(b.path); void api.lsp.change(b.path, b.text); }, 150));
+  lspTimers.set(b.path, setTimeout(() => { lspTimers.delete(b.path); void lspSend(b).catch(() => undefined); }, 150));
 }
 // Before asking anything, the server must have what's on screen.
 async function lspFlush(b: EditorBuffer): Promise<void> {
   if (!lspTimers.has(b.path)) return;
   clearTimeout(lspTimers.get(b.path));
   lspTimers.delete(b.path);
-  await api.lsp.change(b.path, b.text).catch(() => undefined);
+  await lspSend(b).catch(() => undefined);
 }
 function lspClosed(path: string): void {
   clearTimeout(lspTimers.get(path));
   lspTimers.delete(path);
+  lspSent.delete(path);
   if (lspOn.delete(path)) void api.lsp.close(path);
 }
 function lspRenamed(from: string, b: EditorBuffer): void {

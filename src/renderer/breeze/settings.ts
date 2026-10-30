@@ -244,7 +244,7 @@ function settingsBody(tab: SettingsTab): string {
     case 'appearance': return `<h4>Appearance</h4>
       <h5>Theme</h5>
       <div class="set-themes">${THEMES.map(themeCardHtml).join('')}</div>
-      <p class="set-sub">Sign-in and Home keep their dark glass over the river photo in every theme.</p>`;
+      <p class="set-sub"></p>`;
     case 'controls': return `<h4>Controls</h4>
       <h5>Keybinds</h5>
       <p class="set-sub">Click a shortcut, then press the new keys. Backspace removes it, Escape cancels.</p>

@@ -18,6 +18,29 @@ test('lineStarts finds every line start', () => {
   assert.deepEqual(plain(lineStarts(T)), [0, 6, 11, 12]);
 });
 
+test('textEdit finds the one changed span, and applyEdit replays it', () => {
+  const [textEdit, applyEdit] = vm.runInContext('[textEdit, applyEdit]', ctx);
+  const big = 'x'.repeat(70000) + 'MID' + 'y'.repeat(70000);
+  const pairs = [['', ''], ['', 'abc'], ['abc', ''], ['abc', 'abc'], ['abc', 'abXc'], ['aaaa', 'aaa'], ['hello world', 'hello brave world'],
+    [big, big.replace('MID', 'M')], [big, big + '!'], ['!' + big, big]];
+  for (const [a, b] of pairs) {
+    const e = textEdit(a, b);
+    assert.equal(applyEdit(a, e), b);
+    assert.ok(e.text.length <= Math.max(0, b.length - Math.min(a.length, b.length)) + 3, `small edit for ${a.length}→${b.length}`);
+  }
+  assert.deepEqual(plain(textEdit('hello world', 'hello brave world')), { start: 6, end: 6, text: 'brave ' });
+});
+
+test('shiftLineStarts matches a full rescan after any edit', () => {
+  const shift = vm.runInContext('shiftLineStarts', ctx);
+  const texts = ['', '\n', 'a\nb', T, '\n\nx\n', 'abc\n\ndef\nghi\n'];
+  const inserts = ['', 'q', '\n', 'x\ny', '\n\n', 'end\n'];
+  for (const t of texts) for (const ins of inserts) for (let s = 0; s <= t.length; s++) for (let e = s; e <= t.length; e++) {
+    const after = t.slice(0, s) + ins + t.slice(e);
+    assert.deepEqual(plain(shift(lineStarts(t), s, e, ins)), plain(lineStarts(after)), JSON.stringify({ t, s, e, ins }));
+  }
+});
+
 test('arrow keys move, extend and collapse selections', () => {
   assert.deepEqual(plain(mv(0, 'ArrowRight').sel), { anchor: 1, head: 1 });
   assert.deepEqual(plain(mv(0, 'ArrowRight', { shift: true }).sel), { anchor: 0, head: 1 });

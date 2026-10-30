@@ -6,10 +6,13 @@ type NavKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown' | 'Home' | 'E
 // (lastIndexOf clamps -1 to 0, so offset 0 would find a leading '\n' and say line 2.)
 const lineStart = (v: string, pos: number) => (pos > 0 ? v.lastIndexOf('\n', pos - 1) + 1 : 0);
 const lineEnd = (v: string, pos: number) => { const i = v.indexOf('\n', pos); return i === -1 ? v.length : i; };
-// The line starts of the last text asked about, so the open file's lines are found once per edit, not per call.
-let lineMemo = { text: '', starts: [0] };
+// The line starts of the last two texts asked about, so the open file's lines are found once per edit, not per
+// call. Two, because mid-edit the buffer still has the text from before while the editor surface has the new one.
+let lineMemo = { text: '', starts: [0] }, lineMemoOld = lineMemo;
 function lineStartsOf(text: string): number[] {
-  if (lineMemo.text !== text) lineMemo = { text, starts: lineStarts(text) };
+  if (lineMemo.text === text) return lineMemo.starts;
+  if (lineMemoOld.text === text) [lineMemo, lineMemoOld] = [lineMemoOld, lineMemo];
+  else rememberLineStarts(text, lineStarts(text));
   return lineMemo.starts;
 }
 function visualCol(lineText: string, col: number): number {
@@ -21,6 +24,39 @@ function lineStarts(text: string): number[] {
   const s = [0];
   for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) s.push(i + 1);
   return s;
+}
+// What changed from `a` to `b`, as one edit in `a`'s offsets: the span between their shared start and end.
+// Compared in chunks first, so a big file's unchanged parts are skipped quickly.
+interface TextEdit { start: number; end: number; text: string }
+function textEdit(a: string, b: string): TextEdit {
+  const n = Math.min(a.length, b.length);
+  let p = 0;
+  for (const step of [65536, 4096, 256]) while (p + step <= n && a.slice(p, p + step) === b.slice(p, p + step)) p += step;
+  while (p < n && a[p] === b[p]) p++;
+  let s = 0;
+  const most = n - p;
+  for (const step of [65536, 4096, 256]) while (s + step <= most && a.slice(a.length - s - step, a.length - s) === b.slice(b.length - s - step, b.length - s)) s += step;
+  while (s < most && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  return { start: p, end: a.length - s, text: b.slice(p, b.length - s) };
+}
+const applyEdit = (t: string, e: TextEdit) => t.slice(0, e.start) + e.text + t.slice(e.end);
+
+// The line starts after replacing [start, end) with `text`, from the ones before, without rescanning the file.
+// A new array: the old one may still belong to a cached copy of the old text.
+function shiftLineStarts(starts: number[], start: number, end: number, text: string): number[] {
+  const delta = text.length - (end - start);
+  const a = lineOfOffset(starts, start) + 1; // first start after the edit begins
+  let b = a;
+  while (b < starts.length && starts[b] <= end) b++; // starts inside the replaced span go
+  const out = starts.slice(0, a);
+  for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) out.push(start + i + 1);
+  for (let i = b; i < starts.length; i++) out.push(starts[i] + delta);
+  return out;
+}
+// Lets the editor surface hand over line starts it already has, so the same text isn't scanned twice.
+function rememberLineStarts(text: string, starts: number[]): void {
+  if (lineMemo.text !== text) lineMemoOld = lineMemo;
+  lineMemo = { text, starts };
 }
 function lineOfOffset(starts: number[], off: number): number {
   let lo = 0, hi = starts.length - 1;

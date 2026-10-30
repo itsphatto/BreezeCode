@@ -6246,6 +6246,11 @@ body.vibing .ide {
   padding: 4px 6px 8px;
 }
 
+#homeRecentCount {
+  background: none;
+  border: none;
+}
+
 /* No projects yet: no count to show. */
 #homeRecentCount:empty {
   display: none;

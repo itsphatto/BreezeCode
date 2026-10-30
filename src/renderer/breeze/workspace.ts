@@ -1,5 +1,7 @@
 /* ================= Workspace ================= */
-interface Snapshot { text: string; sel: [number, number]; }
+// A history step. Only the newest step of a stack keeps its whole text; older ones keep `edit`, which turns the
+// step above them back into theirs (see pushSnap / popSnap).
+interface Snapshot { text?: string; edit?: TextEdit; sel: [number, number]; }
 interface EditorBuffer {
   path: string;
   kind: 'text' | 'binary' | 'large' | 'image' | 'video' | 'pdf';

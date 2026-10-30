@@ -42,6 +42,18 @@ test('findOnPath finds a program with a Windows extension', () => {
 });
 
 const TSC = path.join(__dirname, '..', 'node_modules', '@typescript', `typescript-${process.platform}-${process.arch}`, 'lib', process.platform === 'win32' ? 'tsc.exe' : 'tsc');
+test('lspPos counts lines and UTF-16 columns', () => {
+  const { lspPos } = require('../src/main/lsp');
+  const t = 'ab\nc😀d\n\nx';
+  assert.deepEqual(lspPos(t, 0), { line: 0, character: 0 });
+  assert.deepEqual(lspPos(t, 2), { line: 0, character: 2 });
+  assert.deepEqual(lspPos(t, 3), { line: 1, character: 0 });
+  assert.deepEqual(lspPos(t, 6), { line: 1, character: 3 });
+  assert.deepEqual(lspPos(t, 8), { line: 2, character: 0 });
+  assert.deepEqual(lspPos(t, 9), { line: 3, character: 0 });
+  assert.deepEqual(lspPos(t, t.length), { line: 3, character: 1 });
+});
+
 test('TypeScript server: completion, hover, definition, references and rename', { skip: !fs.existsSync(TSC) && 'TypeScript 7 binary not installed', timeout: 60000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-lsp-'));
   const lib = 'export function greet(name: string): string { return name; }\n';
@@ -66,6 +78,12 @@ test('TypeScript server: completion, hover, definition, references and rename', 
     const edits = await m.rename('main.ts', { line: 1, character: 1 }, 'hello');
     assert.deepEqual(Object.keys(edits).sort(), ['lib.ts', 'main.ts']);
     assert.ok(Object.values(edits).flat().every(e => e.text === 'hello'));
+    // An edit sent as a range: "s." on line 3 becomes "n." on a new number, so number methods come back.
+    const at = main.indexOf('s.\n');
+    await m.change('main.ts', { start: at, end: at, text: 'const n = 1;\nn' });
+    await m.change('main.ts', { start: at + 'const n = 1;\nn'.length, end: at + 'const n = 1;\nn'.length + 1, text: '' }); // drop the old "s"
+    const nums = await m.completion('main.ts', { line: 4, character: 2 });
+    assert.ok(nums.some(i => i.label === 'toFixed'), 'number methods after the ranged edits');
   } finally {
     m.stopAll();
   }

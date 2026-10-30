@@ -214,8 +214,9 @@ function animatePromptHeight(ta: HTMLTextAreaElement, fromH: number): void {
    jumping (the commit box going from one line to two, a note gaining a line). Only height animates: widths keep
    up with the sash as it is dragged. Boxes that size themselves as you type (textareas) ease too. ----- */
 const GROW_SEL = 'textarea, button, .btn, p, h1, h2, h3, h4, label, .side-note, .scm-row, .commit, .card, .agent-card, .quick-card, .pill, .chip, .empty';
-// Things with their own size animation, or that must never lag: the agent prompt, the code editor, terminals, menus.
-const GROW_SKIP = '#prompt, .ta, #editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, [data-no-grow]';
+// Things with their own size animation, or that must never lag: the agent prompt, the code editors, terminals, menus,
+// and the one-line rows of the file tree and search results (redrawn often, never rewrapped).
+const GROW_SKIP = '#prompt, .ta, .editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, #tree, #searchResults, [data-no-grow]';
 interface GrowState { w: number; h: number; anim?: Animation }
 const growState = new WeakMap<Element, GrowState>();
 // Dragging a sash resizes hundreds of watched blocks every frame, so this stays cheap: it reads all the new heights
@@ -262,6 +263,7 @@ const growResolved = new WeakSet<Element>();
 function growWatch(el: Element): void {
   if (growResolved.has(el)) return;
   growResolved.add(el);
+  if (el.closest(GROW_SKIP)) return;
   let box: Element | null = el;
   while (box && box !== document.body && ['inline', 'contents'].includes(getComputedStyle(box).display)) box = box.parentElement;
   if (box instanceof HTMLElement && box !== document.body && !box.closest(GROW_SKIP)) growRO.observe(box);
@@ -269,6 +271,8 @@ function growWatch(el: Element): void {
 function watchGrow(root: Node): void {
   if (root instanceof Text) { if (root.parentElement && root.data.trim()) growWatch(root.parentElement); return; }
   if (!(root instanceof Element || root instanceof Document)) return;
+  // Nothing inside a skipped area is watched, so a redraw there (each keystroke in the editor) isn't walked at all.
+  if (root instanceof Element && root.closest(GROW_SKIP)) return;
   if (root instanceof Element && root.matches(GROW_SEL)) growWatch(root);
   for (const el of root.querySelectorAll(GROW_SEL)) growWatch(el);
   const texts = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: t => (t as Text).data.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT });

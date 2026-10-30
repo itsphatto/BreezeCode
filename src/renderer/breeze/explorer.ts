@@ -68,10 +68,12 @@ function renderTree(): void {
   const typing = $<HTMLInputElement>('#treeEditIn', el);
   if (typing && treeEdit) { treeEdit.value = typing.value; treeEdit.sel = [typing.selectionStart ?? 0, typing.selectionEnd ?? 0]; }
   treeRendering = true;
-  el.innerHTML = rows.join('') || '<p class="side-note">This folder is empty.</p>';
+  // Git and the watcher redraw often and usually change nothing, so unchanged rows are kept as they are.
+  if (rows.length) patchRows(el, rows);
+  else el.innerHTML = '<p class="side-note">This folder is empty.</p>';
   treeRendering = false;
-  // Indentation is set through the DOM: the CSP allows no inline style attributes.
-  for (const row of $$('[data-depth]', el)) row.style.paddingLeft = `${4 + Number(row.dataset.depth) * 12}px`;
+  // Indentation is set through the DOM: the CSP allows no inline style attributes. Kept rows have theirs.
+  for (const row of $$('[data-depth]', el)) if (!row.style.paddingLeft) row.style.paddingLeft = `${4 + Number(row.dataset.depth) * 12}px`;
   justExpanded = null;
   bindTreeEdit(el);
 }
@@ -225,6 +227,7 @@ $('#tree').addEventListener('dragstart', e => {
   if (!row) return;
   draggedTreePath = row.dataset.path as string;
   draggedTreeIsDir = !!row.dataset.dir;
+  forgetRow(row);
   row.classList.add('dragging');
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'all';
@@ -316,6 +319,7 @@ async function toggleDir(p: string): Promise<void> {
   const rowEl = $(`#tree .tree-item[data-path="${escAttr(p)}"]`);
   const isClosing = expanded.has(p);
   if (rowEl) {
+    forgetRow(rowEl);
     const chevEl = rowEl.querySelector('.chev');
     const icoEl = rowEl.querySelector('.ico');
     if (chevEl) chevEl.classList.toggle('open', !isClosing);
@@ -329,7 +333,7 @@ async function toggleDir(p: string): Promise<void> {
     const prefix = p + '/';
     const childRows = $$<HTMLElement>('#tree .tree-item', $('#tree')).filter(r => (r.dataset.path ?? '').startsWith(prefix));
     if (childRows.length > 0) {
-      childRows.forEach(r => r.classList.add('leaving'));
+      childRows.forEach(r => { forgetRow(r); r.classList.add('leaving'); });
       await new Promise(r => setTimeout(r, 130));
     }
     expanded.delete(p);

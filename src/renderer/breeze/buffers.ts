@@ -177,11 +177,28 @@ function remember(b: EditorBuffer, kind: string, ta: CodeSurface | null = b.ta):
   const grouped = GROUPED.has(kind) && b.lastEdit?.kind === kind && now - b.lastEdit.at < 1000;
   b.lastEdit = { kind, at: now };
   if (grouped) return;
-  b.undo.push({ text: ta.value, sel: [ta.selectionStart, ta.selectionEnd] });
-  // Each step is a copy of the file, so big files keep fewer of them (about 80 MB of history at most).
-  const keep = clamp(Math.floor(40_000_000 / Math.max(1, ta.value.length)), 50, 500);
-  while (b.undo.length > keep) b.undo.shift();
+  pushSnap(b.undo, { text: ta.value, sel: [ta.selectionStart, ta.selectionEnd] });
   b.redo = [];
+}
+// Steps keep just what changed between them, so even a big file has a long history. The newest step is whole;
+// pushing turns the one below it into the edit back to it from the new one.
+const HISTORY_STEPS = 500, HISTORY_CHARS = 20_000_000;
+function pushSnap(stack: Snapshot[], snap: Snapshot & { text: string }): void {
+  const top = stack[stack.length - 1];
+  if (top?.text != null) { top.edit = textEdit(snap.text, top.text); top.text = undefined; }
+  stack.push(snap);
+  let chars = snap.text.length;
+  for (let i = stack.length - 2; i >= 0; i--) {
+    chars += stack[i].edit?.text.length ?? 0;
+    if (chars > HISTORY_CHARS || stack.length - i > HISTORY_STEPS) { stack.splice(0, i + 1); break; }
+  }
+}
+function popSnap(stack: Snapshot[]): (Snapshot & { text: string }) | undefined {
+  const snap = stack.pop();
+  if (snap?.text == null) return undefined;
+  const below = stack[stack.length - 1];
+  if (below?.edit) { below.text = applyEdit(snap.text, below.edit); below.edit = undefined; }
+  return snap as Snapshot & { text: string };
 }
 function beforeEdit(b: EditorBuffer, e: InputEvent, ta: CodeSurface | null = b.ta): void {
   if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
@@ -194,9 +211,10 @@ function beforeEdit(b: EditorBuffer, e: InputEvent, ta: CodeSurface | null = b.t
 }
 function stepHistory(b: EditorBuffer, back: boolean, ta: CodeSurface | null = b.ta): void {
   const [from, to] = back ? [b.undo, b.redo] : [b.redo, b.undo];
-  const snap = from.pop();
-  if (!ta || !snap) return;
-  to.push({ text: ta.value, sel: [ta.selectionStart, ta.selectionEnd] });
+  if (!ta || !from.length) return;
+  const snap = popSnap(from);
+  if (!snap) return;
+  pushSnap(to, { text: ta.value, sel: [ta.selectionStart, ta.selectionEnd] });
   b.lastEdit = null;
   ta.value = snap.text;
   ta.setSelectionRange(snap.sel[0], snap.sel[1]);

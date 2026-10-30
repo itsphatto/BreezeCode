@@ -15,8 +15,10 @@ window.addEventListener('focus', () => { if (rootInfo && !launching) queueGitRef
 async function refreshGit(): Promise<void> {
   if (!rootInfo) { gitState = { repo: false }; gitLoaded = true; renderScm(); renderBranch(); return; }
   try {
+    // Both at once: the log is thrown away when there's no repository or no commit yet.
+    const log = api.git.log().catch(() => null);
     gitState = await api.git.status();
-    gitLog = gitState.repo && gitState.hasCommits ? await api.git.log() : { head: null, commits: [], details: [] };
+    gitLog = (gitState.repo && gitState.hasCommits ? await log : null) ?? { head: null, commits: [], details: [] };
   } catch {
     gitState = { repo: false }; // git missing or not a repository: show the "initialize" panel
   }
