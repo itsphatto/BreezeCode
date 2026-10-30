@@ -324,7 +324,7 @@ function renderScm(): void {
   const empty = files.length ? '' : '<p class="side-note">No changes. Everything is saved in a checkpoint.</p>';
   el.innerHTML = `
     <div class="commit-box">
-      <textarea class="input" id="scmMsg" rows="1" aria-label="Commit message" placeholder="Message (Ctrl+Enter to commit on ‘${escAttr(gitState.branch || 'main')}’)"></textarea>
+      <textarea class="input" id="scmMsg" rows="1" data-no-grow aria-label="Commit message" placeholder="Message (Ctrl+Enter to commit on ‘${escAttr(gitState.branch || 'main')}’)"></textarea>
       <div class="row gap-6">
         <button class="btn btn-primary btn-sm commit-btn" data-act="git.commit" ${files.length ? '' : 'disabled'}>${commitLabel}</button>
         ${syncBtn}

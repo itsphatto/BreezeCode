@@ -193,7 +193,9 @@ function demoApi(): BreezeApi {
       async trash(rel) {
         const gone = [...files.keys(), ...dirs, ...binary].filter(k => inside(k, rel));
         for (const k of gone) { files.delete(k); dirs.delete(k); binary.delete(k); }
+        return null; // no undo copies in the browser demo
       },
+      async untrash() { throw new Error('Undo delete needs the desktop app'); },
       listFiles() { return Promise.resolve([...files.keys()]); },
       async search(query, matchCase) {
         const out: SearchHit[] = [];

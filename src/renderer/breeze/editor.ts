@@ -124,6 +124,7 @@ function editorNote(b: EditorBuffer): string {
   if (b.kind === 'binary') return 'This file is binary, so Breeze can\'t show it as text.';
   if (b.kind === 'image') return 'Breeze couldn\'t load this image.';
   if (b.kind === 'video') return 'Breeze couldn\'t play this video.';
+  if (b.kind === 'pdf') return 'Breeze couldn\'t show this PDF.';
   return `This file is too large to open (${(b.size / 1048576).toFixed(1)} MB).`;
 }
 function renderEditor(): void {
@@ -136,6 +137,7 @@ function renderEditor(): void {
     empty.classList.remove('hidden');
     if (b?.kind === 'image' && b.url) showImage(empty, b);
     else if (b?.kind === 'video' && b.url) showVideo(empty, b);
+    else if (b?.kind === 'pdf' && b.url) showPdf(empty, b);
     else {
       empty.classList.remove('img-mode');
       delete empty.dataset.img;
@@ -174,6 +176,13 @@ function showVideo(el: HTMLElement, b: EditorBuffer): void {
   const v = $<HTMLVideoElement>('video', el);
   v.onloadedmetadata = () => { $('.img-dims', el).textContent = `${v.videoWidth} × ${v.videoHeight}`; };
   v.onerror = () => { el.classList.remove('img-mode'); delete el.dataset.img; el.innerHTML = fileNoteHtml(b.path, editorNote(b)); };
+}
+// PDFs open in Chromium's own viewer (pages, zoom, search, print), filling the editor.
+function showPdf(el: HTMLElement, b: EditorBuffer): void {
+  el.classList.add('img-mode');
+  if (el.dataset.img === b.url) return; // already showing it: keep its page
+  el.dataset.img = b.url;
+  el.innerHTML = `<iframe class="pdf-frame" src="${escAttr(b.url ?? '')}" title="${escAttr(baseName(b.path))}"></iframe>`;
 }
 // Images open in a viewer: fitted to the editor, click to see them at actual size.
 function showImage(el: HTMLElement, b: EditorBuffer): void {

@@ -38,7 +38,7 @@ interface GitCommit { hash: string; parents: string[]; author: string; when: str
 interface GitCommitDetail { hash: string; author: string; email: string; when: string; message: string; files: { path: string; added: number; removed: number }[]; }
 
 interface DirEntry { name: string; dir: boolean; }
-interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; size: number; }
+interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; pdf?: boolean; size: number; }
 interface Diag { line: number; col: number; len: number; msg: string; }
 type SyntaxResult = { ok: true } | (Diag & { eof?: boolean }) | null;
 interface RootInfo { root: string; name: string; }
@@ -78,7 +78,8 @@ interface BreezeApi {
     createFile(rel: string): Promise<void>;
     createDir(rel: string): Promise<void>;
     rename(from: string, to: string): Promise<void>;
-    trash(rel: string): Promise<void>;
+    trash(rel: string, keep?: boolean): Promise<string | null>;
+    untrash(id: string, rel: string): Promise<void>;
     listFiles(): Promise<string[]>;
     search(query: string, matchCase: boolean): Promise<SearchHit[]>;
     fileUrl(rel: string): Promise<string>;

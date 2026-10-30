@@ -969,7 +969,16 @@ interface RemoveAttachmentAction {
   index: number;
 }
 
-type AppUndoAction = LayoutAction | TreeOrderAction | TreeMoveAction | TreeImportAction | RemoveAttachmentAction;
+interface TreeDeleteAction {
+  type: 'tree-delete';
+  path: string;
+  isDir: boolean;
+  stash: string | null; // the undo copy main keeps (fs:trash with keep)
+  prevOrder?: string[];
+  name: string;
+}
+
+type AppUndoAction = LayoutAction | TreeOrderAction | TreeMoveAction | TreeImportAction | RemoveAttachmentAction | TreeDeleteAction;
 
 const actionUndoStack: AppUndoAction[] = [];
 const actionRedoStack: AppUndoAction[] = [];
@@ -1063,6 +1072,25 @@ async function undoAppAction(): Promise<boolean> {
     return true;
   }
 
+  if (action.type === 'tree-delete') {
+    try {
+      if (!action.stash) throw new Error(`Restore it from the ${binName()}`);
+      await api.fs.untrash(action.stash, action.path);
+    } catch (e) {
+      actionRedoStack.pop(); // nothing came back, so there's nothing to redo
+      toast(`Couldn't restore ${action.name}: ${errMsg(e)}`);
+      return false;
+    }
+    const dir = dirName(action.path);
+    if (action.prevOrder) { treeOrder[dir] = [...action.prevOrder]; saveTreeOrder(dir, action.prevOrder); }
+    for (let x = dir; x; x = dirName(x)) expanded.add(x);
+    await refreshTree();
+    if (!action.isDir) openFile(action.path);
+    flashUndoItem(action.path);
+    toast(`Restored ${action.name}`);
+    return true;
+  }
+
   if (action.type === 'layout') {
     Object.assign(layout, action.prev);
     applyLayoutAnimated();
@@ -1127,6 +1155,12 @@ async function redoAppAction(): Promise<boolean> {
     }
     toast(`Cannot redo file import after items were moved to ${binName()}`);
     return false;
+  }
+
+  if (action.type === 'tree-delete') {
+    try { action.stash = await trashEntry(action.path); } catch (e) { actionUndoStack.pop(); toast(errMsg(e)); return false; }
+    toast(`Moved ${action.name} to the ${binName()}`);
+    return true;
   }
 
   if (action.type === 'layout') {

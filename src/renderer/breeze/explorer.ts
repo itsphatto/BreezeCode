@@ -37,7 +37,7 @@ function treeRow(e: DirEntry, p: string, depth: number, decor: ReturnType<typeof
   const gitTag = !e.dir && g && !lock ? `<span class="gst">${GIT_LETTER[g] ?? ''}</span>` : '';
   // Changed on the remote and not pulled yet; shows beside the local letter when both apply.
   const inTag = !e.dir && decor.incoming.has(p) && !lock ? INCOMING_TAG : '';
-  const cls = ['tree-item', p === active ? 'on' : '', isDirty(buffers.get(p)) ? 'dirty' : '', p === ctxPath ? 'ctx' : '', g, e.dir && decor.incomingDirs.has(p) ? 'has-incoming' : '', isIgnored ? 'git-ignored' : '', enter ? 'enter' : ''].filter(Boolean).join(' ');
+  const cls = ['tree-item', p === active || (e.dir && p === treeSel) ? 'on' : '', isDirty(buffers.get(p)) ? 'dirty' : '', p === ctxPath ? 'ctx' : '', g, e.dir && decor.incomingDirs.has(p) ? 'has-incoming' : '', isIgnored ? 'git-ignored' : '', enter ? 'enter' : ''].filter(Boolean).join(' ');
   const icon = e.dir ? folderIcon(e.name, open) : fileIcon(e.name);
   const nameHtml = e.dir ? `<span class="nm-base">${esc(e.name)}</span>` : fileNameHtml(e.name);
   return `<div class="${cls}" data-depth="${depth}" data-path="${escAttr(p)}" ${e.dir ? 'data-dir="1" ' : ''}draggable="true" title="${escAttr(p)}">
@@ -128,7 +128,18 @@ $('#tree').addEventListener('click', e => {
   if (!t || t.dataset.act) return; // data-act buttons are handled by the global listener
   if (t.dataset.recent) { void openRecentFolder(t.dataset.recent); return; }
   const p = t.dataset.path as string;
+  treeSel = p;
   if (t.dataset.dir) void toggleDir(p); else openFile(p);
+});
+// The row last clicked in the explorer (a file or a folder); Delete removes it while the explorer has focus.
+let treeSel: string | null = null;
+$('#tree').addEventListener('keydown', e => {
+  if (e.key !== 'Delete' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || !rootInfo) return;
+  const p = treeSel ?? active;
+  const row = p ? $(`#tree .tree-item[data-path="${escAttr(p)}"]`) : null;
+  if (!p || !row) return;
+  e.preventDefault();
+  deleteEntry(p, !!row.dataset.dir);
 });
 $('#tree').addEventListener('dragstart', e => {
   const row = (e.target as HTMLElement).closest<HTMLElement>('[data-path][draggable="true"]');
@@ -170,7 +181,17 @@ function moveDragGhost(x: number, y: number): void {
 function hideDragGhost(): void {
   document.getElementById('breezeDragGhost')?.classList.remove('on');
 }
-document.addEventListener('dragover', e => { if (draggedTreePath) moveDragGhost(e.clientX, e.clientY); }, true);
+document.addEventListener('dragover', e => {
+  if (draggedTreePath) moveDragGhost(e.clientX, e.clientY);
+  // The wheel doesn't scroll during a drag, so the explorer scrolls itself while the pointer is near its top or
+  // bottom edge, faster the closer it gets (dragover keeps firing while the pointer rests).
+  const tree = $('#tree');
+  const r = tree.getBoundingClientRect();
+  const EDGE = 48;
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top - EDGE || e.clientY > r.bottom + EDGE) return;
+  const d = e.clientY < r.top + EDGE ? e.clientY - (r.top + EDGE) : Math.max(0, e.clientY - (r.bottom - EDGE));
+  if (d) tree.scrollTop += clamp(d, -EDGE, EDGE) / 3;
+}, true);
 document.addEventListener('drop', hideDragGhost, true);
 $('#tree').addEventListener('dragend', e => {
   hideDragGhost();
@@ -306,6 +327,7 @@ async function moveEntry(p: string, to: string): Promise<void> {
   const moved = [...buffers.values()].filter(b => move(b.path) !== b.path);
   for (const b of moved) { buffers.delete(b.path); b.path = move(b.path); buffers.set(b.path, b); scheduleLint(b, 0); }
   await Promise.all(moved.filter(b => b.kind === 'image' || b.kind === 'video').map(async b => { b.url = await api.fs.fileUrl(b.path).catch(() => ''); }));
+  await Promise.all(moved.filter(b => b.kind === 'pdf').map(async b => { b.url = await api.fs.previewUrl(b.path).catch(() => ''); }));
   openTabs = openTabs.map(move);
   if (active) active = move(active);
   const dirs = [...expanded];
@@ -315,24 +337,29 @@ async function moveEntry(p: string, to: string): Promise<void> {
   await refreshTree(); renderTabs(); renderEditor(); saveSession();
 }
 const binName = () => (isDesktop && navigator.userAgent.includes('Windows') ? 'Recycle Bin' : 'Trash');
+// No confirm: it goes to the Recycle Bin, and Ctrl+Z puts it straight back (undoAppAction, 'tree-delete').
 function deleteEntry(p: string, isDir: boolean): void {
-  const what = isDir ? 'The folder and everything in it' : 'The file';
-  const bin = binName();
-  openModal(`<h3>Delete ${esc(baseName(p))}?</h3><p class="sub">${what} will be moved to the ${bin}, so you can restore it.</p>
-    <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-danger" id="delOk">Move to ${bin}</button></div>`, m => {
-    $('#delOk', m).onclick = () => background((async () => {
-      closeModal();
-      await api.fs.trash(p);
-      const dir = dirName(p);
-      if (treeOrder[dir]) {
-        treeOrder[dir] = treeOrder[dir].filter(n => n !== baseName(p));
-        saveTreeOrder(dir, treeOrder[dir]);
-      }
-      for (const path of openTabs.filter(x => x === p || x.startsWith(p + '/'))) dropTab(path);
-      expanded.delete(p);
-      await refreshTree(); renderTabs(); renderEditor(); saveSession();
-    })());
-  });
+  background((async () => {
+    const prev = treeOrder[dirName(p)];
+    let stash: string | null;
+    try { stash = await trashEntry(p); } catch (e) { toast(errMsg(e)); return; }
+    pushAppAction({ type: 'tree-delete', path: p, isDir, stash, prevOrder: prev && [...prev], name: baseName(p) });
+    toast(`Moved ${baseName(p)} to the ${binName()} · Ctrl+Z to undo`);
+  })());
+}
+// Moves `p` to the bin and keeps an undo copy; returns that copy's id.
+async function trashEntry(p: string): Promise<string | null> {
+  const stash = await api.fs.trash(p, true);
+  const dir = dirName(p);
+  if (treeOrder[dir]) {
+    treeOrder[dir] = treeOrder[dir].filter(n => n !== baseName(p));
+    saveTreeOrder(dir, treeOrder[dir]);
+  }
+  for (const path of openTabs.filter(x => x === p || x.startsWith(p + '/'))) dropTab(path);
+  expanded.delete(p);
+  if (treeSel === p || treeSel?.startsWith(p + '/')) treeSel = null;
+  await refreshTree(); renderTabs(); renderEditor(); saveSession();
+  return stash;
 }
 
 // Files changed on disk (by an agent, git or another editor): reload what isn't being edited.
@@ -464,7 +491,7 @@ api.fs.onChange(paths => background((async () => {
   renderTreeAnimated();
   const changed = paths.map(p => buffers.get(p)).filter((b): b is EditorBuffer => !!b);
   await Promise.all(changed.map(b => {
-    if ((b.kind === 'image' || b.kind === 'video') && b.url?.startsWith('file:')) return reloadImage(b);
+    if ((b.kind === 'image' || b.kind === 'video') && b.url?.startsWith('file:') || b.kind === 'pdf' && b.url) return reloadImage(b);
     if (b.kind === 'text' && !holdsUserEdits(b)) return reloadText(b);
     return Promise.resolve();
   }));
