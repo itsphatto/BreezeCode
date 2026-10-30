@@ -46,7 +46,8 @@ const commands: Record<string, () => unknown> = {
   'edit.cut': () => editRole('cut'),
   'edit.copy': () => editRole('copy'),
   'edit.paste': () => editRole('paste'),
-  'edit.find': openFind,
+  'edit.find': () => openFind(),
+  'edit.replace': () => openFind(true),
   'edit.comment': toggleComment,
   'edit.selectAll': () => editRole('selectAll'),
   'sel.line': selectLine,
@@ -293,6 +294,7 @@ const MENUS: Menu[] = [
       { label: 'Paste', act: 'edit.paste', key: 'Ctrl+V', native: true },
       { sep: true },
       { label: 'Find', act: 'edit.find', key: 'Ctrl+F', enabled: hasFile },
+      { label: 'Replace', act: 'edit.replace', key: 'Ctrl+H', enabled: hasFile },
       { label: 'Find in Files', act: 'view.search', key: 'Ctrl+Shift+F' },
       { sep: true },
       { label: 'Toggle Line Comment', act: 'edit.comment', key: 'Ctrl+/', enabled: hasFile },
@@ -330,6 +332,11 @@ const MENUS: Menu[] = [
       { label: 'Go to File', act: 'go.file', key: 'Ctrl+P' },
       { label: 'Go to Line', act: 'go.line', key: 'Ctrl+G', enabled: hasFile },
       { label: 'Next Problem', act: 'go.nextProblem', key: 'F8', enabled: hasFile },
+      { sep: true },
+      { label: 'Go to Definition', act: 'go.definition', key: 'F12', enabled: hasFile },
+      { label: 'Find References', act: 'go.references', key: 'Shift+F12', enabled: hasFile },
+      // F2 renames the file in the explorer and the symbol in the editor (editorKeys).
+      { label: 'Rename Symbol', act: 'go.rename', key: 'F2', native: true, enabled: hasFile },
       { sep: true },
       { label: 'Next Editor', act: 'go.nextEditor', key: 'Ctrl+Tab' },
       { label: 'Previous Editor', act: 'go.prevEditor', key: 'Ctrl+Shift+Tab' },
@@ -400,7 +407,7 @@ function comboOf(e: KeyboardEvent): string {
   return [e.ctrlKey || e.metaKey ? 'Ctrl' : '', e.shiftKey ? 'Shift' : '', e.altKey ? 'Alt' : '', keyName(e)].filter(Boolean).join('+');
 }
 // Commands that only make sense while typing in the code editor.
-const EDITOR_ONLY = new Set(['edit.comment', 'sel.line', 'sel.dup', 'sel.up', 'sel.down']);
+const EDITOR_ONLY = new Set(['edit.comment', 'sel.line', 'sel.dup', 'sel.up', 'sel.down', 'go.definition', 'go.references']);
 
 // The Keyboard shortcuts pop-up: every menu item that has a key, plus a few gestures, with a search box.
 // It lives here rather than with Settings because `commands` above holds it by name while this file loads.

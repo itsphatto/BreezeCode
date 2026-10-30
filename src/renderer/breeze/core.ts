@@ -42,6 +42,8 @@ interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?
 interface Diag { line: number; col: number; len: number; msg: string; }
 type SyntaxResult = { ok: true } | (Diag & { eof?: boolean }) | null;
 interface RootInfo { root: string; name: string; }
+// A folder opened from Explorer's "Open with Breeze Code", with the file that was right-clicked (project-relative).
+interface LaunchInfo extends RootInfo { open: string | null; launched: true; }
 interface SearchHit { path: string; line: number; col: number; text: string; }
 interface DetectedAgent { id: string; name: string; vendor: string; url: string; found: boolean; path: string | null; version: string | null; api?: boolean; models?: string[]; install?: string | null; }
 // Tokens each agent used this month (counted by Breeze), and the plan windows the agent itself reports (percent used).
@@ -62,12 +64,20 @@ interface DiscordActivity { details?: string; state?: string; start?: number; }
 interface RecentFolder { path: string; name: string; openedAt?: number | null; missing?: boolean; }
 interface LiveStatus { available: boolean; running: boolean; url: string; }
 
+// Language server answers (main/lsp.js).
+interface LspOpen { available: boolean; install?: string | null; error?: string; }
+interface LspCompletion { label: string; kind: number; detail: string; sort: string; filter: string; insert: string; from: { line: number; character: number } | null; }
+interface LspLocation { path: string | null; file: string; line: number; col: number; len: number; text?: string; }
+interface LspEdit { start: { line: number; character: number }; end: { line: number; character: number }; text: string; }
+
 interface BreezeApi {
   version?: string;
   fs: {
     openFolder(): Promise<RootInfo | null>;
     createFolder(): Promise<RootInfo | null>;
-    restore(): Promise<RootInfo | null>;
+    restore(): Promise<RootInfo | LaunchInfo | null>;
+    openLaunch(): Promise<LaunchInfo | null>;
+    onLaunchRequest(cb: (dir: string) => void): () => void;
     closeFolder(): Promise<void>;
     recent(): Promise<RecentFolder[]>;
     openRecent(dir: string): Promise<RootInfo>;
@@ -89,6 +99,16 @@ interface BreezeApi {
     importFile(dir: string, name: string, data: Uint8Array): Promise<string>;
   };
   lint: { check(code: string, ext: string): Promise<SyntaxResult>; };
+  lsp: {
+    open(rel: string, text: string): Promise<LspOpen>;
+    change(rel: string, text: string): Promise<void>;
+    close(rel: string): Promise<void>;
+    completion(rel: string, line: number, ch: number): Promise<LspCompletion[]>;
+    hover(rel: string, line: number, ch: number): Promise<string | null>;
+    definition(rel: string, line: number, ch: number): Promise<LspLocation[]>;
+    references(rel: string, line: number, ch: number): Promise<LspLocation[]>;
+    rename(rel: string, line: number, ch: number, name: string): Promise<Record<string, LspEdit[]>>;
+  };
   term: {
     cwd(): Promise<string>;
     run(command: string): Promise<{ id?: number; cwd?: string; error?: string }>;
@@ -128,6 +148,7 @@ interface BreezeApi {
     log(): Promise<{ head: string | null; commits: GitCommit[]; details?: GitCommitDetail[] }>;
     show(hash: string): Promise<GitCommitDetail>;
     diff(rel: string | string[], staged: boolean): Promise<string>;
+    headText(rel: string): Promise<string | null>;
     init(): Promise<unknown>;
     stage(paths: string[]): Promise<unknown>;
     unstage(paths: string[], hasCommits: boolean): Promise<unknown>;

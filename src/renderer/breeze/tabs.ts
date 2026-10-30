@@ -401,6 +401,7 @@ function dropTab(path: string): void {
   openTabs.splice(i, 1);
   buffers.get(path)?.ta?.remove();
   buffers.delete(path);
+  lspClosed(path);
   if (active === path) active = openTabs[Math.min(i, openTabs.length - 1)] ?? null;
 }
 function closeTab(path: string): void {

@@ -1,6 +1,7 @@
 /* ================= Autofill ================= */
 // One suggestion list, used by the code editor (words and keywords) and the terminal (files, commands, history).
-interface Suggestion { text: string; hint?: string; }
+// insert/from: a language server's completion, which may insert other text than its label, from another spot.
+interface Suggestion { text: string; hint?: string; insert?: string; from?: number; }
 interface SuggestState { owner: HTMLElement; items: Suggestion[]; sel: number; typed: number; accept: (s: Suggestion) => void; onRender?: () => void; }
 let suggest: SuggestState | null = null;
 const suggestEl = document.createElement('div');
@@ -41,6 +42,7 @@ function hideSuggest(): void {
   suggest = null;
   suggestEl.classList.add('hidden');
   editorGhost.textContent = '';
+  $('#editor').classList.remove('suggesting');
 }
 // Arrow keys move, Tab or Enter accepts, Escape closes. True when the key was used.
 function suggestKeys(e: KeyboardEvent, owner: HTMLElement): boolean {
@@ -109,8 +111,10 @@ function editorSuggest(b: EditorBuffer, force = false): void {
   const ta = b.ta;
   if (!ta || ta.selectionStart !== ta.selectionEnd) { hideSuggest(); return; }
   const prefix = wordBefore(ta);
-  if (prefix.length < (force ? 0 : 2)) { hideSuggest(); return; }
   const pos = ta.selectionStart, ls = lineStart(b.text, pos), line = b.text.slice(ls, pos);
+  // Right after a "." the language server lists the members.
+  const lsp = lspOn.has(b.path), member = lsp && b.text[pos - prefix.length - 1] === '.';
+  if (prefix.length < (force || member ? 0 : 2)) { hideSuggest(); return; }
   const cw = measureChar();
   const r = ta.getBoundingClientRect();
   const x = r.left + 4 + visualCol(line, pos - ls - prefix.length) * cw - ta.scrollLeft;
@@ -119,16 +123,28 @@ function editorSuggest(b: EditorBuffer, force = false): void {
   const lineEnd = b.text.indexOf('\n', pos);
   const clear = !b.text.slice(pos, lineEnd < 0 ? undefined : lineEnd).trim();
   const ghost = () => {
-    const s = suggest?.items[suggest.sel];
-    editorGhost.textContent = clear && s?.text.startsWith(prefix) ? s.text.slice(prefix.length) : '';
+    const s = suggest?.items[suggest.sel], t = s?.insert ?? s?.text;
+    editorGhost.textContent = clear && s?.from == null && t?.startsWith(prefix) ? t.slice(prefix.length) : '';
     editorGhost.style.left = `${r.left + 4 + visualCol(line, pos - ls) * cw - ta.scrollLeft}px`;
     editorGhost.style.top = `${top}px`;
+    // A half-typed line is usually a syntax error; its message would sit under the ghost text.
+    $('#editor').classList.add('suggesting');
   };
-  showSuggest({
-    owner: ta.input, items: editorCandidates(b, prefix), sel: 0, typed: prefix.length,
-    accept: s => { hideSuggest(); replaceRange(ta, pos - prefix.length, ta.selectionStart, s.text); },
+  const show = (items: Suggestion[]) => showSuggest({
+    owner: ta.input, items, sel: 0, typed: prefix.length,
+    accept: s => { hideSuggest(); replaceRange(ta, s.from ?? pos - prefix.length, ta.selectionStart, s.insert ?? s.text); },
     onRender: ghost,
   }, x - 8, top + LINE_H + 2, top - 2);
+  const words = member ? [] : editorCandidates(b, prefix);
+  if (words.length) show(words); else hideSuggest();
+  if (!lsp) return;
+  // The server's answer comes first, then the file's words it didn't have. Dropped if the user moved on.
+  const ask = ++lspAsk, text = b.text;
+  void lspCompletions(b, pos, prefix).then(items => {
+    if (ask !== lspAsk || b.text !== text || ta.selectionStart !== pos || document.activeElement !== ta.input || !items.length) return;
+    const seen = new Set(items.map(s => s.text));
+    show([...items, ...words.filter(w => !seen.has(w.text))].slice(0, 14));
+  });
 }
 
 /* ----- Terminal: files and folders, commands, and your history ----- */

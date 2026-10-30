@@ -26,6 +26,7 @@ async function refreshGit(): Promise<void> {
     }
   }
   renderScm(); renderBranch(); renderTree(); renderTabs();
+  refreshHeadTexts();
   if (gitLog.commits.length) {
     for (const c of gitLog.commits) {
       if (!commitDetails.has(c.hash)) {
@@ -858,3 +859,78 @@ Object.assign(commands, {
 });
 $('#scmGenMsg')?.addEventListener('click', () => { void generateCommitMsg(); });
 
+
+/* ----- Change marks in the editor gutter ----- */
+// A green bar beside lines added or changed since the last commit, and a red notch where lines were removed.
+type ChangeMark = 'add' | 'del';
+// Each file's text as of the last commit: missing until git answers, null when there is nothing to compare with.
+const headTexts = new Map<string, string | null>();
+const headAsked = new Set<string>();
+let headRoot: string | null = null;
+const markCache = new WeakMap<EditorBuffer, { text: string; head: string; marks: Map<number, ChangeMark> }>();
+function headTextOf(path: string): string | null | undefined {
+  if (rootInfo?.root !== headRoot) { headRoot = rootInfo?.root ?? null; headTexts.clear(); headAsked.clear(); }
+  if (!headAsked.has(path)) {
+    headAsked.add(path);
+    const asked = headRoot;
+    api.git.headText(path).then(t => {
+      if (asked !== headRoot || headTexts.get(path) === t) return;
+      headTexts.set(path, t);
+      if (path === active) queueRender();
+      if (path === splitPath) paintSplit();
+    }, () => { headTexts.set(path, null); });
+  }
+  return headTexts.get(path);
+}
+// After a commit, checkout or pull: ask again. The old marks stay up until the answer comes.
+function refreshHeadTexts(): void {
+  headAsked.clear();
+  for (const p of new Set([active, splitPath])) if (p) headTextOf(p);
+}
+function changeMarks(b: EditorBuffer): Map<number, ChangeMark> | undefined {
+  const head = headTextOf(b.path);
+  if (head == null || b.text.length > 2_000_000) return undefined;
+  const c = markCache.get(b);
+  if (c && c.text === b.text && c.head === head) return c.marks;
+  const marks = lineChanges(head, b.text);
+  markCache.set(b, { text: b.text, head, marks });
+  return marks;
+}
+// Line diff of the committed text against the editor's: the shared start and end are skipped, the middle is
+// matched by longest common subsequence (or all marked, when it is too big to match quickly).
+function lineChanges(head: string, text: string): Map<number, ChangeMark> {
+  const a = head.replace(/\r/g, '').split('\n'), b = text.replace(/\r/g, '').split('\n');
+  const marks = new Map<number, ChangeMark>();
+  if (!head) { b.forEach((_l, i) => marks.set(i, 'add')); return marks; }
+  let s = 0;
+  while (s < a.length && s < b.length && a[s] === b[s]) s++;
+  let ea = a.length, eb = b.length;
+  while (ea > s && eb > s && a[ea - 1] === b[eb - 1]) { ea--; eb--; }
+  const n = ea - s, m = eb - s;
+  // Lines removed next to added ones are a change, already shown by the bar.
+  const removedAt = (j: number) => { const at = Math.min(j, b.length - 1); if (!marks.has(at) && marks.get(j - 1) !== 'add') marks.set(at, 'del'); };
+  if (!n && !m) return marks;
+  if (n * m > 2_000_000) {
+    for (let j = s; j < eb; j++) marks.set(j, 'add');
+    if (!m) removedAt(s);
+    return marks;
+  }
+  const w = m + 1;
+  const lcs = new Uint32Array((n + 1) * w);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i * w + j] = a[s + i] === b[s + j] ? lcs[(i + 1) * w + j + 1] + 1 : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+    }
+  }
+  let i = 0, j = 0, removed = false;
+  while (i < n || j < m) {
+    if (i < n && j < m && a[s + i] === b[s + j]) {
+      if (removed) removedAt(s + j);
+      removed = false; i++; j++;
+    } else if (j < m && (i >= n || lcs[i * w + j + 1] >= lcs[(i + 1) * w + j])) {
+      marks.set(s + j, 'add'); removed = false; j++;
+    } else { removed = true; i++; }
+  }
+  if (removed) removedAt(s + m);
+  return marks;
+}

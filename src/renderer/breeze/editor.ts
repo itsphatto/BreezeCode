@@ -419,8 +419,8 @@ function lineHtml(h: string, i: number, add: Set<number> | undefined, d: Diag | 
   const msg = d ? `<span class="diag-msg">${esc(d.msg)}</span>` : '';
   return `<div class="${cls}">${h}${msg}</div>`;
 }
-function gutterHtml(i: number, d: Diag | undefined): string {
-  const cls = [i === curLine ? 'cur' : '', d ? 'err' : ''].filter(Boolean).join(' ');
+function gutterHtml(i: number, d: Diag | undefined, mark?: ChangeMark): string {
+  const cls = [i === curLine ? 'cur' : '', d ? 'err' : '', mark ? `git-${mark}` : ''].filter(Boolean).join(' ');
   const attrs = (cls ? ` class="${cls}"` : '') + (d ? ` title="${escAttr(d.msg)}"` : '');
   return `<div${attrs}>${i + 1}</div>`;
 }
@@ -472,13 +472,14 @@ function renderCode(): void {
   const cw = measureChar();
   const errAt = visibleDiags(b, count);
   const add = added[b.path];
+  const marks = changeMarks(b);
   const [vf, vl] = visibleLines(b.ta, count);
   winFirst = Math.max(0, vf - OVERSCAN);
   winLast = Math.min(count, vl + OVERSCAN);
   const rows: string[] = [], nums: string[] = [];
   for (let i = winFirst; i < winLast; i++) {
     rows.push(lineHtml(lineHtmlOf(doc, i), i, add, errAt.get(i)));
-    nums.push(gutterHtml(i, errAt.get(i)));
+    nums.push(gutterHtml(i, errAt.get(i), marks?.get(i)));
   }
   hlLines.innerHTML = rows.join('');
   hlLines.style.top = `${winFirst * LINE_H}px`;
@@ -651,10 +652,12 @@ function paintSplit(): void {
   const cur = lineOfOffset(doc.lines, splitTa.selectionStart);
   const [vf, vl] = visibleLines(splitTa, count);
   splitWin = { first: Math.max(0, vf - OVERSCAN), last: Math.min(count, vl + OVERSCAN), total: count };
+  const marks = changeMarks(b);
   const rows: string[] = [], nums: string[] = [];
   for (let i = splitWin.first; i < splitWin.last; i++) {
     rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lineHtmlOf(doc, i)}</div>`);
-    nums.push(`<div${i === cur ? ' class="cur"' : ''}>${i + 1}</div>`);
+    const cls = [i === cur ? 'cur' : '', marks?.has(i) ? `git-${marks.get(i)}` : ''].filter(Boolean).join(' ');
+    nums.push(`<div${cls ? ` class="${cls}"` : ''}>${i + 1}</div>`);
   }
   splitLines.innerHTML = rows.join('');
   splitLines.style.top = splitGutLines.style.top = `${splitWin.first * LINE_H}px`;
@@ -878,6 +881,7 @@ function editorKeys(e: KeyboardEvent): void {
     lastUserTypeAt = Date.now(); // the tick itself comes from sfx's typing listener
   }
   if (suggestKeys(e, ta.input)) return;
+  if (e.key === 'F2' && !e.ctrlKey && !e.shiftKey && !e.altKey && ta !== splitTa) { e.preventDefault(); renameSymbol(); return; }
   if (b && closeTagKey(e, ta, b)) { e.preventDefault(); return; }
   if (b && pairKey(e, ta)) { e.preventDefault(); return; }
   if (b && e.ctrlKey && e.key === ' ') { e.preventDefault(); editorSuggest(b, true); return; }
@@ -1001,16 +1005,25 @@ let findOpen = false;
 let findHits: number[] = [];
 let findIdx = -1;
 let findLen = 0;
+let findCase = false;
 const findInput = $<HTMLInputElement>('#findInput');
-function openFind(): void {
+const replaceInput = $<HTMLInputElement>('#replaceInput');
+function openFind(replace = false): void {
   const b = activeText();
   if (!b) return;
   const sel = b.ta.value.slice(b.ta.selectionStart, b.ta.selectionEnd);
   if (sel && !sel.includes('\n')) findInput.value = sel;
   findOpen = true;
   $('#findbar').classList.remove('hidden');
-  findInput.focus(); findInput.select();
+  showReplace(replace);
+  // Ctrl+H with a search already typed goes straight to the replacement.
+  const field = replace && findInput.value ? replaceInput : findInput;
+  field.focus(); field.select();
   runFind(true);
+}
+function showReplace(on: boolean): void {
+  $('#replaceRow').classList.toggle('hidden', !on);
+  $('#findToggle').setAttribute('aria-expanded', String(on));
 }
 function closeFind(): void {
   if (!findOpen) return;
@@ -1023,7 +1036,7 @@ function runFind(jump: boolean): void {
   const q = findInput.value;
   findHits = []; findLen = q.length;
   if (b && q) {
-    const hay = b.text.toLowerCase(), n = q.toLowerCase();
+    const hay = findCase ? b.text : b.text.toLowerCase(), n = findCase ? q : q.toLowerCase();
     for (let i = hay.indexOf(n); i !== -1 && findHits.length < 20000; i = hay.indexOf(n, i + n.length)) findHits.push(i);
   }
   const from = b ? b.ta.selectionStart : 0;
@@ -1059,6 +1072,44 @@ findInput.addEventListener('keydown', e => {
 $('#findNext').onclick = () => { sfx.play('tick'); stepFind(1); };
 $('#findPrev').onclick = () => { sfx.play('tick'); stepFind(-1); };
 $('#findClose').onclick = () => { closeFind(); activeText()?.ta.focus(); };
+$('#findCase').onclick = () => { findCase = !findCase; $('#findCase').classList.toggle('on', findCase); runFind(false); };
+$('#findToggle').onclick = () => {
+  const on = $('#replaceRow').classList.contains('hidden');
+  showReplace(on);
+  (on ? replaceInput : findInput).focus();
+};
+// The match under the selection is replaced; otherwise the first press only selects the next one, like VS Code.
+function replaceOne(): void {
+  const b = activeText();
+  if (!b || findIdx < 0) return;
+  const off = findHits[findIdx];
+  if (b.ta.selectionStart !== off || b.ta.selectionEnd !== off + findLen) { selectHit(); return; }
+  const rep = replaceInput.value;
+  replaceRange(b.ta, off, off + findLen, rep, off + rep.length);
+  runFind(false); // picks up the edit; the next match is the one after the replacement
+  findIdx = findHits.findIndex(h => h >= off + rep.length);
+  if (findIdx === -1 && findHits.length) findIdx = 0;
+  selectHit();
+  replaceInput.focus();
+}
+function replaceAll(): void {
+  const b = activeText();
+  if (!b || !findHits.length) return;
+  const rep = replaceInput.value, n = findHits.length;
+  let out = '', at = 0;
+  for (const h of findHits) { out += b.text.slice(at, h) + rep; at = h + findLen; }
+  out += b.text.slice(at);
+  replaceRange(b.ta, 0, b.text.length, out, Math.min(b.ta.selectionStart, out.length)); // one undo step for all of them
+  replaceInput.focus();
+  toast(`Replaced ${n} ${n === 1 ? 'match' : 'matches'}`);
+}
+replaceInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.altKey) { e.preventDefault(); replaceAll(); return; }
+  if (e.key === 'Enter') { e.preventDefault(); sfx.play('tick'); replaceOne(); }
+  if (e.key === 'Escape') { e.stopPropagation(); closeFind(); activeText()?.ta.focus(); }
+});
+$('#replaceOne').onclick = () => { sfx.play('tick'); replaceOne(); };
+$('#replaceAll').onclick = replaceAll;
 
 /* ----- Go to line / file ----- */
 function goToLine(): void {

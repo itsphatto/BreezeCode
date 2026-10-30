@@ -53,8 +53,18 @@
       "icon": "assets/brand/Icon.png"
     },
     "nsis": {
-      "artifactName": "Breeze-Code-Setup-${version}.${ext}"
-    }
+      "artifactName": "Breeze-Code-Setup-${version}.${ext}",
+      "include": "build/installer.nsh"
+    },
+    "extraResources": [
+      {
+        "from": "node_modules/@typescript/typescript-${platform}-${arch}/lib",
+        "to": "typescript",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

@@ -149,6 +149,9 @@ function demoApi(): BreezeApi {
 
       },
       restore() { return Promise.resolve(store.get('breeze.demoOpen', false) ? info : null); },
+      // Explorer can't launch the browser preview.
+      openLaunch() { return Promise.resolve(null); },
+      onLaunchRequest() { return () => { }; },
       closeFolder() { store.del('breeze.demoOpen'); return Promise.resolve(); },
       // Empty until a folder has been opened, so a first visit starts with no recent projects.
       recent() {
@@ -307,6 +310,16 @@ function demoApi(): BreezeApi {
       async stop() { throw new Error('Teams need the desktop app'); },
       async undo() { throw new Error('Teams need the desktop app'); },
     },
+    lsp: {
+      async open() { return { available: false }; },
+      async change() { },
+      async close() { },
+      async completion() { return []; },
+      async hover() { return null; },
+      async definition() { return []; },
+      async references() { return []; },
+      async rename() { return {}; },
+    },
     git: {
       async status() {
         return {
@@ -330,6 +343,7 @@ function demoApi(): BreezeApi {
         };
       },
       async show(hash) { return { hash, author: 'You', email: 'you@example.com', when: 'a few minutes ago', message: 'Demo checkpoint', files: [{ path: 'styles.css', added: 11, removed: 2 }] }; },
+      async headText() { return null; },
       async diff() { return '@@ -1,3 +1,3 @@\n /* Cozy, warm palette */\n-:root {\n+:root { /* demo change */\n   --bean: #2b1d12;'; },
       async init() { return ''; },
       async stage() { return ''; },

@@ -2355,6 +2355,31 @@ svg.ico-svg:active {
   color: var(--text);
 }
 
+/* Changes since the last commit: a bar at the gutter's left edge, a notch where lines were removed. */
+.gutter>div>div>div {
+  position: relative;
+}
+
+.gutter .git-add::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 1px;
+  background: var(--ok);
+}
+
+.gutter .git-del::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: -4px;
+  border: 4px solid transparent;
+  border-left: 5px solid var(--err);
+}
+
 .code {
   position: relative;
   flex: 1;
@@ -2414,6 +2439,11 @@ svg.ico-svg:active {
   color: #f87171;
   font: italic 12px/1 var(--font-ui);
   opacity: .9;
+}
+
+/* While the suggestion list is open, the line being typed shows its completion, not its (half-typed) error. */
+#editor.suggesting .ln.cur-line .diag-msg {
+  visibility: hidden;
 }
 
 .gutter .err {
@@ -2735,6 +2765,35 @@ svg.ico-svg:active {
   width: 200px;
   flex: none;
   padding: 4px 8px;
+}
+
+.find-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.find-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.find-toggle {
+  align-self: flex-start;
+}
+
+.find-toggle svg {
+  transition: transform .15s ease;
+}
+
+.find-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+#replaceRow .btn {
+  padding: 3px 9px;
+  font-size: 12px;
 }
 
 .find-count {
@@ -6735,6 +6794,28 @@ body.vibing .box {
 }
 
 /* ================= Autofill ================= */
+.lsp-hover {
+  position: fixed;
+  z-index: 74;
+  max-width: 560px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 8px 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
+  backdrop-filter: var(--glass-blur);
+  color: var(--text-2);
+  font: 12px/1.5 var(--font-code);
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+
+.qo-item .ref-text {
+  font-family: var(--font-code);
+}
+
 .suggest {
   position: fixed;
   z-index: 75;

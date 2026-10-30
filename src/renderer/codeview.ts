@@ -245,7 +245,7 @@ class CodeSurface extends EventTarget {
   }
 
   // The text offset under a client point: above the first line is 0, below the last is the end.
-  private offsetAt(cx: number, cy: number): number {
+  offsetAt(cx: number, cy: number): number {
     const { lineHeight: lh, pad } = this.opts, starts = this.lines(), rect = this.root.getBoundingClientRect();
     const x = cx - rect.left + this.root.scrollLeft, y = cy - rect.top + this.root.scrollTop;
     const line = Math.floor((y - pad.top) / lh);

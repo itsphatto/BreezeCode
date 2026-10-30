@@ -16,6 +16,7 @@ const { AntigravityAgentService } = require('./antigravityAgentService.js');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
+const { LspManager, SERVERS, findOnPath } = require('./lsp');
 
 let autoUpdater = null;
 try {
@@ -146,14 +147,46 @@ const SESSION_DATA = path.join(app.getPath('userData'), 'session-data');
 fs.mkdirSync(SESSION_DATA, { recursive: true });
 app.setPath('sessionData', SESSION_DATA);
 
+// Explorer's "Open with Breeze Code" starts the app with the file or folder after the app's own arguments.
+// The first one that exists wins; Chromium's switches (and a development run's ".") are skipped.
+function launchTarget(argv, cwd = process.cwd()) {
+  for (const arg of argv.slice(app.isPackaged ? 1 : 2)) {
+    if (arg.startsWith('-')) continue;
+    const abs = path.resolve(cwd, arg);
+    try { return { abs, isDir: fs.statSync(abs).isDirectory() }; } catch { /* not a path */ }
+  }
+  return null;
+}
+// What the page has yet to open from the command line: set at launch, or by a second launch while running.
+let launch = launchTarget(process.argv);
+// A folder opens as the project. A file opens in the project it is already part of (the open or last one),
+// or else with its own folder as the project.
+function placeLaunch(target, current) {
+  if (target.isDir) return { dir: target.abs, file: null };
+  const rel = current ? path.relative(current, target.abs) : '';
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return { dir: current, file: rel.split(path.sep).join('/') };
+  return { dir: path.dirname(target.abs), file: path.basename(target.abs) };
+}
+async function openLaunch(current) {
+  if (!launch) return null;
+  const { dir, file } = placeLaunch(launch, current);
+  launch = null;
+  return { ...(await setRoot(dir)), open: file, launched: true };
+}
+
 // A second copy would fight the first over those caches ("Unable to move the cache: Access is denied"),
 // so it focuses the running window and exits before Chromium opens them.
 if (!app.requestSingleInstanceLock()) app.exit(0);
-app.on('second-instance', () => {
+app.on('second-instance', (_e, argv, cwd) => {
   if (!win) return;
   showMain(); // still behind the launch splash: skip straight to the app
   if (win.isMinimized()) win.restore();
   win.focus();
+  const target = launchTarget(argv, cwd);
+  if (!target) return;
+  launch = target;
+  // The page asks first about unsaved files when this switches folders, then takes it with fs:openLaunch.
+  win.webContents.send('fs:launchRequest', placeLaunch(target, root).dir);
 });
 
 // Logs a failure from work nobody waits for. A page load that a redirect or reload replaced isn't one.
@@ -412,7 +445,7 @@ function boxDir() {
 async function setRoot(dir) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
-  if (root !== dir) { stopLiveServer(); stopTeams(); }
+  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); }
   root = dir;
   termCwd = dir;
   const saved = loadState();
@@ -604,12 +637,15 @@ handle('fs:createFolder', async () => {
 
 handle('fs:restore', async () => {
   const { lastRoot } = loadState();
+  try { const opened = await openLaunch(lastRoot); if (opened) return opened; } catch (e) { logError('open from Explorer')(e); }
   if (!lastRoot) return null;
   try { return await setRoot(lastRoot); } catch { saveState({ lastRoot: null }); return null; }
 });
 
+handle('fs:openLaunch', () => openLaunch(root));
+
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); saveState({ lastRoot: null });
+  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {
@@ -928,6 +964,46 @@ function getTools(force = false) {
   }
   return toolsPromise;
 }
+
+/* ================= Language servers ================= */
+// TypeScript 7's compiler is also its language server (`tsc --lsp --stdio`), so JS and TS work out of the box.
+// It is a native program that reads its lib.*.d.ts files from its own folder, so the installer copies that folder
+// into resources/typescript (package.json extraResources), outside the app's archive.
+const TSC_EXE = path.join(
+  app.isPackaged ? path.join(process.resourcesPath, 'typescript') : path.join(ROOT, 'node_modules', '@typescript', `typescript-${process.platform}-${process.arch}`, 'lib'),
+  process.platform === 'win32' ? 'tsc.exe' : 'tsc');
+async function lspEnv() {
+  const { tools, pathValue } = await getTools();
+  return toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
+}
+// Renaming an imported name renames it everywhere, rather than adding "as newName" to the import.
+const TS_PREFS = { preferences: { useAliasesForRenames: false } };
+const TS_SETTINGS = { 'js/ts': TS_PREFS, typescript: TS_PREFS, javascript: TS_PREFS };
+async function findServer(kind) {
+  if (kind === 'ts') return exists(TSC_EXE) ? { cmd: TSC_EXE, args: ['--lsp', '--stdio'], settings: TS_SETTINGS } : null;
+  const env = await lspEnv();
+  const pathValue = env[Object.keys(env).find(k => k.toLowerCase() === 'path')];
+  for (const s of SERVERS[kind] ?? []) {
+    const bin = findOnPath([s.bin], pathValue);
+    if (!bin) continue;
+    // npm installs servers as .cmd shims, which only run through cmd.exe; shellCommand allows plain arguments only.
+    if (/\.(cmd|bat)$/i.test(bin)) return { cmd: shellCommand(bin, s.args), args: [], shell: true, init: s.init };
+    return { cmd: bin, args: s.args, init: s.init };
+  }
+  return null;
+}
+const lsp = new LspManager({ findServer, env: lspEnv });
+const lspPos = (line, character) => ({ line: Number(line) | 0, character: Number(character) | 0 });
+// Every file goes through resolveIn first: the servers only ever hear about files inside the open folder.
+handle('lsp:open', (_e, rel, text) => { resolveIn(rel); lsp.setRoot(root); return lsp.open(rel, String(text)); });
+handle('lsp:change', (_e, rel, text) => { resolveIn(rel); return lsp.change(rel, String(text)); });
+handle('lsp:close', (_e, rel) => lsp.close(rel));
+handle('lsp:completion', (_e, rel, line, ch) => lsp.completion(rel, lspPos(line, ch)));
+handle('lsp:hover', (_e, rel, line, ch) => lsp.hover(rel, lspPos(line, ch)));
+handle('lsp:definition', (_e, rel, line, ch) => lsp.definition(rel, lspPos(line, ch)));
+handle('lsp:references', (_e, rel, line, ch) => lsp.references(rel, lspPos(line, ch)));
+handle('lsp:rename', (_e, rel, line, ch, name) => lsp.rename(rel, lspPos(line, ch), String(name)));
+app.on('will-quit', () => lsp.stopAll());
 
 // Runs a .c, .cpp, .cs, .java, .py or .rs file in the open folder, streaming into the terminal under one id.
 let activeRun = null; // { id, cancel }
@@ -2375,6 +2451,14 @@ handle('git:show', async (_e, hash) => {
 
 handle('git:diff', (_e, rel, staged) => git(['diff', '--no-color', ...(staged ? ['--cached'] : []), '--', ...checkPaths(rel)]));
 handle('git:init', () => git(['init']));
+// A file as of the last commit, for the editor's change marks. null: nothing to compare with (no repository,
+// or a file git ignores). '' for a file the last commit doesn't have yet, so all of it reads as new.
+handle('git:headText', async (_e, rel) => {
+  checkPaths(rel);
+  try { await git(['rev-parse', '--is-inside-work-tree']); } catch { return null; }
+  try { return await git(['show', `HEAD:./${rel}`]); } catch { /* not committed */ }
+  try { await git(['check-ignore', '-q', '--', rel]); return null; } catch { return ''; }
+});
 handle('git:stage', (_e, paths) => git(['add', '-A', '--', ...checkPaths(paths)]));
 handle('git:unstage', (_e, paths, hasCommits) => {
   const p = checkPaths(paths);

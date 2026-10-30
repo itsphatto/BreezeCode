@@ -393,11 +393,22 @@
                 <pre class="hl" id="hl" aria-hidden="true"></pre>
               </div>
               <div class="findbar hidden" id="findbar">
-                <input class="input" id="findInput" aria-label="Find in file" placeholder="Find" spellcheck="false">
-                <span class="find-count" id="findCount"></span>
-                <button class="icon-btn" id="findPrev" title="Previous (Shift+Enter)"><svg data-i="up"></svg></button>
-                <button class="icon-btn" id="findNext" title="Next (Enter)"><svg data-i="down"></svg></button>
-                <button class="icon-btn" id="findClose" title="Close (Escape)"><svg data-i="x"></svg></button>
+                <button class="icon-btn find-toggle" id="findToggle" title="Toggle Replace (Ctrl+H)" aria-expanded="false"><svg data-i="chevronRight"></svg></button>
+                <div class="find-rows">
+                  <div class="find-row">
+                    <input class="input" id="findInput" aria-label="Find in file" placeholder="Find" spellcheck="false">
+                    <button class="icon-btn toggle" id="findCase" title="Match Case">Aa</button>
+                    <span class="find-count" id="findCount"></span>
+                    <button class="icon-btn" id="findPrev" title="Previous (Shift+Enter)"><svg data-i="up"></svg></button>
+                    <button class="icon-btn" id="findNext" title="Next (Enter)"><svg data-i="down"></svg></button>
+                    <button class="icon-btn" id="findClose" title="Close (Escape)"><svg data-i="x"></svg></button>
+                  </div>
+                  <div class="find-row hidden" id="replaceRow">
+                    <input class="input" id="replaceInput" aria-label="Replace with" placeholder="Replace" spellcheck="false">
+                    <button class="btn btn-sm" id="replaceOne" title="Replace (Enter)">Replace</button>
+                    <button class="btn btn-sm" id="replaceAll" title="Replace All (Ctrl+Alt+Enter)">All</button>
+                  </div>
+                </div>
               </div>
               <div class="empty editor-empty" id="editorEmpty"></div>
             </div>
@@ -611,6 +622,7 @@
   <script src="breeze/autofill.js" defer></script>
   <script src="breeze/layout.js" defer></script>
   <script src="breeze/commands.js" defer></script>
+  <script src="breeze/lsp.js" defer></script>
   <script src="breeze/settings.js" defer></script>
   <script src="breeze/agents.js" defer></script>
   <script src="breeze/history.js" defer></script>

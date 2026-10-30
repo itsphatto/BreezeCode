@@ -45,6 +45,7 @@ async function loadWorkspace(info: RootInfo): Promise<void> {
 }
 function resetWorkspace(): void {
   for (const b of buffers.values()) b.ta?.remove();
+  lspOn.clear(); // the main process stops the servers with the folder
   buffers.clear(); dirCache.clear(); expanded.clear();
   treeOrder = {};
   openTabs = []; active = null; rootInfo = null;
@@ -85,6 +86,7 @@ async function loadBuffer(path: string): Promise<EditorBuffer | null> {
   if (b.kind === 'pdf') b.url = await api.fs.previewUrl(path).catch(() => ''); // file: frames are blocked by the CSP
   if (b.kind === 'text') { b.ta = createSurface(b); scheduleLint(b, 0); }
   buffers.set(path, b);
+  void lspOpen(b);
   return b;
 }
 
@@ -141,7 +143,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
     if (wasDirty !== isDirty(b)) { renderTabs(); renderTree(); }
     if (b.path === splitPath) renderSplit();
     if (findOpen) runFind(false);
-    queueRender(); saveSession(); scheduleLint(b);
+    queueRender(); saveSession(); scheduleLint(b); lspChanged(b);
     // Suggest words while typing one; any other edit closes the list.
     if (b.lastEdit?.kind === 'type' && Date.now() - b.lastEdit.at < 100) editorSuggest(b); else hideSuggest();
   });

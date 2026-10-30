@@ -1,4 +1,9 @@
 /* ================= Init ================= */
+// Opened from Explorer: straight into the editor with the right-clicked file (setup still comes first on a first run).
+function showLaunched(info: LaunchInfo): void {
+  if (info.open) openFile(info.open);
+  if (appState.onboarded) enterMode('ide');
+}
 async function boot(): Promise<void> {
   void holdStartup(Promise.all([
     document.fonts.load('400 12px "Instrument Sans"'),
@@ -26,6 +31,7 @@ async function boot(): Promise<void> {
   restoringWorkspace = false;
   if (info) await loadWorkspace(info);
   else { term.cwd = await api.term.cwd(); renderPs(); }
+  if (info && 'launched' in info) showLaunched(info);
   renderTree(); renderScm();
   if (step === STEP.home) renderHome();
   renderBoxFolder();
@@ -52,6 +58,15 @@ async function boot(): Promise<void> {
   const welcome = $('.ob-step[data-step="0"]');
   const starting = boot();
   background(starting);
+  // "Open with Breeze Code" while Breeze is already running. Start-up opens its own launch path, so this waits for it.
+  api.fs.onLaunchRequest(dir => background((async () => {
+    await starting.catch(() => undefined);
+    if (rootInfo?.root !== dir && !(await confirmDiscard())) return;
+    const info = await api.fs.openLaunch();
+    if (!info) return;
+    if (rootInfo?.root !== info.root) await loadWorkspace(info);
+    showLaunched(info);
+  })()));
   void Promise.race([starting.catch(() => undefined), new Promise(done => setTimeout(done, 8000))])
     .then(() => document.documentElement.removeAttribute('data-starting'));
   const launch = $('#launch');
