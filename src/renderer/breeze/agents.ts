@@ -637,8 +637,8 @@ const UI_PARTS = ['the navbar', 'the checkout page', 'the settings screen', 'the
   'the dashboard charts', 'the error page', 'the mobile layout', 'the sidebar', 'the modal', 'the dark theme', 'the header',
   'the pagination', 'the notifications', 'the profile page', 'the main menu', 'the onboarding steps', 'the pricing page',
   'the email templates', 'the landing hero', 'the color tokens'];
-// The composer's own placeholder ("Describe what you want to build") isn't one of these: it's the fixed one, and the
-// examples rotate over it.
+// The IDE composer's own placeholder is a single space: nothing shows under the examples (not even when Ctrl+A
+// highlights it), and :placeholder-shown still tells the CSS when the box is empty.
 const IDE_PLACEHOLDERS = [
   ...combine(['Build {x}', 'Make {x}', 'Create {x}', 'Design {x}', 'Prototype {x}', 'Scaffold {x}', 'Sketch out {x}', 'Put together {x}', 'Spin up {x}', 'Draft {x}', 'Code up {x}', 'Set up {x}'], [
     'a landing page for a coffee shop', 'a todo app with drag and drop', 'a dark mode toggle', 'a pricing table', 'a contact form with validation',
@@ -743,7 +743,7 @@ function nextPlaceholder(r: PlaceholderRotator): void {
   if (r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
   blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
 }
-rotatePlaceholder(SURFACES.ide.prompt, 'Describe what you want to build', IDE_PLACEHOLDERS);
+rotatePlaceholder(SURFACES.ide.prompt, ' ', IDE_PLACEHOLDERS);
 rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS[0], BOX_PLACEHOLDERS);
 setInterval(() => {
   if (document.hidden) return;

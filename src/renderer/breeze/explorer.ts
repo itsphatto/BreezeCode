@@ -40,8 +40,9 @@ function treeRow(e: DirEntry, p: string, depth: number, decor: ReturnType<typeof
   const cls = ['tree-item', p === active || (e.dir && p === treeSel) ? 'on' : '', isDirty(buffers.get(p)) ? 'dirty' : '', p === ctxPath ? 'ctx' : '', g, e.dir && decor.incomingDirs.has(p) ? 'has-incoming' : '', isIgnored ? 'git-ignored' : '', enter ? 'enter' : ''].filter(Boolean).join(' ');
   const icon = e.dir ? folderIcon(e.name, open) : fileIcon(p);
   const nameHtml = e.dir ? `<span class="nm-base">${esc(e.name)}</span>` : fileNameHtml(e.name);
-  return `<div class="${cls}" data-depth="${depth}" data-path="${escAttr(p)}" ${e.dir ? 'data-dir="1" ' : ''}draggable="true" title="${escAttr(p)}">
-    <span class="chev ${chevClass(e, open)}">${CHEV}</span><span class="ico">${icon}</span><span class="nm">${nameHtml}</span>${lockTag}${gitTag}${inTag}</div>`;
+  const renaming = treeEdit?.rename === p;
+  return `<div class="${cls}" data-depth="${depth}" data-path="${escAttr(p)}" ${e.dir ? 'data-dir="1" ' : ''}draggable="${!renaming}" title="${escAttr(p)}">
+    <span class="chev ${chevClass(e, open)}">${CHEV}</span><span class="ico">${icon}</span>${renaming ? treeInputHtml(`Rename ${e.name}`) : `<span class="nm">${nameHtml}</span>`}${lockTag}${gitTag}${inTag}</div>`;
 }
 function renderTree(): void {
   const el = $('#tree');
@@ -54,6 +55,7 @@ function renderTree(): void {
   const rows: string[] = [];
   const decor = gitDecor();
   const walk = (rel: string, depth: number) => {
+    if (treeEdit && treeEdit.rename == null && treeEdit.dir === rel) rows.push(treeEditRow(depth)); // a new entry's name box tops its folder
     for (const e of dirCache.get(rel) ?? []) {
       const p = joinPath(rel, e.name);
       const isEntering = !!justExpanded && (rel === justExpanded || rel.startsWith(justExpanded + '/'));
@@ -62,10 +64,86 @@ function renderTree(): void {
     }
   };
   walk('', 0);
+  // A name box survives redraws (the watcher, git) with its text and caret.
+  const typing = $<HTMLInputElement>('#treeEditIn', el);
+  if (typing && treeEdit) { treeEdit.value = typing.value; treeEdit.sel = [typing.selectionStart ?? 0, typing.selectionEnd ?? 0]; }
+  treeRendering = true;
   el.innerHTML = rows.join('') || '<p class="side-note">This folder is empty.</p>';
+  treeRendering = false;
   // Indentation is set through the DOM: the CSP allows no inline style attributes.
   for (const row of $$('[data-depth]', el)) row.style.paddingLeft = `${4 + Number(row.dataset.depth) * 12}px`;
   justExpanded = null;
+  bindTreeEdit(el);
+}
+
+/* ----- Naming in place: new files and folders and renames get a name box right in the tree, like VS Code ----- */
+interface TreeEdit { dir: string; folder: boolean; rename?: string; value: string; sel: [number, number]; shown?: boolean; done: (name: string | null) => void }
+let treeEdit: TreeEdit | null = null;
+let treeRendering = false; // the box leaving in a redraw isn't the user clicking away
+const treeInputHtml = (label: string) => `<input class="tree-input" id="treeEditIn" aria-label="${escAttr(label)}" spellcheck="false" autocomplete="off">`;
+function treeEditRow(depth: number): string {
+  const ed = treeEdit as TreeEdit;
+  return `<div class="tree-item tree-edit" data-depth="${depth}"><span class="chev none">${CHEV}</span><span class="ico">${ed.folder ? folderIcon('', false) : fileIcon('untitled')}</span>${treeInputHtml(ed.folder ? 'New folder name' : 'New file name')}</div>`;
+}
+function bindTreeEdit(el: HTMLElement): void {
+  const ed = treeEdit;
+  if (!ed) return;
+  const input = $<HTMLInputElement>('#treeEditIn', el);
+  if (!input) { treeEdit = null; ed.done(null); return; } // its row is gone (the folder closed, the file was deleted)
+  input.value = ed.value;
+  if (!ed.shown) { ed.shown = true; growTreeEdit(input, ed, false); } // not again on redraws
+  input.focus();
+  input.setSelectionRange(...ed.sel);
+  input.scrollIntoView({ block: 'nearest' });
+  input.onkeydown = e => {
+    e.stopPropagation(); // the tree's own keys (Delete removes the selected row) stay out of it
+    if (e.key === 'Enter') { e.preventDefault(); endTreeEdit(input.value.trim() || null); }
+    else if (e.key === 'Escape') { e.preventDefault(); endTreeEdit(null); }
+  };
+  // Clicking away keeps what was typed, as in VS Code; an empty box just goes.
+  input.onblur = () => { if (!treeRendering) endTreeEdit(input.value.trim() || null); };
+}
+function endTreeEdit(name: string | null): void {
+  const ed = treeEdit;
+  if (!ed) return;
+  treeEdit = null;
+  const finish = () => { renderTree(); ed.done(name); };
+  const input = $<HTMLInputElement>('#treeEditIn');
+  const ms = input ? growTreeEdit(input, ed, true) : 0;
+  if (ms) setTimeout(finish, ms); else finish(); // a timer, since a redraw meanwhile drops the animation
+}
+// A new entry's row opens up from nothing (and closes back); a rename's box widens out of the name (and back in).
+// Returns how long it runs.
+function growTreeEdit(input: HTMLInputElement, ed: TreeEdit, out: boolean): number {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return 0;
+  const row = input.closest<HTMLElement>('.tree-item');
+  const timing: KeyframeAnimationOptions = { duration: out ? 150 : 200, easing: 'cubic-bezier(.2, .8, .2, 1)', direction: out ? 'reverse' : 'normal', fill: out ? 'forwards' : 'none' };
+  input.animate([{ borderColor: 'transparent' }], timing); // its blue edge fades with it, never a lone blue line
+  if (ed.rename == null && row) {
+    const cs = getComputedStyle(row);
+    row.style.overflow = 'hidden';
+    row.animate([
+      { height: '0px', paddingBlock: '0px', borderBlockWidth: '0px', opacity: 0, transform: 'scale(.96)' },
+      { height: cs.height, paddingBlock: cs.paddingTop, borderBlockWidth: cs.borderTopWidth, opacity: 1, transform: 'none' },
+    ], timing).onfinish = () => { if (!out) row.style.overflow = ''; };
+  } else {
+    input.animate([{ opacity: 0, transform: 'scaleX(.4)' }, { opacity: 1, transform: 'none' }], timing);
+  }
+  return timing.duration as number;
+}
+// The name box in the tree when the explorer is showing (opening the folders it sits in), else the dialog.
+async function nameInTree(edit: { dir: string; folder: boolean; rename?: string }, title: string, initial: string, okLabel: string): Promise<string | null> {
+  if (!rootInfo || !$('#tree').offsetParent) return askName(title, initial, okLabel);
+  endTreeEdit(null); // a box already open gives way
+  const dirs: string[] = [];
+  for (let d = edit.rename != null ? dirName(edit.rename) : edit.dir; d; d = dirName(d)) dirs.push(d);
+  dirs.forEach(d => expanded.add(d));
+  await Promise.all(dirs.filter(d => !dirCache.has(d)).map(loadDir));
+  const dot = initial.lastIndexOf('.');
+  return new Promise(done => {
+    treeEdit = { ...edit, value: initial, sel: [0, dot > 0 ? dot : initial.length], done };
+    renderTree();
+  });
 }
 
 function captureTreePositions(): Map<string, number> {
@@ -124,6 +202,7 @@ async function renderRecent(): Promise<void> {
   el.innerHTML = '<div class="side-head pl-8">Recent</div>' + rows.join('');
 }
 $('#tree').addEventListener('click', e => {
+  if ((e.target as HTMLElement).closest('.tree-input')) return; // clicking into a name box
   const t = (e.target as HTMLElement).closest<HTMLElement>('[data-path],[data-recent],[data-act]');
   if (!t || t.dataset.act) return; // data-act buttons are handled by the global listener
   if (t.dataset.recent) { void openRecentFolder(t.dataset.recent); return; }
@@ -212,6 +291,7 @@ document.addEventListener('dragend', () => {
 });
 $('#tree').addEventListener('contextmenu', e => {
   e.preventDefault();
+  if ((e.target as HTMLElement).closest('.tree-input')) return; // right-clicking a name box keeps it open
   if (!rootInfo) return;
   const t = (e.target as HTMLElement).closest<HTMLElement>('[data-path]');
   const p = t?.dataset.path ?? '';
@@ -294,7 +374,7 @@ function askName(title: string, initial: string, okLabel: string): Promise<strin
 }
 async function newEntry(dir: string, folder: boolean): Promise<void> {
   if (!rootInfo) { toast('Open a folder first'); return; }
-  const name = await askName(folder ? 'New folder' : 'New file', '', 'Create');
+  const name = await nameInTree({ dir, folder }, folder ? 'New folder' : 'New file', '', 'Create');
   if (!name) return;
   const rel = joinPath(dir, name.replaceAll('\\', '/').replace(/^\/+/, ''));
   try {
@@ -306,7 +386,7 @@ async function newEntry(dir: string, folder: boolean): Promise<void> {
   if (!folder) openFile(rel);
 }
 async function renameEntry(p: string): Promise<void> {
-  const name = await askName('Rename', baseName(p), 'Rename');
+  const name = await nameInTree({ dir: dirName(p), folder: false, rename: p }, 'Rename', baseName(p), 'Rename');
   if (!name || name === baseName(p)) return;
   if (/[\\/]/.test(name)) { toast('Names cannot contain slashes'); return; }
   const to = joinPath(dirName(p), name);

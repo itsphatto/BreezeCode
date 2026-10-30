@@ -1848,6 +1848,29 @@ body.resizing-h iframe {
   outline-offset: -1px;
 }
 
+/* The in-place name box for a new entry or a rename. */
+.tree-input {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  margin: -1px 0;
+  padding: 0 5px;
+  border: 1px solid var(--blue);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  user-select: text;
+  transform-origin: left center; /* a rename's box widens out of the name */
+}
+
+.tree-item:has(.tree-input),
+.tree-item:has(.tree-input):active {
+  cursor: default;
+  transform: none;
+}
+
 .tree-item.dragging {
   opacity: .45;
 }
@@ -3935,6 +3958,17 @@ textarea:not(:placeholder-shown) + .ph-rot {
   display: block;
 }
 
+.composer-box:has(.composer-attachments.hidden):has(textarea:placeholder-shown) :is(#send, #boxSend):not(.stop) {
+  opacity: .35;
+  transform: translateY(3px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :is(#send, #boxSend) {
+    transition: background-color .15s ease, border-color .15s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
+  }
+}
+
 /* The IDE composer's send button is one text line tall, so it lines up with the prompt. */
 #send {
   width: 22px;
@@ -4196,7 +4230,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 6px;
+  padding: 0 6px 4px; /* lifts the text to the middle of the strip under the panels, which end 6px above the bar */
   background: var(--bg); /* the window's base layer, like the title bar */
   border-top: 1px solid var(--line);
   font-size: 11.5px;
@@ -4822,7 +4856,8 @@ body.vibing .ide {
 .icon-btn:active,
 .act-btn:active,
 .chip:active,
-.sb:active,
+#sbBranch:active,
+#liveShare:active,
 .seg button:active,
 .pill-btn:active,
 .menu-top:active,
@@ -4861,7 +4896,7 @@ body.vibing .ide {
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
   .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
   .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
-  .chat-file-chip) {
+  .chat-file-chip, .seg button, .kb-key, .switch) {
   position: relative;
   isolation: isolate;
 }
@@ -4869,7 +4904,7 @@ body.vibing .ide {
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
   .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
   .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
-  .chat-file-chip)::after {
+  .chat-file-chip, .seg button, .kb-key, .switch)::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -4884,7 +4919,7 @@ body.vibing .ide {
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
   .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
   .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
-  .chat-file-chip):hover:not(:disabled)::after,
+  .chat-file-chip, .seg button, .kb-key, .switch):hover:not(:disabled)::after,
 :where(.recent-open:hover .recent-go, .cloud-ws:hover .cloud-ws-go)::after {
   opacity: 1;
 }
@@ -6887,6 +6922,18 @@ body.vibing .box {
   font: 12px/1.5 var(--font-code);
   white-space: pre-wrap;
   pointer-events: none;
+  animation: lspHoverIn .18s cubic-bezier(.2, .8, .2, 1);
+}
+
+@keyframes lspHoverIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lsp-hover { animation: none; }
 }
 
 .qo-item .ref-text {
@@ -9170,8 +9217,8 @@ body.layout-animating #previewPane {
 
 /* ================= Settings pop-up ================= */
 .modal.settings-shell {
-  width: min(900px, calc(100vw - 32px));
-  height: min(660px, calc(100vh - 48px));
+  width: min(1080px, calc(100vw - 32px));
+  height: min(780px, calc(100vh - 48px));
   padding: 0;
   overflow: hidden;
 }
@@ -9287,9 +9334,38 @@ body.layout-animating #previewPane {
 .set-nav button[data-set-tab="help"]:hover svg,
 .set-nav button[data-set-tab="discord"]:hover .set-nav-img { transform: scale(1.22); }
 /* Miscellaneous: its three dots hop one after another, left to right (the icon draws them middle, right, left). */
+.set-nav button[data-set-tab="appearance"]:hover svg { animation: navPaletteTilt .5s ease-out both; }
+.set-nav button[data-set-tab="appearance"]:hover svg circle { transform-box: fill-box; transform-origin: center; animation: navPaintPop .36s cubic-bezier(.34, 1.56, .64, 1) both; }
+.set-nav button[data-set-tab="appearance"]:hover svg circle:nth-of-type(2) { animation-delay: 70ms; }
+.set-nav button[data-set-tab="appearance"]:hover svg circle:nth-of-type(3) { animation-delay: 140ms; }
+.set-nav button[data-set-tab="appearance"]:hover svg circle:nth-of-type(4) { animation-delay: 210ms; }
+.set-nav button[data-set-tab="controls"]:hover svg { animation: navKeysGrow .5s ease-out both; }
+.set-nav button[data-set-tab="controls"]:hover svg path { animation: navKeysTap .5s ease-in-out both; }
 .set-nav button[data-set-tab="misc"]:hover svg circle { animation: navDotHop .42s ease-in-out both; }
 .set-nav button[data-set-tab="misc"]:hover svg circle:nth-child(1) { animation-delay: 80ms; }
 .set-nav button[data-set-tab="misc"]:hover svg circle:nth-child(2) { animation-delay: 160ms; }
+
+@keyframes navPaletteTilt {
+  0% { transform: rotate(0) scale(1); }
+  35% { transform: rotate(-16deg) scale(1.14); }
+  70% { transform: rotate(6deg) scale(1.14); }
+  100% { transform: rotate(0) scale(1.14); }
+}
+
+@keyframes navPaintPop {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.8); }
+}
+
+@keyframes navKeysGrow {
+  from { transform: scale(1); }
+  to { transform: scale(1.14); }
+}
+
+@keyframes navKeysTap {
+  0%, 50%, 100% { transform: translateY(0); }
+  25%, 75% { transform: translateY(1.5px); }
+}
 
 @keyframes navDotHop {
   0%, 100% { transform: translateY(0); }
@@ -9322,6 +9398,57 @@ body.layout-animating #previewPane {
   position: relative;
   overflow-y: auto;
   padding: 24px 28px;
+}
+
+/* The pane fades and blurs out at its top and bottom edges while there is more to scroll that way: the mask fades
+   the rows, a sticky blur layer softens them, and both follow the scroll position (nothing shows when it all fits). */
+@property --fade-top { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --fade-bot { syntax: '<number>'; inherits: true; initial-value: 0; }
+
+@supports (animation-timeline: scroll()) {
+  .set-main {
+    mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent);
+    animation: setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0 48px, calc(100% - 48px) 100%;
+  }
+
+  .set-main::before,
+  .set-main::after {
+    content: "";
+    position: sticky;
+    z-index: 4;
+    display: block;
+    height: 40px;
+    margin-inline: -28px;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+  }
+
+  /* Each layer takes no room: its negative margins cancel its height, and it sits over the pane's padding. */
+  .set-main::before {
+    top: -24px;
+    margin-block: -24px -16px;
+    mask-image: linear-gradient(#000, transparent);
+    opacity: var(--fade-top);
+  }
+
+  .set-main::after {
+    bottom: -24px;
+    margin-block: -16px -24px;
+    mask-image: linear-gradient(transparent, #000);
+    opacity: var(--fade-bot);
+  }
+}
+
+@keyframes setFadeTop {
+  from { --fade-top: 0; }
+  to { --fade-top: 1; }
+}
+
+@keyframes setFadeBot {
+  from { --fade-bot: 1; }
+  to { --fade-bot: 0; }
 }
 
 .set-close {
@@ -9433,10 +9560,8 @@ body.layout-animating #previewPane {
 .kb-group {
   margin: 14px 0 2px;
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
 }
 
 .kb-row {
@@ -9461,19 +9586,14 @@ body.layout-animating #previewPane {
   border-radius: 6px;
   background: var(--bg-3);
   color: var(--text-2);
-  font: 12px var(--font-code);
+  font: 12px var(--font-ui);
   text-align: center;
   cursor: pointer;
-}
-
-.kb-key:hover {
-  border-color: var(--text-3);
-  color: var(--text);
+  transition: border-color .2s ease, color .2s ease;
 }
 
 .kb-key.none {
   color: var(--text-3);
-  font-family: var(--font-ui);
 }
 
 .kb-key.changed {
@@ -9481,10 +9601,23 @@ body.layout-animating #previewPane {
 }
 
 .kb-key.recording {
-  border-color: var(--blue);
   color: var(--text);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, .25);
-  font-family: var(--font-ui);
+  outline: none; /* the "Press keys" text already marks it */
+}
+
+/* Whenever a key's text changes (recording, a new bind, a reset) it fades in. */
+.kb-key.kb-swap {
+  animation: kbSwap .22s ease;
+}
+
+@keyframes kbSwap {
+  from {
+    color: transparent; /* just the text; the button itself stays put */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kb-key.kb-swap { animation: none; }
 }
 
 .kb-reset {
@@ -9645,6 +9778,17 @@ body.layout-animating #previewPane {
   font-size: 13.5px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* Help & About → Tools: two columns of rows. */
+.set-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 32px;
+}
+
+.set-tools > p {
+  grid-column: 1 / -1;
 }
 
 .set-agents {
@@ -10903,6 +11047,9 @@ body.layout-animating #previewPane {
   padding: 0 4px;
   margin-top: -6px;
   font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis; /* only if no joke fits a very narrow card */
 }
 
 /* Full access is on: the row's description reads as a warning. */
@@ -10996,6 +11143,25 @@ body.layout-animating #previewPane {
 .theme-swatch .sw-main b:nth-child(2) { width: 84%; background: #007AFF; opacity: .8; }
 .theme-swatch .sw-main b:nth-child(3) { width: 48%; }
 .theme-swatch .sw-main b:nth-child(4) { width: 70%; }
+
+/* Opening Appearance: each picture's code lines grow from the left, line by line, one card after another. */
+@media (prefers-reduced-motion: no-preference) {
+  .set-themes.grow .theme-swatch b {
+    transform-origin: left center;
+    animation: swLineGrow .55s cubic-bezier(.2, .8, .2, 1) both;
+    animation-delay: calc(180ms + var(--card, 0) * 90ms + var(--line, 0) * 55ms);
+  }
+
+  .set-themes.grow .set-theme:nth-child(2) { --card: 1; }
+  .set-themes.grow .set-theme:nth-child(3) { --card: 2; }
+  .set-themes.grow .theme-swatch b:nth-child(2) { --line: 1; }
+  .set-themes.grow .theme-swatch b:nth-child(3) { --line: 2; }
+  .set-themes.grow .theme-swatch b:nth-child(4) { --line: 3; }
+}
+
+@keyframes swLineGrow {
+  from { transform: scaleX(0); }
+}
 
 /* Switching themes cross-fades the window (setTheme in settings.ts), quickly so the click feels instant. */
 ::view-transition-old(root),

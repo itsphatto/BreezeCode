@@ -662,7 +662,7 @@ function menuItemHtml(it: MenuItem, i: number): string {
   const key = it.key ? `<span class="key">${esc(it.key)}</span>` : '';
   const popup = it.sub ? ' aria-haspopup="menu"' : '';
   const label = it.icon ? `<span class="mi-ico-label">${it.icon}<span>${esc(it.label ?? '')}</span></span>` : `<span>${esc(it.label ?? '')}</span>`;
-  const del = it.remove ? holdDelHtml(it.label ?? '', 'data-mi-del', 'span') : '';
+  const del = it.remove ? holdDelHtml(it.label ?? '', 'data-mi-del', 'span', 'minus') : '';
   return `<button class="${cls}${it.remove ? ' has-del' : ''}" role="menuitem" data-mi="${i}" data-style="--i:${i}"${disabled}${popup}>${label}${key}${del}</button>`;
 }
 // Builds a menu element at (x, y), kept inside the window.
@@ -702,14 +702,15 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
   closeSubmenu(depth);
   btn.classList.add('sub-open');
   const r = btn.getBoundingClientRect();
+  const edge = btn.closest('.menu')?.getBoundingClientRect() ?? r; // a gap from the menu itself, not the row inside it
   const cls = 'menu sub' + (it.subClass ? ` ${it.subClass}` : '');
-  const sub = renderMenu(r.right + 4, r.top - 5, it.sub?.() ?? [], cls, depth);
+  const sub = renderMenu(edge.right + 8, r.top - 5, it.sub?.() ?? [], cls, depth);
   if (!btn.closest('.menu')?.classList.contains('stagger')) sub.classList.remove('stagger'); // like its parent menu
   if (btn.closest('.menu.up')) {
     sub.classList.add('up');
     sub.style.top = `${Math.max(8, r.bottom - sub.offsetHeight + 5)}px`;
   }
-  if (sub.getBoundingClientRect().left < r.right) sub.style.left = `${Math.max(8, r.left - sub.offsetWidth - 4)}px`; // no room on the right
+  if (sub.getBoundingClientRect().left < edge.right) sub.style.left = `${Math.max(8, edge.left - sub.offsetWidth - 8)}px`; // no room on the right
 }
 // Closes the submenus at `depth` and deeper (1, the default, is all of them).
 function closeSubmenu(depth = 1): void {
@@ -818,6 +819,13 @@ document.addEventListener('keydown', e => {
 
   const isCtrlZ = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z' && !e.shiftKey;
   const isCtrlY = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey));
+
+  // Ctrl+A outside a text field selects the open file, not every word on the page.
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'a' && activeText() && !focused()?.matches('input, textarea, [contenteditable]')) {
+    e.preventDefault();
+    run('edit.selectAll');
+    return;
+  }
 
   if (isCtrlZ) {
     const el = focused();

@@ -172,6 +172,12 @@
   to { --open: 160vmax; }
 }
 
+/* Held still while the app window fades in over the splash (init.ts), the splash's light with it (main.js). */
+:root[data-handoff] .ob-sky::before,
+:root[data-handoff] .ob-sky::after {
+  animation-play-state: paused;
+}
+
 @keyframes launch-drift {
   from { transform: translate(0, 0) scale(1); }
   to { transform: translate(8vmax, 6vmax) scale(1.12); }

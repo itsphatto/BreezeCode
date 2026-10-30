@@ -273,7 +273,7 @@ function createSplash(bounds) {
 // The hand-off is two steps. win:launchShow puts the app window up still see-through over the splash, so it draws its
 // first frames unseen (a slow machine would otherwise stutter through the fade); win:launchFade then fades it in, the
 // intro dissolving into the app, and closes the splash.
-const LAUNCH_FADE = 1100; // ms
+const LAUNCH_FADE = 300; // ms
 function revealMain() {
   if (!win || win.isVisible()) return;
   if (splash) {
@@ -282,18 +282,24 @@ function revealMain() {
   }
   win.show();
 }
+// Resolves once the fade is done. The splash's drifting light holds still meanwhile (the page does the same), so
+// neither window redraws while the system cross-fades them.
 function fadeMain() {
   const s = splash, w = win;
   splash = null;
   if (!s || !w) return;
+  s.webContents.insertCSS('*, *::before, *::after { animation-play-state: paused !important; }').catch(logError('splash'));
   const t0 = Date.now();
-  const tick = setInterval(() => {
-    const k = Math.min(1, (Date.now() - t0) / LAUNCH_FADE);
-    if (!w.isDestroyed()) w.setOpacity(k * k * (3 - 2 * k)); // ease-in-out
-    if (k < 1) return;
-    clearInterval(tick);
-    if (!s.isDestroyed()) s.destroy();
-  }, 16);
+  return new Promise(done => {
+    const tick = setInterval(() => {
+      const k = Math.min(1, (Date.now() - t0) / LAUNCH_FADE);
+      if (!w.isDestroyed()) w.setOpacity(k * k * (3 - 2 * k)); // ease-in-out
+      if (k < 1) return;
+      clearInterval(tick);
+      if (!s.isDestroyed()) s.destroy();
+      done();
+    }, 16);
+  });
 }
 function showMain() {
   revealMain();
