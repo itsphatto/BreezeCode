@@ -1,9 +1,9 @@
 /* ---------- launch: a glimpse of light opens into the window, the swirl settles in the middle, then the app shows ---------- */
 /* Shared by the splash window (launch.html) and the app page (breeze.html).
    Timeline: light bubbles around for 0.8s, then opens into the sky (1s, ease-in-out), the swirl settles in by 2.1s and
-   holds 1.8s. In the desktop app the intro plays in its own see-through splash window over the desktop, while the app
-   loads hidden behind it already showing the finished frame (.held); at the hand-off the app window appears in that same
-   frame and lifts off (.done, from init.ts). In a browser the whole intro plays in the page itself. */
+   holds 1.8s. In the desktop app the intro plays in its own see-through splash window over the desktop, and at the
+   hand-off the app window fades in over it (main.js). In a browser the whole intro plays in the page itself and lifts
+   off (.done, from init.ts). */
 @property --open {
   syntax: '<length>';
   inherits: false;
@@ -134,25 +134,6 @@
   filter: blur(0) drop-shadow(0 0 22px rgba(255, 255, 255, .45)) drop-shadow(0 6px 24px rgba(10, 30, 120, .35));
   animation: launch-logo-in .7s cubic-bezier(.2, .8, .2, 1) 1.4s both;
   user-select: none;
-}
-
-/* Held: the intro's last frame (sky open, swirl in place), shown by the app window while the splash window plays the
-   intro; only the sky's drifting light keeps moving. */
-.launch.held:not(.done) {
-  animation: none;
-}
-
-.launch.held .launch-glint {
-  display: none;
-}
-
-.launch.held .launch-sky {
-  --open: 160vmax;
-  animation: none;
-}
-
-.launch.held:not(.done) .launch-logo {
-  animation: none;
 }
 
 /* Lifting off: the swirl grows and fades a beat ahead of the sky, which melts away onto the app. */

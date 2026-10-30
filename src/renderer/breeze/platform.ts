@@ -411,6 +411,7 @@ function demoApi(): BreezeApi {
       // No splash window in the browser: the page plays the whole launch itself (init.ts).
       async launchWait() { return null; },
       async launchShow() { /* the page is already showing */ },
+      async launchFade() { /* nothing to fade over */ },
     },
   };
 }

@@ -458,7 +458,6 @@ function makeDefaultAgent(ag: DetectedAgent): void {
   saveApp();
   renderAgentBar();
   updateScmGenBtn();
-  toast(`Active agent: ${ag.name}`);
 }
 function agentChipMenuItems(ag: DetectedAgent): MenuItem[] {
   // Each model opens its effort levels, so the agent's chip is where model and effort are picked.
@@ -826,6 +825,7 @@ $('#pickFolder').onclick = () => background(chooseProject(false));
 $('#createFolder').onclick = () => background(chooseProject(true));
 // Switching between the onboarding, the IDE and Breeze Box: the old screen fades back, the new one rises in.
 let swapTimer: TimeoutId | undefined;
+let swapSeq = 0;
 let booted = false;
 // Startup work that fills the screen (git status, fonts, pictures) is collected here, so start-up only counts as
 // finished (and sounds come on) once the app looks finished.
@@ -842,28 +842,35 @@ function swapScreen(to: string): void {
     return;
   }
 
-  const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out'));
+  const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out') && !el.classList.contains('screen-prep'));
   clearTimeout(swapTimer);
 
   for (const el of screens) {
     if (el !== next && el !== prev) {
-      el.classList.remove('screen-out');
+      el.classList.remove('screen-out', 'screen-prep');
       el.classList.add('hidden');
     }
   }
 
-  if (!next.classList.contains('hidden') && !next.classList.contains('screen-out')) return; // already showing
+  if (!next.classList.contains('hidden') && !next.classList.contains('screen-out') && !next.classList.contains('screen-prep')) return; // already showing
   next.classList.remove('hidden', 'screen-out', 'screen-in');
-  const _ = next.offsetWidth; // restart the entrance animation
-  next.classList.add('screen-in');
-  next.addEventListener('animationend', () => next.classList.remove('screen-in'), { once: true });
   queueDiscord();
-  if (!prev) return;
-  prev.classList.add('screen-out');
-  swapTimer = setTimeout(() => {
-    prev.classList.remove('screen-out');
-    prev.classList.add('hidden');
-  }, 260);
+  // The new screen is laid out and painted unseen first (the caller fills it in right after this), and the swap only
+  // plays once frames come steadily, so a slow machine doesn't stutter through it.
+  next.classList.add('screen-prep');
+  const seq = ++swapSeq;
+  void settleFrames(700).then(() => {
+    if (seq !== swapSeq) return; // switched again meanwhile
+    next.classList.remove('screen-prep');
+    next.classList.add('screen-in');
+    next.addEventListener('animationend', () => next.classList.remove('screen-in'), { once: true });
+    if (!prev) return;
+    prev.classList.add('screen-out');
+    swapTimer = setTimeout(() => {
+      prev.classList.remove('screen-out');
+      prev.classList.add('hidden');
+    }, 260);
+  });
 }
 
 function showIde(): void {

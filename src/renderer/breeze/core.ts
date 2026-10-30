@@ -38,7 +38,7 @@ interface GitCommit { hash: string; parents: string[]; author: string; when: str
 interface GitCommitDetail { hash: string; author: string; email: string; when: string; message: string; files: { path: string; added: number; removed: number }[]; }
 
 interface DirEntry { name: string; dir: boolean; }
-interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; size: number; }
+interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; size: number; }
 interface Diag { line: number; col: number; len: number; msg: string; }
 type SyntaxResult = { ok: true } | (Diag & { eof?: boolean }) | null;
 interface RootInfo { root: string; name: string; }
@@ -167,7 +167,7 @@ interface BreezeApi {
     hide(): Promise<void>;
   };
   win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>;
-    clearBar(on: boolean): Promise<void>; launchWait(): Promise<number | null>; launchShow(): Promise<void>; };
+    clearBar(on: boolean): Promise<void>; launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
 }
 interface Window { breeze?: BreezeApi; }
 

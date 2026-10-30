@@ -305,7 +305,7 @@ async function moveEntry(p: string, to: string): Promise<void> {
   };
   const moved = [...buffers.values()].filter(b => move(b.path) !== b.path);
   for (const b of moved) { buffers.delete(b.path); b.path = move(b.path); buffers.set(b.path, b); scheduleLint(b, 0); }
-  await Promise.all(moved.filter(b => b.kind === 'image').map(async b => { b.url = await api.fs.fileUrl(b.path).catch(() => ''); }));
+  await Promise.all(moved.filter(b => b.kind === 'image' || b.kind === 'video').map(async b => { b.url = await api.fs.fileUrl(b.path).catch(() => ''); }));
   openTabs = openTabs.map(move);
   if (active) active = move(active);
   const dirs = [...expanded];
@@ -464,7 +464,7 @@ api.fs.onChange(paths => background((async () => {
   renderTreeAnimated();
   const changed = paths.map(p => buffers.get(p)).filter((b): b is EditorBuffer => !!b);
   await Promise.all(changed.map(b => {
-    if (b.kind === 'image' && b.url?.startsWith('file:')) return reloadImage(b);
+    if ((b.kind === 'image' || b.kind === 'video') && b.url?.startsWith('file:')) return reloadImage(b);
     if (b.kind === 'text' && !holdsUserEdits(b)) return reloadText(b);
     return Promise.resolve();
   }));

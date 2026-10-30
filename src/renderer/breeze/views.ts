@@ -75,6 +75,7 @@ function boxAgentItems(): MenuItem[] {
   for (const ag of agents) {
     items.push({
       label: ag.api && ag.version ? `${ag.name} · ${ag.version}` : ag.name,
+      icon: brandMark('menu-ico', ag.id, ag.name[0]),
       key: ag.found ? undefined : 'not set up',
       checked: () => ag.id === appState.agent,
       enabled: () => ag.found,

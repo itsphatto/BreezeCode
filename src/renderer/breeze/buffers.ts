@@ -63,6 +63,7 @@ async function loadDir(rel: string): Promise<void> {
 
 function kindOf(r: FileRead): EditorBuffer['kind'] {
   if (r.image) return 'image';
+  if (r.video) return 'video';
   if (r.binary) return 'binary';
   return r.tooLarge ? 'large' : 'text';
 }
@@ -79,7 +80,7 @@ async function loadBuffer(path: string): Promise<EditorBuffer | null> {
     undo: [], redo: [], lastEdit: null,
   };
   b.saved = b.text;
-  if (b.kind === 'image') b.url = await api.fs.fileUrl(path).catch(() => '');
+  if (b.kind === 'image' || b.kind === 'video') b.url = await api.fs.fileUrl(path).catch(() => '');
   if (b.kind === 'text') { b.ta = createSurface(b); scheduleLint(b, 0); }
   buffers.set(path, b);
   return b;

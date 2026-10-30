@@ -83,24 +83,15 @@ const themeCardHtml = ([id, name, sub, warn]: [Theme, string, string, boolean?])
     <span class="nm">${esc(name)}</span><span class="set-sub${warn ? ' set-warn' : ''}">${esc(sub)}</span></button>`;
 // While a new theme paints in, the cards (and the note under them) show as shimmering placeholders for a beat,
 // then the real ones rise back in, drawn in the new colours.
-const THEME_SKEL_MS = 550;
-let themeSkelTimer = 0;
-const themeSkeletonHtml = () => `<h4>Appearance</h4>
-  <h5>Theme</h5>
-  <div class="set-themes theme-skel" aria-hidden="true">${THEMES.map(() =>
-    '<span class="theme-skel-card"><i class="theme-skel-swatch"></i><i class="skel-row theme-skel-nm"></i><i class="skel-row theme-skel-sub"></i></span>').join('')}</div>
-  <i class="skel-row theme-skel-note" aria-hidden="true"></i>`;
 function setTheme(t: Theme): void {
   if (t === theme) return;
   theme = t;
   store.set('breeze.theme', t);
-  const root = document.documentElement;
-  // Every colour eases over to the new theme for a moment, then transitions go back to normal.
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    root.classList.add('theme-fading');
-    setTimeout(() => root.classList.remove('theme-fading'), 300);
-  }
-  root.dataset.theme = t;
+  // A view transition cross-fades a snapshot of the window, so it costs the same however big the editor is
+  // (easing every element's colours made big files lag behind the click).
+  const apply = () => { document.documentElement.dataset.theme = t; };
+  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(apply);
+  else apply();
   background(api.win.theme(t));
 }
 
@@ -362,24 +353,10 @@ function bindSettings(m: HTMLElement): void {
   $$('[data-theme-pick]', pane).forEach(b => b.onclick = () => {
     const pick = b.dataset.themePick as Theme;
     if (pick === theme) return;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      const from = pane.querySelector('.set-theme.on')?.getBoundingClientRect();
-      setTheme(pick);
-      refreshSettings();
-      slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
-      return;
-    }
+    const from = pane.querySelector('.set-theme.on')?.getBoundingClientRect();
     setTheme(pick);
-    pane.innerHTML = themeSkeletonHtml();
-    pane.setAttribute('aria-busy', 'true');
-    clearTimeout(themeSkelTimer);
-    themeSkelTimer = window.setTimeout(() => {
-      pane.removeAttribute('aria-busy');
-      // Moved to another section (or closed Settings) meanwhile: that pane is already drawn.
-      if (!pane.isConnected || settingsTab !== 'appearance' || !pane.querySelector('.theme-skel')) return;
-      refreshSettings();
-      staggerIn(pane.querySelectorAll('.set-themes > *, .set-themes ~ .set-sub'));
-    }, THEME_SKEL_MS);
+    refreshSettings();
+    slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
   });
   // Agents
   $$('[data-agent-pick]', pane).forEach(b => b.onclick = () => {

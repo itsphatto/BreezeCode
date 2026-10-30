@@ -1,4 +1,19 @@
 /* ================= Modal & misc ================= */
+// Resolves once the page draws smoothly (three quick frames in a row), so a transition started after it doesn't
+// stutter on a slow machine still painting a fresh screen. Gives up after `cap` ms (also when no frames come at all).
+function settleFrames(cap: number): Promise<void> {
+  return new Promise(done => {
+    const end = performance.now() + cap;
+    let last = performance.now(), quick = 0;
+    const tick = (t: number) => {
+      quick = t - last < 34 ? quick + 1 : 0;
+      last = t;
+      if (quick >= 3 || t > end) done(); else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    setTimeout(done, cap + 100);
+  });
+}
 let modalOnClose: (() => void) | null = null;
 const modalOpen = () => !!document.querySelector('#modalRoot .scrim:not(.closing)');
 // Pop-ups come in Apple-style: the panel settles first and its parts follow one after another (and leave in reverse).
@@ -22,6 +37,8 @@ function slideSelected(el: HTMLElement | null, from: DOMRect | undefined): void 
   // The glide is placed inside the list, so the list must be what it is positioned against.
   if (getComputedStyle(list).position === 'static') list.style.position = 'relative';
   const box = list.getBoundingClientRect();
+  // Screen boxes are in on-screen pixels; under a scaled parent (Home is drawn larger) the glide's CSS pixels differ.
+  const k = box.width / list.offsetWidth || 1;
   const on = getComputedStyle(el);
   const plainRow = [...list.children].find(c => c !== el && c.classList.contains(el.classList[0]) && !c.classList.contains('missing'));
   const plain = plainRow ? getComputedStyle(plainRow) : null;
@@ -30,18 +47,23 @@ function slideSelected(el: HTMLElement | null, from: DOMRect | undefined): void 
   const glide = document.createElement('div');
   glide.className = 'select-glide';
   Object.assign(glide.style, {
-    left: `${to.left - box.left + list.scrollLeft}px`, top: `${to.top - box.top + list.scrollTop}px`,
-    width: `${to.width}px`, height: `${to.height}px`,
+    left: `${(to.left - box.left) / k + list.scrollLeft}px`, top: `${(to.top - box.top) / k + list.scrollTop}px`,
+    width: `${to.width / k}px`, height: `${to.height / k}px`,
     borderRadius: on.borderRadius, border: `1px solid ${on.borderTopColor}`, background: on.backgroundColor,
   });
   list.append(glide);
   glide.animate([
-    { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`, height: `${from.height}px` },
-    { transform: 'none', height: `${to.height}px` },
+    { transform: `translate(${(from.left - to.left) / k}px, ${(from.top - to.top) / k}px)`, height: `${from.height / k}px` },
+    { transform: 'none', height: `${to.height / k}px` },
   ], { duration: ms, easing: ease }).onfinish = () => glide.remove();
+  // Picked with the pointer, which is still on the row: its hover look is what it ends in, so the box melts into
+  // that as it lands instead of landing in the plain selected look and then snapping to hover.
+  const hovered = cursorX >= to.left && cursorX <= to.right && cursorY >= to.top && cursorY <= to.bottom;
+  const hold = hovered ? .55 : .95;
+  if (hovered) glide.animate([{ opacity: 1, offset: hold, easing: 'ease-out' }, { opacity: 0 }], { duration: ms, fill: 'forwards' });
   if (plain) el.animate([
     { borderColor: plain.borderTopColor, background: plain.background, boxShadow: plain.boxShadow, offset: 0 },
-    { borderColor: plain.borderTopColor, background: plain.background, boxShadow: plain.boxShadow, offset: .95 },
+    { borderColor: plain.borderTopColor, background: plain.background, boxShadow: plain.boxShadow, offset: hold, easing: 'ease-out' },
     {},
   ], { duration: ms });
   const oldRow = [...list.children].find(c => c !== el && Math.abs(c.getBoundingClientRect().top - from.top) < 1 && Math.abs(c.getBoundingClientRect().left - from.left) < 1);

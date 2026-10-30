@@ -143,5 +143,6 @@ contextBridge.exposeInMainWorld('breeze', {
     clearBar: on => invoke('win:clearBar', on),
     launchWait: () => invoke('win:launchWait'),
     launchShow: () => invoke('win:launchShow'),
+    launchFade: () => invoke('win:launchFade'),
   },
 });

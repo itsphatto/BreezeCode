@@ -217,7 +217,7 @@ function htmlToks(text: string): Tok[] {
 // Lines are turned into HTML only when they are drawn, so a 10,000-line file costs the same as the lines in view.
 interface HlDoc { text: string; lexer: string; starts: number[]; kinds: (string | null)[]; lines: number[]; html: (string | undefined)[]; }
 type HlToks = Pick<HlDoc, 'starts' | 'kinds'>;
-// Every file Breeze opens is coloured (main.js opens up to 5 MB). HTML and CSS past HL_EXACT_MAX are lexed in full
+// Files up to HL_MAX are coloured; bigger ones (main.js opens up to 50 MB) show as plain text. HTML and CSS past HL_EXACT_MAX are lexed in full
 // only once typing pauses, since they can't be re-lexed near an edit.
 const HL_MAX = 5 * 1024 * 1024;
 const HL_EXACT_MAX = 400000;
