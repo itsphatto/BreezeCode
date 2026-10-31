@@ -240,6 +240,13 @@ let splash = null;
 let splashStart = 0;
 let splashShown = Promise.resolve();
 
+// The same holiday list as the page's (greetings.ts), keyed by month-day.
+const HOLIDAYS = { '1-1': 'newyear', '2-14': 'valentine', '4-1': 'aprilfools', '10-31': 'halloween', '12-25': 'christmas' };
+function holidayToday() {
+  const d = new Date();
+  return HOLIDAYS[`${d.getMonth() + 1}-${d.getDate()}`] ?? null;
+}
+
 function createSplash(bounds) {
   splash = new BrowserWindow({
     ...bounds,
@@ -261,6 +268,14 @@ function createSplash(bounds) {
   // No setIgnoreMouseEvents here: on Windows it turns the window into an opaque layered one and the desktop stops
   // showing through. The splash can't take focus, so a click on it simply does nothing.
   splash.webContents.on('will-navigate', e => e.preventDefault());
+  // On a holiday the intro takes the day's colours (launch.css). The page runs no scripts of its own, so the day is
+  // set from here, before its first frame shows.
+  const day = holidayToday();
+  if (day) {
+    splash.webContents.once('dom-ready', () => {
+      splash?.webContents.executeJavaScript(`document.documentElement.dataset.holiday = ${JSON.stringify(day)}`).catch(logError('splash'));
+    });
+  }
   splash.on('closed', () => { splash = null; });
   // The hand-off counts from when the intro first shows; a splash that never paints doesn't hold the app back.
   splashShown = new Promise(done => {
@@ -651,16 +666,16 @@ handle('fs:openFile', async () => {
   return { ...(await setRoot(dir)), open: file, launched: true };
 });
 
-// Asks where to save a new file (its name is typed in the dialog), creates it empty and opens it the same way.
-// Picking a file that already exists opens it as it is rather than emptying it.
-handle('fs:newFile', async () => {
+// Saves a file written in an untitled tab: asks where (the name it was given comes filled in), writes its text there
+// and opens it the same way. The dialog itself asks before replacing a file that already exists.
+handle('fs:newFile', async (_e, name, text) => {
   const r = await dialog.showSaveDialog(win, {
-    title: 'Create a new file', buttonLabel: 'Create',
-    defaultPath: path.join(root ?? app.getPath('documents'), 'untitled.txt'),
-    properties: ['createDirectory'],
+    title: 'Save the new file', buttonLabel: 'Save',
+    defaultPath: path.join(root ?? app.getPath('documents'), path.basename(String(name || 'untitled.txt'))),
+    properties: ['createDirectory', 'showOverwriteConfirmation'],
   });
   if (r.canceled || !r.filePath) return null;
-  await fsp.writeFile(r.filePath, '', { flag: 'a' });
+  await fsp.writeFile(r.filePath, String(text ?? ''), 'utf8');
   const { dir, file } = placeLaunch({ abs: r.filePath, isDir: false }, root);
   return { ...(await setRoot(dir)), open: file, launched: true };
 });

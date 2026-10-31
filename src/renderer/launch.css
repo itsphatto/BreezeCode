@@ -46,6 +46,89 @@
   animation: none;
 }
 
+/* The signature colours: the sky (launch and Home) and the glimpse of light before it. A holiday swaps them for the
+   day (data-holiday on the root: set by the page, and by main.js in the splash window). */
+:root {
+  --sky-corner-a: #b9dcff;
+  --sky-corner-b: #a9d1fb;
+  --sky-low: #7a5cff;
+  --sky-1: #8fc3ff;
+  --sky-2: #2f6bff;
+  --sky-3: #1f4dff;
+  --sky-4: #3d7bff;
+  --sky-5: #9cc9f7;
+  --sky-drift-a: #d6ecff;
+  --sky-drift-b: #5b3dff;
+  --glint-1: rgba(205, 225, 255, .85);
+  --glint-2: rgba(110, 140, 255, .6);
+  --glint-3: rgba(70, 90, 255, .25);
+  --glint-bubble-a: rgba(140, 200, 255, .9);
+  --glint-bubble-b: rgba(150, 110, 255, .75);
+}
+
+/* Halloween: pumpkin orange and candle yellow. */
+:root[data-holiday="halloween"] {
+  --sky-corner-a: #ffe7a3;
+  --sky-corner-b: #ffd36b;
+  --sky-low: #ff5e00;
+  --sky-1: #ffd166;
+  --sky-2: #ff8c1a;
+  --sky-3: #ff6a00;
+  --sky-4: #ff9f1c;
+  --sky-5: #ffe08a;
+  --sky-drift-a: #fff1c2;
+  --sky-drift-b: #ff7a00;
+  --glint-1: rgba(255, 228, 170, .85);
+  --glint-2: rgba(255, 160, 60, .6);
+  --glint-3: rgba(255, 110, 0, .25);
+  --glint-bubble-a: rgba(255, 214, 102, .9);
+  --glint-bubble-b: rgba(255, 120, 20, .75);
+}
+
+/* Christmas: snow white, pine green and berry red. */
+:root[data-holiday="christmas"] {
+  --sky-corner-a: #ffffff;
+  --sky-corner-b: #f4f4f4;
+  --sky-low: #e0263f;
+  --sky-1: #ffffff;
+  --sky-2: #1f8a4c;
+  --sky-3: #0f6b38;
+  --sky-4: #c8102e;
+  --sky-5: #ffffff;
+  --sky-drift-a: #ffffff;
+  --sky-drift-b: #0f7a3e;
+  --glint-1: rgba(255, 255, 255, .85);
+  --glint-2: rgba(40, 160, 90, .6);
+  --glint-3: rgba(210, 30, 50, .25);
+  --glint-bubble-a: rgba(60, 190, 110, .9);
+  --glint-bubble-b: rgba(230, 40, 60, .75);
+}
+
+/* Valentine's Day: pink, red and white. */
+:root[data-holiday="valentine"] {
+  --sky-corner-a: #ffe6f0;
+  --sky-corner-b: #ffc2d6;
+  --sky-low: #c8102e;
+  --sky-1: #ffffff;
+  --sky-2: #ff8fb8;
+  --sky-3: #e8174a;
+  --sky-4: #ff5c8a;
+  --sky-5: #ffe3ee;
+  --sky-drift-a: #ffffff;
+  --sky-drift-b: #e8174a;
+  --glint-1: rgba(255, 220, 232, .85);
+  --glint-2: rgba(255, 120, 165, .6);
+  --glint-3: rgba(232, 23, 74, .25);
+  --glint-bubble-a: rgba(255, 170, 200, .9);
+  --glint-bubble-b: rgba(232, 23, 74, .75);
+}
+
+/* April Fools: the whole intro plays in inverted colours (Home does too, breeze.css). Inverting the see-through
+   splash leaves its clear parts clear. */
+:root[data-holiday="aprilfools"] .launch {
+  filter: invert(1);
+}
+
 /* The sky: deep Breeze blue through the middle, pale sky in the corners, a hint of violet low down.
    It opens from the centre through a soft-edged circular mask. The welcome page sits on the same sky (.ob-sky). */
 .launch-sky,
@@ -54,10 +137,10 @@
   inset: 0;
   overflow: hidden;
   background:
-    radial-gradient(60% 55% at 12% 8%, #b9dcff 0%, rgba(185, 220, 255, 0) 70%),
-    radial-gradient(55% 60% at 92% 96%, #a9d1fb 0%, rgba(169, 209, 251, 0) 70%),
-    radial-gradient(45% 40% at 18% 92%, #7a5cff 0%, rgba(122, 92, 255, 0) 70%),
-    linear-gradient(125deg, #8fc3ff 0%, #2f6bff 34%, #1f4dff 55%, #3d7bff 78%, #9cc9f7 100%);
+    radial-gradient(60% 55% at 12% 8%, var(--sky-corner-a) 0%, transparent 70%),
+    radial-gradient(55% 60% at 92% 96%, var(--sky-corner-b) 0%, transparent 70%),
+    radial-gradient(45% 40% at 18% 92%, var(--sky-low) 0%, transparent 70%),
+    linear-gradient(125deg, var(--sky-1) 0%, var(--sky-2) 34%, var(--sky-3) 55%, var(--sky-4) 78%, var(--sky-5) 100%);
 }
 
 .launch-sky {
@@ -81,14 +164,14 @@
 :is(.launch-sky, .ob-sky)::before {
   left: -20vmax;
   top: -30vmax;
-  background: #d6ecff;
+  background: var(--sky-drift-a);
   animation: launch-drift 5s ease-in-out infinite alternate;
 }
 
 :is(.launch-sky, .ob-sky)::after {
   right: -25vmax;
   bottom: -35vmax;
-  background: #5b3dff;
+  background: var(--sky-drift-b);
   opacity: .35;
   animation: launch-drift 6s ease-in-out -2s infinite alternate-reverse;
 }
@@ -100,7 +183,7 @@
   width: 360px;
   height: 360px;
   border-radius: 42% 58% 55% 45% / 48% 42% 58% 52%;
-  background: radial-gradient(circle at 46% 46%, rgba(255, 255, 255, .95) 0%, rgba(205, 225, 255, .85) 14%, rgba(110, 140, 255, .6) 36%, rgba(70, 90, 255, .25) 56%, rgba(60, 80, 255, 0) 72%);
+  background: radial-gradient(circle at 46% 46%, rgba(255, 255, 255, .95) 0%, var(--glint-1) 14%, var(--glint-2) 36%, var(--glint-3) 56%, transparent 72%);
   filter: blur(22px);
   animation:
     launch-bubble .8s ease-in-out both,
@@ -118,13 +201,13 @@
 
 .launch-glint::before {
   inset: 18% 30% 30% 18%;
-  background: radial-gradient(circle, rgba(140, 200, 255, .9), rgba(140, 200, 255, 0) 70%);
+  background: radial-gradient(circle, var(--glint-bubble-a), transparent 70%);
   animation: launch-orbit .8s ease-in-out both;
 }
 
 .launch-glint::after {
   inset: 34% 14% 16% 38%;
-  background: radial-gradient(circle, rgba(150, 110, 255, .75), rgba(150, 110, 255, 0) 70%);
+  background: radial-gradient(circle, var(--glint-bubble-b), transparent 70%);
   animation: launch-orbit .8s ease-in-out -.4s both reverse;
 }
 

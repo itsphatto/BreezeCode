@@ -20,6 +20,7 @@ interface EditorBuffer {
   redo: Snapshot[];
   lastEdit: { kind: string; at: number } | null;
   disk?: string;         // the file's newer text on disk, changed by something else while this buffer had unsaved edits
+  untitled?: boolean;    // a new file not saved anywhere yet (see untitledBuffer): saving asks where first
 }
 interface Session { tabs: string[]; active: string | null; expanded: string[]; pos: Record<string, [number, number]>; }
 
@@ -35,6 +36,12 @@ const buffers = new Map<string, EditorBuffer>();
 const textareaOwner = new WeakMap<HTMLTextAreaElement, EditorBuffer>();
 const surfaceOf = (el: EventTarget | null): CodeSurface | undefined => textareaOwner.get(el as HTMLTextAreaElement)?.ta ?? undefined;
 const isDirty = (b?: EditorBuffer) => !!b && b.kind === 'text' && b.text !== b.saved;
+// An untitled tab's path sits in a folder no real path can have (Windows names can't hold ':'), so it never meets a
+// file's, while its name and extension still pick the icon, the highlighting and the Run button.
+const UNTITLED_DIR = ':untitled';
+const isUntitled = (p: string | null | undefined) => !!p && p.startsWith(UNTITLED_DIR);
+// A path as the user should read it: an untitled tab is just its name.
+const shownPath = (p: string) => isUntitled(p) ? baseName(p) : p;
 let sessionTimer: TimeoutId | undefined;
 let openTabs: string[] = [];
 let active: string | null = null;
@@ -89,11 +96,13 @@ function flushSession(): void {
   clearTimeout(sessionTimer);
   const pos: Session['pos'] = {};
   // A hidden surface reads scrollTop 0; a restored offset still waiting to be applied is the real one.
-  for (const b of buffers.values()) if (b.ta) pos[b.path] = [b.ta.selectionStart, pendingScroll.get(b) ?? b.ta.scrollTop];
-  store.set(sessionKey(), { tabs: openTabs, active, expanded: [...expanded], pos } as Session);
+  // Untitled tabs have no file to reopen, so they stay out.
+  const onDisk = (p: string | null) => !!p && !isUntitled(p);
+  for (const b of buffers.values()) if (b.ta && onDisk(b.path)) pos[b.path] = [b.ta.selectionStart, pendingScroll.get(b) ?? b.ta.scrollTop];
+  store.set(sessionKey(), { tabs: openTabs.filter(onDisk), active: onDisk(active) ? active : null, expanded: [...expanded], pos } as Session);
   // Hot exit: unsaved edits survive a reload or a crash.
   const dirty: Record<string, string> = {};
-  for (const b of buffers.values()) if (isDirty(b)) dirty[b.path] = b.text;
+  for (const b of buffers.values()) if (isDirty(b) && onDisk(b.path)) dirty[b.path] = b.text;
   if (Object.keys(dirty).length) store.set(hotExitKey(), dirty); else store.del(hotExitKey());
 }
 window.addEventListener('beforeunload', flushSession);

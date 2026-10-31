@@ -909,27 +909,38 @@ async function chooseProject(create: boolean): Promise<void> {
   toast(create ? `Created ${r.name}` : `Opened ${r.name}`);
   leaveHome();
 }
-// "Open file" picks one file, "New file" names and creates one. Either opens it in the editor, with its folder as the
-// project unless it sits inside the one already open.
-async function chooseFile(create: boolean): Promise<void> {
+// "Open file" picks one file and opens it in the editor, with its folder as the project unless it sits inside the
+// one already open.
+async function chooseFile(): Promise<void> {
   if (!(await confirmDiscard())) return;
-  const r = await (create ? api.fs.newFile() : api.fs.openFile());
+  const r = await api.fs.openFile();
   if (!r) return;
   if (rootInfo?.root !== r.root) await loadWorkspace(r);
   if (r.open) openFile(r.open);
-  toast(create ? `Created ${r.open ?? r.name}` : `Opened ${r.open ?? r.name}`);
+  toast(`Opened ${r.open ?? r.name}`);
   enterMode('ide');
+}
+// "New file" goes straight to the IDE and asks only for a name; the file is written once it is saved or run, which
+// asks where to put it (see saveUntitled).
+async function newUntitledFile(): Promise<void> {
+  enterMode('ide');
+  const name = (await askName('New file', 'untitled.txt', 'Create'))?.replaceAll('\\', '/').split('/').pop()?.trim();
+  if (!name) return;
+  const b = untitledBuffer(name);
+  openTabs.push(b.path);
+  setActive(b.path);
+  b.ta?.focus();
 }
 $('#pickFolder').onclick = () => background(chooseProject(false));
 $('#createFolder').onclick = () => background(chooseProject(true));
-$('#pickFile').onclick = () => background(chooseFile(false));
-$('#createFile').onclick = () => background(chooseFile(true));
+$('#pickFile').onclick = () => background(chooseFile());
+$('#createFile').onclick = () => background(newUntitledFile());
 // The shortcuts Home shows; the IDE's own handler ignores keys while Home is up.
 const HOME_KEYS: Record<string, () => Promise<void>> = {
   o: () => chooseProject(false),
   N: () => chooseProject(true),
-  n: () => chooseFile(true),
-  k: () => chooseFile(false),
+  n: newUntitledFile,
+  k: chooseFile,
 };
 document.addEventListener('keydown', e => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return;

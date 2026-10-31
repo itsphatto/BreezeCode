@@ -56,7 +56,9 @@ function tabHtml(n: string): string {
   const st = f && statusOf(f);
   const gitTag = st ? `<span class="gst ${st.cls}" title="${st.title}">${st.letter}</span>` : '';
   const nameHtml = fileNameHtml(baseName(n));
-  return `<div class="${cls}" data-tab="${escAttr(n)}" title="${escAttr(n)}">${dot}<span class="ico">${fileIcon(n)}</span><span class="nm">${nameHtml}</span>${gitTag}<span class="x" data-close-tab="1" title="Close (Ctrl+W)">${svgIcon('x', 12)}</span></div>`;
+  const title = isUntitled(n) ? `${baseName(n)} · not saved yet (Ctrl+S to pick where)` : n;
+  const note = isUntitled(n) ? '<span class="tab-note">- Not in a Directory</span>' : '';
+  return `<div class="${cls}" data-tab="${escAttr(n)}" title="${escAttr(title)}">${dot}<span class="ico">${fileIcon(n)}</span><span class="nm">${nameHtml}</span>${note}${gitTag}<span class="x" data-close-tab="1" title="Close (Ctrl+W)">${svgIcon('x', 12)}</span></div>`;
 }
 function renderTabs(): void {
   // Re-rendering mid-drag would drop the tab being dragged; catch up when it lands.
@@ -295,7 +297,7 @@ function closeTabs(paths: string[]): void {
     }
   };
   if (!dirty.length) { finish(); return; }
-  openModal(`<h3>Save changes to ${plural(dirty.length, 'file')}?</h3><p class="sub">${dirty.map(b => esc(b.path)).join('<br>')}</p>
+  openModal(`<h3>Save changes to ${plural(dirty.length, 'file')}?</h3><p class="sub">${dirty.map(b => esc(shownPath(b.path))).join('<br>')}</p>
     <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn" id="tabsDontSave">Don't Save</button><button class="btn btn-primary" id="tabsSave">Save</button></div>`, m => {
     $('#tabsDontSave', m).onclick = () => { closeModal(); finish(); };
     $('#tabsSave', m).onclick = () => {
@@ -328,8 +330,8 @@ $('#tabs').addEventListener('contextmenu', e => {
     { sep: true },
     { label: 'Open in Split Right', enabled: () => buffers.get(p)?.kind === 'text', run: () => { openSplit(p, true); renderTabs(); } },
     { sep: true },
-    { label: 'Copy Relative Path', run: () => background(navigator.clipboard.writeText(p).then(() => toast('Path copied'))) },
-    { label: 'Reveal in Explorer', run: () => revealInTree(p) },
+    { label: 'Copy Relative Path', enabled: () => !isUntitled(p), run: () => background(navigator.clipboard.writeText(p).then(() => toast('Path copied'))) },
+    { label: 'Reveal in Explorer', enabled: () => !isUntitled(p), run: () => revealInTree(p) },
   ]);
 });
 
@@ -457,6 +459,7 @@ function closeTab(path: string): void {
 async function saveFile(path: string | null = active): Promise<boolean> {
   const b = path ? buffers.get(path) : undefined;
   if (b?.kind !== 'text') return false;
+  if (b.untitled) return saveUntitled(b);
   if (b.disk != null) {
     const choice = await askDiskConflict(b);
     if (choice === 'reload') { loadDiskVersion(b); return false; }
@@ -469,6 +472,33 @@ async function saveFile(path: string | null = active): Promise<boolean> {
   b.disk = undefined;
   renderTabs(); renderTree(); flushSession();
   if (running) void reloadPreview();
+  return true;
+}
+// An untitled file has nowhere to go yet, so saving it (or running it) asks where first, in the Windows Save dialog
+// with its name filled in. The saved file then takes the untitled tab's place, caret and all; saved outside the open
+// folder, its own folder opens as the project, as when a file is opened from Explorer.
+async function saveUntitled(b: EditorBuffer): Promise<boolean> {
+  const name = baseName(b.path);
+  toast(`Choose where to save ${name}`);
+  const text = b.eol === '\r\n' ? b.text.replaceAll('\n', '\r\n') : b.text;
+  let r: LaunchInfo | null;
+  try { r = await api.fs.newFile(name, text); } catch (e) { toast(`Couldn't save ${name}: ${errMsg(e)}`); return false; }
+  if (!r?.open) return false;
+  const at = openTabs.indexOf(b.path);
+  const caret = b.ta ? [b.ta.selectionStart, b.ta.selectionEnd] : [0, 0];
+  dropTab(b.path);
+  if (rootInfo?.root !== r.root) await loadWorkspace(r);
+  else await refreshTree();
+  const file = r.open;
+  // A tab for this file that was already open shows the old text: the saved one replaces it.
+  if (buffers.has(file)) dropTab(file);
+  await actuallyOpen(file);
+  const i = openTabs.indexOf(file);
+  if (at >= 0 && i >= 0 && at < openTabs.length) { openTabs.splice(i, 1); openTabs.splice(at, 0, file); renderTabs(); }
+  const nb = buffers.get(file);
+  if (nb?.ta) { nb.ta.focus(); nb.ta.setSelectionRange(caret[0], caret[1]); }
+  saveSession();
+  toast(`Saved ${file}`);
   return true;
 }
 // The file changed on disk while it had unsaved edits: keep this version, or take the one on disk.

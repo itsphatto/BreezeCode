@@ -29,6 +29,12 @@ $('#previewEmpty').addEventListener('click', e => {
   if (target) void startPreview(target);
 });
 async function startPreview(path?: string): Promise<void> {
+  // An untitled page is saved (somewhere the user picks) first: the preview loads it from disk.
+  const page = path ?? (isHtml(active) ? active : null);
+  if (isUntitled(page)) {
+    if (!(await saveFile(page))) return;
+    path = active ?? undefined;
+  }
   if (!rootInfo) { toast('Open a folder first'); return; }
   const target = path ?? previewTarget();
   if (!target) { toast('Add an index.html (or open an .html file) to preview it'); return; }

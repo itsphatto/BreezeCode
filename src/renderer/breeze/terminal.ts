@@ -775,6 +775,8 @@ function runnable(path: string | null): boolean { return !!path && /\.(?:c|cpp|c
 async function runFile(): Promise<void> {
   const b = activeBuf();
   if (!active || b?.kind !== 'text') { toast('Save the file first'); return; }
+  // An untitled file runs from disk too, so it is saved (somewhere the user picks) first.
+  if (b.untitled && !(await saveFile(active))) return;
   if (term.proc != null && term.runId == null) { toast('A command is still running — press Ctrl+C to stop it'); return; }
   if (term.runId != null) { // a run is going: main refuses and says so; leave the running program's output and the file alone
     const busy = await api.run.file(active).catch((err: unknown) => ({ error: errMsg(err) }) as { id?: number; error?: string });

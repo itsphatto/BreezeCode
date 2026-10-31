@@ -34,7 +34,7 @@ const commands: Record<string, () => unknown> = {
   'app.home': goHome,
   'file.newFile': () => newEntry(targetDir(), false),
   'file.newFolder': () => newEntry(targetDir(), true),
-  'file.openFile': () => chooseFile(false),
+  'file.openFile': chooseFile,
   'file.openFolder': openFolderCmd,
   'file.openRecent': openRecentPicker,
   'file.save': () => saveFile(focused() === splitTa.input ? splitPath : active).then(ok => { if (ok) sfx.play('save'); }),
@@ -256,7 +256,7 @@ function confirmDiscard(): Promise<boolean> {
   if (!dirty.length) return Promise.resolve(true);
   return new Promise(res => {
     const finish = settleOnce(res);
-    openModal(`<h3>Save changes to ${plural(dirty.length, 'file')}?</h3><p class="sub">${dirty.map(b => esc(b.path)).join('<br>')}</p>
+    openModal(`<h3>Save changes to ${plural(dirty.length, 'file')}?</h3><p class="sub">${dirty.map(b => esc(shownPath(b.path))).join('<br>')}</p>
       <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn" id="dDiscard">Don't Save</button><button class="btn btn-primary" id="dSave">Save All</button></div>`, m => {
       $('#dDiscard', m).onclick = () => {
         for (const b of dirty) { b.text = b.saved; if (b.ta) b.ta.value = b.saved; }

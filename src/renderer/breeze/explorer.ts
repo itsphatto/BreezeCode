@@ -372,7 +372,8 @@ function askName(title: string, initial: string, okLabel: string): Promise<strin
       input.setSelectionRange(0, dot > 0 ? dot : initial.length);
       const ok = () => { const v = input.value.trim(); if (v) { finish(v); closeModal(); } };
       $('#nameOk', m).onclick = ok;
-      input.onkeydown = e => { if (e.key === 'Enter') ok(); };
+      // Kept from the default action: focus may have moved to an editor by then, which would take the Enter as a line.
+      input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); ok(); } };
     }, () => finish(null));
   });
 }

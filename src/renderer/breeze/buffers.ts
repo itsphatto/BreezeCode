@@ -101,6 +101,16 @@ function blankBuffer(path: string): EditorBuffer | null {
   return b;
 }
 
+// An empty text tab for a new file from Home: named, but not on disk until saving asks where to put it.
+let untitledCount = 0;
+function untitledBuffer(name: string): EditorBuffer {
+  const path = `${UNTITLED_DIR}${++untitledCount}/${name}`;
+  const b: EditorBuffer = { path, size: 0, kind: 'text', eol: '\n', text: '', saved: '', ta: null, undo: [], redo: [], lastEdit: null, untitled: true };
+  b.ta = createSurface(b);
+  buffers.set(path, b);
+  return b;
+}
+
 /* ----- Syntax errors for a buffer ----- */
 function scheduleLint(b: EditorBuffer, delay = 450): void {
   clearTimeout(b.lintTimer);
@@ -140,7 +150,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
   // The constructor paints before `ta` is assigned, hence the empty text then.
   let self: CodeSurface | null = null;
   const ta = self = new CodeSurface($('#editor .code'), {
-    lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: `Editing ${b.path}`,
+    lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: `Editing ${b.untitled ? baseName(b.path) : b.path}`,
     ...lineMeasurer(hlLines, () => winFirst, () => self?.value ?? ''),
   });
   ta.classList.add('hidden');

@@ -77,7 +77,7 @@ interface BreezeApi {
     openFolder(): Promise<RootInfo | null>;
     createFolder(): Promise<RootInfo | null>;
     openFile(): Promise<LaunchInfo | null>;
-    newFile(): Promise<LaunchInfo | null>;
+    newFile(name: string, text: string): Promise<LaunchInfo | null>;
     restore(): Promise<RootInfo | LaunchInfo | null>;
     openLaunch(): Promise<LaunchInfo | null>;
     onLaunchRequest(cb: (dir: string) => void): () => void;

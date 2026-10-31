@@ -779,18 +779,28 @@ const GREET_DAYS: Record<number, string[]> = {
   5: ['Friday! Ship it before the weekend?', 'Friday deploy? Brave.', 'It’s Friday. Let’s wrap things up.', 'Weekend’s almost here.', 'Friday feeling, coding flow.', 'End the week with a win.'],
   6: ['Saturday side quest?', 'Weekend coding session?', 'Saturday: no meetings, just code.', 'A weekend for building cool stuff.', 'Saturday tinkering time.', 'Weekend mode: creative.'],
 };
-// Month-day keys ("10-31") for a few special dates.
+// Month-day keys ("10-31"; "05-19" with leading zeros works too) for a few special dates. On one of these days Home
+// greets with its lines only.
 const GREET_DATES: Record<string, string[]> = {
   '1-1': ['Happy New Year! First commit of the year?', 'New year, new projects.', 'Fresh year, fresh repo.'],
   '2-14': ['Show your code some love today.', 'Roses are red, builds are green.'],
-  '3-14': ['Happy Pi Day! 3.14159 reasons to code.'],
+  '3-14': ['Happy Pi Day! 3.141592653 reasons to code.'],
   '4-1': ['No jokes, just code. Probably.'],
   '5-4': ['May the fork be with you.'],
   '10-31': ['Happy Halloween! Hunting some spooky bugs?', 'Trick or treat? Treat yourself to a clean build.', 'Spooky season, scary stack traces.'],
   '12-24': ['Christmas Eve coding? Santa’s checking your commits twice.'],
   '12-25': ['Merry Christmas! A gift for your project?'],
   '12-31': ['Last commit of the year?', 'Closing out the year with code.'],
+  '10-15': ['Fun fact: Did you know BreezeCode was built on this day?','Fun Fact: Did you know BreezeCode was built during a Hackathon!'],
+  '05-19': ['Happy Birthday to @itsphatto'],
+  '01-15': ['Happy Birthday to @Sapfire151'],
+  
 };
+
+// A date's month-day key: "5-19", or "05-19" padded.
+const dayKey = (d: Date, padded = false) => padded
+  ? `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  : `${d.getMonth() + 1}-${d.getDate()}`;
 
 // Once picked a line stays for that slot, so Home re-rendering doesn't swap it under you.
 // shown is the line as last filled in, so the ticker below can tell it's still on screen.
@@ -800,12 +810,12 @@ function timeGreeting(now = new Date()): string {
   const slot = GREET_SLOTS.findIndex(s => h < s.until);
   const key = `${now.toDateString()}:${slot}`;
   if (greetPick?.key !== key) {
-    const pool = [
+    // A special date (a holiday, a birthday) always gets its own line rather than one lost among the everyday ones.
+    const special = GREET_DATES[dayKey(now)] ?? GREET_DATES[dayKey(now, true)];
+    const pool = special ?? [
       ...GREET_SLOTS[slot].lines,
       ...GREET_MORE[slot],
       ...GREET_DAYS[now.getDay()],
-      // Special dates get a big share of the pool so they actually show up.
-      ...Array(8).fill(GREET_DATES[`${now.getMonth() + 1}-${now.getDate()}`] ?? []).flat(),
     ];
     greetPick = { key, line: pool[Math.floor(Math.random() * pool.length)], shown: '' };
   }
@@ -819,3 +829,82 @@ setInterval(() => {
   const lead = $('#homeLead');
   if (greetPick && lead.textContent === greetPick.shown) lead.textContent = timeGreeting();
 }, 10_000);
+
+/* ----- Holidays: the signature sky (launch and Home) takes the day's colours (launch.css) ----- */
+// Month-day keys as in GREET_DATES. main.js has the same list for the splash window, which runs no scripts.
+const HOLIDAYS: Record<string, string> = {
+  '1-1': 'newyear',
+  '2-14': 'valentine',
+  '4-1': 'aprilfools',
+  '10-31': 'halloween',
+  '12-25': 'christmas',
+};
+const holiday = HOLIDAYS[dayKey(new Date())] ?? null;
+if (holiday) document.documentElement.dataset.holiday = holiday;
+
+// New Year's Day: fireworks over Home. Rockets climb from the bottom and burst into sparks that fall and fade. It
+// draws only while Home is on screen and the window is visible, and not at all with reduced motion.
+function startFireworks(): void {
+  const canvas = $<HTMLCanvasElement>('#homeFireworks');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  canvas.classList.remove('hidden');
+  const COLORS = ['#ffd166', '#ff6b6b', '#4dd4ff', '#b28dff', '#7cf29a', '#ffffff', '#ff9ff3'];
+  type Spark = { x: number; y: number; vx: number; vy: number; life: number; color: string };
+  type Rocket = { x: number; y: number; vy: number; top: number; color: string };
+  let sparks: Spark[] = [], rockets: Rocket[] = [];
+  let w = 0, h = 0, last = 0, nextLaunch = 0, frame = 0;
+  const onHome = () => !document.hidden && !$('#onboard').classList.contains('hidden') && !$('.home-step').classList.contains('hidden');
+  const fit = () => {
+    const dpr = devicePixelRatio || 1;
+    w = canvas.clientWidth; h = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  };
+  const burst = (r: Rocket) => {
+    const n = 90 + Math.floor(Math.random() * 50);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2, speed = 2 + Math.random() * 3.5;
+      sparks.push({ x: r.x, y: r.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: 1, color: Math.random() < .2 ? '#ffffff' : r.color });
+    }
+  };
+  const step = (t: number) => {
+    frame = 0;
+    if (!onHome()) { sparks = []; rockets = []; last = 0; ctx.clearRect(0, 0, w, h); return; } // the watcher below starts it again
+    if (canvas.clientWidth !== w || canvas.clientHeight !== h) fit();
+    const k = last ? Math.min(3, (t - last) / 16.7) : 1; // in 60fps frames, so a slow frame doesn't slow the show
+    last = t;
+    if (t >= nextLaunch) {
+      rockets.push({ x: w * (.15 + Math.random() * .7), y: h, vy: -(7 + Math.random() * 3), top: h * (.12 + Math.random() * .3), color: COLORS[Math.floor(Math.random() * COLORS.length)] });
+      nextLaunch = t + 350 + Math.random() * 700;
+    }
+    // Last frame fades out rather than clearing, so rockets and sparks leave short trails.
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, .22)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'lighter';
+    rockets = rockets.filter(r => {
+      r.y += r.vy * k;
+      ctx.fillStyle = r.color;
+      ctx.beginPath(); ctx.arc(r.x, r.y, 2.5, 0, Math.PI * 2); ctx.fill();
+      if (r.y > r.top) return true;
+      burst(r);
+      return false;
+    });
+    sparks = sparks.filter(s => {
+      s.vy += .05 * k; s.vx *= .985; s.vy *= .985;
+      s.x += s.vx * k; s.y += s.vy * k;
+      s.life -= .009 * k;
+      if (s.life <= 0) return false;
+      ctx.globalAlpha = s.life;
+      ctx.fillStyle = s.color;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 2.6, 0, Math.PI * 2); ctx.fill();
+      return true;
+    });
+    ctx.globalAlpha = 1;
+    frame = requestAnimationFrame(step);
+  };
+  // Starts the show whenever Home comes up; it stops itself when Home goes.
+  setInterval(() => { if (!frame && onHome()) frame = requestAnimationFrame(step); }, 500);
+}
+if (holiday === 'newyear' && !matchMedia('(prefers-reduced-motion: reduce)').matches) startFireworks();

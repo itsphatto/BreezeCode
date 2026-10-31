@@ -167,12 +167,15 @@ function demoApi(): BreezeApi {
 
 
       },
-      // Browser preview: no file dialog, so "Open file" opens the demo project's README and "New file" adds an empty one.
+      // Browser preview: no file dialog, so "Open file" opens the demo project's README and saving a new file puts it
+      // in the demo project under the name it was given (numbered if that's taken).
       openFile() { store.set('breeze.demoOpen', true); markOpened(); return Promise.resolve({ ...info, open: 'README.md', launched: true as const }); },
-      newFile() {
-        let name = 'untitled.txt';
-        for (let i = 2; files.has(name); i++) name = `untitled-${i}.txt`;
-        files.set(name, '');
+      newFile(want: string, text: string) {
+        const dot = want.lastIndexOf('.');
+        const [stem, ext] = dot > 0 ? [want.slice(0, dot), want.slice(dot)] : [want, ''];
+        let name = want;
+        for (let i = 2; files.has(name); i++) name = `${stem}-${i}${ext}`;
+        files.set(name, text);
         store.set('breeze.demoOpen', true);
         markOpened();
         return Promise.resolve({ ...info, open: name, launched: true as const });

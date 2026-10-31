@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('breeze', {
     openFolder: () => invoke('fs:openFolder'),
     createFolder: () => invoke('fs:createFolder'),
     openFile: () => invoke('fs:openFile'),
-    newFile: () => invoke('fs:newFile'),
+    newFile: (name, text) => invoke('fs:newFile', name, text),
     restore: () => invoke('fs:restore'),
     openLaunch: () => invoke('fs:openLaunch'),
     onLaunchRequest: cb => listen('fs:launchRequest', cb),
