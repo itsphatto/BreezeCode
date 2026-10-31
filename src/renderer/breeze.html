@@ -246,7 +246,7 @@
       <!-- One way in leads (Open folder, the only blue on the screen); recent projects sit beside it. -->
       <div class="home-grid">
         <section class="home-start" aria-label="Start a project">
-          <button class="start-tile primary" id="pickFolder" aria-keyshortcuts="Control+O">
+          <button class="start-tile" id="pickFolder" aria-keyshortcuts="Control+O">
             <span class="start-ico"><svg data-i="folder" data-size="18"></svg></span>
             <span class="start-txt"><span class="nm">Open folder…</span></span>
             <kbd>Ctrl+O</kbd>
@@ -280,7 +280,6 @@
         <header>
           <h3 id="homeAgentTitle">Your agents</h3>
           <p class="muted" id="homeAgentNote">New chats and plans go to the one you pick.</p>
-          <button class="icon-btn" id="homeRescan" title="Scan this computer for agents" aria-label="Scan this computer for agents"><svg width="16" height="16"><use href="#i-refresh" /></svg></button>
         </header>
         <div class="agent-rows" id="homeAgents" role="radiogroup" aria-labelledby="homeAgentTitle"></div>
       </section>
@@ -342,19 +341,10 @@
         <div data-panel="files" class="contents">
           <div class="side-head"><span>Explorer</span>
             <span class="head-actions">
-              <button class="icon-btn" data-act="file.newFile" title="New File"><svg width="14" height="14">
-                  <use href="#i-newfile" />
-                </svg></button>
-              <button class="icon-btn" data-act="file.newFolder" title="New Folder"><svg width="14" height="14">
-                  <use href="#i-newdir" />
-                </svg></button>
-              <button class="icon-btn" data-act="explorer.collapse" title="Collapse Folders"><svg width="14"
-                  height="14">
-                  <use href="#i-collapse" />
-                </svg></button>
-              <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg width="14" height="14">
-                  <use href="#i-chev" />
-                </svg></button>
+              <button class="icon-btn" data-act="file.newFile" title="New File"><svg data-i="filePlus" data-size="14"></svg></button>
+              <button class="icon-btn" data-act="file.newFolder" title="New Folder"><svg data-i="folderPlus" data-size="14"></svg></button>
+              <button class="icon-btn" data-act="explorer.collapse" title="Collapse Folders"><svg data-i="squareMinus" data-size="14"></svg></button>
+              <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg data-i="chevronLeft" data-size="14"></svg></button>
             </span>
           </div>
           <div class="side-body" id="tree" tabindex="-1"></div>
@@ -362,9 +352,7 @@
         <!-- Search -->
         <div data-panel="search" class="contents hidden">
           <div class="side-head"><span>Search</span><span class="head-actions"><button class="icon-btn"
-                data-act="view.toggleSide" title="Hide Side Bar"><svg width="14" height="14">
-                  <use href="#i-chev" />
-                </svg></button></span></div>
+                data-act="view.toggleSide" title="Hide Side Bar"><svg data-i="chevronLeft" data-size="14"></svg></button></span></div>
           <div class="search-box">
             <input class="input" id="searchInput" aria-label="Find in project" placeholder="Find in project"
               spellcheck="false">
@@ -378,13 +366,9 @@
         <div data-panel="git" class="contents hidden">
           <div class="side-head"><span>Source Control</span><span class="head-actions">
               <button class="icon-btn hidden" id="scmGenMsg" data-act="git.genCommitMsg" title="Generate commit message" data-tooltip="Generate commit message"><svg data-i="sparkles" data-size="14"></svg></button>
-              <button class="icon-btn" data-act="git.refresh" title="Refresh"><svg width="14" height="14">
-                  <use href="#i-refresh" />
-                </svg></button>
+              <button class="icon-btn" data-act="git.refresh" title="Refresh"><svg data-i="rotateCw" data-size="14"></svg></button>
               <button class="icon-btn" data-act="git.more" title="More actions"><svg data-i="more"></svg></button>
-              <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg width="14" height="14">
-                  <use href="#i-chev" />
-                </svg></button>
+              <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg data-i="chevronLeft" data-size="14"></svg></button>
             </span></div>
           <div class="side-body scm" id="scm"></div>
         </div>
@@ -610,6 +594,12 @@
   <div id="menuRoot"></div>
   <div id="modalRoot"></div>
   <div id="toastRoot"></div>
+  <!-- Window buttons (Windows, Linux), top right over every screen; platform.ts shows and wires them -->
+  <div class="win-controls hidden" id="winControls" role="group" aria-label="Window">
+    <button class="win-btn" id="winMin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M0 5.5h10" /></svg></button>
+    <button class="win-btn" id="winMax" title="Maximize" aria-label="Maximize"><svg data-i="winMaximize" data-size="10"></svg></button>
+    <button class="win-btn win-close" id="winClose" title="Close" aria-label="Close"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M.5.5l9 9M9.5.5l-9 9" /></svg></button>
+  </div>
 
   <!-- Compiled from the .ts files beside them — run `npm run build` after editing a .ts. The breeze/ files run in this
        order and share one global scope (see breeze/core.ts); a new file goes where its load-time code has what it needs. -->

@@ -72,6 +72,7 @@ interface LspEdit { start: { line: number; character: number }; end: { line: num
 
 interface BreezeApi {
   version?: string;
+  platform?: string;
   fs: {
     openFolder(): Promise<RootInfo | null>;
     createFolder(): Promise<RootInfo | null>;
@@ -193,7 +194,9 @@ interface BreezeApi {
     hide(): Promise<void>;
   };
   win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>;
-    clearBar(on: boolean): Promise<void>; launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
+    minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>;
+    onMaximized(cb: (maximized: boolean) => void): () => void;
+    launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
 }
 interface Window { breeze?: BreezeApi; }
 

@@ -246,7 +246,8 @@ const growRO = new ResizeObserver(entries => {
     const r = p.el.getBoundingClientRect();
     return { ...p, to: r.height, onScreen: r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw };
   });
-  let budget = reduceMotion.matches ? 0 : GROW_PER_FRAME;
+  // While the window itself resizes (layout.ts), everything takes its new height at once.
+  let budget = reduceMotion.matches || document.documentElement.classList.contains('win-resizing') ? 0 : GROW_PER_FRAME;
   // Border-box and clipped for the moment it runs, so padding counts and rewrapped text doesn't spill out.
   const frame = { boxSizing: 'border-box', overflow: 'hidden' };
   for (const p of sized) {

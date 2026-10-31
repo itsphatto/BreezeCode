@@ -696,7 +696,6 @@ button {
 .onboard:has(.home-step:not(.hidden)) .ob-bg {
   visibility: hidden;
 }
-
 .onboard:has(.home-step:not(.hidden)) .ob-sky {
   opacity: 1;
   visibility: visible;
@@ -721,19 +720,10 @@ button {
     rgba(0, 0, 0, .2);
 }
 
-/* Light theme: the same white-on-glass onboarding, lit up: the photo, the Home sky and the glass lose most of their dimming.
-   The oval behind the text stays so the words still read over the skyline. */
-:root[data-theme="light"] .ob-bg { opacity: .9; }
-:root[data-theme="light"] .ob-bg::before {
-  background: radial-gradient(ellipse 42% 34% at 50% 50%, rgba(0, 0, 0, .24), rgba(0, 0, 0, .08) 60%, transparent 100%);
-}
+/* Light theme: the photo keeps the dark theme's dim over the same dark page (a lit-up photo left the white text
+   at 1:1 on its bright patches); Home's sky and panels are where light mode shows. */
+:root[data-theme="light"] .onboard { background: #1d1d1f; }
 :root[data-theme="light"] .onboard:has(.home-step:not(.hidden)) .ob-sky { filter: brightness(.92) saturate(1.05); }
-:root[data-theme="light"] .onboard .ob-step:not(.home-step) {
-  --bg: rgba(60, 60, 66, .5);
-  --bg-1: rgba(66, 66, 72, .54);
-  --bg-2: rgba(74, 74, 80, .58);
-  --bg-3: rgba(82, 82, 88, .62);
-}
 
 /* Every step sits above the photo and its ripple. */
 .ob-step {
@@ -747,6 +737,10 @@ button {
   --bg-1: rgba(35, 35, 37, .76);
   --bg-2: rgba(42, 42, 44, .78);
   --bg-3: rgba(50, 50, 52, .8);
+  /* Greys and links a step lighter than the app's, so they hold 4.5:1 over the photo's bright patches too. */
+  --text-2: #e4e4e8;
+  --text-3: #bdbdc2;
+  --blue-text: #c2d7ff;
 }
 
 .onboard :is(.setup-card, .start-tile, .device-code, .home-recent, .home-agent),
@@ -1177,16 +1171,15 @@ textarea:focus-visible {
   transition: filter .6s ease, opacity .6s ease, transform .6s cubic-bezier(.2, .8, .2, 1);
 }
 
-/* The right padding leaves room for the native window controls drawn over the title bar. */
 .titlebar {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  /* 1px past the 44px window-button overlay (main.js), the first grid row's height. */
+  /* 1px past the 44px window buttons, the first grid row's height. */
   min-height: 45px;
   height: 45px;
-  padding: 0 calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px) 0 10px;
+  padding: 0 10px;
   /* The window's base layer (behind the panels), so the bar and the gaps between panels read as one surface. */
   background: var(--bg);
   -webkit-app-region: drag;
@@ -1236,6 +1229,104 @@ textarea:focus-visible {
 .titlebar .menubar,
 .titlebar .avatars {
   -webkit-app-region: no-drag;
+}
+
+/* Room for the page's own window buttons, top right (three 46px buttons). */
+.own-win-controls .titlebar {
+  padding-right: calc(138px + 10px);
+}
+
+/* The window buttons (platform.ts), over every screen. Each keeps the full 46×44 corner target Windows gives its own,
+   so a flick to the screen's top-right corner still closes; the hover shows as a rounded pill inside it, like the
+   app's other buttons, red for Close. */
+.win-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 9000;
+  display: flex;
+  color: var(--text-2);
+  -webkit-app-region: no-drag;
+}
+
+.win-btn {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+}
+
+.win-btn svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.win-btn::before {
+  content: "";
+  position: absolute;
+  inset: 8px 7px;
+  z-index: -1;
+  border-radius: 7px;
+  background: rgba(var(--ink), .1);
+  opacity: 0;
+  transition: opacity .12s ease-out;
+}
+
+.win-btn:hover::before {
+  opacity: 1;
+}
+
+.win-btn:active::before {
+  background: rgba(var(--ink), .06);
+}
+
+.win-btn:hover {
+  color: var(--text);
+}
+
+.win-btn.win-close:hover {
+  color: #fff;
+}
+
+.win-btn.win-close::before {
+  background: #c42b1c;
+}
+
+.win-btn.win-close:active::before {
+  background: #a3271a;
+}
+
+.win-btn:focus-visible {
+  outline: none;
+}
+
+.win-btn:focus-visible::before {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--blue);
+}
+
+/* Maximize/restore is drawn on the 24-unit grid (so it can morph, platform.ts): 2.4 units is 1px at 10px, like the others. */
+#winMax svg {
+  stroke-width: 2.4;
+}
+
+/* Over Home's sky and the setup backdrop (onboarding.ts) the buttons draw light, to read on the picture. */
+.clear-bar .win-controls {
+  --ink: 255, 255, 255;
+  color: rgba(255, 255, 255, .9);
+}
+
+.clear-bar .win-btn:hover {
+  color: #fff;
 }
 
 .layout-btns {
@@ -1395,11 +1486,12 @@ textarea:focus-visible {
   color: rgba(255, 255, 255, .75);
 }
 
-.menu-item.checked::before {
-  content: "✓";
+.menu-check {
   position: absolute;
-  left: 9px;
-  font-size: 11px;
+  left: 8px;
+  top: 50%;
+  display: grid;
+  transform: translateY(-50%);
 }
 
 .menu-sep {
@@ -2015,6 +2107,11 @@ svg.ico-svg:active {
   padding: 0 6px;
   border-radius: 4px;
   color: #1d1d1f;
+}
+
+/* The window itself resizing: the panels take their new widths at once (layout.ts). */
+.win-resizing :is(.main, .work) {
+  transition: none;
 }
 
 .center {
@@ -3958,9 +4055,11 @@ textarea:not(:placeholder-shown) + .ph-rot {
   display: block;
 }
 
+/* Nothing to send yet: the button dims where it is (it stays centred on the prompt) and takes no pointer, so it has
+   no hover dim, tick or tooltip until there is something to send. */
 .composer-box:has(.composer-attachments.hidden):has(textarea:placeholder-shown) :is(#send, #boxSend):not(.stop) {
   opacity: .35;
-  transform: translateY(3px);
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -4429,7 +4528,13 @@ textarea:not(:placeholder-shown) + .ph-rot {
 /* Sign-in wears the same night-blue glass as the Home cards behind it (same tint, border, corners and buttons).
    The blur is what keeps Home's blue (Continue, the default agent) from showing through as patches. */
 .modal:has(.signin-modal) {
+  /* White text in every theme: the glass stays dark, so the light theme's dark text would vanish into it. */
+  color-scheme: dark;
+  --text: #f5f5f7;
   --text-2: rgba(255, 255, 255, .72);
+  --text-3: rgba(255, 255, 255, .6);
+  --ink: 255, 255, 255;
+  color: var(--text);
   background: color-mix(in srgb, rgb(28, 31, 46) 78%, transparent);
   border-color: rgba(255, 255, 255, .1);
   border-radius: 14px;
@@ -6206,12 +6311,30 @@ body.vibing .ide {
 }
 
 /* A touch more see-through than the base cards, so the sky shows through a little. Text keeps full opacity. */
-.onboard .home-step :is(.home-recent, .home-agent, .start-tile:not(.primary)) {
+.onboard .home-step :is(.home-recent, .home-agent, .start-tile) {
   background: color-mix(in srgb, var(--bg-2) 70%, transparent);
 }
 
-.onboard .home-step .start-tile.primary {
-  background: color-mix(in srgb, var(--blue) 82%, transparent);
+/* Light theme: the same white-on-panel Home, the panels lifted to a lighter slate so they sit lighter on the bright
+   sky. White on #46527d reads about 7.6:1, and the greys rise with it. */
+:root[data-theme="light"] .onboard .ob-step.home-step {
+  --bg: rgba(70, 82, 125, .92);
+  --bg-1: rgba(70, 82, 125, .92);
+  --bg-2: rgba(70, 82, 125, .92);
+  --bg-3: rgba(84, 97, 142, .94);
+  --line: rgba(255, 255, 255, .16);
+  --text-2: rgba(255, 255, 255, .88);
+  --text-3: rgba(255, 255, 255, .84);
+}
+
+/* Over the bright light sky the panels stay solid: seen through, they paled the white text below 4.5:1. */
+:root[data-theme="light"] .onboard .home-step :is(.home-recent, .home-agent, .start-tile) {
+  background: var(--bg-2);
+}
+
+/* Antigravity's blue mark sinks into the light slate, so its white mark shows there instead. */
+:root[data-theme="light"] .onboard .tint-antigravity .brand-img {
+  content: url("../../assets/icons/antigravity_white.png");
 }
 
 /* Home is where every launch lands, not a step to count: no progress dots. */
@@ -6231,7 +6354,7 @@ body.vibing .ide {
 .home-head p.lead {
   /* Tucked closer to the title; the bottom margin gives the pulled-up space back so nothing below shifts. */
   margin: -6px 0 6px;
-  color: rgba(255, 255, 255, .8);
+  color: rgba(255, 255, 255, .92);
   font-size: 18px;
 }
 
@@ -6255,6 +6378,7 @@ body.vibing .ide {
 
 /* Ways in on the leading side, recent projects beside them; stacked when the window is narrow. */
 .home-grid {
+  position: relative; /* its blocks' positions are measured against it, for their glide when it reflows (setup.ts) */
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 14px;
@@ -6310,6 +6434,9 @@ body.vibing .ide {
 
 .recent-list {
   display: grid;
+  /* Rows keep their own height at the top: stretched to fill the card, each row grew past its button and the
+     remove button (centred on the row) dropped below it. */
+  align-content: start;
   gap: 2px;
   max-height: min(300px, 40vh);
   overflow: auto;
@@ -6485,7 +6612,7 @@ body.vibing .ide {
 }
 
 .recent-row.lead:hover .recent-open .recent-go {
-  background: #f5f5f7;
+  background: #fff;
   color: #1f4dff;
 }
 
@@ -6514,7 +6641,8 @@ body.vibing .ide {
   gap: 2px;
   padding: 7px 9px 7px 14px;
   border-radius: 8px;
-  background: var(--blue);
+  /* The same blue in every theme; #f5f5f7 on it reads 4.76:1. */
+  background: #005eff;
   color: #f5f5f7;
   font-size: 13px;
   font-weight: 600;
@@ -6567,26 +6695,6 @@ body.vibing .ide {
   color: var(--text-3);
 }
 
-/* The one blue on Home: white on --blue reads 4.65:1. Its focus ring goes white so it still shows. */
-.start-tile.primary {
-  background: var(--blue);
-  border-color: transparent;
-  color: #fff;
-}
-
-.start-tile.primary .start-ico {
-  background: rgba(255, 255, 255, .18);
-  color: #fff;
-}
-
-.start-tile.primary kbd {
-  color: rgba(255, 255, 255, .8);
-}
-
-.start-tile.primary:focus-visible {
-  outline-color: #fff;
-}
-
 .start-ico {
   width: 40px;
   height: 40px;
@@ -6595,6 +6703,16 @@ body.vibing .ide {
   place-items: center;
   background: var(--blue-soft);
   color: #6ea0ff;
+}
+
+/* On Home's panels the icons go paler, so they stand well clear of the panel (WCAG 1.4.11 asks 3:1) in both themes. */
+.onboard .home-step .start-ico {
+  color: #a8c7ff;
+}
+
+/* .start-tile outranks the light theme's blue-text icon rule. */
+:root[data-theme="light"] .onboard .home-step .start-tile .start-ico {
+  color: #dbe6ff;
 }
 
 .start-txt {
@@ -6623,14 +6741,12 @@ body.vibing .ide {
   border-radius: 14px;
 }
 
-/* The heading and its note on the leading side, with room below before the roster; the rescan button keeps to the
-   trailing corner. */
+/* The heading and its note on the leading side, with room below before the roster. */
 .home-agent header {
-  position: relative;
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 4px 12px;
-  padding: 4px 40px 8px 6px;
+  padding: 4px 6px 8px;
   margin: 0;
 }
 
@@ -6641,16 +6757,6 @@ body.vibing .ide {
 /* Under the ways in and recent projects. */
 .home-step .home-agent {
   margin-top: 14px;
-}
-
-#homeRescan {
-  position: absolute;
-  top: 0;
-  right: 0;
-}
-
-#homeRescan.busy svg {
-  animation: spin .8s linear infinite;
 }
 
 .home-agent .agent-row {
@@ -6684,9 +6790,15 @@ body.vibing .ide {
   color: var(--text-3);
 }
 
-/* The roster: found agents side by side, wrapping on narrow windows, each rising in as the scan reports it. */
+/* The roster: found agents side by side, wrapping on narrow windows, each rising in as the scan reports it. A handful of
+   cards never needs to scroll, so it isn't a scroll box: as one, Chromium gave it a layer of its own that came up blank
+   for a frame while the window grew or settled (the cards vanished and came back), and it would clip cards gliding to
+   a new row. */
 .home-agent .agent-rows {
+  position: relative; /* the cards' positions are measured against it, for their glide to a new row (setup.ts) */
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  max-height: none;
+  overflow: visible;
 }
 
 .home-agent .agent-row {
@@ -6733,7 +6845,7 @@ body.vibing .ide {
 }
 
 .agent-row .start-txt .sub b {
-  color: #6ea0ff;
+  color: var(--blue-text);
   font-weight: 600;
 }
 

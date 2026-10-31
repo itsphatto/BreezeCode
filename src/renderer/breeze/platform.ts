@@ -453,7 +453,12 @@ function demoApi(): BreezeApi {
       async quit() { window.close(); },
       edit: demoEdit,
       async theme() { /* the browser draws its own title bar */ },
-      async clearBar() { /* nor are there window buttons to clear */ },
+      // Nor are there window buttons: the page shows none in the browser.
+      async minimize() { /* */ },
+      async toggleMaximize() { /* */ },
+      async close() { window.close(); },
+      async isMaximized() { return false; },
+      onMaximized() { return () => { /* */ }; },
       // No splash window in the browser: the page plays the whole launch itself (init.ts).
       async launchWait() { return null; },
       async launchShow() { /* the page is already showing */ },
@@ -496,6 +501,11 @@ const LINE_ICONS: Record<string, IconNode> = {
   check: [['path', { d: 'M20 6 9 17l-5-5' }]],
   external: [['path', { d: 'M7 7h10v10' }], ['path', { d: 'M7 17 17 7' }]],
   rotateCcw: [['path', { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' }], ['path', { d: 'M3 3v5h5' }]],
+  rotateCw: [['path', { d: 'M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8' }], ['path', { d: 'M21 3v5h-5' }]],
+  squareMinus: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M8 12h8' }]],
+  // The window's maximize and restore marks, edge to edge like Minimize and Close beside them; one morphs into the other.
+  winMaximize: [['rect', { x: 1.2, y: 1.2, width: 21.6, height: 21.6, rx: 3.6 }]],
+  winRestore: [['rect', { x: 1.2, y: 6, width: 16.8, height: 16.8, rx: 3.6 }], ['path', { d: 'M6 1.2h13.2a3.6 3.6 0 0 1 3.6 3.6V18' }]],
   undo: [['path', { d: 'M9 14 4 9l5-5' }], ['path', { d: 'M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11' }]],
   stop: [['rect', { x: 6, y: 6, width: 12, height: 12, rx: 2, fill: 'currentColor' }]],
   play: [['path', { d: 'M6 3l14 9-14 9z', fill: 'currentColor' }]],
@@ -568,13 +578,33 @@ function paintIcons(root: ParentNode = document): void {
   });
 }
 // A control that changes state morphs its icon; without the library (or offline) the icon just swaps.
-interface MorphHandle { morphTo(icon: IconNode): void; }
+interface MorphHandle { morphTo(icon: IconNode, spring?: 'smooth' | 'snappy' | 'bouncy'): void; set(icon: IconNode): void; }
 interface MorphLib { createMorph(el: Element, icon: IconNode, options?: { strokeWidth?: number }): MorphHandle; }
-const MORPH_URL = './node_modules/morphicons/dist/dom.js';
+// From the page (src/renderer/breeze.html) up to the app root's node_modules. Resolved against the page: a bare
+// relative import() resolves against this script's own folder.
+const MORPH_URL = new URL('../../node_modules/morphicons/dist/dom.js', document.baseURI).href;
 let morphLib: Promise<MorphLib | null> | null = null;
 const loadMorph = (): Promise<MorphLib | null> => (morphLib ??= import(MORPH_URL).catch(() => null));
 const morphs = new WeakMap<Element, MorphHandle>();
 paintIcons();
+void loadMorph(); // loaded up front, so the first morph starts on the frame its control shows
+// Shows `from` and morphs into the icon the control already has: a view's header taking over from the last one's.
+// Snappy, so it settles in about a fifth of a second. Without the library the icon simply stays.
+async function morphIconFrom(host: Element, from: string): Promise<void> {
+  const svg = host.querySelector<SVGSVGElement>('svg.ico-svg');
+  const name = svg?.dataset.icon;
+  if (!svg || !name || from === name || !LINE_ICONS[from] || !LINE_ICONS[name]) return;
+  const lib = await loadMorph();
+  if (!lib) return;
+  let m = morphs.get(svg);
+  if (m) m.set(LINE_ICONS[from]);
+  else {
+    svg.innerHTML = '<path/>';
+    m = lib.createMorph(svg.firstElementChild as Element, LINE_ICONS[from], { strokeWidth: 2 });
+    morphs.set(svg, m);
+  }
+  m.morphTo(LINE_ICONS[name], 'snappy');
+}
 async function setIcon(host: Element, name: string): Promise<void> {
   const svg = host.querySelector<SVGSVGElement>('svg.ico-svg');
   if (!svg || svg.dataset.icon === name || !LINE_ICONS[name]) return;
@@ -603,5 +633,74 @@ async function setIcon(host: Element, name: string): Promise<void> {
 
 const isDesktop = !!window.breeze;
 const api: BreezeApi = window.breeze ?? demoApi();
+
+// How blocks glide when the window maximizes or restores (here) and when that reflows Home (glideOnReflow, setup.ts).
+// For about 100 ms Windows plays its own transition with the old frame, while the page's frames go unseen; a glide that
+// started at once was well along by the time it showed, and leapt. So each block holds where it was for that long, then
+// eases off gently and settles softly.
+const WIN_GLIDE: KeyframeAnimationOptions = { duration: 420, delay: 100, fill: 'backwards', easing: 'cubic-bezier(.4, 0, .2, 1)' };
+
+/* ----- Window buttons: drawn by the page on Windows and Linux, so they match it; macOS keeps its traffic lights ----- */
+if (isDesktop && api.platform !== 'darwin') {
+  document.documentElement.classList.add('own-win-controls');
+  $('#winControls').classList.remove('hidden');
+  const max = $('#winMax');
+  const showMaximized = (on: boolean) => {
+    void setIcon(max, on ? 'winRestore' : 'winMaximize'); // morphs between the square and the two squares
+    max.title = on ? 'Restore' : 'Maximize';
+    max.setAttribute('aria-label', max.title);
+  };
+  // Maximizing, restoring or snapping, every block glides from where it stood to where the new size puts it, instead
+  // of jumping: Home's content with its centring, the agents panel with the window's right edge, and so on. A scale of
+  // the whole screen couldn't do this: these changes usually move only one side (the height stays), so scaling evenly
+  // pushed the bottom of the page off and back, and Windows shows the old frame, cropped, until the first new one.
+  // Blocks that reflow inside Home glide on their own (glideOnReflow, setup.ts). None of these nest in one another.
+  const GLIDE = ['.ob-step:not(.hidden)', '#homeProfile', '.titlebar > *', '.main > *', '.work > *', '.term-head > *', '.statusbar > *',
+    '#editorEmpty > div', '#box > *', '.box-bar > *'].join(', ');
+  // Places are kept in the window, not on the screen: until the first new frame, Windows shows the old one drawn at the
+  // window's new corner, so each block starts from exactly where that frame shows it.
+  let placed = new Map<Element, DOMRect>();
+  const notePlaces = () => {
+    placed = new Map([...document.querySelectorAll(GLIDE)].filter(el => el.getClientRects().length).map(el => [el, el.getBoundingClientRect()]));
+  };
+  const glide = () => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    for (const [el, was] of placed) {
+      if (!el.isConnected || !el.getClientRects().length) continue;
+      const now = el.getBoundingClientRect(), dx = was.left - now.left, dy = was.top - now.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], WIN_GLIDE);
+    }
+  };
+  // Where everything stands is noted while the window is still: right before the buttons act, and every second
+  // otherwise (a double-click on the title bar, Win+Up or a snap gives no warning).
+  setInterval(() => { if (!document.documentElement.classList.contains('win-resizing')) notePlaces(); }, 1000);
+  $('#winMin').onclick = () => background(api.win.minimize());
+  max.onclick = () => { notePlaces(); background(api.win.toggleMaximize()); };
+  $('#winClose').onclick = () => background(api.win.close());
+  api.win.onMaximized(showMaximized);
+  background(api.win.isMaximized().then(showMaximized));
+  // Watched with a ResizeObserver, not the resize event: Chromium paints the first frame at the new size before the
+  // event fires, so that frame showed the new layout and the next jumped back; an observer hears of the new size in
+  // the same frame, before it's painted. A maximize, restore or snap is one big jump after a quiet moment; dragging
+  // the window's edge is a run of small steps, which never glides.
+  let seen = { w: innerWidth, h: innerHeight }; // the last size handled, so the observer and the event never both act
+  let lastResize = -Infinity;
+  let settle: TimeoutId | undefined;
+  const onSize = () => {
+    const size = { w: innerWidth, h: innerHeight };
+    if (size.w === seen.w && size.h === seen.h) return;
+    seen = size;
+    markWinResizing(); // the panels, text and chips inside take their new sizes at once (layout.ts)
+    const now = performance.now();
+    if (now - lastResize > 250) glide();
+    lastResize = now;
+    clearTimeout(settle);
+    settle = setTimeout(notePlaces, 700); // once the glide is done
+  };
+  new ResizeObserver(onSize).observe(document.documentElement);
+  addEventListener('resize', onSize); // a change the observer didn't see (the page's height didn't follow the window's)
+  setTimeout(notePlaces, 0);
+}
 const appVersion = api.version || '0.5.2';
 
