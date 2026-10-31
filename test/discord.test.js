@@ -63,6 +63,7 @@ test('DiscordRpc handshakes with the client id, sets and clears the activity', a
   const user = await rpc.connect();
   assert.equal(user.username, 'tester');
   await rpc.setActivity({ details: 'Editing app.js', state: 'my-project', startTimestamp: 1000 });
+  await rpc.setActivity({ details: 'Editing App.java', largeImageKey: 'https://x/java.png', largeImageText: 'Java', smallImageKey: 'breeze', smallImageText: 'Breeze Code' });
   await rpc.setActivity(null);
   rpc.close();
   server.close();
@@ -71,7 +72,9 @@ test('DiscordRpc handshakes with the client id, sets and clears the activity', a
   assert.equal(seen[1].data.args.pid, 42);
   assert.equal(seen[1].data.args.activity.details, 'Editing app.js');
   assert.deepEqual(seen[1].data.args.activity.timestamps, { start: 1000 });
-  assert.equal(seen[2].data.args.activity, undefined);
+  assert.equal(seen[1].data.args.activity.assets, undefined);
+  assert.deepEqual(seen[2].data.args.activity.assets, { large_image: 'https://x/java.png', large_text: 'Java', small_image: 'breeze', small_text: 'Breeze Code' });
+  assert.equal(seen[3].data.args.activity, undefined);
 });
 
 test('DiscordRpc explains when Discord is not running', async () => {

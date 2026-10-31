@@ -18,7 +18,23 @@ function discordActivity(): DiscordActivity {
   else if (!inBox && file) details = `Editing ${file}`;
   const lang = !inBox && active ? langOf(active)[1] : '';
   const where = rootInfo ? `in ${rootInfo.name}` : 'Breeze Code';
-  return { details, state: lang && !working ? `${lang} · ${where}` : where, start: discordSince };
+  const icon = !inBox && !working && active ? discordIcon(active) : undefined;
+  return { details, state: lang && !working ? `${lang} · ${where}` : where, start: discordSince, icon, lang: lang || undefined };
+}
+// The file's language icon for the big presence picture (names of the PNGs main.js links to).
+const DISCORD_ICONS: Record<string, string> = {
+  html: 'html', htm: 'html', xml: 'xml', svg: 'svg', vue: 'vue', css: 'css', scss: 'scss', less: 'less',
+  js: 'js', mjs: 'js', cjs: 'js', jsx: 'jsx', ts: 'ts', mts: 'ts', cts: 'ts', tsx: 'tsx', json: 'json', jsonc: 'json',
+  md: 'markdown', markdown: 'markdown', py: 'python', java: 'java', rs: 'rust',
+  c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp', cs: 'csharp', csx: 'csharp',
+  yml: 'yaml', yaml: 'yaml', toml: 'toml', sh: 'shell', bash: 'shell', zsh: 'shell', ksh: 'shell',
+  ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', bat: 'bat', cmd: 'bat',
+};
+function discordIcon(path: string): string {
+  const lexer = langOf(path)[0];
+  if (lexer === 'docker') return 'docker';
+  if (lexer === 'env') return 'env';
+  return DISCORD_ICONS[extOf(path)] ?? 'text';
 }
 // Settings → Discord shows this state; there is no status bar button any more.
 let discordState: { state: 'on' | 'off' | 'error'; why: string } = { state: 'off', why: '' };

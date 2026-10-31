@@ -119,6 +119,7 @@ class DiscordRpc {
     const activity = { details: a.details, state: a.state, instance: false };
     if (a.startTimestamp) activity.timestamps = { start: a.startTimestamp };
     if (a.largeImageKey) activity.assets = { large_image: a.largeImageKey, large_text: a.largeImageText || undefined };
+    if (a.largeImageKey && a.smallImageKey) Object.assign(activity.assets, { small_image: a.smallImageKey, small_text: a.smallImageText || undefined });
     return this.request('SET_ACTIVITY', { pid: this.pid, activity });
   }
 

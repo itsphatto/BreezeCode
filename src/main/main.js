@@ -3450,12 +3450,21 @@ function discordClientId() {
   return String(process.env.BREEZE_DISCORD_CLIENT_ID || file.discord?.clientId || DEFAULT_DISCORD_CLIENT_ID).trim();
 }
 const discord = new DiscordPresence(() => new DiscordRpc(discordClientId()), { onError: logError('discord') });
+// Language icons Discord fetches itself (PNG, square, same look as the Java cup in IntelliJ's presence).
+const DISCORD_ICON_URL = key => `https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/${key}.png`;
+// The corner badge is a link too, so it shows without uploading art to the Discord application.
+// Discord draws it at a fixed size, so the image pads the logo with transparency to make it look smaller.
+const DISCORD_LOGO_URL = 'https://breezecode.itsphatto.site/assets/brand/discord-badge.png';
 const discordText = (s, max = 120) => (typeof s === 'string' && s.trim() ? s.trim().slice(0, max) : undefined);
 handle('discord:set', async (_e, a) => {
   if (!/^\d{15,22}$/.test(discordClientId())) throw new Error('Discord presence needs a Discord application id. Add "discord": { "clientId": "…" } to breeze.config.json or set BREEZE_DISCORD_CLIENT_ID.');
+  // With a language icon it takes the big picture and the Breeze logo sits in its corner, like other editors.
+  const icon = typeof a?.icon === 'string' && /^[a-z0-9]{1,20}$/.test(a.icon) ? a.icon : null;
+  const images = icon
+    ? { largeImageKey: DISCORD_ICON_URL(icon), largeImageText: discordText(a?.lang) || icon, smallImageKey: DISCORD_LOGO_URL, smallImageText: 'Breeze Code' }
+    : { largeImageKey: 'breeze', largeImageText: 'Breeze Code' };
   const user = await discord.set({
-    details: discordText(a?.details), state: discordText(a?.state), startTimestamp: Number(a?.start) || undefined,
-    largeImageKey: 'breeze', largeImageText: 'Breeze Code',
+    details: discordText(a?.details), state: discordText(a?.state), startTimestamp: Number(a?.start) || undefined, ...images,
   });
   return { user: user?.global_name || user?.username || null };
 });

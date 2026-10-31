@@ -70,7 +70,7 @@ interface Completion { text: string; dir: boolean; }
 interface DetectedTool { id: string; name: string; found: boolean; version: string | null; optional?: boolean; hint?: string | null; cmd?: string | null; url?: string | null; }
 interface Detection { agents: DetectedAgent[]; tools: DetectedTool[]; platform: string; demo?: boolean; }
 interface Rect { x: number; y: number; width: number; height: number; }
-interface DiscordActivity { details?: string; state?: string; start?: number; }
+interface DiscordActivity { details?: string; state?: string; start?: number; icon?: string; lang?: string; }
 interface RecentFolder { path: string; name: string; openedAt?: number | null; missing?: boolean; }
 interface LiveStatus { available: boolean; running: boolean; url: string; }
 
