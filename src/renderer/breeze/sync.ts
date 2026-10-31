@@ -58,32 +58,18 @@ async function runSync(mode: 'sync' | 'pull'): Promise<void> {
   if (!rootInfo) { toast('Open a folder to sync it'); return; }
   if (syncing) return;
   syncing = true;
-  setSyncBusy(true);
   toast(mode === 'pull' ? 'Getting the latest from the cloud' : 'Syncing');
   try {
     const s = syncOk(await api.sync.run(mode));
     if (!s) return;
     syncSeenRev = s.rev;
-    $('#syncBtn').classList.remove('has-update');
     const backed = s.backedUp.length ? ` · ${plural(s.backedUp.length, 'local edit')} backed up` : '';
     toast(syncSummaryText(s) + backed);
     if (s.downloaded || s.removed || s.conflicts.length) await refreshTree();
     void refreshGit();
-  } finally { syncing = false; setSyncBusy(false); }
+  } finally { syncing = false; }
   await syncSettings();
 }
-// The blue Sync button in the title bar: signs in, picks a cloud workspace, or syncs the open folder.
-function setSyncBusy(busy: boolean): void {
-  const b = $<HTMLButtonElement>('#syncBtn');
-  b.classList.toggle('busy', busy);
-  b.disabled = busy;
-  swapText($('span', b), busy ? 'Syncing' : 'Sync');
-}
-$('#syncBtn').onclick = () => {
-  if (!user) addAccount();
-  else if (!rootInfo) background(openCloudWorkspaces());
-  else background(runSync('sync'));
-};
 function confirmPull(): void {
   openModal(`<h3>Replace with the cloud version?</h3><p class="sub">${esc(rootInfo?.name ?? 'This folder')} will match the newest version synced from your other computer. Edits made here and not synced yet are backed up first, and files the cloud has never seen stay.</p>
     <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="pullOk">Get latest</button></div>`, m => {
@@ -134,7 +120,6 @@ async function checkCloudNewer(): Promise<void> {
   if (!user || !rootInfo || !isDesktop || syncing || Date.now() - syncCheckedAt < 60_000) return;
   syncCheckedAt = Date.now();
   const st = syncOk(await api.sync.status(), true);
-  $('#syncBtn').classList.toggle('has-update', !!st?.newer);
   if (!st?.newer || !st.remote || st.remote.rev <= syncSeenRev || $('#modalRoot .scrim:not(.closing)')) return;
   syncSeenRev = st.remote.rev;
   const w = st.remote;

@@ -427,15 +427,40 @@ function drawFluidDotGrid(params: DotGridParams): void {
         ctx.fill();
       }
 
-      // Crisp stippled core dot
+      // Crisp stippled core dot. Most are under a pixel across, where a square looks the same as a circle and costs
+      // far less than a path per dot; only the bigger ridge dots are drawn round.
       ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${dotAlpha.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
-      ctx.fill();
+      if (dotRadius < 0.75) {
+        const d = dotRadius * 1.77; // a square with the circle's area
+        ctx.fillRect(dotX - d / 2, dotY - d / 2, d, d);
+      } else {
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
 
   ctx.restore();
+}
+
+// The haze layers' canvas, shared by every drop target (one paints at a time), at this fraction of CSS pixels.
+const HAZE_SCALE = 0.4;
+let haze: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
+function hazeCanvas(w: number, h: number): typeof haze {
+  if (!haze) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    haze = { canvas, ctx };
+  }
+  if (haze.canvas.width !== w || haze.canvas.height !== h) { haze.canvas.width = w; haze.canvas.height = h; }
+  return haze;
+}
+function roundedPath(ctx: CanvasRenderingContext2D, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  if (r > 0.5) ctx.roundRect(0, 0, w, h, Math.min(r, w / 2, h / 2));
+  else ctx.rect(0, 0, w, h);
 }
 
 function renderFluidFrame(state: FluidCanvasState): void {
@@ -528,30 +553,25 @@ function renderFluidFrame(state: FluidCanvasState): void {
     }
   }
 
-  // Update dynamic blur focal coordinates so backdrop filter aligns behind gradient
-  container.style.setProperty('--glow-x', `${Math.round(state.glowX)}px`);
-  container.style.setProperty('--glow-y', `${Math.round(state.glowY)}px`);
-
-  ctx.save();
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
-
-  // Clip strictly inside container so blur radiates inward without spilling outside
-  ctx.beginPath();
-  if (typeof (ctx as any).roundRect === 'function' && rawR > 0.5) {
-    const r = Math.min(rawR, w / 2, h / 2);
-    (ctx as any).roundRect(0, 0, w, h, r);
-  } else {
-    ctx.rect(0, 0, w, h);
-  }
-  ctx.clip();
-
   const gx = state.glowX;
   const gy = state.glowY;
   const t = state.time;
 
+  // The haze is all blur, so it's painted on a small canvas and scaled up: the blur filters are the most expensive
+  // part of a frame, and at a fraction of the pixels they cost a fraction as much while looking the same.
+  // Blur radii are in bitmap pixels; they're scaled so the haze keeps the width it had on the full-size canvas.
+  const hz = hazeCanvas(Math.ceil(w * HAZE_SCALE), Math.ceil(h * HAZE_SCALE));
+  if (!hz) return;
+  const hctx = hz.ctx;
+  const blurK = HAZE_SCALE / dpr;
+  hctx.save();
+  hctx.clearRect(0, 0, hz.canvas.width, hz.canvas.height);
+  hctx.scale(HAZE_SCALE, HAZE_SCALE);
+  roundedPath(hctx, w, h, rawR);
+  hctx.clip();
+
   // 1. Ambient Deep Blur Fade Layer (Wide atmospheric blue haze with increased height and length)
-  drawFluidBlurFade({ ctx, samples, P, energies: state.energies, gx, gy, W: w, H: h, cfg: {
+  drawFluidBlurFade({ ctx: hctx, samples, P, energies: state.energies, gx, gy, W: w, H: h, cfg: {
     t,
     speed: 0.65,
     baseDepth: 22,
@@ -559,7 +579,7 @@ function renderFluidFrame(state: FluidCanvasState): void {
     influenceRadius: 620,
     harmonics: [2, 5, 8, 12],
     swellM: 1,
-    blurRadius: 48,
+    blurRadius: 48 * blurK,
     colorStops: [
       { stop: 0, color: 'rgba(56, 189, 248, 0.38)' },
       { stop: 0.20, color: 'rgba(14, 165, 233, 0.30)' },
@@ -571,7 +591,7 @@ function renderFluidFrame(state: FluidCanvasState): void {
   } });
 
   // 2. Dynamic Fluid Wave Blur Fade Layer (Oceanic Azure & Cobalt undulating wave with increased height and length)
-  drawFluidBlurFade({ ctx, samples, P, energies: state.energies, gx, gy, W: w, H: h, cfg: {
+  drawFluidBlurFade({ ctx: hctx, samples, P, energies: state.energies, gx, gy, W: w, H: h, cfg: {
     t,
     speed: 0.9,
     baseDepth: 16,
@@ -579,7 +599,7 @@ function renderFluidFrame(state: FluidCanvasState): void {
     influenceRadius: 540,
     harmonics: [3, 6, 11, 16],
     swellM: 2,
-    blurRadius: 28,
+    blurRadius: 28 * blurK,
     colorStops: [
       { stop: 0, color: 'rgba(56, 189, 248, 0.48)' },
       { stop: 0.22, color: 'rgba(14, 165, 233, 0.35)' },
@@ -592,19 +612,25 @@ function renderFluidFrame(state: FluidCanvasState): void {
   // The haze runs right up to the panel's edge, where the dots thin out, so the last few pixels read as a hard cyan
   // line along the border. Erase a soft band there so the glow fades out before the edge.
   // A blurred stroke fades the band in; a hard one clears the outermost pixels the blur can't fully reach.
+  hctx.globalCompositeOperation = 'destination-out';
+  hctx.strokeStyle = '#000';
+  roundedPath(hctx, w, h, rawR);
+  hctx.filter = `blur(${3 * blurK}px)`;
+  hctx.lineWidth = 10;
+  hctx.stroke();
+  hctx.filter = 'none';
+  hctx.lineWidth = 4;
+  hctx.stroke();
+  hctx.restore();
+
   ctx.save();
-  ctx.globalCompositeOperation = 'destination-out';
-  ctx.strokeStyle = '#000';
-  ctx.beginPath();
-  if (typeof (ctx as any).roundRect === 'function' && rawR > 0.5) (ctx as any).roundRect(0, 0, w, h, Math.min(rawR, w / 2, h / 2));
-  else ctx.rect(0, 0, w, h);
-  ctx.filter = 'blur(3px)';
-  ctx.lineWidth = 10;
-  ctx.stroke();
-  ctx.filter = 'none';
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.restore();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  // Clip strictly inside container so nothing spills outside its rounded corners
+  roundedPath(ctx, w, h, rawR);
+  ctx.clip();
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(hz.canvas, 0, 0, hz.canvas.width / HAZE_SCALE, hz.canvas.height / HAZE_SCALE);
 
   // 3. Stippled Wave Dot Grid (Gemini-style undulating micro-dot matrix with chromatic crests and increased density)
   drawFluidDotGrid({ ctx, w, h, rawR, gx, gy, t, maxEnergy });
@@ -800,6 +826,31 @@ function getDroppedFilePath(file: File): string {
     if (api.sys.getPathForFile) return api.sys.getPathForFile(file) || '';
   } catch {}
   return (file as any).path || '';
+}
+// A file dropped on the editor's right half opens in the split view. Only when a text file is already open on the
+// left (otherwise there's nothing to split from), and the dotted line shows where the split will start.
+const splitHint = document.createElement('div');
+splitHint.className = 'split-drop-hint';
+splitHint.setAttribute('aria-hidden', 'true');
+$('#editorRow').append(splitHint);
+function splitDropSide(e: DragEvent): boolean {
+  const row = $('#editorRow');
+  if (!(e.target as HTMLElement | null)?.closest('#editorRow') || activeBuf()?.kind !== 'text') return false;
+  const r = row.getBoundingClientRect();
+  return e.clientX >= r.left + splitHintX(row);
+}
+function splitHintX(row: HTMLElement): number {
+  const split = $('#split');
+  return splitPath && !split.classList.contains('hidden') ? split.offsetLeft : row.clientWidth / 2;
+}
+// dragover fires many times a second, so the hint is only touched when it actually changes.
+let splitHintLeft = '';
+function markSplitDrop(on: boolean): void {
+  if (on) {
+    const left = `${splitHintX($('#editorRow'))}px`;
+    if (left !== splitHintLeft) splitHint.style.left = splitHintLeft = left;
+  }
+  if (splitHint.classList.contains('on') !== on) splitHint.classList.toggle('on', on);
 }
 function dropTarget(e: DragEvent): { el: HTMLElement; dir: string } | null {
   if (!rootInfo) return null;
@@ -1349,7 +1400,7 @@ async function collectDropped(entry: FileSystemEntry, prefix: string, out: Dropp
   if (entry.isFile) { out.push({ rel: prefix + entry.name, file: await entryFile(entry as FileSystemFileEntry) }); return; }
   for (const child of await entryChildren(entry as FileSystemDirectoryEntry)) await collectDropped(child, `${prefix}${entry.name}/`, out, skipped);
 }
-async function importDropped(entries: FileSystemEntry[], dir: string, openFirst = false): Promise<void> {
+async function importDropped(entries: FileSystemEntry[], dir: string, openFirst = false, inSplit = false): Promise<void> {
   const found: Dropped[] = [], skipped: string[] = [], saved: string[] = [], failed: string[] = [];
   for (const entry of entries) await collectDropped(entry, '', found, skipped);
   const files = found.filter(d => d.file.size <= DROP_MAX_BYTES);
@@ -1383,7 +1434,8 @@ async function importDropped(entries: FileSystemEntry[], dir: string, openFirst 
   }
 
   if (saved.length >= 1 && (openFirst || (entries.length === 1 && entries[0].isFile))) {
-    openFile(saved[0]);
+    if (inSplit) await openFileInSplit(saved[0]);
+    else openFile(saved[0]);
   }
 
   const notes = [
@@ -1416,6 +1468,7 @@ document.addEventListener('dragover', e => {
     agentDropMark = null;
   }
 
+  markSplitDrop(!!target?.closest('#editorPane') && !(draggedTreePath && draggedTreeIsDir) && splitDropSide(e));
   if (draggedTreePath) {
     if (target?.closest('#editorPane')) {
       e.preventDefault();
@@ -1487,6 +1540,7 @@ document.addEventListener('dragover', e => {
 document.addEventListener('dragleave', e => {
   if (!e.relatedTarget) {
     markDrop(null);
+    markSplitDrop(false);
     clearTreeDropMarks();
     clearAgentDropMarks();
   }
@@ -1495,6 +1549,8 @@ document.addEventListener('drop', e => {
   if (!hasFiles(e) && !draggedTreePath) return;
 
   const target = e.target as HTMLElement | null;
+  markSplitDrop(false);
+  const toSplit = splitDropSide(e);
 
   const ag = agentDropTarget(e);
   if (ag) {
@@ -1517,7 +1573,7 @@ document.addEventListener('drop', e => {
 
     if (target?.closest('#editorPane')) {
       e.preventDefault();
-      if (!isDir) openFile(from);
+      if (!isDir) { if (toSplit) background(openFileInSplit(from)); else openFile(from); }
       return;
     }
 
@@ -1570,6 +1626,6 @@ document.addEventListener('drop', e => {
   const inEditor = !!target?.closest('#editorPane');
   const dt = dropTarget(e);
   const destDir = inEditor ? targetDir() : (dt?.dir ?? '');
-  background(importDropped(entries, destDir, inEditor));
+  background(importDropped(entries, destDir, inEditor, inEditor && toSplit));
 });
 
