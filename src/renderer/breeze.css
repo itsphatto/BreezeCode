@@ -5011,7 +5011,7 @@ body.vibing .ide {
    and icon, the selected one included. Continue and a cloud workspace's arrow darken with the row they sit in.
    :where() keeps the `position: relative` the layer needs weaker than any rule that places a button itself. */
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
-  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
+  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .social-card, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
   .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
   .chat-file-chip, .seg button, .kb-key, .switch) {
   position: relative;
@@ -5019,7 +5019,7 @@ body.vibing .ide {
 }
 
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
-  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
+  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .social-card, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
   .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
   .chat-file-chip, .seg button, .kb-key, .switch)::after {
   content: "";
@@ -5034,7 +5034,7 @@ body.vibing .ide {
 }
 
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
-  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
+  .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .social-card, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
   .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
   .chat-file-chip, .seg button, .kb-key, .switch):hover:not(:disabled)::after,
 :where(.recent-open:hover .recent-go, .cloud-ws:hover .cloud-ws-go)::after {
@@ -6918,6 +6918,13 @@ body.vibing .ide {
   gap: 0 14px;
 }
 
+/* The picture belongs to the name: closer to it than to the greeting, and onto the next line with it. */
+.home-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .home-profile:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
@@ -7997,6 +8004,13 @@ body.vibing .box {
 
 .menu-item:disabled .menu-ico {
   opacity: .45;
+}
+
+/* Breeze Box's agent button: the agent's logo, its name and the arrow, in a row. */
+#boxModel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9787,18 +9801,84 @@ body.layout-animating #previewPane {
   border-radius: 8px;
 }
 
-/* "Friends will see": the preview card's lines get room to breathe. */
-.discord-preview {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
-  padding: 18px 20px;
-  line-height: 1.45;
+/* Help & About's tools: Ready is the same size as Install beside it, so the column lines up. */
+.set-tools :is(.pill, .btn) {
+  min-width: 66px;
 }
 
-.discord-preview b {
-  margin-bottom: 2px;
+.set-tools .pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 13px;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  border-radius: 8px;
+}
+
+/* "Friends will see": Discord's own activity card, as it shows on a profile (its dark colours in every theme, since
+   it's a picture of Discord): "Playing" over the app's art, its name, the two lines, and the green elapsed time. */
+.discord-preview {
+  margin-bottom: 10px;
+  padding: 12px 12px 14px;
+  border-radius: 8px;
+  background: #18191c;
+  color: #dbdee1;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.dc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: #b5bac1;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dc-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dc-art {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+}
+
+.dc-txt {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dc-txt > * {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dc-txt b {
+  color: #f2f3f5;
   font-size: 15px;
+  font-weight: 600;
+}
+
+.dc-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 1px;
+  color: #23a55a;
+  font: 600 13px var(--font-code);
+  font-variant-numeric: tabular-nums;
 }
 
 .set-ctl {
@@ -10661,19 +10741,6 @@ body.layout-animating #previewPane {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* Settings → Discord: the "Friends will see" preview spaced like Discord's own card. */
-.discord-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-  line-height: 1.35;
-}
-
-.discord-preview .fs-12 {
-  margin-top: 2px;
 }
 
 .set-sub + .discord-note,

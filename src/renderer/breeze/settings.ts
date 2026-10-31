@@ -1,6 +1,8 @@
 /* ================= Settings ================= */
 // One pop-up for everything: the gear opens it (in the IDE and in Breeze Box) and turns while it is open.
 type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
+// The controller Discord puts beside a game's elapsed time (Lucide's gamepad-2), for the Discord tab's preview.
+const DC_PAD = '<svg class="dc-pad" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59l-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258l-.017-.151A4 4 0 0 0 17.32 5z"/></svg>';
 const SETTINGS_TABS: [SettingsTab, string, string][] = [
   ['general', 'General', 'gear'],
   ['appearance', 'Appearance', 'palette'],
@@ -285,7 +287,14 @@ function settingsBody(tab: SettingsTab): string {
         <div class="set-dim ${off}"${off ? ' inert' : ''}>
         ${settingRow('Show project and file names', 'Names can include client or employer names.', switchHtml('sDiscordDetails', appState.discordDetails, 'Show project and file names'))}
         <h5>Friends will see</h5>
-        <div class="setup-card discord-preview"><b>Breeze Code</b><div class="text-2">${esc(a.details ?? '')}</div><div class="text-2">${esc(a.state ?? '')}</div><div class="text-3 fs-12">elapsed time</div></div>
+        <div class="discord-preview" role="img" aria-label="${escAttr(`Playing Breeze Code: ${a.details ?? ''}, ${a.state ?? ''}`)}">
+          <div class="dc-head"><span>Playing</span>${svgIcon('more', 16)}</div>
+          <div class="dc-body">
+            <img class="dc-art" src="../../assets/brand/Icon.png" alt="" draggable="false">
+            <div class="dc-txt"><b>Breeze Code</b><span>${esc(a.details ?? '')}</span><span>${esc(a.state ?? '')}</span>
+              <span class="dc-time">${DC_PAD}<span data-dc-since="${a.start ?? Date.now()}"></span></span></div>
+          </div>
+        </div>
         <p class="set-sub">The Discord app must be running on this computer.</p></div>`;
     }
     case 'help': {
@@ -301,7 +310,6 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Keyboard shortcuts', '', '<button class="btn btn-sm" data-set-cmd="help.keys">Show</button>')}
       <h5>Tools</h5>
       <div class="set-tools">${tools}</div>
-      <h5>About</h5>
       ${settingRow('About Breeze Code', `${engine ? `${esc(engine)} · ` : ''}v${esc(appVersion)}`, '')}`;
     }
     case 'dev': return `<h4>Developer</h4>
@@ -400,7 +408,24 @@ function bindSettings(m: HTMLElement): void {
   const prevSwitch = new Map<string, string>();
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => prevSwitch.set(s.id, getComputedStyle(s).getPropertyValue('--complete')));
   if (pane.dataset.tab !== settingsTab) lightJoke = ''; // a fresh joke for each visit
+  // A part greyed out by its switch (Discord presence, Vibe Code Mode's feeds) fades there and back. The pane is
+  // rebuilt below, so the new copy takes over from exactly how the old one looked, even mid-fade: turning presence on
+  // redraws the pane again when Discord answers, and a fade that restarted from the on/off state was cut short there.
+  // Coming back eases in more slowly than greying out.
+  const DIMMABLE = ['.set-dim', '.social-grid'];
+  const was = pane.dataset.tab === settingsTab ? DIMMABLE.map(s => {
+    const el = pane.querySelector(s);
+    return el ? { opacity: getComputedStyle(el).opacity, filter: getComputedStyle(el).filter } : null;
+  }) : [];
   pane.innerHTML = settingsBody(settingsTab);
+  DIMMABLE.forEach((s, i) => {
+    const el = pane.querySelector<HTMLElement>(s), from = was[i];
+    if (!el || !from) return;
+    const to = { opacity: getComputedStyle(el).opacity, filter: getComputedStyle(el).filter };
+    if (to.opacity === from.opacity && to.filter === from.filter) return;
+    const off = el.classList.contains('off');
+    el.animate([from, to], { duration: off ? 300 : 450, easing: off ? 'ease' : 'cubic-bezier(.4, 0, .2, 1)' });
+  });
   // Light's joke stays on one line: one that would wrap is swapped for another that fits.
   const joke = pane.querySelector<HTMLElement>('[data-theme-pick="light"] .set-sub');
   for (let i = 0; joke && joke.scrollWidth > joke.clientWidth && i < 40; i++) joke.textContent = lightJoke = pickOther(LIGHT_JOKES, lightJoke);
@@ -541,6 +566,19 @@ function bindSettings(m: HTMLElement): void {
     void discordOn(appState.discordDetails).then(refreshSettings);
   });
   on('sDiscordDetails', () => { appState.discordDetails = !appState.discordDetails; saveApp(); queueDiscord(); refreshSettings(); });
+  // The preview's elapsed time counts up like Discord's, from when Breeze started; it stops once the tab is gone.
+  const since = pane.querySelector<HTMLElement>('[data-dc-since]');
+  if (since) {
+    const start = Number(since.dataset.dcSince);
+    const tick = () => {
+      if (!since.isConnected) { clearInterval(timer); return; }
+      const s = Math.max(0, Math.floor((Date.now() - start) / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+      const ss = String(s % 60).padStart(2, '0');
+      since.textContent = h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+    };
+    const timer = setInterval(tick, 1000);
+    tick();
+  }
   // Sound: drag or scroll to set the level, one tick when it settles so you hear it.
   // Near 25 (the default) the knob snaps to 25; pushing on out of the snap zone turns the snap off until the drag (or scroll) ends.
   const vol = $<HTMLInputElement>('#sVolume', pane);

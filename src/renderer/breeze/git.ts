@@ -284,7 +284,7 @@ async function generateCommitMsg(): Promise<void> {
       : 'Repository has no previous commits (Initial commit).\n';
 
     const prompt = `You are an expert developer generating a concise Git commit message.
-Analyze all current changes compared to the previous commit. Wrap up everything that was changed accurately and comprehensively.
+Summarize every change in the diff below, accurately and completely. Everything you need is in this message: do not run commands, read files or use any tools.
 
 Context:
 ${prevCommitContext}

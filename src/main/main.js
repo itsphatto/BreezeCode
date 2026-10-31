@@ -1253,7 +1253,7 @@ async function detectAgent(a) {
   if (a.id === 'codex') {
     const cm = codexModels();
     models = cm.length ? cm : ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'o3-mini', 'chatgpt-4o-latest'];
-    version = loadState().codexModel || 'gpt-4o';
+    version = loadState().codexModel || models[0]; // one this Codex offers, not an API model it may refuse
   } else if (a.id === 'antigravity') {
     models = bin ? await antigravityModels(bin) : [...AntigravityAgentService.DEFAULT_MODELS];
     version = loadState().antigravityModel || models[0] || 'claude-sonnet-4-6';
@@ -2763,7 +2763,7 @@ function runCommitCli(bin, args, base, prompt, finish, onLine) {
     });
     child.stdin.on('error', () => { /* exited early; close reports it */ });
     child.stdin.end(prompt);
-    child.on('close', () => resolve(finish(out)));
+    child.on('close', () => { try { resolve(finish(out)); } catch (e) { reject(e); } });
     child.on('error', reject);
   });
 }
@@ -2779,18 +2779,21 @@ function antigravityCommitMsg(base, prompt, model) {
   });
   return new Promise((resolve, reject) => {
     let resultText = '';
+    let note = '';
     service.on('output', ev => {
+      if (ev.type === 'note' && ev.text) note = ev.text.split('\n')[0];
       if (ev.type !== 'text' || !ev.text) return;
       // A finished JSON turn carries the whole reply; plain-text output arrives one line at a time.
       if (ev.raw || !resultText) resultText = ev.text;
       else resultText = `${resultText}\n${ev.text}`;
     });
     service.on('error', reject);
+    // No reply is an error, with what it ran into (a tool it wasn't allowed to use, say), not a stand-in message:
+    // the renderer then writes one from the file list and says why.
     service.on('exit', code => {
       const clean = cleanCommitText(resultText, '');
       if (clean) resolve(clean);
-      else if (code === 0) resolve('chore: update project');
-      else reject(new Error(`Antigravity exited with code ${code}`));
+      else reject(new Error(note || `Antigravity wrote no message (exit code ${code})`));
     });
     service.start().catch(reject);
   });
@@ -2813,17 +2816,31 @@ async function localCommitMsg(base, prompt, model) {
 function codexCommitMsg(base, prompt, model, effort) {
   const bin = agentBins.get('codex');
   if (!bin) throw new Error('Codex was not found');
-  const targetModel = model || 'gpt-4o-mini';
+  // Only a model this Codex offers (its own list): signed in with ChatGPT it refuses the API ones, gpt-4o among them,
+  // and every message came back as the stand-in. The smallest it offers suits a commit message.
+  const offered = codexModels();
+  const smallest = offered.find(m => /mini/i.test(m)) || offered.at(-1);
+  const targetModel = (offered.length && !offered.includes(model) ? smallest : model) || 'gpt-4o-mini';
   const args = ['exec', '--json', '-s', 'read-only', '--skip-git-repo-check', '-m', targetModel];
   if (effortArg(effort) && /^(o1|o3|o4)/i.test(targetModel)) args.push('-c', `model_reasoning_effort=${effortArg(effort)}`);
   let message = '';
+  let failed = '';
   const onLine = l => {
     try {
       const ev = JSON.parse(l);
       if (ev.type === 'item.completed' && ev.item?.type === 'agent_message' && ev.item?.text) message = ev.item.text;
+      if (ev.type === 'turn.failed' || ev.type === 'error') failed = ev.error?.message || ev.message || failed;
     } catch { /* not a JSON event */ }
   };
-  return runCommitCli(bin, args, base, prompt, () => cleanCommitText(message, 'chore: update project'), onLine);
+  // No reply is an error with Codex's reason (the renderer then writes a message from the file list), not a stand-in.
+  const finish = () => {
+    const clean = cleanCommitText(message, '');
+    if (clean) return clean;
+    let why = failed;
+    try { why = JSON.parse(failed).error?.message || why; } catch { /* plain text */ }
+    throw new Error(why || 'Codex wrote no message');
+  };
+  return runCommitCli(bin, args, base, prompt, finish, onLine);
 }
 function claudeCommitMsg(base, prompt, model) {
   const bin = agentBins.get('claude');

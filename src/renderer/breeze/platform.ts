@@ -634,12 +634,6 @@ async function setIcon(host: Element, name: string): Promise<void> {
 const isDesktop = !!window.breeze;
 const api: BreezeApi = window.breeze ?? demoApi();
 
-// How blocks glide when the window maximizes or restores (here) and when that reflows Home (glideOnReflow, setup.ts).
-// For about 100 ms Windows plays its own transition with the old frame, while the page's frames go unseen; a glide that
-// started at once was well along by the time it showed, and leapt. So each block holds where it was for that long, then
-// eases off gently and settles softly.
-const WIN_GLIDE: KeyframeAnimationOptions = { duration: 420, delay: 100, fill: 'backwards', easing: 'cubic-bezier(.4, 0, .2, 1)' };
-
 /* ----- Window buttons: drawn by the page on Windows and Linux, so they match it; macOS keeps its traffic lights ----- */
 if (isDesktop && api.platform !== 'darwin') {
   document.documentElement.classList.add('own-win-controls');
@@ -650,57 +644,35 @@ if (isDesktop && api.platform !== 'darwin') {
     max.title = on ? 'Restore' : 'Maximize';
     max.setAttribute('aria-label', max.title);
   };
-  // Maximizing, restoring or snapping, every block glides from where it stood to where the new size puts it, instead
-  // of jumping: Home's content with its centring, the agents panel with the window's right edge, and so on. A scale of
-  // the whole screen couldn't do this: these changes usually move only one side (the height stays), so scaling evenly
-  // pushed the bottom of the page off and back, and Windows shows the old frame, cropped, until the first new one.
-  // Blocks that reflow inside Home glide on their own (glideOnReflow, setup.ts). None of these nest in one another.
-  const GLIDE = ['.ob-step:not(.hidden)', '#homeProfile', '.titlebar > *', '.main > *', '.work > *', '.term-head > *', '.statusbar > *',
-    '#editorEmpty > div', '#box > *', '.box-bar > *'].join(', ');
-  // Places are kept in the window, not on the screen: until the first new frame, Windows shows the old one drawn at the
-  // window's new corner, so each block starts from exactly where that frame shows it.
-  let placed = new Map<Element, DOMRect>();
-  const notePlaces = () => {
-    placed = new Map([...document.querySelectorAll(GLIDE)].filter(el => el.getClientRects().length).map(el => [el, el.getBoundingClientRect()]));
-  };
-  const glide = () => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    for (const [el, was] of placed) {
-      if (!el.isConnected || !el.getClientRects().length) continue;
-      const now = el.getBoundingClientRect(), dx = was.left - now.left, dy = was.top - now.top;
-      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], WIN_GLIDE);
-    }
-  };
-  // Where everything stands is noted while the window is still: right before the buttons act, and every second
-  // otherwise (a double-click on the title bar, Win+Up or a snap gives no warning).
-  setInterval(() => { if (!document.documentElement.classList.contains('win-resizing')) notePlaces(); }, 1000);
   $('#winMin').onclick = () => background(api.win.minimize());
-  max.onclick = () => { notePlaces(); background(api.win.toggleMaximize()); };
+  max.onclick = () => background(api.win.toggleMaximize());
   $('#winClose').onclick = () => background(api.win.close());
   api.win.onMaximized(showMaximized);
   background(api.win.isMaximized().then(showMaximized));
-  // Watched with a ResizeObserver, not the resize event: Chromium paints the first frame at the new size before the
-  // event fires, so that frame showed the new layout and the next jumped back; an observer hears of the new size in
-  // the same frame, before it's painted. A maximize, restore or snap is one big jump after a quiet moment; dragging
-  // the window's edge is a run of small steps, which never glides.
+  // Maximizing, restoring or snapping is instant: nothing on the page animates its way to the new size. The window
+  // itself resizing already makes the panels, text and chips take their new sizes at once (markWinResizing,
+  // layout.ts), and such a jump (one big change after a quiet moment, unlike a drag's run of small steps) is marked
+  // win-jump, so Home's cards don't glide to their new rows either (glideOnReflow, setup.ts). A ResizeObserver hears of
+  // the new size in the same frame it is laid out, before it is painted; the resize event comes a frame later.
   let seen = { w: innerWidth, h: innerHeight }; // the last size handled, so the observer and the event never both act
   let lastResize = -Infinity;
-  let settle: TimeoutId | undefined;
+  let jumpTimer: TimeoutId | undefined;
   const onSize = () => {
     const size = { w: innerWidth, h: innerHeight };
     if (size.w === seen.w && size.h === seen.h) return;
+    const jump = Math.max(Math.abs(size.w - seen.w), Math.abs(size.h - seen.h)) >= 24;
     seen = size;
-    markWinResizing(); // the panels, text and chips inside take their new sizes at once (layout.ts)
+    markWinResizing();
     const now = performance.now();
-    if (now - lastResize > 250) glide();
+    if (now - lastResize > 250 && jump) {
+      document.documentElement.classList.add('win-jump');
+      clearTimeout(jumpTimer);
+      jumpTimer = setTimeout(() => document.documentElement.classList.remove('win-jump'), 300);
+    }
     lastResize = now;
-    clearTimeout(settle);
-    settle = setTimeout(notePlaces, 700); // once the glide is done
   };
   new ResizeObserver(onSize).observe(document.documentElement);
   addEventListener('resize', onSize); // a change the observer didn't see (the page's height didn't follow the window's)
-  setTimeout(notePlaces, 0);
 }
 const appVersion = api.version || '0.5.2';
 
