@@ -342,6 +342,7 @@ function createWindow() {
   });
 
   showTaskbarIcon(win);
+  disableWindowTransitions(win);
   createSplash(win.getBounds());
   // However the page fares, the app window shows in the end.
   setTimeout(showMain, LAUNCH_HANDOFF + 5000);
@@ -361,6 +362,19 @@ function createWindow() {
   win.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => { if (isMainFrame) killAllTerms(); });
   win.webContents.on('render-process-gone', killAllTerms);
   win.on('closed', () => { win = null; vibeView = null; splash?.destroy(); stopWatching(); stopLiveServer(); killAllTerms(); });
+}
+
+// With the title bar hidden, Windows' restore animation ends on a few blank frames: the whole window vanishes for an
+// instant on every restore from maximized (an Electron bug; a framed window doesn't do it, thickFrame: false would
+// cure it but loses the shadow and snapping). Turning the animation off for this window cures it, and maximize and
+// restore are instant on the page anyway (platform.ts). Electron can't call DWM itself, so a hidden PowerShell does,
+// once: DWMWA_TRANSITIONS_FORCEDISABLED.
+function disableWindowTransitions(w) {
+  if (!isWin) return;
+  const h = w.getNativeWindowHandle();
+  const hwnd = h.length === 8 ? h.readBigUInt64LE(0) : h.readUInt32LE(0);
+  const ps = `Add-Type -Namespace Breeze -Name Dwm -MemberDefinition '[DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int s);'; $on = 1; exit [Breeze.Dwm]::DwmSetWindowAttribute([IntPtr]${hwnd}, 3, [ref]$on, 4)`;
+  execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 20000 }, err => { if (err) logError('window transitions')(err); });
 }
 
 // Windows draws the taskbar button from the app's user model id, which in development is electron.exe, so the
