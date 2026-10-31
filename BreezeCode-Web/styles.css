@@ -332,7 +332,7 @@ h2 {
 }
 
 /* ---------- compare ---------- */
-.compare { margin-top: 72px; }
+.compare { margin-top: clamp(80px, 11vw, 136px); }
 .compare h3 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 2.4vw, 28px); letter-spacing: -.02em; }
 .compare > p { margin: 10px 0 24px; color: var(--text-2); }
 
