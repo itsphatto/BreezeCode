@@ -603,7 +603,8 @@ function renderAgentBar(): void {
   }
   const model = a?.api && a.version ? ' · ' + a.version : '';
   const label = a ? a.name + model : 'Choose an agent';
-  $('#boxModel').innerHTML = `${esc(label)}${svgIcon('chevronDown', 12)}`;
+  // The agent's logo first, as in the menu it opens.
+  $('#boxModel').innerHTML = `${a ? brandMark('menu-ico', a.id, a.name[0]) : ''}${esc(label)}${svgIcon('chevronDown', 12)}`;
   for (const k of Object.values(agentsDef)) k.model = modelLabel(a);
   renderAgents();
   renderPromptModels();
@@ -740,21 +741,55 @@ function homeAgentRowHtml(a: DetectedAgent): string {
     ${mark}<span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(about)}</span></span>
   </div>`;
 }
-// When a resize reflows a container (Home's agent cards wrapping onto another row, Recent projects dropping under the
-// ways in on a narrow window), each block glides from where it stood to its new place instead of jumping there, in
-// step with the window's own glide (WIN_GLIDE, platform.ts). Positions are read from layout (offsetLeft/Top, against
-// the container), so a transform on the way, such as that glide, doesn't skew them.
+// When a resize reflows a container (Home's agent cards wrapping onto another row as the window is squeezed, Recent
+// projects dropping under the ways in), each block glides from where it stood to its new place and eases to its new
+// width, and the container eases to its new height, instead of all jumping there. Never scaled, so no text stretches.
+//  - Position: a transform, measured from layout (offsetLeft/Top), which no transform skews.
+//  - Width: margin-right. A grid item stretches to its column less its margin, so as the margin eases to nothing the
+//    card meets its column as it is now, wherever a drag has got to (a width animated to a fixed end went stale).
+//  - Height: margin-bottom on the container, so what wraps it (the agents card, the rest of Home) follows.
+// Sizes are read as the layout gives them, never as an animation has them: the column is the card's width plus its
+// animated margin, and a box's own margin never changes its height. Read with the animation in, the next frame saw a
+// jump that wasn't there, started a bigger one, and the cards swung wildly.
+// A gentle start: a card crossing to the next row travels most of the card's width, and a curve that set off at full
+// speed covered 100 px a frame and read as a leap.
+const REFLOW_GLIDE: KeyframeAnimationOptions = { duration: 420, easing: 'cubic-bezier(.4, 0, .2, 1)' };
+// Only a jump eases (a card moving to another row, the cards widening as one leaves their row): dragging the window
+// narrower also shifts and narrows them a pixel or two every frame, and an animation started for each of those
+// cancelled the jump's a frame later.
+const REFLOW_JUMP = 24;
+const px = (v: string) => Number.parseFloat(v) || 0;
 function glideOnReflow(container: HTMLElement): void {
-  const at = new WeakMap<Element, { x: number; y: number }>();
+  const at = new WeakMap<Element, { x: number; y: number; w: number }>();
+  const baseMb = px(getComputedStyle(container).marginBottom);
+  let height = container.offsetHeight;
+  const restart = (el: HTMLElement) => { for (const a of el.getAnimations()) if (a.id === 'reflow-glide') a.cancel(); };
   new ResizeObserver(() => {
+    // A maximize, restore or snap is instant (win-jump, platform.ts): everything just takes its new place.
+    const still = reduceMotion.matches || document.documentElement.classList.contains('win-jump');
+    const opts = { ...REFLOW_GLIDE, id: 'reflow-glide' };
     for (const el of container.children) {
       if (!(el instanceof HTMLElement) || !el.offsetParent) continue;
-      const now = { x: el.offsetLeft, y: el.offsetTop }, was = at.get(el);
+      const cs = getComputedStyle(el), mr = px(cs.marginRight);
+      const now = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth + mr }, was = at.get(el);
       at.set(el, now);
-      const dx = (was?.x ?? now.x) - now.x, dy = (was?.y ?? now.y) - now.y;
-      if ((Math.abs(dx) < 1 && Math.abs(dy) < 1) || reduceMotion.matches) continue;
-      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], WIN_GLIDE);
+      if (!was || still) continue;
+      const dx = was.x - now.x, dy = was.y - now.y, dw = was.w - now.w;
+      if (Math.hypot(dx, dy) < REFLOW_JUMP && Math.abs(dw) < REFLOW_JUMP) continue;
+      // From wherever a glide still running has it, so a second jump carries on from there.
+      const cur = new DOMMatrix(cs.transform === 'none' ? undefined : cs.transform);
+      restart(el);
+      el.animate([
+        { transform: `translate(${dx + cur.e}px, ${dy + cur.f}px)`, marginRight: `${mr - dw}px` },
+        { transform: 'none', marginRight: '0px' },
+      ], opts);
     }
+    const h = container.offsetHeight, dh = height - h;
+    height = h;
+    if (still || Math.abs(dh) < REFLOW_JUMP) return;
+    const mb = px(getComputedStyle(container).marginBottom);
+    restart(container);
+    container.animate([{ marginBottom: `${mb + dh}px` }, { marginBottom: `${baseMb}px` }], opts);
   }).observe(container);
 }
 glideOnReflow($('#homeAgents'));
@@ -950,10 +985,18 @@ function swapScreen(to: string): void {
     next.addEventListener('animationend', () => next.classList.remove('screen-in'), { once: true });
     if (!prev) return;
     prev.classList.add('screen-out');
-    swapTimer = setTimeout(() => {
+    // Hidden once its fade has actually finished, not after a fixed 260 ms: opening a project keeps the page busy
+    // just then, the fade starts late, and the timer cut it off still 40% visible (Home's bright profile picture
+    // vanished in a flash). The timer stays as a fallback for a fade that never gets to run.
+    const done = () => {
+      prev.removeEventListener('animationend', onEnd);
+      if (!prev.classList.contains('screen-out')) return; // switched back to it meanwhile
       prev.classList.remove('screen-out');
       prev.classList.add('hidden');
-    }, 260);
+    };
+    const onEnd = (e: AnimationEvent) => { if (e.target === prev && e.animationName === 'screenOut') done(); };
+    prev.addEventListener('animationend', onEnd);
+    swapTimer = setTimeout(done, 900);
   });
 }
 

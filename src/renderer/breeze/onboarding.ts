@@ -81,10 +81,12 @@ function renderHomeProfile(): void {
     : first ? timeGreeting()
     : 'Sign in to bring your name and picture along, or just open a project.';
   $('#homeName').textContent = first ?? '';
-  const btn = $('#homeProfile');
+  const btn = $('#homeProfile'), name = $('#homeName');
   // Signed in it sits in the heading beside the name; signed out the Sign in button goes back to the bottom left.
-  if (user) $('#homeTitle').insertBefore(btn, $('#homeName'));
-  else $('#onboard').appendChild(btn);
+  // Moved only when it isn't there already: re-inserting it restarts its fade-in from nothing, and opening a project
+  // redraws the user, so the picture flashed out and back the moment Continue was clicked.
+  if (user && btn.nextSibling !== name) name.before(btn); // with the name, in one piece that wraps together
+  else if (!user && btn.parentElement !== $('#onboard')) $('#onboard').appendChild(btn);
   btn.classList.toggle('corner', !user);
   btn.innerHTML = user
     ? avatarHtml(user, '')
