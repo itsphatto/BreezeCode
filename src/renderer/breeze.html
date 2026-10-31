@@ -325,6 +325,7 @@
         <button class="act-btn" data-view="git" title="Checkpoints (Ctrl+Shift+G)"><svg width="20" height="20">
             <use href="#i-git" />
           </svg><span class="badge"></span></button>
+        <button class="act-btn" data-view="skills" title="Skills &amp; Plugins"><svg data-i="puzzle" data-size="20"></svg></button>
         <span class="flex-1"></span>
         <button class="act-btn" title="Settings" id="settingsBtn" aria-haspopup="dialog" aria-expanded="false"><svg
             width="20" height="20">
@@ -369,6 +370,15 @@
               <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg data-i="chevronLeft" data-size="14"></svg></button>
             </span></div>
           <div class="side-body scm" id="scm"></div>
+        </div>
+        <!-- Skills & plugins the agents load -->
+        <div data-panel="skills" class="contents hidden">
+          <div class="side-head"><span>Skills &amp; Plugins</span><span class="head-actions">
+              <button class="icon-btn" data-act="mcp.connect" title="Connect MCP server"><svg data-i="plus" data-size="14"></svg></button>
+              <button class="icon-btn" data-act="skills.refresh" title="Refresh"><svg data-i="rotateCw" data-size="14"></svg></button>
+              <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg data-i="chevronLeft" data-size="14"></svg></button>
+            </span></div>
+          <div class="side-body skills" id="skillList"></div>
         </div>
         <div class="sash sash-v" data-sash="side"></div>
       </aside>
@@ -565,8 +575,11 @@
     <div class="box-composer">
       <div class="composer-box">
         <div class="composer-attachments hidden" id="boxPromptAttachments"></div>
-        <textarea id="boxPrompt" rows="2" aria-label="Message to the agent"
-          placeholder="Ask Breeze anything"></textarea>
+        <div class="prompt-field">
+          <div class="prompt-hl" id="boxPromptHl" aria-hidden="true"></div>
+          <textarea id="boxPrompt" rows="2" aria-label="Message to the agent"
+            placeholder="Ask Breeze anything"></textarea>
+        </div>
         <div class="row">
           <button class="pill blue pill-btn" id="boxModel" aria-haspopup="menu" title="Choose the agent">No
             agent</button>
@@ -643,6 +656,7 @@
   <script src="breeze/live.js" defer></script>
   <script src="breeze/dropdowns.js" defer></script>
   <script src="breeze/git.js" defer></script>
+  <script src="breeze/skills.js" defer></script>
   <script src="breeze/views.js" defer></script>
   <script src="breeze/vibe.js" defer></script>
   <script src="breeze/discord.js" defer></script>

@@ -799,7 +799,7 @@ function slideKbHighlight(): void {
   m.classList.add('kb-slide');
 }
 function menuKeys(e: KeyboardEvent): boolean {
-  if (openMenuIdx === -1 || mentionOpen()) return false; // the "@" menu's keys are handled on its prompt
+  if (openMenuIdx === -1 || mentionOpen() || slashOpen()) return false; // the "@" and "/" menus' keys are handled on their prompt
   if (e.key === 'Escape') closeMenu();
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') moveKbSelection(e.key === 'ArrowDown');
   else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && openMenuIdx >= 0) {

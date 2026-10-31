@@ -578,7 +578,7 @@ function userMsg(text: string, attachments?: AgentAttachment[], tab?: AgentTabSt
     }).join('');
     imgHtml = `<div class="msg-attachments">${items}</div>`;
   }
-  const bodyText = text ? `<div>${(msgSurface.name === 'ide' ? mentionHtml(text) : esc(text)).replaceAll('\n', '<br>')}</div>` : '';
+  const bodyText = text ? `<div>${mentionHtml(text, msgSurface.name === 'ide').replaceAll('\n', '<br>')}</div>` : '';
   addMsg(`<div class="msg user"><div class="meta"><b>${esc(user?.name ?? 'You')}</b> ${clockTime()}</div><div class="body">${bodyText}${imgHtml}</div></div>`, t);
 }
 

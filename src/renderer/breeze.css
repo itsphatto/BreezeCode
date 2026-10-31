@@ -1875,6 +1875,304 @@ body.resizing-h iframe {
   width: 100%;
 }
 
+/* ----- Skills & Plugins view: per agent, its skills (click to read, bin to remove) and Claude's plugins ----- */
+.skill-agent + .skill-agent {
+  margin-top: 14px;
+}
+
+.skill-agent h6 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 8px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.skill-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--tint, var(--bg-3));
+  color: #1d1d1f;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* A drop-down group: open by default; an empty one is dimmed and stays shut. */
+.skill-group-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 5px 8px 4px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  text-align: left;
+  cursor: pointer;
+}
+
+.skill-group-head:not(:disabled):hover {
+  color: var(--text-2);
+  background: var(--bg-3);
+}
+
+.skill-group-head .n {
+  margin-left: auto;
+}
+
+.skill-group-head .ico-svg {
+  flex: none;
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.skill-group.open > .skill-group-head .ico-svg {
+  transform: rotate(90deg);
+}
+
+.skill-group-head:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.skill-group:not(.open) > .skill-group-body {
+  display: none;
+}
+
+.skill-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.skill-row:hover,
+.skill-row:focus-visible {
+  background: var(--bg-3);
+  outline: none;
+}
+
+.skill-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-text b {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.skill-text :is(b, small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-text small {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* The bin shows on the row the pointer is over. */
+.skill-del {
+  flex: none;
+  opacity: 0;
+  color: var(--text-3);
+}
+
+.skill-row:is(:hover, :focus-within) .skill-del {
+  opacity: 1;
+}
+
+.skill-del:hover {
+  color: var(--err);
+}
+
+/* "Synced": a plugin from the Claude account, which owns it, so no switch. */
+.skill-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+
+.plugin-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 6px;
+}
+
+.plugin-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plugin-name:hover {
+  background: var(--bg-3);
+}
+
+.plugin-name b {
+  font-weight: 500;
+}
+
+.plugin-name small {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.plugin-name .ico-svg {
+  flex: none;
+  color: var(--text-3);
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.plugin-item.open .plugin-name .ico-svg {
+  transform: rotate(90deg);
+}
+
+.plugin-skills {
+  display: none;
+  padding-left: 14px;
+}
+
+.plugin-item.open .plugin-skills {
+  display: block;
+}
+
+.plugin-item.off .plugin-name b,
+.plugin-item.off .plugin-skills {
+  opacity: .5;
+}
+
+/* MCP servers have nothing to open, so their rows aren't clickable. */
+.skill-row.mcp-row {
+  cursor: default;
+}
+
+/* Connect MCP server dialog. */
+.mcp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mcp-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.mcp-form label small {
+  color: var(--text-3);
+}
+
+.mcp-form textarea {
+  resize: vertical;
+  font: 12px var(--font-code);
+}
+
+.mcp-form input[name="command"],
+.mcp-form input[name="url"] {
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.mcp-form [data-mcp-for] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mcp-form [data-mcp-for][hidden] {
+  display: none;
+}
+
+.mcp-type {
+  align-self: flex-start;
+}
+
+.mcp-error {
+  margin: 0;
+  min-height: 1em;
+  font-size: 12px;
+  color: var(--err);
+}
+
+.mcp-error:empty {
+  display: none;
+}
+
+/* Reading a skill: its SKILL.md as the agent reads it (front matter left out). */
+.modal.skill-view {
+  width: min(640px, calc(100vw - 32px));
+}
+
+pre.skill-view-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.6 var(--font-code);
+}
+
+.skill-view-desc {
+  margin: 0 0 10px;
+  color: var(--text-2);
+}
+
+.skill-view-body {
+  max-height: min(52vh, 520px);
+  overflow: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.skill-view-path {
+  margin: 8px 0 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px var(--font-code);
+  color: var(--text-3);
+}
+
 /* Loading placeholders: grey bars where a panel's rows will be, with a soft shimmer running across them.
    They wait a beat before showing, so a quick start never flashes them. Widths come from classes (no inline styles). */
 .skel {
@@ -7636,6 +7934,15 @@ body.vibing .box {
   resize: none;
   outline: none;
   min-height: 48px;
+}
+
+/* The text is drawn by the layer behind (so a "/skill" can be blue): same font, the textarea's own text hidden. */
+.box-composer .prompt-field textarea {
+  color: transparent;
+}
+
+.box-composer .prompt-hl {
+  font: 15px/1.5 var(--font-ui);
 }
 
 .box-composer .row {

@@ -29,6 +29,16 @@ interface User { name: string; provider: string; login?: string; email?: string 
 type AgentMode = 'plan' | 'build' | 'ask';
 interface AgentEvent { t: 'session' | 'approve' | 'draft' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; }
 // Agent teams: one prompt, several agents building in parallel (main process: team.js).
+// Skills view (main/skills.js): a skill is a folder with a SKILL.md; `id` is that folder.
+interface AgentSkill { id: string; file: string; folder: string; name: string; description: string; agent: string; scope: 'user' | 'plugin'; removable: boolean; plugin?: string; }
+// `synced`: from the user's Claude account, which turns it on and off (no switch here).
+interface AgentPlugin { id: string; name: string; marketplace: string; version: string; description: string; enabled: boolean; synced: boolean; skills: AgentSkill[]; }
+// MCP servers (main/mcp.js): `breeze` ones are connected here and handed to Claude Code runs; `claude` ones are
+// set up in Claude Code itself (scope user, local or project) and only shown.
+interface McpServer { name: string; type: 'stdio' | 'http'; detail: string; scope?: 'user' | 'local' | 'project'; }
+interface McpList { breeze: McpServer[]; claude: McpServer[]; }
+interface McpInput { name: string; type: 'stdio' | 'http'; command?: string; env?: string; url?: string; headers?: string; }
+interface SkillList { skills: AgentSkill[]; plugins: AgentPlugin[]; }
 interface TeamParse { shared: string; tasks: { agentId: string; text: string }[]; unknown: string[]; }
 interface TeamClaimResult { teamId: string; claims: Record<string, string[]>; clashes: { path: string; agents: string[] }[]; failed: string[]; sessions: Record<string, string>; }
 interface AuthEvent { t: 'code' | 'waiting' | 'done' | 'error'; provider?: string; code?: string; uri?: string; user?: User; text?: string; }
@@ -140,6 +150,17 @@ interface BreezeApi {
     setFullAccess(on: boolean): Promise<boolean>;
     usage(): Promise<AgentUsage>;
     onEvent(cb: (runId: number, ev: AgentEvent) => void): () => void;
+  };
+  mcp: {
+    list(): Promise<McpList>;
+    add(input: McpInput): Promise<McpServer>;
+    remove(name: string): Promise<boolean>;
+  };
+  skills: {
+    list(): Promise<SkillList>;
+    read(file: string): Promise<string>;
+    remove(dir: string): Promise<boolean>;
+    setPlugin(id: string, on: boolean): Promise<boolean>;
   };
   team: {
     parse(text: string): Promise<TeamParse>;

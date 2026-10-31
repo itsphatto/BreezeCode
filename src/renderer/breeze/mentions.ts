@@ -51,6 +51,89 @@ SURFACES.ide.prompt.addEventListener('keyup', e => { if (['ArrowLeft', 'ArrowRig
 SURFACES.ide.prompt.addEventListener('click', updateMentionMenu);
 SURFACES.ide.prompt.addEventListener('blur', closeMention);
 
+/* ----- "/" in either prompt: the skills and plugin skills the agents can run, picked from a menu ----- */
+// A user skill is "/name"; a plugin's is "/plugin:skill", as Claude Code names them. Loaded on the first "/" and
+// again whenever the Skills view refreshes (setSlashSkills).
+interface SlashSkill { cmd: string; desc: string; }
+const SLASH_AT_CARET = /(^|\s)\/([\w:.-]*)$/;
+let slashSkills: SlashSkill[] | null = null;
+let slashLoading: Promise<void> | null = null;
+let slashList: { items: MenuItem[]; key: string; s: Surface } | null = null;
+function setSlashSkills(d: SkillList): void {
+  const own = d.skills.map(k => ({ cmd: k.name, desc: k.description }));
+  const plug = d.plugins.filter(p => p.enabled).flatMap(p => p.skills.map(k => ({ cmd: `${p.name}:${k.name}`, desc: k.description })));
+  slashSkills = [...own, ...plug].sort((a, b) => a.cmd.localeCompare(b.cmd));
+}
+function loadSlashSkills(): Promise<void> {
+  return (slashLoading ??= api.skills.list().then(setSlashSkills).catch(() => { slashSkills = []; }));
+}
+const slashOpen = (): boolean => !!slashList && openMenuIdx !== -1 && menuItems === slashList.items;
+function closeSlash(): void {
+  const open = slashOpen();
+  slashList = null;
+  if (open) closeMenu();
+}
+// "/cave" finds "/caveman:caveman" (the start of the name, or of the part after the colon).
+function slashMatches(word: string): SlashSkill[] {
+  const w = word.toLowerCase();
+  return (slashSkills ?? []).filter(k => { const c = k.cmd.toLowerCase(); return c.startsWith(w) || (c.split(':')[1] ?? '').startsWith(w); }).slice(0, 8);
+}
+function pickSlash(s: Surface, k: SlashSkill): void {
+  const ta = s.prompt;
+  const caret = ta.selectionStart ?? ta.value.length;
+  const m = SLASH_AT_CARET.exec(ta.value.slice(0, caret));
+  const start = m ? caret - m[2].length - 1 : caret;
+  ta.setRangeText(`/${k.cmd} `, start, caret, 'end');
+  ta.focus();
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function updateSlashMenu(s: Surface): void {
+  const ta = s.prompt;
+  const m = SLASH_AT_CARET.exec(ta.value.slice(0, ta.selectionStart ?? 0));
+  if (!m) { closeSlash(); return; }
+  if (!slashSkills) { void loadSlashSkills().then(() => { if (document.activeElement === ta) updateSlashMenu(s); }); return; }
+  const matches = slashMatches(m[2]);
+  if (!matches.length) { closeSlash(); return; }
+  const key = matches.map(k => k.cmd).join(',');
+  if (slashOpen() && slashList?.key === key && slashList.s === s) return; // the same skills are already listed
+  const items: MenuItem[] = matches.map(k => ({ label: `/${k.cmd}`, key: k.desc.length > 48 ? k.desc.slice(0, 47) + '…' : k.desc, run: () => pickSlash(s, k) }));
+  slashList = { items, key, s };
+  const r = ta.getBoundingClientRect();
+  popupMenu(r.left, r.top, items, () => { if (slashList?.items === items) slashList = null; }, ta);
+  const menu = document.querySelector<HTMLElement>('#menuRoot .menu');
+  if (menu) { // above the prompt, where the text being typed stays visible
+    menu.classList.add('up', 'slash-menu');
+    menu.style.top = `${Math.max(8, r.top - menu.offsetHeight - 6)}px`;
+  }
+  kbIdx = -1;
+  moveKbSelection(true);
+}
+for (const s of Object.values(SURFACES)) {
+  // Registered before the send handler below, so Enter picks a skill instead of sending.
+  s.prompt.addEventListener('keydown', e => {
+    if (!slashOpen() || slashList?.s !== s || e.isComposing) return;
+    const own = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { own(); moveKbSelection(e.key === 'ArrowDown'); }
+    else if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { own(); if (kbIdx >= 0) activateMenuItem(menuItems[kbIdx]); }
+    else if (e.key === 'Escape') { own(); closeSlash(); }
+  });
+  s.prompt.addEventListener('input', () => updateSlashMenu(s));
+  s.prompt.addEventListener('keyup', e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateSlashMenu(s); });
+  s.prompt.addEventListener('blur', closeSlash);
+}
+// Where each "/skill" Breeze knows sits in `text` (at the start or after a space), as [start, end) pairs.
+function slashRanges(text: string): [number, number][] {
+  const known = new Set((slashSkills ?? []).map(k => k.cmd.toLowerCase()));
+  const out: [number, number][] = [];
+  if (!known.size) return out;
+  for (const m of text.matchAll(/(^|\s)\/([\w:.-]+)/g)) {
+    if (!known.has(m[2].toLowerCase())) continue;
+    const at = m.index + m[1].length;
+    out.push([at, at + 1 + m[2].length]);
+  }
+  return out;
+}
+
 // "@Codex" for an agent Breeze knows but that is not installed. Any other "@word" is plain text.
 function uninstalledMention(text: string): string | null {
   const names = (appState.detect?.agents ?? []).flatMap(a => agentMentionNames(a).map(name => ({ name, a }))).sort((x, y) => y.name.length - x.name.length);
@@ -78,11 +161,14 @@ function mentionRanges(text: string): [number, number][] {
   }
   return out;
 }
-// `text` escaped, with its mentions of installed agents wrapped in <span class="mention">.
-function mentionHtml(text: string): string {
+// `text` escaped, with its "/skill"s and (with `agents`) its mentions of installed agents wrapped in
+// <span class="mention">, so they show blue.
+function mentionHtml(text: string, agents = true): string {
   let html = '';
   let from = 0;
-  for (const [a, b] of mentionRanges(text)) {
+  const ranges = [...slashRanges(text), ...(agents ? mentionRanges(text) : [])].sort((x, y) => x[0] - y[0]);
+  for (const [a, b] of ranges) {
+    if (a < from) continue; // overlapping ranges can't happen ("/" and "@" each start one), but never draw text twice
     html += `${esc(text.slice(from, a))}<span class="mention">${esc(text.slice(a, b))}</span>`;
     from = b;
   }
@@ -282,8 +368,23 @@ function syncPromptHl(): void {
 SURFACES.ide.prompt.addEventListener('scroll', () => { promptHl.scrollTop = SURFACES.ide.prompt.scrollTop; });
 new ResizeObserver(syncPromptHl).observe(SURFACES.ide.prompt);
 
+// Breeze Box's prompt has the same layer behind it, for its "/skill"s (Box doesn't @mention agents).
+const boxPromptHl = $('#boxPromptHl');
+function syncBoxPromptHl(): void {
+  const ta = SURFACES.box.prompt;
+  boxPromptHl.innerHTML = mentionHtml(ta.value, false) + (ta.value.endsWith('\n') ? ' ' : '');
+  boxPromptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`;
+  boxPromptHl.scrollTop = ta.scrollTop;
+}
+SURFACES.box.prompt.addEventListener('input', () => mentionWarning(SURFACES.box));
+SURFACES.box.prompt.addEventListener('scroll', () => { boxPromptHl.scrollTop = SURFACES.box.prompt.scrollTop; });
+new ResizeObserver(syncBoxPromptHl).observe(SURFACES.box.prompt);
+// Once the skills are known, a "/skill" already typed turns blue.
+void loadSlashSkills().then(() => { syncPromptHl(); syncBoxPromptHl(); });
+
 function mentionWarning(s: Surface): void {
   if (s.name === 'ide') syncPromptHl();
+  else syncBoxPromptHl();
   const warn = s.name === 'ide' ? uninstalledMention(s.prompt.value) : null;
   const anchor = s.prompt.closest<HTMLElement>('.prompt-field') ?? s.prompt;
   let el = anchor.parentElement?.querySelector<HTMLElement>(':scope > .mention-warn') ?? null;

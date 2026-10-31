@@ -17,6 +17,8 @@ const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
 const { LspManager, SERVERS, findOnPath } = require('./lsp');
+const skillsLib = require('./skills');
+const mcpLib = require('./mcp');
 
 let autoUpdater = null;
 try {
@@ -1329,6 +1331,40 @@ handle('sys:runCommand', async (_e, cmd) => {
 const fullAccess = () => loadState().agentFullAccess === true;
 handle('agent:fullAccess', () => fullAccess());
 handle('agent:setFullAccess', (_e, on) => { saveState({ agentFullAccess: on === true }); return on === true; });
+// Skills view: the agents' skills (removed to the Recycle Bin) and Claude Code's plugins (turned on or off).
+const skillDirs = () => ({
+  claudeHome: process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'),
+  codexHome: process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),
+  root,
+});
+handle('skills:list', () => skillsLib.listSkills(skillDirs()));
+handle('skills:read', (_e, file) => skillsLib.readSkill(file, skillDirs()));
+handle('skills:remove', async (_e, dir) => {
+  if (!skillsLib.removableSkill(dir, skillDirs())) throw new Error('Breeze can only remove a skill from an agent’s skills folder');
+  await shell.trashItem(path.resolve(dir));
+  return true;
+});
+// MCP servers connected in Breeze (handed to Claude Code runs), and the ones Claude Code has set up itself.
+const claudeJsonPath = () => (process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(os.homedir(), '.claude.json'));
+handle('mcp:list', () => ({
+  breeze: (loadState().mcpServers ?? []).map(s => ({ name: s.name, type: s.type, detail: mcpLib.serverDetail(s) })),
+  claude: mcpLib.claudeConfigured({ claudeJson: claudeJsonPath(), root }),
+}));
+handle('mcp:add', (_e, input) => {
+  const servers = loadState().mcpServers ?? [];
+  const s = mcpLib.normalizeServer(input, servers);
+  saveState({ mcpServers: [...servers, s] });
+  return { name: s.name, type: s.type, detail: mcpLib.serverDetail(s) };
+});
+handle('mcp:remove', (_e, name) => {
+  saveState({ mcpServers: (loadState().mcpServers ?? []).filter(s => s.name !== name) });
+  return true;
+});
+handle('skills:setPlugin', async (_e, id, on) => {
+  const { plugins } = await skillsLib.listSkills(skillDirs());
+  if (!plugins.some(p => p.id === id && !p.synced)) throw new Error('No such plugin (a synced plugin is managed by your Claude account)');
+  return skillsLib.setPluginEnabled(skillDirs().claudeHome, id, on);
+});
 handle('agent:setModel', async (_e, { agent, model, effort }) => {
   if (agent === 'codex') {
     const nextState = { codexModel: model || null };
@@ -1864,8 +1900,12 @@ function claudeArgs(mode, prompt, session, team, shell) {
   const build = mode === 'build';
   const full = build && fullAccess();
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
+  // MCP servers connected in Breeze. Print mode can't ask, so in build mode their tools are allowed up front.
+  const mcpFile = mcpConfigFile(shell);
+  if (mcpFile) args.push('--mcp-config', mcpFile);
+  const mcpTools = mcpFile ? (loadState().mcpServers ?? []).map(s => `mcp__${s.name}`) : [];
   if (!build) args.push('--disallowedTools', ...CLAUDE_WRITE_TOOLS);
-  else if (!full) args.push('--allowedTools', 'Bash'); // print mode can't ask, so commands would otherwise be refused
+  else if (!full) args.push('--allowedTools', 'Bash', ...mcpTools); // print mode can't ask, so commands would otherwise be refused
   const deny = build && team ? claudeDenyArgs(team.coordinator.owners, team.agentId) : [];
   if (deny.length && !shell) args.push('--disallowedTools', ...deny);
   const st = loadState();
@@ -1874,9 +1914,9 @@ function claudeArgs(mode, prompt, session, team, shell) {
   const effort = effortArg(st.claudeEffort);
   if (effort) args.push('--effort', effort);
   if (session) args.push('--resume', session);
-  if (build) return deny.length && shell ? { args, prompt, deny } : { args, prompt };
+  if (build) return deny.length && shell ? { args, prompt, deny, mcpFile } : { args, prompt, mcpFile };
   const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
-  return { args, prompt: `${ask}\n\n${prompt}` };
+  return { args, prompt: `${ask}\n\n${prompt}`, mcpFile };
 }
 // A Claude Code settings file holding a team member's deny rules, for `--settings`. Null when its path can't
 // pass through the shell (a user name with a space, say) or it can't be written.
@@ -1887,8 +1927,19 @@ function teamSettingsFile(runId, deny) {
   return file;
 }
 function dropSettingsFile(run) {
-  if (run.settingsFile) fs.rm(run.settingsFile, { force: true }, () => { /* best effort */ });
+  for (const f of [run.settingsFile, run.mcpFile]) if (f) fs.rm(f, { force: true }, () => { /* best effort */ });
   run.settingsFile = null;
+  run.mcpFile = null;
+}
+// The MCP servers connected in Breeze, for one Claude Code run, in a file only this user can read (env values and
+// headers may hold keys). Through an npm shim's shell the path must be a plain argument, as with the settings file.
+function mcpConfigFile(shell) {
+  const servers = loadState().mcpServers ?? [];
+  if (!servers.length) return null;
+  const file = path.join(os.tmpdir(), `breeze-mcp-${crypto.randomBytes(6).toString('hex')}.json`).replaceAll('\\', '/');
+  if (shell) { try { shellCommand('', [file]); } catch { return null; } }
+  try { fs.writeFileSync(file, JSON.stringify(mcpLib.claudeMcpConfig(servers)), { flag: 'wx', mode: 0o600 }); } catch { return null; }
+  return file;
 }
 const NO_BLOCK_NOTE = 'Claude can\'t be blocked from teammates\' files on this computer, so Breeze will undo any edit it makes to them instead.';
 // What each Claude Code tool call looks like in the chat.
@@ -1972,6 +2023,7 @@ async function startRun(runId, { agent, mode, prompt, session, box, team }) {
   const launch = () => {
     dropSettingsFile(run);
     const cli = cliArgs(agent, mode, prompt, session, run.team, shell);
+    run.mcpFile = cli.mcpFile ?? null;
     if (cli.deny) {
       run.settingsFile = teamSettingsFile(runId, cli.deny);
       if (run.settingsFile) cli.args.push('--settings', run.settingsFile);

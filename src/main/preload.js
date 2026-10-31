@@ -97,6 +97,17 @@ contextBridge.exposeInMainWorld('breeze', {
     usage: () => invoke('agent:usage'),
     onEvent: cb => listen('agent:event', cb),
   },
+  skills: {
+    list: () => invoke('skills:list'),
+    read: file => invoke('skills:read', file),
+    remove: dir => invoke('skills:remove', dir),
+    setPlugin: (id, on) => invoke('skills:setPlugin', id, on),
+  },
+  mcp: {
+    list: () => invoke('mcp:list'),
+    add: input => invoke('mcp:add', input),
+    remove: name => invoke('mcp:remove', name),
+  },
   team: {
     parse: t => invoke('team:parse', t),
     claim: o => invoke('team:claim', o),

@@ -43,6 +43,7 @@ function showView(v: string, reveal = false, morph = false): void {
   if (was) morphSideHead(was, $(`[data-panel="${v}"]`));
   updateActIndicator();
   if (v === 'git') void refreshGit();
+  if (v === 'skills') void refreshSkills();
 }
 // Clicking the active view's icon again collapses the side bar, like VS Code.
 $$('.act-btn[data-view]').forEach(b => b.onclick = () => {

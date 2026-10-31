@@ -336,6 +336,49 @@ function demoApi(): BreezeApi {
       },
       onEvent(cb) { agentListeners.push(cb); return () => { }; },
     },
+    // MCP servers kept in the browser, so the preview can connect and remove them (nothing is started).
+    mcp: {
+      async list() {
+        return { breeze: store.get<McpServer[]>('breeze.demoMcp', []), claude: [{ name: 'github', type: 'stdio', detail: 'npx -y @modelcontextprotocol/server-github', scope: 'user' }] };
+      },
+      async add(input) {
+        const list = store.get<McpServer[]>('breeze.demoMcp', []);
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(input.name)) throw new Error('Name it with letters, numbers, - or _ (no spaces)');
+        if (list.some(s => s.name === input.name)) throw new Error(`There's already a server called ${input.name}`);
+        const s: McpServer = { name: input.name, type: input.type, detail: (input.type === 'http' ? input.url : input.command)?.trim() ?? '' };
+        store.set('breeze.demoMcp', [...list, s]);
+        return s;
+      },
+      async remove(name) { store.set('breeze.demoMcp', store.get<McpServer[]>('breeze.demoMcp', []).filter(s => s.name !== name)); return true; },
+    },
+    // Made-up skills and a plugin, so the browser preview shows the Skills view; removing one only hides it.
+    skills: {
+      async list() {
+        const gone = store.get<string[]>('breeze.demoSkillsGone', []);
+        const on = store.get<Record<string, boolean>>('breeze.demoPlugins', {});
+        const sk = (agent: string, scope: AgentSkill['scope'], name: string, description: string, plugin?: string): AgentSkill =>
+          ({ id: `~/.${agent}/skills/${name}`, file: `~/.${agent}/skills/${name}/SKILL.md`, folder: name, name, description, agent, scope, removable: scope === 'user', plugin });
+        const skills = [
+          sk('claude', 'user', 'code-review', 'Review the current diff for bugs before it ships.'),
+          sk('claude', 'user', 'release-notes', 'Write release notes from the commits since the last tag.'),
+          sk('codex', 'user', 'lint-fix', 'Run the linter and fix what it finds.'),
+        ].filter(s => !gone.includes(s.id));
+        const plugins: AgentPlugin[] = [{ id: 'design@claude-plugins', name: 'design', marketplace: 'claude-plugins', version: '1.4.0', description: 'Design critique, UX copy and handoff specs.', enabled: on['design@claude-plugins'] !== false, synced: false,
+          skills: [sk('claude', 'plugin', 'ux-copy', 'Write or review microcopy and error messages.', 'design@claude-plugins'), sk('claude', 'plugin', 'design-critique', 'Structured feedback on a design.', 'design@claude-plugins')] },
+          { id: 'caveman@anthropic-plugin-directory', name: 'caveman', marketplace: 'anthropic-plugin-directory', version: '1.1.2', description: 'Talk like caveman.', enabled: true, synced: true,
+            skills: [sk('claude', 'plugin', 'caveman', 'Short words, short sentences, no fluff.', 'caveman@anthropic-plugin-directory')] }];
+        return { skills, plugins };
+      },
+      async read(file) { return `---
+name: ${baseName(dirName(file))}
+---
+
+# ${baseName(dirName(file))}
+
+A skill from the browser preview. In the app this shows the skill's SKILL.md.`; },
+      async remove(dir) { store.set('breeze.demoSkillsGone', [...store.get<string[]>('breeze.demoSkillsGone', []), dir]); return true; },
+      async setPlugin(id, on) { store.set('breeze.demoPlugins', { ...store.get<Record<string, boolean>>('breeze.demoPlugins', {}), [id]: on }); return on; },
+    },
     team: {
       async parse(text) { return { shared: text, tasks: [], unknown: [] }; },
       async claim() { throw new Error('Teams need the desktop app'); },
@@ -550,6 +593,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   circleDot: [['circle', { cx: 12, cy: 12, r: 9 }], ['circle', { cx: 12, cy: 12, r: 3, fill: 'currentColor' }]],
   phone: [['rect', { x: 5, y: 2, width: 14, height: 20, rx: 2 }], ['path', { d: 'M12 18h.01' }]],
   trash: [['path', { d: 'M3 6h18' }], ['path', { d: 'M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6' }], ['path', { d: 'M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2' }], ['path', { d: 'M10 11v6' }], ['path', { d: 'M14 11v6' }]],
+  puzzle: [['path', { d: 'M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z' }]],
   panelLeft: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M9 3v18' }]],
   folder: [['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }]],
   folderPlus: [['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }], ['path', { d: 'M12 10v6' }], ['path', { d: 'M9 13h6' }]],
