@@ -328,8 +328,7 @@ function createWindow() {
     title: 'Breeze Code',
     icon: APP_ICON,
     backgroundColor: '#1d1d1f',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#00000000', symbolColor: '#aaaaaa', height: 44 },
+    titleBarStyle: 'hidden', // the page draws its own window buttons (platform.ts); macOS keeps its traffic lights
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -347,6 +346,8 @@ function createWindow() {
   // However the page fares, the app window shows in the end.
   setTimeout(showMain, LAUNCH_HANDOFF + 5000);
   win.loadFile(APP_PAGE).catch(logError('loadFile'));
+  // Maximizing by any route (the button, a double-click on the title bar, Win+Up, a snap) swaps the button's icon.
+  for (const ev of ['maximize', 'unmaximize']) win.on(ev, () => win?.webContents.send('win:maximized', win.isMaximized()));
 
   // Open external links in the system browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -1343,28 +1344,16 @@ handle('live:stop', async () => {
 handle('win:reload', () => win?.webContents.reload());
 handle('win:devtools', () => win?.webContents.toggleDevTools());
 handle('win:quit', () => app.quit());
-// The window's own background and the title bar's min/max/close buttons follow Settings → Appearance.
-const THEME_CHROME = {
-  dark: { bg: '#1d1d1f', symbols: '#aaaaaa' },
-  contrast: { bg: '#000000', symbols: '#a1a1aa' },
-  light: { bg: '#fbf9f4', symbols: '#5f5f64' },
-};
-let chrome = THEME_CHROME.dark;
-// Over Home's sky and the setup backdrop the buttons draw light, to read on the picture.
-let clearBar = false;
-// The buttons never paint a bar of their own: the page's title bar shows through, so a dialog's dim covers them too.
-const paintTitleBar = () => win?.setTitleBarOverlay({ color: '#00000000', symbolColor: clearBar ? '#e8ecff' : chrome.symbols, height: 44 });
+// The window's own background follows Settings → Appearance.
+const THEME_BG = { dark: '#1d1d1f', contrast: '#000000', light: '#fbf9f4' };
 handle('win:theme', (_e, theme) => {
-  const c = THEME_CHROME[theme];
-  if (!c || !win) return;
-  chrome = c;
-  win.setBackgroundColor(c.bg);
-  paintTitleBar();
+  if (THEME_BG[theme] && win) win.setBackgroundColor(THEME_BG[theme]);
 });
-handle('win:clearBar', (_e, on) => {
-  clearBar = on === true;
-  paintTitleBar();
-});
+// The page's own minimize, maximize and close buttons.
+handle('win:minimize', () => win?.minimize());
+handle('win:toggleMaximize', () => { if (win) win.isMaximized() ? win.unmaximize() : win.maximize(); });
+handle('win:close', () => win?.close());
+handle('win:isMaximized', () => !!win?.isMaximized());
 handle('win:edit', (_e, role) => {
   const wc = win?.webContents;
   if (wc && ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'].includes(role)) wc[role]();

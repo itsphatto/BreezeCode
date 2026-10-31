@@ -122,7 +122,7 @@ function detectTools(force = false): Promise<Detection> {
   return detecting;
 }
 // No Scan button: Breeze looks again on its own when it comes back into focus (an agent may have been installed or
-// signed in meanwhile) and when Settings → Agents or Help & About opens, at most every 30 seconds. Settings redraws if
+// signed in meanwhile) and when Home, Settings → Agents or Help & About opens, at most every 30 seconds. Settings redraws if
 // anything changed. For ten minutes after an install starts (even during setup), every return to the window looks again.
 let lastAutoScan = 0;
 function autoRescan(): void {
@@ -502,7 +502,8 @@ function fitAgentBar(): void {
   const nowFolded = new Set($$<HTMLElement>('.agent-chip[data-agent].hidden', bar).map(c => c.dataset.agent as string));
   const rest = bar.querySelector<HTMLElement>('.chip-rest');
   const restCount = rest ? nowFolded.size : 0;
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches && bar.offsetParent) {
+  // Not while the window itself resizes (layout.ts): the chips just take their places as the screen grows.
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches && bar.offsetParent && !document.documentElement.classList.contains('win-resizing')) {
     const grow = { duration: 260, easing: 'cubic-bezier(.175, .885, .32, 1.275)' };
     for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
       if (agentBarFolded.has(c.dataset.agent as string)) c.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
@@ -678,6 +679,7 @@ const shortPath = (p: string, max = 52) => p.length > max ? `…${p.slice(-(max 
 function renderHome(): void {
   renderHomeProfile();
   renderHomeAgent();
+  autoRescan(); // no Scan button: Home looks for agents again as it opens (the card redraws when the scan lands)
   renderRecentList();
   const seq = ++homeSeq;
   background(api.fs.recent().catch(() => [] as RecentFolder[]).then(list => {
@@ -738,6 +740,25 @@ function homeAgentRowHtml(a: DetectedAgent): string {
     ${mark}<span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(about)}</span></span>
   </div>`;
 }
+// When a resize reflows a container (Home's agent cards wrapping onto another row, Recent projects dropping under the
+// ways in on a narrow window), each block glides from where it stood to its new place instead of jumping there, in
+// step with the window's own glide (WIN_GLIDE, platform.ts). Positions are read from layout (offsetLeft/Top, against
+// the container), so a transform on the way, such as that glide, doesn't skew them.
+function glideOnReflow(container: HTMLElement): void {
+  const at = new WeakMap<Element, { x: number; y: number }>();
+  new ResizeObserver(() => {
+    for (const el of container.children) {
+      if (!(el instanceof HTMLElement) || !el.offsetParent) continue;
+      const now = { x: el.offsetLeft, y: el.offsetTop }, was = at.get(el);
+      at.set(el, now);
+      const dx = (was?.x ?? now.x) - now.x, dy = (was?.y ?? now.y) - now.y;
+      if ((Math.abs(dx) < 1 && Math.abs(dy) < 1) || reduceMotion.matches) continue;
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], WIN_GLIDE);
+    }
+  }).observe(container);
+}
+glideOnReflow($('#homeAgents'));
+glideOnReflow($('.home-grid'));
 let homeAgentsHtml = '';
 function renderHomeAgent(): void {
   const el = $('#homeAgents');
@@ -802,17 +823,6 @@ $('#homeAgents').addEventListener('keydown', e => {
   const rows = $$('.agent-row[role="radio"]', $('#homeAgents'));
   pickHomeAgent(rows[(rows.indexOf(row) + d + rows.length) % rows.length].dataset.agent ?? '');
 });
-// Looks again right away (say, just after installing one); the icon turns while it looks.
-$('#homeRescan').onclick = () => {
-  const b = $('#homeRescan') as HTMLButtonElement;
-  if (b.classList.contains('busy')) return;
-  b.classList.add('busy');
-  b.setAttribute('aria-busy', 'true');
-  detectTools(true)
-    .then(d => { const n = d.agents.filter(a => a.found).length; toast(n ? `${n} agent${n === 1 ? '' : 's'} ready` : 'No agents found yet'); })
-    .catch((err: unknown) => toast(`Couldn't scan for agents: ${errMsg(err)}`))
-    .finally(() => { b.classList.remove('busy'); b.removeAttribute('aria-busy'); });
-};
 function leaveHome(): void {
   enterMode(appState.mode);
 }

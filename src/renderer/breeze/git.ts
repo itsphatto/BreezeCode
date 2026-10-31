@@ -170,10 +170,25 @@ function autoResizeScmMsg(el?: HTMLTextAreaElement | null): void {
   msg.style.height = `${target}px`;
   msg.style.overflowY = need > 160 ? 'auto' : 'hidden';
 }
-// The side bar can be resized (and starts hidden), which rewraps the text, so the box re-fits whenever its width changes.
+// The side bar can be resized (and starts hidden), which rewraps the text, so the box re-fits whenever its width changes
+// (only its width: its own height easing below resizes it every frame).
+let scmMsgW = 0;
 const scmMsgWidth = new ResizeObserver(entries => {
-  for (const e of entries) if (e.contentRect.width) autoResizeScmMsg(e.target as HTMLTextAreaElement);
+  for (const e of entries) {
+    const w = e.contentRect.width;
+    if (w && w !== scmMsgW) { scmMsgW = w; autoResizeScmMsg(e.target as HTMLTextAreaElement); }
+  }
 });
+// Typing onto a new line (or back off one) eases the box to its new height, like the agent prompt.
+let scmMsgAnim: Animation | null = null;
+function fitScmMsgEased(msg: HTMLTextAreaElement): void {
+  const fromH = msg.getBoundingClientRect().height;
+  scmMsgAnim?.cancel(); // measure the new height without it
+  autoResizeScmMsg(msg);
+  const toH = msg.offsetHeight;
+  if (Math.abs(toH - fromH) < 1 || reduceMotion.matches) return;
+  scmMsgAnim = msg.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+}
 
 function currentActiveAgent(): DetectedAgent | null {
   try {
@@ -349,10 +364,11 @@ function renderScm(): void {
   msg.value = scmDraft;
   autoResizeScmMsg(msg);
   scmMsgWidth.disconnect();
+  scmMsgW = 0;
   scmMsgWidth.observe(msg);
   msg.oninput = () => {
     scmDraft = msg.value;
-    autoResizeScmMsg(msg);
+    fitScmMsgEased(msg);
   };
   msg.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run('git.commit'); } };
 

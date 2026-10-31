@@ -30,14 +30,11 @@ function goStep(n: number): void {
   if (n > STEP.welcome) revealBackdrop();
 }
 $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
-// While the onboarding screen (and so Home) is up, the window buttons sit straight on its backdrop, not on a dark bar.
-let barCleared: boolean | undefined;
+// While the onboarding screen (and so Home) is up, the window buttons sit straight on its backdrop and draw light.
 function syncTitleBar(): void {
   const ob = $('#onboard');
   const on = !ob.classList.contains('hidden') && !ob.classList.contains('screen-out') && !ob.classList.contains('screen-prep');
-  if (on === barCleared) return;
-  barCleared = on;
-  background(api.win.clearBar(on));
+  document.documentElement.classList.toggle('clear-bar', on);
 }
 new MutationObserver(syncTitleBar).observe($('#onboard'), { attributes: true, attributeFilter: ['class'] });
 syncTitleBar();
@@ -251,5 +248,11 @@ document.addEventListener('pointerout', e => {
   const svg = b.querySelector('svg');
   const pose = svg ? getComputedStyle(svg).transform : 'none';
   b.classList.remove('icon-live');
-  if (svg && pose !== 'none') svg.animate([{ transform: pose }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  // The ✕ looks the same every quarter turn, so it turns on to the next one and overshoots a little as it lands.
+  if (svg && b.matches('.recent-forget')) {
+    const m = new DOMMatrix(pose === 'none' ? undefined : pose);
+    const from = (Math.atan2(m.b, m.a) * 180 / Math.PI + 360) % 360;
+    svg.animate([{ transform: `rotate(${from}deg)` }, { transform: `rotate(${Math.ceil((from + 30) / 90) * 90}deg)` }],
+      { duration: 280, easing: 'cubic-bezier(.34, 1.56, .64, 1)' });
+  } else if (svg && pose !== 'none') svg.animate([{ transform: pose }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' });
 });

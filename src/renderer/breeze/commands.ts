@@ -665,7 +665,8 @@ function menuItemHtml(it: MenuItem, i: number): string {
   const popup = it.sub ? ' aria-haspopup="menu"' : '';
   const label = it.icon ? `<span class="mi-ico-label">${it.icon}<span>${esc(it.label ?? '')}</span></span>` : `<span>${esc(it.label ?? '')}</span>`;
   const del = it.remove ? holdDelHtml(it.label ?? '', 'data-mi-del', 'span', 'minus') : '';
-  return `<button class="${cls}${it.remove ? ' has-del' : ''}" role="menuitem" data-mi="${i}" data-style="--i:${i}"${disabled}${popup}>${label}${key}${del}</button>`;
+  const tick = it.checked?.() ? `<span class="menu-check">${svgIcon('check', 12)}</span>` : '';
+  return `<button class="${cls}${it.remove ? ' has-del' : ''}" role="menuitem" data-mi="${i}" data-style="--i:${i}"${disabled}${popup}>${tick}${label}${key}${del}</button>`;
 }
 // Builds a menu element at (x, y), kept inside the window.
 function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth = 0): HTMLElement {

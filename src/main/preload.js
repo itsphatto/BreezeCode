@@ -10,6 +10,7 @@ const listen = (ch, cb) => {
 
 contextBridge.exposeInMainWorld('breeze', {
   version: process.argv.find(a => a.startsWith('--breeze-version='))?.slice(17) ?? '',
+  platform: process.platform,
   fs: {
     openFolder: () => invoke('fs:openFolder'),
     createFolder: () => invoke('fs:createFolder'),
@@ -157,7 +158,11 @@ contextBridge.exposeInMainWorld('breeze', {
     quit: () => invoke('win:quit'),
     edit: role => invoke('win:edit', role),
     theme: t => invoke('win:theme', t),
-    clearBar: on => invoke('win:clearBar', on),
+    minimize: () => invoke('win:minimize'),
+    toggleMaximize: () => invoke('win:toggleMaximize'),
+    close: () => invoke('win:close'),
+    isMaximized: () => invoke('win:isMaximized'),
+    onMaximized: cb => listen('win:maximized', cb),
     launchWait: () => invoke('win:launchWait'),
     launchShow: () => invoke('win:launchShow'),
     launchFade: () => invoke('win:launchFade'),

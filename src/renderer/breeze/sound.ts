@@ -172,6 +172,8 @@ const sfx = (() => {
     ['[data-close-tab], .tab-close, .term-tab-close, .attachment-del, [data-mi-del], .x-btn', 'remove'],
     ['.menu-item', el => el.classList.contains('has-sub') ? 'tick' : 'select'],
     ['.tab, [role="tab"], .agent-tab, [data-set-tab], .seg button', 'tab'],
+    // Picking one of a set (Home's agent cards): the same sound as choosing from a menu.
+    ['[role="radio"]', 'select'],
     ['[data-copy], .copy-btn', 'copy'],
     ['a[href]', 'link'],
     ['.tree-item, .row, [role="option"], [role="menuitem"], .chat-file-chip, .card', 'row'],
@@ -265,7 +267,8 @@ const sfx = (() => {
   document.addEventListener('pointerover', e => {
     if (e.pointerType !== 'mouse' || performance.now() - movedAt > 120) return;
     const t = e.target as Element;
-    const btn = t.closest?.('.btn');
+    // Home's tiles, cards and icon buttons too (Continue on its own, inside its card).
+    const btn = t.closest?.('.btn, #onboard :is(.icon-btn, .start-tile, .recent-go, .recent-open, .agent-row, .home-profile)');
     if (btn) { if (!btn.contains(e.relatedTarget as Node | null)) play('hover'); return; }
     const row = t.closest?.('.menu-item, [role="option"], .tree-item, .scm-row, .commit, .commit-detail-row');
     if (row && !row.contains(e.relatedTarget as Node | null)) play('rowHover');

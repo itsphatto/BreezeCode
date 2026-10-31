@@ -23,19 +23,31 @@ function updateActIndicator(immediate = false): void {
 }
 window.addEventListener('resize', () => updateActIndicator(true));
 
-function showView(v: string, reveal = false): void {
+// Switching views, the new header takes over from the old one: each icon morphs from the one in the same place
+// (counted from the right, where Hide Side Bar always sits) or grows from a dot, and the title fades in.
+function morphSideHead(from: HTMLElement, to: HTMLElement): void {
+  const icons = (p: HTMLElement) => $$<HTMLElement>('.side-head .head-actions .icon-btn:not(.hidden)', p).reverse();
+  const old = icons(from).map(b => b.querySelector<SVGSVGElement>('svg.ico-svg')?.dataset.icon ?? 'dot');
+  icons(to).forEach((b, i) => void morphIconFrom(b, old[i] ?? 'dot'));
+  $('.side-head > span:first-child', to).animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }],
+    { duration: 160, easing: 'cubic-bezier(.23, 1, .32, 1)' });
+}
+// `morph`: only a click on the activity bar animates the header; shortcuts and commands switch at once.
+function showView(v: string, reveal = false, morph = false): void {
+  const was = morph && layout.sideOpen && layout.view !== v ? $(`[data-panel="${layout.view}"]`) : null;
   layout.view = v;
   if (reveal && !layout.sideOpen) layout.sideOpen = true;
   applyLayout();
   $$('.act-btn[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   $$('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== v));
+  if (was) morphSideHead(was, $(`[data-panel="${v}"]`));
   updateActIndicator();
   if (v === 'git') void refreshGit();
 }
 // Clicking the active view's icon again collapses the side bar, like VS Code.
 $$('.act-btn[data-view]').forEach(b => b.onclick = () => {
   const v = b.dataset.view as string;
-  if (v === layout.view && layout.sideOpen) { layout.sideOpen = false; applyLayout(); } else showView(v, true);
+  if (v === layout.view && layout.sideOpen) { layout.sideOpen = false; applyLayout(); } else showView(v, true, true);
 });
 
 /* ================= Breeze Box (chat only) ================= */

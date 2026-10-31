@@ -23,6 +23,17 @@ function applyLayout(): void {
   updateActIndicator();
   setTimeout(placeSashes); // after this script has set the sash layer up
 }
+// Resizing the window (maximize, restore, dragging its edge) reflows everything at once: the panels and rewrapped text
+// take their new sizes straight away instead of each easing on its own while the screen grows (breeze.css, mentions.ts),
+// which read as the layout glitching. Set before applyLayout below runs, so its new widths don't ease either.
+// Also called by the window's size observer (platform.ts), which hears of a maximize a frame before the event does.
+let winResizeTimer: TimeoutId | undefined;
+function markWinResizing(): void {
+  document.documentElement.classList.add('win-resizing');
+  clearTimeout(winResizeTimer);
+  winResizeTimer = setTimeout(() => document.documentElement.classList.remove('win-resizing'), 500);
+}
+window.addEventListener('resize', markWinResizing);
 window.addEventListener('resize', applyLayout);
 // Dragging below a threshold collapses the panel; dragging back out reopens it.
 const SASH_DRAG: Record<SashKind, (start: Layout, dx: number, dy: number) => void> = {
