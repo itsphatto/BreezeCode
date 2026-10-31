@@ -565,7 +565,14 @@ function bindSettings(m: HTMLElement): void {
     (el as HTMLButtonElement).disabled = true;
     void discordOn(appState.discordDetails).then(refreshSettings);
   });
-  on('sDiscordDetails', () => { appState.discordDetails = !appState.discordDetails; saveApp(); queueDiscord(); refreshSettings(); });
+  on('sDiscordDetails', () => {
+    appState.discordDetails = !appState.discordDetails; saveApp(); queueDiscord();
+    // The pane is rebuilt, so put the old lines back and fade them over to the new ones.
+    const lines = () => $$('.dc-txt > span:not(.dc-time)', pane);
+    const old = lines().map(s => s.textContent ?? '');
+    refreshSettings();
+    lines().forEach((s, i) => { const text = s.textContent ?? ''; s.textContent = old[i] ?? text; blurSwap(s, text); });
+  });
   // The preview's elapsed time counts up like Discord's, from when Breeze started; it stops once the tab is gone.
   const since = pane.querySelector<HTMLElement>('[data-dc-since]');
   if (since) {
