@@ -81,7 +81,7 @@ function renderHomeProfile(): void {
   // Signed out there is no one to welcome back, so it invites them in instead.
   $('#homeGreet').textContent = (!appState.onboarded ? 'Ready when you are' : first ? 'Welcome Back' : 'Welcome to Breeze') + (first ? ',' : '');
   $('#homeLead').textContent = !appState.onboarded ? 'Open a project to start building.'
-    : first ? 'Pick up where you left off, or start something new.'
+    : first ? timeGreeting()
     : 'Sign in to bring your name and picture along, or just open a project.';
   $('#homeName').textContent = first ?? '';
   const btn = $('#homeProfile');
