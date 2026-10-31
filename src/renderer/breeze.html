@@ -501,6 +501,7 @@
               <select class="select hidden" id="agentMode" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select>
               <span class="prompt-models" id="promptModels"></span>
               <span class="flex-1"></span>
+              <span class="composer-access" title="Full access lets agents run any command and reach any file. Off keeps them in the project."><span class="ca-label">Full access</span><button class="switch switch-sm" data-full-access type="button" role="switch" aria-checked="false" aria-label="Full access"><span class="sw-knob"></span></button></span>
               <button class="btn btn-primary btn-sm" id="send" title="Send (Enter)" aria-label="Send"><svg data-i="send"
                   data-size="14"></svg></button>
             </div>
@@ -529,14 +530,9 @@
     <div class="agent-fluid-blur" aria-hidden="true"></div>
     <canvas class="agent-fluid-canvas" aria-hidden="true" tabindex="-1"></canvas>
     <header class="titlebar box-bar">
+      <button class="icon-btn box-side-show" id="boxSideShow" type="button" title="Show chats" aria-controls="boxSide"><svg data-i="panelLeft" data-size="16"></svg></button>
       <span class="logo"><img src="../../assets/brand/BreezeBox.png" alt="Breeze Box"></span>
       <span class="spacer"></span>
-      <button class="btn btn-sm btn-ghost box-history" id="boxHistory" title="Chat history" aria-haspopup="menu"><svg
-          class="btn-ico" width="14" height="14">
-          <use href="#i-history" />
-        </svg> History</button>
-      <button class="btn btn-sm btn-ghost" data-act="chat.new" title="Start a new chat"><svg class="btn-ico"
-          data-i="plus" data-size="14"></svg> New chat</button>
       <button class="btn btn-sm" data-act="mode.ide">Open Breeze Code</button>
       <button class="icon-btn box-gear" id="boxSettings" title="Settings" aria-haspopup="dialog"><svg width="18"
           height="18">
@@ -544,10 +540,25 @@
         </svg></button>
       <button class="avatars" id="boxAvatar" aria-haspopup="menu" title="Account"></button>
     </header>
+    <!-- Chats, grouped by the folder they were in: switching chats happens here (the tab bar stays hidden in Box). -->
+    <aside class="box-side" id="boxSide" aria-label="Chats">
+      <div class="box-side-top">
+        <button class="box-side-row" id="boxSideNew" type="button"><svg data-i="plus" data-size="15"></svg><span>New chat</span></button>
+        <button class="icon-btn box-side-hide" id="boxSideHide" type="button" title="Hide chats" aria-controls="boxSide"><svg data-i="panelLeft" data-size="16"></svg></button>
+      </div>
+      <button class="box-side-row" id="boxSideSearchBtn" type="button" aria-controls="boxSideSearch"><svg data-i="search" data-size="15"></svg><span>Search</span></button>
+      <label class="box-side-row box-side-search hidden" id="boxSideSearchBox"><svg data-i="search" data-size="15"></svg><input id="boxSideSearch" type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" spellcheck="false"></label>
+      <div class="box-side-list" id="boxSideList"></div>
+    </aside>
     <div class="agent-tabs-bar box-tabs-bar" id="boxAgentTabsBar">
       <div class="agent-tabs-list" id="boxAgentTabsList"></div>
       <button class="icon-btn term-new-btn agent-tab-new" id="boxNewTab" type="button" title="New chat" aria-label="New chat"><svg data-i="plus" data-size="13"></svg></button>
     </div>
+    <!-- The file a Box agent is editing, one at a time, as it is written (live.ts). -->
+    <aside class="box-live" id="boxLive" aria-label="File the agent is editing">
+      <div class="box-live-head" id="boxLiveHead"></div>
+      <div class="box-live-body" id="boxLiveBody"></div>
+    </aside>
     <main class="box-main">
       <div class="box-chat" id="boxChat" aria-live="polite"></div>
     </main>
@@ -563,6 +574,7 @@
           <button class="pill pill-btn box-folder" id="boxFolder" title="The folder the agent works in">No
             folder</button>
           <span class="flex-1"></span>
+          <span class="composer-access" title="Full access lets agents run any command and reach any file. Off keeps them in the project."><span class="ca-label">Full access</span><button class="switch switch-sm" data-full-access type="button" role="switch" aria-checked="false" aria-label="Full access"><span class="sw-knob"></span></button></span>
           <button class="btn btn-primary btn-sm" id="boxSend" title="Send (Enter)" aria-label="Send"><svg data-i="send"
               data-size="14"></svg></button>
         </div>
@@ -628,6 +640,7 @@
   <script src="breeze/history.js" defer></script>
   <script src="breeze/mentions.js" defer></script>
   <script src="breeze/teams.js" defer></script>
+  <script src="breeze/live.js" defer></script>
   <script src="breeze/dropdowns.js" defer></script>
   <script src="breeze/git.js" defer></script>
   <script src="breeze/views.js" defer></script>

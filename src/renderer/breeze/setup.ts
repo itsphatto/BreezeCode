@@ -405,30 +405,28 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
   }
 }
 
+// "Switch Model": the agent's models in a flat list, then a slider for its effort (a local server has none).
+// Every surface that picks a model uses this, so Breeze Box and the agents panel behave the same.
 // makeDefault (an agent's own chip): setting its model or effort also makes it the default agent.
-// efforts: each model opens a submenu of effort levels; without it a click just picks the model (the prompt's
-// menu sets effort with its slider instead).
-function modelMenuItems(a: DetectedAgent, makeDefault = false, efforts = true): MenuItem[] {
+function modelPickerItems(a: DetectedAgent, makeDefault = false): MenuItem[] {
+  const current = () => a.version || a.models?.[0] || '';
   const apply = (m: string, eff: EffortLevel) => background(applyModelAndEffort(a, m, eff).then(() => {
     if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
   }));
-  return (a.models ?? []).map(m => {
-    const item: MenuItem = {
-      label: versionLabel(m),
-      checked: () => (a.version || a.models?.[0]) === m,
-      run: () => apply(m, agentEffort(a)),
-    };
-    if (!efforts) return item;
-    return {
-      ...item,
-      subClass: 'effort-menu',
-      sub: () => EFFORTS.map(eff => ({
-        label: eff,
-        checked: () => (a.version || a.models?.[0]) === m && agentEffort(a) === eff,
-        run: () => apply(m, eff),
-      })),
-    };
-  });
+  const models: MenuItem[] = (a.models ?? []).map(m => ({
+    label: versionLabel(m),
+    checked: () => current() === m,
+    run: () => apply(m, agentEffort(a)),
+  }));
+  const effort: MenuItem[] = a.api ? [] : [{ slider: {
+    label: `${agentShortName(a)} effort`,
+    steps: EFFORTS,
+    value: () => EFFORTS.indexOf(agentEffort(a)),
+    set: i => apply(current(), EFFORTS[i]),
+    hint: i => EFFORT_HINTS[EFFORTS[i]],
+    reset: () => apply(current(), currentEffort()), // back to the level picked in Settings
+  } }];
+  return [{ label: 'Switch Model', enabled: () => false }, ...models, ...effort];
 }
 
 /* ----- Agent bar: one chip per installed agent; a chip inserts its @mention ----- */
@@ -460,10 +458,8 @@ function makeDefaultAgent(ag: DetectedAgent): void {
   updateScmGenBtn();
 }
 function agentChipMenuItems(ag: DetectedAgent): MenuItem[] {
-  // Each model opens its effort levels, so the agent's chip is where model and effort are picked.
-  const models: MenuItem[] = ag.models?.length
-    ? [{ label: 'Model', enabled: () => false }, ...modelMenuItems(ag, true), { sep: true }]
-    : [];
+  // The agent's chip is where its model and effort are picked, as in Breeze Box's agent menu.
+  const models: MenuItem[] = ag.models?.length ? [...modelPickerItems(ag, true), { sep: true }] : [];
   return [
     ...models,
     { label: 'Make default', checked: () => ag.id === appState.agent, enabled: () => ag.id !== appState.agent, run: () => makeDefaultAgent(ag) },

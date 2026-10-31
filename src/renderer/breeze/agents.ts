@@ -107,6 +107,7 @@ interface Run {
   uiMode: string;
   phase: AgentKey;
   tools: number;
+  commands?: number; // tool calls that ran a command, for "ran 2 commands" under the reply
   files: Set<string>;
   drafts?: Set<string>; // files it began creating, shown before they were written
   plan: string | null;
@@ -360,6 +361,8 @@ function renderAgentTabs(s: Surface): void {
   });
 
   placeAgentTabInk(s);
+  // Box shows its chats in a side bar (history.ts, which loads after this file) rather than in the tab bar.
+  if (s.name === 'box' && typeof renderBoxSide === 'function') renderBoxSide();
 }
 
 function switchAgentTab(s: Surface, tid: string): void {

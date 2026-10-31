@@ -525,11 +525,7 @@ function bindSettings(m: HTMLElement): void {
     finally { setTimeout(refreshSettings, 2500); }
   });
   on('sAgentPicker', () => openAgentPicker());
-  on('sFullAccess', () => background(api.agent.setFullAccess(!agentFullAccess).then(v => {
-    agentFullAccess = v;
-    toast(v ? 'Full access on: agents can run anything in build mode' : 'Full access off');
-    refreshSettings();
-  })));
+  on('sFullAccess', () => setFullAccess(!agentFullAccess));
   const usageEl = pane.querySelector<HTMLElement>('#sUsage');
   if (usageEl) {
     fillUsageBars(usageEl);
@@ -656,9 +652,28 @@ function refreshSettings(): void {
   if (m) bindSettings(m);
 }
 
+// The switch beside each Send button is the same setting as Settings → Agents → Full access.
+function renderAccessSwitches(): void {
+  $$<HTMLButtonElement>('[data-full-access]').forEach(b => {
+    b.classList.toggle('on', agentFullAccess);
+    b.setAttribute('aria-checked', String(agentFullAccess));
+    b.closest('.composer-access')?.classList.toggle('on', agentFullAccess);
+  });
+}
+function setFullAccess(on: boolean): void {
+  background(api.agent.setFullAccess(on).then(v => {
+    agentFullAccess = v;
+    toast(v ? 'Full access on: agents can run anything in build mode' : 'Full access off');
+    renderAccessSwitches();
+    refreshSettings();
+  }));
+}
+$$<HTMLButtonElement>('[data-full-access]').forEach(b => b.onclick = () => setFullAccess(!agentFullAccess));
+background(api.agent.fullAccess().then(v => { agentFullAccess = v; renderAccessSwitches(); }));
+
 function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   if (settingsRoot()) { closeModal(); return; }
-  background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; refreshSettings(); } }));
+  background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; refreshSettings(); renderAccessSwitches(); } }));
   closeMenu();
   if (tab) settingsTab = tab;
   const gears = [$('#settingsBtn'), $('#boxSettings')];

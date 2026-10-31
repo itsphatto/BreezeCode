@@ -1,6 +1,7 @@
 /* ----- Chat history: "New chat" files the current conversation away; the clock button brings one back ----- */
 // `sessions` is the current shape; an older entry has `session` (+ `agent`) instead, and openChat turns that into `sessions`.
-interface ChatEntry { id: string; title: string; at: number; html: string; agent: string | null; session: string | null; sessions?: Record<string, string>; }
+// `folder`: the project open when a Breeze Box chat began, so its side bar can group chats by folder.
+interface ChatEntry { id: string; title: string; at: number; html: string; agent: string | null; session: string | null; sessions?: Record<string, string>; folder?: string | null; }
 const historyKey = (s: Surface) => `breeze.history:${chatScope(s)}`;
 const chatIdKey = (s: Surface) => `breeze.chatId:${chatScope(s)}`;
 const HISTORY_MAX = 30, HISTORY_BYTES = 1_500_000;
@@ -16,10 +17,14 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   const id = tab.historyId;
   const first = tab.panel.querySelector('.msg.user .body')?.textContent ?? tab.title ?? 'Chat';
   const title = first.trim().replaceAll(/\s+/g, ' ').slice(0, 64) || tab.title || 'Chat';
-  const entry: ChatEntry = { id, title, at: Date.now(), html, agent: tab.agentId || appState.agent, session: tab.sessions[tab.agentId] ?? null, sessions: { ...tab.sessions } };
+  const old = chatHistory(s);
+  // A chat stays under the folder it began in, even if another folder is open by now.
+  const folder = old.find(e => e.id === id)?.folder ?? rootInfo?.root ?? null;
+  const entry: ChatEntry = { id, title, at: Date.now(), html, agent: tab.agentId || appState.agent, session: tab.sessions[tab.agentId] ?? null, sessions: { ...tab.sessions }, folder };
   let bytes = 0;
-  const list = [entry, ...chatHistory(s).filter(e => e.id !== id)].filter(e => (bytes += e.html.length) < HISTORY_BYTES).slice(0, HISTORY_MAX);
+  const list = [entry, ...old.filter(e => e.id !== id)].filter(e => (bytes += e.html.length) < HISTORY_BYTES).slice(0, HISTORY_MAX);
   store.set(historyKey(s), list);
+  if (s.name === 'box') renderBoxSide();
 }
 
 function archiveChat(s: Surface): void {
@@ -117,8 +122,128 @@ function showHistory(s: Surface, anchor: HTMLElement): void {
   $('#menuRoot .menu')?.classList.add('history-menu');
 }
 $('#chatHistory').onclick = e => showHistory(SURFACES.ide, e.currentTarget as HTMLElement);
-$('#boxHistory').onclick = e => showHistory(SURFACES.box, e.currentTarget as HTMLElement);
-commands['chat.history'] = () => showHistory(surface, surface.name === 'box' ? $('#boxHistory') : $('#chatHistory'));
+commands['chat.history'] = () => {
+  if (surface.name === 'box') { setBoxSide(true); openBoxSearch(); } else showHistory(surface, $('#chatHistory'));
+};
+
+/* ----- Breeze Box side bar: New chat, Search, then the chats grouped by folder ----- */
+// Box switches chats here instead of with tabs: a chat that is not running and not on screen is filed away,
+// so only the open chat and any still working stay loaded.
+const boxSideFolded = new Set(store.get<string[]>('breeze.boxSideFolded', []));
+let boxSideQuery = '';
+// Just the folder's own name ("BreezeCode"), whichever slashes its path uses.
+const folderName = (p: string | null | undefined) => (p ? baseName(p.replaceAll('\\', '/').replace(/\/+$/, '')) : '');
+function boxSideOpen(): boolean { return store.get<boolean>('breeze.boxSide', true); }
+function setBoxSide(open: boolean): void {
+  store.set('breeze.boxSide', open);
+  // Hidden, the side bar takes its own Hide button with it; the title bar's Show button brings it back.
+  $('#box').classList.toggle('side-closed', !open);
+}
+function pruneBoxTabs(): void {
+  const s = SURFACES.box;
+  for (const t of [...surfaceTabs.box]) if (t.id !== activeTabId.box && !tabBusy(t)) closeAgentTab(s, t.id);
+}
+function openBoxChat(e: ChatEntry): void {
+  const s = SURFACES.box;
+  const open = surfaceTabs.box.find(t => t.historyId === e.id);
+  if (open) switchAgentTab(s, open.id);
+  else openChat(s, e);
+  pruneBoxTabs();
+  renderBoxSide();
+}
+function newBoxChat(): void {
+  const cur = getActiveTab(SURFACES.box);
+  // Already on an empty chat: just put the cursor in it.
+  if (!cur.historyId && cur.panel.querySelector('.empty')) { SURFACES.box.prompt.focus(); return; }
+  newAgentTabAction(SURFACES.box);
+  pruneBoxTabs();
+  renderBoxSide();
+}
+function openBoxSearch(): void {
+  const input = $<HTMLInputElement>('#boxSideSearch');
+  $('#boxSideSearchBox').classList.remove('hidden');
+  $('#boxSideSearchBtn').classList.add('hidden');
+  input.focus();
+  input.select();
+}
+function closeBoxSearch(): void {
+  const input = $<HTMLInputElement>('#boxSideSearch');
+  input.value = '';
+  boxSideQuery = '';
+  $('#boxSideSearchBox').classList.add('hidden');
+  $('#boxSideSearchBtn').classList.remove('hidden');
+  renderBoxSide();
+}
+function deleteBoxChat(id: string): void {
+  store.set(historyKey(SURFACES.box), chatHistory(SURFACES.box).filter(e => e.id !== id));
+  const tab = surfaceTabs.box.find(t => t.historyId === id);
+  if (tab) tab.historyId = undefined; // still open: it is filed again as a new chat if it changes
+  renderBoxSide();
+  toast('Chat deleted');
+}
+function renderBoxSide(): void {
+  const list = $('#boxSideList');
+  const q = boxSideQuery.toLowerCase();
+  const matches = (e: ChatEntry) => `${e.title}\n${folderName(e.folder)}`.toLowerCase().includes(q);
+  const entries = chatHistory(SURFACES.box).filter(e => !q || matches(e));
+  const activeId = surfaceTabs.box.find(t => t.id === activeTabId.box)?.historyId;
+  const busy = new Set(surfaceTabs.box.filter(t => tabBusy(t) && t.historyId).map(t => t.historyId));
+  // Groups keep the order of their newest chat; chats from before folders were kept go under "Breeze Box".
+  const groups = new Map<string, ChatEntry[]>();
+  for (const e of entries) {
+    const k = e.folder ?? '';
+    groups.set(k, [...groups.get(k) ?? [], e]);
+  }
+  if (!groups.size) {
+    list.innerHTML = `<div class="box-side-empty">${q ? 'No chats match' : 'Your chats show up here'}</div>`;
+    return;
+  }
+  list.innerHTML = [...groups].map(([folder, chats]) => {
+    const folded = !q && boxSideFolded.has(folder);
+    const name = folderName(folder) || 'Breeze Box';
+    const rows = chats.map(e => `<button class="box-side-chat${e.id === activeId ? ' on' : ''}" type="button" data-chat="${escAttr(e.id)}" title="${escAttr(e.title)}">
+        <span class="nm">${esc(e.title)}</span>${busy.has(e.id) ? '<span class="box-side-busy" aria-label="Working"></span>' : `<span class="ago">${esc(timeAgo(e.at))}</span>`}</button>`).join('');
+    return `<div class="box-side-group${folded ? ' folded' : ''}">
+      <button class="box-side-folder" type="button" data-folder="${escAttr(folder)}" aria-expanded="${!folded}" title="${escAttr(folder || 'Chats with no folder open')}">
+        <span class="nm">${esc(name)}</span>${svgIcon('chevronDown', 12)}</button>
+      <div class="box-side-chats">${rows}</div>
+    </div>`;
+  }).join('');
+}
+$('#boxSideList').addEventListener('click', ev => {
+  const t = ev.target as HTMLElement;
+  const folder = t.closest<HTMLElement>('[data-folder]');
+  if (folder) {
+    const k = folder.dataset.folder ?? '';
+    if (boxSideFolded.has(k)) boxSideFolded.delete(k); else boxSideFolded.add(k);
+    store.set('breeze.boxSideFolded', [...boxSideFolded]);
+    renderBoxSide();
+    return;
+  }
+  const row = t.closest<HTMLElement>('[data-chat]');
+  const e = row && chatHistory(SURFACES.box).find(x => x.id === row.dataset.chat);
+  if (e) openBoxChat(e);
+});
+$('#boxSideList').addEventListener('contextmenu', ev => {
+  const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-chat]');
+  if (!row) return;
+  ev.preventDefault();
+  const id = row.dataset.chat as string;
+  popupMenu(ev.clientX, ev.clientY, [{ label: 'Delete chat', run: () => deleteBoxChat(id) }]);
+});
+$('#boxSideNew').onclick = newBoxChat;
+$('#boxSideSearchBtn').onclick = openBoxSearch;
+$('#boxSideSearch').addEventListener('input', ev => {
+  boxSideQuery = (ev.target as HTMLInputElement).value.trim();
+  renderBoxSide();
+});
+$('#boxSideSearch').addEventListener('keydown', ev => {
+  if (ev.key === 'Escape') { ev.preventDefault(); closeBoxSearch(); }
+});
+$('#boxSideSearch').addEventListener('blur', () => { if (!boxSideQuery) closeBoxSearch(); });
+$('#boxSideHide').onclick = () => setBoxSide(false);
+$('#boxSideShow').onclick = () => setBoxSide(true);
+setBoxSide(boxSideOpen());
 
 function renderAttachments(s: Surface): void {
   const list = attachmentsMap[s.name] || [];

@@ -412,6 +412,7 @@ function onAgentFile(r: Run, path: string, created = false): void {
   renderTree(); renderTabs();
   queueGitRefresh();
   if (r.surfaceName === 'ide') background(openAgentFile(path, created));
+  else liveFile(path);
 }
 // Opens the file an agent is editing and shows it, so its changes type out in front of the person.
 async function openAgentFile(path: string, created = false): Promise<void> {
@@ -433,7 +434,8 @@ async function openAgentFile(path: string, created = false): Promise<void> {
 }
 // The agent's text for a file it is creating, as it writes it.
 function onAgentDraft(r: Run, path: string, text: string): void {
-  if (r.surfaceName !== 'ide' || !typeAgentDraft(path, text)) return;
+  if (r.surfaceName === 'box') { liveDraft(path, text); return; }
+  if (!typeAgentDraft(path, text)) return;
   (r.drafts ??= new Set()).add(path);
 }
 // Draft tabs whose file never got written (the run stopped, or the write was refused) close again.
@@ -503,6 +505,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   tool: (r, ev, tab) => {
     r.lastMsg = undefined;
     r.tools++;
+    if (ev.kind === 'run') r.commands = (r.commands ?? 0) + 1;
     toolLine(ev.kind ?? 'tool', ev.label ?? '', tab);
     setAgent(r.phase, 'working', ev.label ?? 'Working', r.tools);
   },
@@ -559,14 +562,81 @@ api.agent.onEvent((runId, ev) => {
   }
 });
 
+// The files changed show on their own line (editsHtml), so the Done line only has the time and usage.
 function runSummary(r: Run, ev: AgentEvent): string[] {
   const time = ev.ms ? `${Math.max(1, Math.round(ev.ms / 1000))}s` : '';
-  const files = r.files.size ? `${plural(r.files.size, 'file')} changed` : '';
   let usage = '';
   if (ev.cost) usage = `$${ev.cost.toFixed(2)}`;
   else if (ev.tokens) usage = `${ev.tokens.toLocaleString()} tokens`;
-  return [time, files, usage].filter(Boolean);
+  return [time, usage].filter(Boolean);
 }
+
+/* ----- "Edited app.ts, ran a command +12 −3 · View changes ▸" under a reply that changed files ----- */
+function editsText(files: string[], commands: number): string {
+  const names = files.map(f => baseName(f.replaceAll('\\', '/')));
+  const what = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : plural(names.length, 'file');
+  const ran = commands ? `, ran ${commands === 1 ? 'a command' : plural(commands, 'command')}` : '';
+  return `Edited ${what}${ran}`;
+}
+function editsHtml(files: string[], commands: number): string {
+  const rows = files.map(f => `<button class="re-file" type="button" data-edit-file="${escAttr(f)}" title="${escAttr(f)}">
+      <span class="nm">${esc(f)}</span><span class="re-n" data-n></span></button>`).join('');
+  return `<div class="run-edits"><div class="re-head"><span class="re-what">${esc(editsText(files, commands))}</span>
+    <span class="re-n" data-total></span><span class="re-dot">·</span>
+    <button class="re-view" type="button" aria-expanded="false">View changes${svgIcon('chevronRight', 12)}</button></div>
+    <div class="re-files">${rows}</div></div>`;
+}
+const countHtml = (c: { added: number; removed: number }) => `<span class="re-add">+${c.added}</span><span class="re-del">−${c.removed}</span>`;
+// Lines added and removed, from git: the file's changes not yet staged, or all of a new (untracked) file. These
+// include any earlier unstaged edits to the same file. Null outside a repository, where there is nothing to count.
+async function lineCounts(path: string, untracked: boolean): Promise<{ added: number; removed: number } | null> {
+  if (untracked) {
+    const f = await api.fs.readFile(path).catch(() => null);
+    if (f?.text == null) return null;
+    return { added: f.text ? f.text.split('\n').length - (f.text.endsWith('\n') ? 1 : 0) : 0, removed: 0 };
+  }
+  const diff = await api.git.diff(path, false).catch(() => null);
+  if (diff == null) return null;
+  let added = 0, removed = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++') || line.startsWith('---')) continue;
+    if (line[0] === '+') added++;
+    else if (line[0] === '-') removed++;
+  }
+  return { added, removed };
+}
+async function fillEditCounts(el: HTMLElement, files: string[], tab: AgentTabState): Promise<void> {
+  const st = await api.git.status().catch(() => null);
+  if (!st?.repo) return;
+  const untracked = new Set((st.files ?? []).filter(f => f.x === '?' || f.y === '?').map(f => f.path));
+  const counts = await Promise.all(files.map(f => lineCounts(f, untracked.has(f))));
+  const total = { added: 0, removed: 0 };
+  counts.forEach((c, i) => {
+    if (!c) return;
+    total.added += c.added;
+    total.removed += c.removed;
+    const n = el.querySelector<HTMLElement>(`[data-edit-file="${CSS.escape(files[i])}"] [data-n]`);
+    if (n) n.innerHTML = countHtml(c);
+  });
+  const t = el.querySelector<HTMLElement>('[data-total]');
+  if (t && counts.some(Boolean)) t.innerHTML = countHtml(total);
+  saveChat(tab);
+}
+// Delegated, so the line still opens and closes in a chat brought back from history.
+document.addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  const view = t.closest<HTMLElement>('.run-edits .re-view');
+  if (view) {
+    const open = view.closest('.run-edits')!.classList.toggle('open');
+    view.setAttribute('aria-expanded', String(open));
+    return;
+  }
+  const file = t.closest<HTMLElement>('[data-edit-file]');
+  if (file && rootInfo) {
+    if (surface.name === 'box') enterMode('ide');
+    openFile(file.dataset.editFile as string);
+  }
+});
 
 function showPlan(r: Run, tab: AgentTabState): void {
   const plan = (r.plan || r.lastText).trim();
@@ -634,9 +704,12 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 
   const bits = runSummary(r, ev);
   const summary = bits.length ? ' · ' + bits.join(' · ') : '';
-  const review = r.files.size ? '<button class="btn btn-sm" data-live data-review>Review changes</button>' : '';
-  const el = addMsg(`<div class="run-done"><span>✓ Done${summary}</span>${review}</div>`, tab);
-  el.querySelector<HTMLElement>('[data-review]')?.addEventListener('click', () => showView('git', true));
+  if (r.files.size) {
+    const files = [...r.files];
+    const edits = addMsg(editsHtml(files, r.commands ?? 0), tab);
+    background(fillEditCounts(edits, files, tab));
+  }
+  addMsg(`<div class="run-done"><span>✓ Done${summary}</span></div>`, tab);
   s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' ';
   if (r.files.size && running) void reloadPreview();
 }

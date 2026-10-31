@@ -64,6 +64,7 @@ function enterMode(mode: WorkMode): void {
   // Box lists every agent Breeze found, so look for them if that hasn't happened yet.
   if (!appState.detect) detectTools().catch(() => toast('Could not look for agents on this computer'));
   if (!SURFACES.box.chat.children.length) restoreChat(SURFACES.box);
+  renderBoxSide();
   SURFACES.box.prompt.focus();
 }
 function renderBoxFolder(): void {
@@ -74,15 +75,8 @@ function renderBoxFolder(): void {
 }
 function boxAgentItems(): MenuItem[] {
   const a = selectedAgent();
-  const items: MenuItem[] = [];
-  if (a?.found && a.models?.length) {
-    items.push(
-      { label: `${a.name} Models:`, enabled: () => false },
-      ...modelMenuItems(a),
-      { sep: true },
-    );
-  }
-  items.push({ label: 'Switch Agent:', enabled: () => false });
+  // The agents to switch to first, then Switch Model, with the effort slider last.
+  const items: MenuItem[] = [{ label: 'Switch Agent:', enabled: () => false }];
   const agents = appState.detect?.agents ?? [];
   for (const ag of agents) {
     items.push({
@@ -100,7 +94,9 @@ function boxAgentItems(): MenuItem[] {
       },
     });
   }
-  return [...items, { sep: true }, { label: 'Manage agents', run: openAgentPicker }];
+  items.push({ label: 'Manage agents', run: openAgentPicker });
+  if (a?.found && a.models?.length) items.push({ sep: true }, ...modelPickerItems(a));
+  return items;
 }
 $('#boxModel').onclick = e => {
   const btn = e.currentTarget as HTMLElement;

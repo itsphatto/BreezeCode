@@ -3845,6 +3845,14 @@ body.resizing-h .term-body {
   overflow-wrap: anywhere;
 }
 
+/* An agent's reply is plain text on the page; only the user's own messages sit in a bubble. */
+.msg:not(.user) .body {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
 .msg.user {
   align-items: flex-end;
 }
@@ -5184,6 +5192,7 @@ body.vibing .ide {
 .card,
 .handoff,
 .tool-line,
+.run-edits,
 .run-done,
 .resolved {
   animation: rise .22s cubic-bezier(.2, .8, .2, 1);
@@ -6187,11 +6196,111 @@ body.vibing .ide {
   align-self: flex-start;
   box-sizing: border-box;
   margin-bottom: 14px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(34, 197, 94, .07);
-  border: 1px solid rgba(34, 197, 94, .25);
   color: #86efac;
+}
+
+/* "Edited app.ts, ran a command +12 −3 · View changes ▸": opens to the files, each with its own counts. */
+.run-edits {
+  align-self: flex-start;
+  max-width: 100%;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.re-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.re-n {
+  display: inline-flex;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.re-n:empty {
+  display: none;
+}
+
+.re-add {
+  color: #4ade80;
+}
+
+.re-del {
+  color: #f87171;
+}
+
+.re-dot {
+  color: var(--text-3);
+}
+
+.re-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.re-view:hover {
+  color: var(--text);
+}
+
+.re-view .ico-svg {
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.run-edits.open .re-view .ico-svg {
+  transform: rotate(90deg);
+}
+
+.re-files {
+  display: none;
+  flex-direction: column;
+  margin-top: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.run-edits.open .re-files {
+  display: flex;
+}
+
+.re-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: 12px var(--font-code);
+  text-align: left;
+  cursor: pointer;
+}
+
+.re-file:hover {
+  background: var(--bg-3);
+  color: var(--text);
+}
+
+.re-file .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
 }
 
@@ -7080,8 +7189,10 @@ body.vibing .ide {
 /* ================= Breeze Box (chat only) ================= */
 .box {
   display: grid;
-  /* title bar · chat tabs · conversation (takes the rest) · composer */
+  /* title bar · chat tabs (hidden: the side bar switches chats) · conversation (takes the rest) · composer */
   grid-template-rows: 45px auto minmax(0, 1fr) auto;
+  /* chats side bar · conversation · the file the agent is editing */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   height: 100vh;
   transition: filter .6s ease, opacity .6s ease, transform .6s cubic-bezier(.2, .8, .2, 1);
   background: radial-gradient(900px 420px at 50% -12%, rgba(0, 122, 255, .16), transparent 70%), var(--bg);
@@ -7097,6 +7208,362 @@ body.vibing .box {
 .box-bar {
   background: transparent;
   border-bottom-color: transparent;
+  grid-column: 1 / -1;
+}
+
+.box > .box-tabs-bar {
+  display: none;
+}
+
+.box > :is(.box-tabs-bar, .box-main, .box-composer) {
+  grid-column: 2;
+}
+
+.box > .box-main {
+  grid-row: 3;
+}
+
+.box > .box-composer {
+  grid-row: 4;
+}
+
+/* ----- Breeze Box live file: the one file an agent is editing, as it's written ----- */
+.box-live {
+  grid-column: 3;
+  grid-row: 2 / -1;
+  width: clamp(320px, 34vw, 560px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  position: relative;
+  z-index: 1;
+}
+
+/* Too narrow for three columns: the conversation keeps the room. */
+@media (max-width: 980px) {
+  .box-live {
+    display: none;
+  }
+}
+
+.box-live-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px 6px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.box-live-head:empty {
+  display: none;
+}
+
+.box-live-head .ico {
+  display: inline-flex;
+  flex: none;
+}
+
+.box-live-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.box-live-name b {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.box-live-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.box-live-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* While the agent drafts a file, a dot pulses beside "Writing". */
+.box-live.writing .box-live-status {
+  color: var(--blue-text);
+}
+
+.box-live.writing .box-live-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: liveDot 1s ease-in-out infinite alternate;
+}
+
+@keyframes liveDot {
+  to { opacity: .25; }
+}
+
+.box-live-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.box-live-code {
+  padding: 8px 0 24px;
+  font: 12px/19px var(--font-code);
+  min-width: max-content;
+}
+
+.box-live-code .ln {
+  display: flex;
+  white-space: pre;
+}
+
+.box-live-code .no {
+  flex: none;
+  width: 44px;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--text-3);
+  opacity: .6;
+  user-select: none;
+}
+
+.box-live-code .tx {
+  padding-right: 16px;
+  color: var(--text);
+}
+
+/* Lines the agent just changed. */
+.box-live-code .ln.changed {
+  background: rgba(34, 197, 94, .1);
+  box-shadow: inset 2px 0 0 #22c55e;
+}
+
+.box-live-code .ln.changed .no {
+  color: #4ade80;
+  opacity: 1;
+}
+
+.box-live-more {
+  padding: 8px 14px;
+  font: 11.5px var(--font-code);
+  color: var(--text-3);
+}
+
+.box-live-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .box-live.writing .box-live-status::before { animation: none; }
+}
+
+/* ----- Breeze Box side bar: New chat, Search, then chats grouped by folder ----- */
+.box-side {
+  grid-column: 1;
+  grid-row: 2 / -1;
+  width: 248px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px 12px;
+  border-right: 1px solid var(--line);
+  position: relative;
+  z-index: 1;
+}
+
+.box.side-closed .box-side,
+.box:not(.side-closed) .box-side-show {
+  display: none;
+}
+
+/* New chat, with the Hide button at the far right of its row. */
+.box-side-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.box-side-top .box-side-row {
+  flex: 1;
+}
+
+.box-side-hide {
+  flex: none;
+  color: var(--text-3);
+}
+
+.box-side-row,
+.box-side-chat,
+.box-side-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.box-side-row:hover,
+.box-side-chat:hover {
+  background: var(--bg-3);
+  color: var(--text);
+}
+
+.box-side-row .ico-svg {
+  color: var(--text-3);
+}
+
+/* Search turns into a field the same size as the row it replaces: the same icon, no box of its own. */
+.box-side-search {
+  background: var(--bg-3);
+  cursor: text;
+}
+
+.box-side-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  line-height: inherit;
+}
+
+.box-side-search input::placeholder {
+  color: var(--text-3);
+}
+
+.box-side-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.box-side-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 14px;
+}
+
+.box-side-group + .box-side-group {
+  margin-top: 14px;
+}
+
+/* A folder's name, small and quiet like a section title; a click folds its chats away. */
+.box-side-folder {
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.box-side-folder:hover {
+  color: var(--text-2);
+}
+
+.box-side-folder .nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.box-side-folder .ico-svg {
+  flex: none;
+  opacity: 0;
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1), opacity .15s ease;
+}
+
+.box-side-folder:hover .ico-svg,
+.box-side-group.folded .ico-svg {
+  opacity: 1;
+}
+
+.box-side-group.folded .box-side-folder .ico-svg {
+  transform: rotate(-90deg);
+}
+
+.box-side-group.folded .box-side-chats {
+  display: none;
+}
+
+.box-side-chat {
+  justify-content: space-between;
+  color: var(--text);
+}
+
+.box-side-chat .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.box-side-chat .ago {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.box-side-chat:hover .ago {
+  opacity: 1;
+}
+
+.box-side-chat.on {
+  background: var(--bg-3);
+}
+
+/* A chat whose agent is still working. */
+.box-side-busy {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+.box-side-empty {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-3);
 }
 
 .box-name {
@@ -8133,8 +8600,7 @@ body.vibing .box {
   gap: 16px;
 }
 
-#chatHistory.open,
-.box-history.open {
+#chatHistory.open {
   background: var(--bg-3);
   color: var(--text);
 }
@@ -8783,7 +9249,6 @@ button.pill:active, .pill-btn:active {
 
 /* Agent model select in composer and header */
 #agentMode { font-size: 12px; height: 28px; padding: 2px 6px; }
-.menu.sub.effort-menu { min-width: 130px; }
 
 /* Models of the agents @mentioned in the prompt: one chip per agent, click to change model or effort */
 .prompt-models { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; font-size: 12px; color: var(--text-2); padding: 2px 0; }
@@ -10139,6 +10604,36 @@ body.layout-animating #previewPane {
 .switch:disabled {
   opacity: .5;
   cursor: wait;
+}
+
+/* A smaller switch for a composer row. */
+.switch-sm {
+  --pad: 2px;
+  --knob: 14px;
+  --stretch: 5px;
+  width: 32px;
+  border-radius: 6px;
+}
+
+.switch-sm .sw-knob {
+  border-radius: 4px;
+}
+
+/* Full access, beside Send: its label turns amber while it's on, as a reminder agents can reach anything. */
+.composer-access {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-right: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: color .2s ease;
+}
+
+.composer-access.on {
+  color: var(--warn);
 }
 
 @media (prefers-reduced-motion: reduce) {
