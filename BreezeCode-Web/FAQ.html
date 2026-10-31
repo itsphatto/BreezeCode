@@ -4,11 +4,222 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FAQ | Breeze Code</title>
+  <title>Breeze Code FAQ: Price, AI Agents and Privacy</title>
   <meta name="description"
     content="Quick answers about Breeze Code: price, what you need, which AI agents work, privacy and updates.">
   <meta name="theme-color" content="#000000">
   <link rel="canonical" href="https://breezecode.itsphatto.site/FAQ.html">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Breeze Code">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="https://breezecode.itsphatto.site/FAQ.html">
+  <meta property="og:title" content="Breeze Code FAQ: Price, AI Agents and Privacy">
+  <meta property="og:description" content="Quick answers about Breeze Code: price, what you need, which AI agents work, privacy and updates.">
+  <meta property="og:image" content="https://breezecode.itsphatto.site/assets/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <!-- Mirrors the questions below; update both together -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is Breeze Code free?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yep, totally free. No plans, no credits. If you pick a paid AI agent, its provider bills you, not us."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What do I need to run it?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "A Windows 10 or 11 PC (64-bit). The installer's about 110 MB. To run code, Breeze uses what's already on your PC, like Python, Node.js or a C/C++ compiler. Missing something? It'll tell you what to install."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is there a Mac or Linux version?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Not yet. Windows only for now."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Windows says \"Windows protected your PC\". Is it safe?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The installer isn't code-signed yet, so SmartScreen gets nervous. Click More info, then Run anyway. Just make sure you got it from the official GitHub releases page."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "I've never used an AI agent. Is Breeze for me?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Absolutely. An AI agent reads your project, writes code and runs commands when you ask in plain words. Breeze shows every move it makes, so you can follow along and pick things up as you go."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I need to sign in or make an account?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Nope. Signing in with GitHub or Google is optional, and there's no Breeze Code account. If you do sign in, your details are encrypted and stay on your PC."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I need Git or Node.js?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Setup checks for them. Git powers checkpoints and Source Control, Node.js runs JavaScript. Grab them later if you need them."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Which AI agents does it work with?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Setup looks for Claude Code, Codex and Antigravity on your PC. Or run a local model through Ollama, LM Studio or any OpenAI-compatible server. Swap agents anytime in Settings."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I need an AI agent to use it?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Nope. The editor, terminal, Git and live preview all work solo. Agents are there when you want them."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I use a local model?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Fire up Ollama, LM Studio or another OpenAI-compatible server, then pick it in setup or Settings. Your prompts and code never leave your machine."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I use more than one agent on the same task?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes! @mention a few agents in one prompt, even from different companies, and give each a piece. They call dibs on their files, you settle any overlap, then they build side by side."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What if two agents try to edit the same file?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Breeze puts the file back and tells you, so nobody quietly overwrites anyone's work."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I undo what an agent did?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yep. Git checkpoints let you hop back from any change you don't like. Still, give an agent's work a look before you rely on it, and back up anything important."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does my code leave my computer?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Your files stay home. With a local model, nothing leaves your PC at all. Cloud agents like Claude Code, Codex or Antigravity send what they need for a task to their provider, under that provider's terms."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Where are my API keys stored?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Encrypted by Windows' built-in protection and saved only on your PC. Each key only ever goes to the provider it belongs to."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does Breeze Code collect telemetry?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Nope. No usage data, no crash reports, no ads. The Privacy Policy has the full story."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Which languages can I run?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Hit F5 to run Python, C, C++, C#, Java and Rust. JavaScript runs on Node in the terminal, and HTML and CSS get a live preview right beside your code. Inside a Cargo project, F5 runs the whole project with cargo run. Java needs JDK 11 or newer."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is Vibe Code Mode?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Agents can take a few minutes, so the IDE fades and an Instagram or Facebook Reels feed rolls while you wait. A card pops up when your code's ready. Head back whenever you like."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is Breeze Box?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Just a prompt and a chat, no editor. Code in a reply turns into a card you can copy or download in one click."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is it heavy on my computer?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Nope, it's built light. By our rough estimate it can use up to 12× less memory than heavier AI editors (your mileage depends on your projects and agents). Only the lines on screen get drawn, so big files stay snappy."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I use it without an internet connection?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Mostly! The editor, terminal, Git, live preview and local models all work offline. Cloud agents, update checks and sign-in need the internet."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do updates work?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Breeze checks for a new version on launch and asks before downloading. It installs when you close the app, or right away if you restart."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I use Breeze Code for work or school?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Go for it. Your code is yours, and Breeze is free for personal, school and commercial use. The Terms of Service have the fine print."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Where can I report a bug or ask for a feature?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Open an issue on GitHub. Tell us your Breeze version and what you were up to when it happened. Privacy or legal stuff? Email itsphatto@icloud.com."
+        }
+      }
+    ]
+  }
+  </script>
   <link rel="icon" href="favicon.ico" sizes="48x48">
   <link rel="icon" type="image/png" href="favicon-48.png" sizes="48x48">
   <link rel="icon" type="image/png" href="favicon-192.png" sizes="192x192">
@@ -244,7 +455,7 @@
 
   <footer class="footer">
     <div class="wrap footer-in">
-      <a class="logo" href="index.html" aria-label="Breeze Code home"><img src="favicon-192.png" alt="" width="24"
+      <a class="logo" href="./" aria-label="Breeze Code home"><img src="favicon-192.png" alt="" width="24"
           height="24" loading="lazy">Breeze Code</a>
       <nav aria-label="Footer">
         <a href="privacy.html" target="_blank" rel="noopener">Privacy<span class="skip"> (opens in a new tab)</span></a>
