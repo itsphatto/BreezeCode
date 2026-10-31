@@ -1237,7 +1237,7 @@ textarea:focus-visible {
 }
 
 /* The window buttons (platform.ts), over every screen. Each keeps the full 46×44 corner target Windows gives its own,
-   so a flick to the screen's top-right corner still closes; the hover shows as a rounded pill inside it, like the
+   so a flick to the screen's top-right corner still closes; the hover shows as a rounded square inside it, like the
    app's other buttons, red for Close. */
 .win-controls {
   position: fixed;
@@ -1273,7 +1273,7 @@ textarea:focus-visible {
 .win-btn::before {
   content: "";
   position: absolute;
-  inset: 8px 7px;
+  inset: 8px 9px; /* a 28px square */
   z-index: -1;
   border-radius: 7px;
   background: rgba(var(--ink), .1);
