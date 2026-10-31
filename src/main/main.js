@@ -3453,8 +3453,7 @@ const discord = new DiscordPresence(() => new DiscordRpc(discordClientId()), { o
 // Language icons Discord fetches itself (PNG, square, same look as the Java cup in IntelliJ's presence).
 const DISCORD_ICON_URL = key => `https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/${key}.png`;
 // The corner badge is a link too, so it shows without uploading art to the Discord application.
-// Discord draws it at a fixed size, so the image pads the logo with transparency to make it look smaller.
-const DISCORD_LOGO_URL = 'https://breezecode.itsphatto.site/assets/brand/discord-badge.png';
+const DISCORD_LOGO_URL = 'https://breezecode.itsphatto.site/favicon-192.png';
 const discordText = (s, max = 120) => (typeof s === 'string' && s.trim() ? s.trim().slice(0, max) : undefined);
 handle('discord:set', async (_e, a) => {
   if (!/^\d{15,22}$/.test(discordClientId())) throw new Error('Discord presence needs a Discord application id. Add "discord": { "clientId": "…" } to breeze.config.json or set BREEZE_DISCORD_CLIENT_ID.');
