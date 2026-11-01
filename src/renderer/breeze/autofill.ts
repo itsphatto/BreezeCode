@@ -128,7 +128,7 @@ function editorSuggest(b: EditorBuffer, force = false): void {
   const clear = !b.text.slice(pos, lineEnd < 0 ? undefined : lineEnd).trim();
   const ghost = () => {
     const s = suggest?.items[suggest.sel], t = s?.insert ?? s?.text;
-    editorGhost.textContent = clear && s?.from == null && t?.startsWith(prefix) ? t.slice(prefix.length) : '';
+    editorGhost.textContent = clear && s?.from == null && !s?.run && t?.startsWith(prefix) ? t.slice(prefix.length) : '';
     editorGhost.style.left = `${r.left + 4 + visualCol(line, pos - ls) * cw - ta.scrollLeft}px`;
     editorGhost.style.top = `${top}px`;
     // A half-typed line is usually a syntax error; its message would sit under the ghost text.

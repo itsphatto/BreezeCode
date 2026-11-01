@@ -1058,8 +1058,11 @@ function editorKeys(e: KeyboardEvent): void {
     }
   } else if (e.key === 'Tab' && plainKey(e)) {
     e.preventDefault();
-    if (!e.shiftKey && b && emmetCandidate(b, ta)) void tryEmmet(b, ta).then(ok => { if (!ok) indentKey(ta, false); });
-    else indentKey(ta, e.shiftKey);
+    if (!e.shiftKey && b && emmetCandidate(b, ta)) {
+      const value = ta.value, caret = ta.selectionStart;
+      // No expansion means a plain Tab, unless the user has typed on since: then the key press is spent.
+      void tryEmmet(b, ta).then(ok => { if (!ok && ta.value === value && ta.selectionStart === caret) indentKey(ta, false); });
+    } else indentKey(ta, e.shiftKey);
   } else if (e.key === 'Enter' && plainKey(e) && !e.shiftKey) {
     e.preventDefault();
     enterKey(ta);
