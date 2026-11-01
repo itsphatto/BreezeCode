@@ -110,7 +110,7 @@ function wordBefore(ta: CodeSurface): string {
 }
 function editorSuggest(b: EditorBuffer, force = false): void {
   const ta = b.ta;
-  if (!ta || ta.selectionStart !== ta.selectionEnd) { hideSuggest(); return; }
+  if (!ta || ta.multi || ta.selectionStart !== ta.selectionEnd) { hideSuggest(); return; } // none for several cursors
   const prefix = wordBefore(ta);
   const pos = ta.selectionStart, ls = lineStart(b.text, pos), line = b.text.slice(ls, pos);
   // Right after a "." the language server lists the members.

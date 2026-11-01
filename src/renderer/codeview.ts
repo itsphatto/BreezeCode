@@ -12,7 +12,8 @@ interface SurfaceOpts {
 }
 type SelDir = 'forward' | 'backward' | 'none';
 // A drag keeps the range it started on (a click's spot, a word, a line) and extends in the same unit.
-interface SurfaceDrag { unit: number; a: number; b: number; x: number; y: number; raf: number }
+// A Shift+Alt drag has `box`, the press point: it selects the box between that and the pointer, a cursor a line.
+interface SurfaceDrag { unit: number; a: number; b: number; x: number; y: number; raf: number; box?: { line: number; vcol: number } }
 const SURFACE_NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 
 class CodeSurface extends EventTarget {
@@ -377,6 +378,19 @@ class CodeSurface extends EventTarget {
     if (x < d.a) this.select(d.b, x);
     else this.select(d.a, Math.max(y, d.b));
   }
+  private dragTo(cx: number, cy: number) {
+    const d = this.drag!;
+    if (!d.box) { this.extendTo(this.offsetAt(cx, cy)); return; }
+    const to = this.cellAt(cx, cy), sels = columnSels(this.text, this.lines(), d.box.line, d.box.vcol, to.line, to.vcol);
+    this.setSelections(sels, sels.length - 1);
+  }
+  // The line and visual column under a client point; the column goes on past the line's end, as a box's edge may.
+  private cellAt(cx: number, cy: number): { line: number; vcol: number } {
+    const { lineHeight: lh, pad } = this.opts, rect = this.root.getBoundingClientRect();
+    const x = cx - rect.left + this.root.scrollLeft, y = cy - rect.top + this.root.scrollTop;
+    const line = Math.max(0, Math.min(Math.floor((y - pad.top) / lh), this.lines().length - 1));
+    return { line, vcol: Math.max(0, Math.round((x - pad.left) / this.opts.charWidth())) };
+  }
 
   private onPointerDown(e: PointerEvent) {
     if (e.button !== 0) { this.focus({ preventScroll: true }); return; } // keeps the caret and selection
@@ -384,10 +398,14 @@ class CodeSurface extends EventTarget {
     if (e.clientX - rect.left >= this.root.clientWidth || e.clientY - rect.top >= this.root.clientHeight) return; // on a scrollbar
     this.focus({ preventScroll: true });
     this.endDrag();
-    const off = this.offsetAt(e.clientX, e.clientY), unit = Math.min(this.clickCount(e), 3) - 1;
-    const [a, b] = e.shiftKey ? [this.anchor(), this.anchor()] : this.unitAt(off, unit);
-    this.drag = { unit, a, b, x: e.clientX, y: e.clientY, raf: 0 };
-    this.extendTo(off);
+    const off = this.offsetAt(e.clientX, e.clientY);
+    if (e.altKey) this.clicks.t = -1e9; // a cursor gesture never makes the next click a double one
+    if (e.altKey && !e.shiftKey) { this.addSelection({ anchor: off, head: off }); return; } // Alt+Click adds a cursor
+    const box = e.altKey ? this.cellAt(e.clientX, e.clientY) : undefined;
+    const unit = box ? 0 : Math.min(this.clickCount(e), 3) - 1;
+    const [a, b] = e.shiftKey && !box ? [this.anchor(), this.anchor()] : this.unitAt(off, unit);
+    this.drag = { unit, a, b, x: e.clientX, y: e.clientY, raf: 0, box };
+    this.dragTo(e.clientX, e.clientY);
     try { this.root.setPointerCapture(e.pointerId); } catch { /* synthetic or already-gone pointer */ }
     window.addEventListener('pointermove', this.onDragMove);
     window.addEventListener('pointerup', this.endDrag);
@@ -415,7 +433,7 @@ class CodeSurface extends EventTarget {
     const rect = this.root.getBoundingClientRect();
     const dist = d.y < rect.top ? d.y - rect.top : d.y > rect.bottom ? d.y - rect.bottom : 0;
     if (dist) this.root.scrollTop += (dist / 4) * this.opts.lineHeight;
-    this.extendTo(this.offsetAt(d.x, Math.max(rect.top, Math.min(d.y, rect.bottom - 1))));
+    this.dragTo(d.x, Math.max(rect.top, Math.min(d.y, rect.bottom - 1)));
     if (dist) d.raf = requestAnimationFrame(this.dragStep);
   };
   private endDrag = () => {

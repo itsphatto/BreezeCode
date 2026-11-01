@@ -12,7 +12,7 @@ function emmetSyntaxOf(b: EditorBuffer): string | null {
 function emmetCandidate(b: EditorBuffer, ta: CodeSurface): { start: number; end: number; abbr: string; syntax: string } | null {
   const syntax = emmetSyntaxOf(b);
   const v = ta.value, end = ta.selectionStart;
-  if (!syntax || end !== ta.selectionEnd || !end) return null;
+  if (!syntax || ta.multi || end !== ta.selectionEnd || !end) return null; // several cursors: Tab is a plain indent
   const ls = lineStart(v, end);
   if (end - ls > 1000) return null; // a minified line
   const style = EMMET_STYLE.has(syntax);

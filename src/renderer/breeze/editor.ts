@@ -822,6 +822,7 @@ splitTa.addEventListener('keydown', (e: Event) => {
   if (k.isComposing) return;
   const b = splitBuf();
   if (!b) return;
+  if (k.key === 'Escape' && splitTa.multi) { k.preventDefault(); splitTa.clearExtras(); return; } // back to one cursor
   // Ctrl+S goes through file.save, which saves this side's file while it has focus.
   if (k.key === 'Tab' && !k.ctrlKey && !k.altKey) {
     k.preventDefault();
@@ -889,6 +890,7 @@ function updateStatus(): void {
   if ($('#sbProblems').dataset.html !== problemsHtml) { $('#sbProblems').innerHTML = problemsHtml; $('#sbProblems').dataset.html = problemsHtml; }
   $('#sbProblems').classList.toggle('hidden', !problems);
   if (!tb) return;
+  if (tb.ta.multi) { $('#sbPos').textContent = plural(tb.ta.selections.length, 'selection'); return; }
   const { selectionStart: s, selectionEnd: e } = tb.ta;
   const ls = lineStart(tb.text, s);
   const selected = e > s ? ` (${e - s} selected)` : '';
@@ -1003,11 +1005,15 @@ function editorKeys(e: KeyboardEvent): void {
   if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter')) {
     lastUserTypeAt = Date.now(); // the tick itself comes from sfx's typing listener
   }
-  if (suggestKeys(e, ta.input)) return;
+  // With several cursors keys do the plain thing at each one: no autofill, pairs, closing tags, Emmet or smart indent.
+  const multi = ta.multi;
+  if (multi) { if (suggest?.owner === ta.input) hideSuggest(); } else if (suggestKeys(e, ta.input)) return;
   if (e.key === 'F2' && !e.ctrlKey && !e.shiftKey && !e.altKey && ta !== splitTa) { e.preventDefault(); renameSymbol(); return; }
-  if (b && closeTagKey(e, ta, b)) { e.preventDefault(); return; }
-  if (b && pairKey(e, ta)) { e.preventDefault(); return; }
-  if (b && e.ctrlKey && e.key === ' ') { e.preventDefault(); editorSuggest(b, true); return; }
+  if (multi && e.key === 'Escape' && plainKey(e) && !e.shiftKey) { e.preventDefault(); ta.clearExtras(); return; }
+  if (multi && e.key === 'Tab' && plainKey(e)) { e.preventDefault(); if (!e.shiftKey) ta.insertText(INDENT); return; }
+  if (b && !multi && closeTagKey(e, ta, b)) { e.preventDefault(); return; }
+  if (b && !multi && pairKey(e, ta)) { e.preventDefault(); return; }
+  if (b && e.ctrlKey && e.key === ' ') { e.preventDefault(); editorSuggest(b, true); return; } // none with several cursors
   if (b && (e.ctrlKey || e.metaKey) && !e.altKey && (k === 'z' || k === 'y')) {
     const isUndo = k === 'z' && !e.shiftKey;
     if (isUndo) {
@@ -1059,7 +1065,7 @@ function editorKeys(e: KeyboardEvent): void {
       // No expansion means a plain Tab, unless the user has typed on since: then the key press is spent.
       void tryEmmet(b, ta).then(ok => { if (!ok && ta.value === value && ta.selectionStart === caret) indentKey(ta, false); });
     } else indentKey(ta, e.shiftKey);
-  } else if (e.key === 'Enter' && plainKey(e) && !e.shiftKey) {
+  } else if (e.key === 'Enter' && plainKey(e) && !e.shiftKey && !multi) { // several cursors: the surface's plain newline
     e.preventDefault();
     enterKey(ta);
   }
@@ -1125,6 +1131,48 @@ function selectLine(): void {
   ta.focus();
   ta.setSelectionRange(ls, Math.min(le + 1, ta.value.length));
   if (ta !== splitTa) updateCaret();
+}
+
+/* ----- Several cursors (Alt+Click and Shift+Alt+drag are the surface's own) ----- */
+function revealPrimary(b: EditorBuffer, ta: CodeSurface): void {
+  revealOffset(b, ta.selectionDirection === 'backward' ? ta.selectionStart : ta.selectionEnd, ta);
+}
+// Ctrl+D: an empty caret selects the word it touches; a selection gains the next copy of the newest one's text.
+function addNextOccurrence(): void {
+  const fe = focusedEditor();
+  if (!fe) return;
+  const { ta } = fe, sels = ta.selections, p = ta.primaryIndex, newest = sels[p];
+  const next = nextOccurrence(ta.value, [...sels.filter((_, i) => i !== p), newest]);
+  if (!next) return;
+  if (newest.anchor === newest.head) ta.setSelections(sels.map((s, i) => (i === p ? next : s)), p);
+  else ta.addSelection(next);
+  revealPrimary(fe.b, ta);
+}
+// Ctrl+Shift+L: every copy of the primary's text (of the word at an empty caret), the primary staying where it was.
+function selectAllOccurrences(): void {
+  const ta = focusedEditor()?.ta;
+  if (!ta) return;
+  const v = ta.value, prim = ta.selections[ta.primaryIndex];
+  const r = prim.anchor === prim.head ? nextOccurrence(v, [prim]) : prim;
+  if (!r) return;
+  const lo = Math.min(r.anchor, r.head), hi = Math.max(r.anchor, r.head), all = allOccurrences(v, v.slice(lo, hi));
+  ta.setSelections(all, selIndexOf(all, { anchor: lo, head: hi }));
+}
+// Ctrl+Alt+Up/Down: a caret on the line above the top-most selection (below the bottom-most) at its visual column.
+// Pressed again straight after, it keeps the first column, so passing a short or blank line doesn't pull it left.
+let cursorGoal: { ta: CodeSurface; sels: string; vcol: number } | null = null;
+function addCursorVertical(dir: -1 | 1): void {
+  const fe = focusedEditor();
+  if (!fe) return;
+  const { ta } = fe, v = ta.value, sels = ta.selections, key = () => ta.selections.map(s => `${s.anchor},${s.head}`).join(';');
+  const edge = dir < 0 ? sels[0] : sels[sels.length - 1];
+  const at = dir < 0 ? Math.min(edge.anchor, edge.head) : Math.max(edge.anchor, edge.head), ls = lineStart(v, at);
+  if (dir < 0 ? ls === 0 : lineEnd(v, at) === v.length) return;
+  const vcol = cursorGoal?.ta === ta && cursorGoal.sels === key() ? cursorGoal.vcol : visualCol(v.slice(ls, at), at - ls);
+  const ts = dir < 0 ? lineStart(v, ls - 1) : lineEnd(v, at) + 1, off = ts + colAtVisual(v.slice(ts, lineEnd(v, ts)), vcol);
+  ta.addSelection({ anchor: off, head: off });
+  cursorGoal = { ta, sels: key(), vcol };
+  revealPrimary(fe.b, ta);
 }
 
 /* ----- Find in file ----- */

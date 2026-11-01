@@ -55,6 +55,10 @@ const commands: Record<string, () => unknown> = {
   'sel.dup': duplicateLines,
   'sel.up': () => moveLines(-1),
   'sel.down': () => moveLines(1),
+  'sel.addNext': addNextOccurrence,
+  'sel.allOccurrences': selectAllOccurrences,
+  'sel.cursorAbove': () => addCursorVertical(-1),
+  'sel.cursorBelow': () => addCursorVertical(1),
   'view.palette': () => openPalette(),
   'view.paletteF1': () => openPalette(),
   'view.files': () => showView('files', true),
@@ -316,6 +320,11 @@ const MENUS: Menu[] = [
       { label: 'Copy Line Down', act: 'sel.dup', key: 'Shift+Alt+Down', enabled: hasFile },
       { label: 'Move Line Up', act: 'sel.up', key: 'Alt+Up', enabled: hasFile },
       { label: 'Move Line Down', act: 'sel.down', key: 'Alt+Down', enabled: hasFile },
+      { sep: true },
+      { label: 'Add Next Occurrence', act: 'sel.addNext', key: 'Ctrl+D', enabled: hasFile },
+      { label: 'Select All Occurrences', act: 'sel.allOccurrences', key: 'Ctrl+Shift+L', enabled: hasFile },
+      { label: 'Add Cursor Above', act: 'sel.cursorAbove', key: 'Ctrl+Alt+Up', enabled: hasFile },
+      { label: 'Add Cursor Below', act: 'sel.cursorBelow', key: 'Ctrl+Alt+Down', enabled: hasFile },
     ]
   },
   {
@@ -471,7 +480,8 @@ function comboOf(e: KeyboardEvent): string {
   return [e.ctrlKey || e.metaKey ? 'Ctrl' : '', e.shiftKey ? 'Shift' : '', e.altKey ? 'Alt' : '', keyName(e)].filter(Boolean).join('+');
 }
 // Commands that only make sense while typing in the code editor.
-const EDITOR_ONLY = new Set(['edit.comment', 'sel.line', 'sel.dup', 'sel.up', 'sel.down', 'go.definition', 'go.references']);
+const EDITOR_ONLY = new Set(['edit.comment', 'sel.line', 'sel.dup', 'sel.up', 'sel.down', 'sel.addNext', 'sel.allOccurrences', 'sel.cursorAbove',
+  'sel.cursorBelow', 'go.definition', 'go.references']);
 
 // The Keyboard shortcuts pop-up: every menu item that has a key, plus a few gestures, with a search box.
 // It lives here rather than with Settings because `commands` above holds it by name while this file loads.
@@ -485,6 +495,8 @@ function showShortcuts(): void {
   }
   all.push(
     { label: 'Indent / outdent', key: 'Tab / Shift+Tab' },
+    { label: 'Add cursor', key: 'Alt+Click' },
+    { label: 'Column select', key: 'Shift+Alt+Drag' },
     { label: 'Rename file', key: 'F2' },
     { label: 'Menu bar', key: 'Alt' },
     { label: 'Reorder tabs', key: 'Drag a tab' }
@@ -945,6 +957,7 @@ document.addEventListener('keydown', e => {
 // Alt alone (released without another key) opens the menu bar, like a native app.
 let altAlone = false;
 document.addEventListener('keydown', e => { altAlone = e.key === 'Alt' && !e.ctrlKey && !e.shiftKey; }, true);
+document.addEventListener('pointerdown', () => { altAlone = false; }, true); // Alt+Click adds a cursor; no menu after it
 document.addEventListener('keyup', e => {
   if (e.key === 'Alt' && altAlone && !$('#ide').classList.contains('hidden') && !modalOpen()) {
     e.preventDefault();
