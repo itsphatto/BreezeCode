@@ -64,6 +64,12 @@ contextBridge.exposeInMainWorld('breeze', {
   run: {
     file: rel => invoke('run:file', rel),
   },
+  update: {
+    get: () => invoke('update:get'),
+    download: () => invoke('update:download'),
+    install: () => invoke('update:install'),
+    onState: cb => listen('update:state', cb),
+  },
   sys: {
     detect: force => invoke('sys:detect', !!force),
     openExternal: url => invoke('sys:openExternal', url),

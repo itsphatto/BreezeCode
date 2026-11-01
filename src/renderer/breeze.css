@@ -1358,6 +1358,38 @@ textarea:focus-visible {
   gap: 2px;
 }
 
+.update-btn {
+  margin-right: 6px;
+  padding: 2px 10px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--blue);
+  color: #f5f5f7;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.update-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.update-btn:disabled {
+  cursor: default;
+  opacity: .8;
+}
+
+.update-btn[hidden] {
+  display: none;
+}
+
+/* The titlebar's account picture: 1px larger than the shared 24px avatar. */
+.titlebar #avatars .avatar {
+  width: 25px;
+  height: 25px;
+}
+
 .avatars {
   display: flex;
 }

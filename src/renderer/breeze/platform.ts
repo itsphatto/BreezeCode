@@ -264,6 +264,7 @@ function demoApi(): BreezeApi {
       onExit() { return () => { }; },
     },
     run: { file() { return Promise.resolve({ error: 'Programs run only in the Breeze desktop app (npm start).' }); } },
+    update: { get: () => Promise.resolve({ state: 'idle' }), download: () => Promise.resolve(), install: () => Promise.resolve(), onState: () => () => {} },
     sys: {
       async detect() {
         await wait(500);

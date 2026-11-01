@@ -98,42 +98,44 @@ function configureAutoUpdater() {
     });
     if (response === 0) shell.openExternal('https://github.com/itsphatto/BreezeCode/releases/latest');
   });
-  autoUpdater.on('download-progress', p => win?.setProgressBar(Math.max(0, Math.min(1, p.percent / 100))));
-
-  autoUpdater.on('update-available', async info => {
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'info',
-      title: 'Update available',
-      message: `Breeze Code ${info.version} is available.`,
-      detail: 'Download the update now? You can keep using Breeze Code while it downloads.',
-      buttons: ['Download update', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    });
-    if (response !== 0) return;
-    downloading = true;
-    win?.setProgressBar(2); // indeterminate until the first progress event
-    autoUpdater.downloadUpdate().catch(logError('update download'));
+  autoUpdater.on('download-progress', p => {
+    const percent = Math.max(0, Math.min(100, p.percent));
+    win?.setProgressBar(percent / 100);
+    setUpdateState({ ...updateState, state: 'downloading', percent });
   });
 
-  autoUpdater.on('update-downloaded', async info => {
+  // No dialog on launch: the titlebar shows an Update button (update:state) and the user starts it from there.
+  autoUpdater.on('update-available', info => setUpdateState({ state: 'available', version: info.version }));
+  autoUpdater.on('update-downloaded', info => {
     downloading = false;
     win?.setProgressBar(-1);
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'info',
-      title: 'Update ready',
-      message: `Breeze Code ${info.version} has been downloaded.`,
-      detail: 'Restart now to install it, or install automatically when you close the app.',
-      buttons: ['Restart and install', 'Install on quit'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    });
-    if (response === 0) autoUpdater.quitAndInstall(false, true);
+    setUpdateState({ state: 'ready', version: info.version });
   });
 
+  startUpdateDownload = () => {
+    if (updateState.state !== 'available') return;
+    downloading = true;
+    win?.setProgressBar(2); // indeterminate until the first progress event
+    setUpdateState({ ...updateState, state: 'downloading', percent: 0 });
+    autoUpdater.downloadUpdate().catch(error => {
+      logError('update download')(error);
+      setUpdateState({ ...updateState, state: 'available' });
+    });
+  };
+  installUpdate = () => {
+    if (updateState.state === 'ready') autoUpdater.quitAndInstall(false, true);
+  };
+
   autoUpdater.checkForUpdates().catch(logError('update check'));
+}
+
+// What the titlebar's Update button shows: idle (hidden), available, downloading (with percent) or ready.
+let updateState = { state: 'idle' };
+let startUpdateDownload = () => {};
+let installUpdate = () => {};
+function setUpdateState(next) {
+  updateState = next;
+  win?.webContents.send('update:state', updateState);
 }
 
 
@@ -1306,6 +1308,9 @@ handle('sys:detect', async (_e, force) => {
 });
 
 /* ================= Window & shell IPC ================= */
+handle('update:get', () => updateState);
+handle('update:download', () => startUpdateDownload());
+handle('update:install', () => installUpdate());
 handle('sys:openExternal', (_e, url) => openInBrowser(url));
 // Opens a terminal running one of the tools list's install commands; anything else is refused.
 handle('sys:runCommand', async (_e, cmd) => {

@@ -81,6 +81,9 @@ interface LspCompletion { label: string; kind: number; detail: string; sort: str
 interface LspLocation { path: string | null; file: string; line: number; col: number; len: number; text?: string; }
 interface LspEdit { start: { line: number; character: number }; end: { line: number; character: number }; text: string; }
 
+// The titlebar Update button's state, sent by main.js's updater.
+interface UpdateState { state: 'idle' | 'available' | 'downloading' | 'ready'; version?: string; percent?: number; }
+
 interface BreezeApi {
   version?: string;
   platform?: string;
@@ -134,6 +137,7 @@ interface BreezeApi {
     onExit(cb: (id: number, code: number | null) => void): () => void;
   };
   run: { file(rel: string): Promise<{ id?: number; cwd?: string; error?: string }>; };
+  update: { get(): Promise<UpdateState>; download(): Promise<void>; install(): Promise<void>; onState(cb: (s: UpdateState) => void): () => void; };
   sys: { detect(force?: boolean): Promise<Detection>; openExternal(url: string): Promise<void>; runCommand(cmd: string): Promise<boolean>; getPathForFile?(file: File): string; };
   live: { status(): Promise<LiveStatus>; start(): Promise<LiveStatus>; stop(): Promise<LiveStatus>; };
   // A local LLM server (Ollama, LM Studio or anything OpenAI-compatible).
