@@ -1141,7 +1141,7 @@ handle('term:complete', async (_e, word) => {
 function killAllTerms() {
   for (const c of terms.values()) killTree(c);
   terms.clear();
-  stopDebug(); // a reloaded or closed window has nobody left to drive the debug session
+  killDebug(); // a reloaded or closed window has nobody left to drive the debug session, and the app may be exiting
   if (activeRun) { activeRun.cancel(); activeRun = null; }
 }
 
@@ -1151,7 +1151,9 @@ function killAllTerms() {
 const debug = new DebugManager();
 debug.on('event', ev => win?.webContents.send('debug:event', ev));
 function stopDebug() { debug.stop().catch(() => { /* already gone */ }); }
-app.on('before-quit', stopDebug);
+// On the way out nothing waits for stop() (its tree kill comes after a disconnect), so the tree is killed at once.
+function killDebug() { debug.killNow(); }
+app.on('before-quit', killDebug);
 // A breakpoint list from the page: whole lines only, text fields as strings.
 function cleanBps(list) {
   if (!Array.isArray(list)) return [];

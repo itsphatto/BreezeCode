@@ -219,6 +219,15 @@ class DebugManager extends EventEmitter {
 
   stop() { return this.stopSession(this.session); }
 
+  // For an app that is exiting and won't wait for stop(): kills the process tree right now, awaiting nothing, and
+  // marks the session dead so any connection attempt still in flight gives up. The usual 'exited' / 'stopped' follow.
+  killNow() {
+    const s = this.session;
+    if (!s || s.finished) return;
+    s.dead = true;
+    if (s.child && s.exitCode === undefined && !s.spawnFailed) killTree(s.child);
+  }
+
   restart() {
     if (!this.last) return Promise.resolve();
     return this.start({ ...this.last, breakpoints: Object.fromEntries(this.bps), exceptions: this.exceptions });

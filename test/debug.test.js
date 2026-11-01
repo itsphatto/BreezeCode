@@ -257,6 +257,22 @@ test('node: stop while paused does not let the program run on', { timeout: 20000
   assert.equal(later, '', 'no program output after the stop');
 });
 
+test('node: killNow kills the paused debuggee at once, awaiting nothing, and the session ends stopped', { timeout: 20000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({ file: LOOP_JS, root: FIX, node: process.execPath, breakpoints: { [LOOP_JS]: [{ line: 3, enabled: true }] } });
+  await r.next(e => e.type === 'paused', 15000, 'pause');
+  const pid = m.pid;
+  assert.ok(alive(pid));
+  assert.equal(m.killNow(), undefined);
+  const end = Date.now() + 2000;
+  while (alive(pid) && Date.now() < end) await new Promise(res => setTimeout(res, 20));
+  assert.ok(!alive(pid), 'the debuggee is gone within 2 s');
+  await r.next(isState('stopped'), 5000, 'stopped');
+  assert.equal(m.state, 'stopped');
+  m.killNow(); // with no session it does nothing
+});
+
 test('node: uncaught exceptions pause with the message when asked', { timeout: 20000 }, async t => {
   const m = new DebugManager();
   const r = recorder(m, t);
