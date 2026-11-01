@@ -21,6 +21,7 @@ const skillsLib = require('./skills');
 const mcpLib = require('./mcp');
 const { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } = require('./previewServer');
 const { expandAbbr } = require('./emmet');
+const { DebugManager, killTree } = require('./debug');
 
 let autoUpdater = null;
 try {
@@ -452,7 +453,7 @@ function boxDir() {
 async function setRoot(dir) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
-  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); }
+  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); stopDebug(); }
   root = dir;
   termCwd = dir;
   const saved = loadState();
@@ -675,7 +676,7 @@ handle('fs:restore', async () => {
 handle('fs:openLaunch', () => openLaunch(root));
 
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); saveState({ lastRoot: null });
+  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); stopDebug(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {
@@ -1118,11 +1119,6 @@ handle('run:file', async (_e, rel) => {
   }
 });
 
-const TASKKILL = path.join(process.env.SystemRoot || String.raw`C:\Windows`, 'System32', 'taskkill.exe');
-function killTree(child) {
-  if (process.platform === 'win32') execFile(TASKKILL, ['/pid', String(child.pid), '/T', '/F'], () => { /* already gone */ });
-  else child.kill('SIGTERM');
-}
 handle('term:kill', (_e, id) => {
   const c = terms.get(id);
   if (c) killTree(c); // the whole tree first, then stop the run from starting its next step
@@ -1145,8 +1141,68 @@ handle('term:complete', async (_e, word) => {
 function killAllTerms() {
   for (const c of terms.values()) killTree(c);
   terms.clear();
+  stopDebug(); // a reloaded or closed window has nobody left to drive the debug session
   if (activeRun) { activeRun.cancel(); activeRun = null; }
 }
+
+/* ================= Debugger ================= */
+// One session at a time (debug.js). Its events go to the page as `debug:event`; every file the page names goes
+// through resolveIn first, so the debugger only ever hears about files inside the open folder.
+const debug = new DebugManager();
+debug.on('event', ev => win?.webContents.send('debug:event', ev));
+function stopDebug() { debug.stop().catch(() => { /* already gone */ }); }
+app.on('before-quit', stopDebug);
+// A breakpoint list from the page: whole lines only, text fields as strings.
+function cleanBps(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter(b => b && Number.isInteger(b.line) && b.line > 0).map(b => {
+    const bp = { line: b.line, enabled: b.enabled !== false };
+    for (const k of ['condition', 'hitCondition', 'logMessage']) if (typeof b[k] === 'string' && b[k].trim()) bp[k] = b[k];
+    return bp;
+  });
+}
+handle('debug:start', async (_e, rel, opts) => {
+  const file = resolveIn(rel);
+  const o = opts && typeof opts === 'object' ? opts : {};
+  // Breakpoint files arrive project-relative; one that leaves the project is dropped.
+  const breakpoints = {};
+  if (o.breakpoints && typeof o.breakpoints === 'object') {
+    for (const [f, list] of Object.entries(o.breakpoints)) {
+      let abs;
+      try { abs = resolveIn(f); } catch { continue; }
+      breakpoints[abs] = cleanBps(list);
+    }
+  }
+  const { tools, pathValue } = await getTools();
+  const env = toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
+  if (/\.py$/i.test(file)) env.PYTHONUTF8 = '1'; // as F5 does, so print("café ✓") survives a pipe on a non-UTF-8 code page
+  const node = /\.(?:[cm]?js|[cm]?ts)$/i.test(file) ? await which('node', pathValue) : null;
+  await debug.start({
+    root, file, env,
+    python: tools.python?.path || 'python',
+    node: node || 'node',
+    stopOnEntry: !!o.stopOnEntry,
+    breakpoints: o.breakpoints ? breakpoints : undefined,
+    exceptions: ['none', 'uncaught', 'all'].includes(o.exceptions) ? o.exceptions : undefined,
+  });
+});
+handle('debug:stop', () => debug.stop());
+handle('debug:restart', () => {
+  // A session from an earlier folder isn't restarted into this one.
+  if (debug.last && (!root || path.resolve(debug.last.root) !== path.resolve(root))) throw new Error('The debugger is not running');
+  return debug.restart();
+});
+handle('debug:pause', () => debug.pause());
+handle('debug:continue', () => debug.continue());
+handle('debug:step', (_e, kind) => debug.step(String(kind)));
+handle('debug:runTo', (_e, rel, line) => debug.runTo(resolveIn(rel), Number(line) | 0));
+handle('debug:setBreakpoints', (_e, rel, bps) => debug.setBreakpoints(resolveIn(rel), cleanBps(bps)));
+handle('debug:exceptions', (_e, mode) => debug.setExceptions(String(mode)));
+handle('debug:scopes', (_e, frameId) => debug.scopes(Number(frameId) | 0));
+handle('debug:children', (_e, ref) => debug.children(Number(ref) | 0));
+handle('debug:evaluate', (_e, expr, frameId, context) => debug.evaluate(String(expr), frameId == null ? undefined : Number(frameId) | 0, ['watch', 'repl', 'hover'].includes(context) ? context : 'repl'));
+handle('debug:setValue', (_e, ref, name, value) => debug.setValue(Number(ref) | 0, String(name), String(value)));
+handle('debug:stdin', (_e, text) => debug.stdin(String(text)));
 
 /* ================= Tool & agent detection ================= */
 const HOME = os.homedir();

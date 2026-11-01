@@ -397,6 +397,24 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async references() { return []; },
       async rename() { return {}; },
     },
+    // Debugging runs the program on this computer, so the browser preview has nothing to attach to.
+    debug: {
+      async start() { throw new Error('Debugging needs the desktop app'); },
+      async stop() { },
+      async restart() { },
+      async pause() { },
+      async continue() { },
+      async step() { },
+      async runTo() { },
+      async setBreakpoints() { },
+      async exceptions() { },
+      async scopes() { return []; },
+      async children() { return []; },
+      async evaluate() { throw new Error('Debugging needs the desktop app'); },
+      async setValue() { throw new Error('Debugging needs the desktop app'); },
+      async stdin() { return false; },
+      onEvent() { return () => { /* no events in the browser */ }; },
+    },
     git: {
       async status() {
         return {

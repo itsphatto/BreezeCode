@@ -81,6 +81,20 @@ interface LspCompletion { label: string; kind: number; detail: string; sort: str
 interface LspLocation { path: string | null; file: string; line: number; col: number; len: number; text?: string; }
 interface LspEdit { start: { line: number; character: number }; end: { line: number; character: number }; text: string; }
 
+// The debugger (main/debug.js): one session, Python or JavaScript/TypeScript.
+interface Bp { line: number; enabled: boolean; condition?: string; hitCondition?: string; logMessage?: string; } // line is 1-based
+interface DebugFrame { id: number; name: string; file: string | null; line: number; col: number; } // file project-relative, null for internals
+interface DebugValue { name: string; value: string; type: string; ref: number; } // ref > 0 = expandable
+type DebugState = 'starting' | 'running' | 'paused' | 'stopped';
+type DebugEvent =
+  | { type: 'state'; state: DebugState }
+  | { type: 'paused'; reason: string; frames: DebugFrame[]; exception?: string }
+  | { type: 'output'; stream: 'stdout' | 'stderr' | 'console'; text: string }
+  | { type: 'breakpoints'; file: string; lines: number[] } // verified lines
+  | { type: 'exited'; code: number | null }
+  | { type: 'error'; message: string; hint?: 'install-debugpy' | 'node-too-old' | 'not-found' };
+interface DebugStartOptions { stopOnEntry?: boolean; breakpoints?: Record<string, Bp[]>; exceptions?: 'none' | 'uncaught' | 'all'; }
+
 // The titlebar Update button's state, sent by main.js's updater.
 interface UpdateState { state: 'idle' | 'available' | 'downloading' | 'ready'; version?: string; percent?: number; }
 
@@ -114,6 +128,24 @@ interface BreezeApi {
     onChange(cb: (paths: string[]) => void): () => void;
     onWatchLost(cb: (reason: string) => void): () => void;
     importFile(dir: string, name: string, data: Uint8Array): Promise<string>;
+  };
+  debug: {
+    // Resolves once the program is running (or the attempt is over); failures arrive as `error` events.
+    start(rel: string, opts?: DebugStartOptions): Promise<void>;
+    stop(): Promise<void>;
+    restart(): Promise<void>;
+    pause(): Promise<void>;
+    continue(): Promise<void>;
+    step(kind: 'over' | 'into' | 'out'): Promise<void>;
+    runTo(rel: string, line: number): Promise<void>;
+    setBreakpoints(rel: string, bps: Bp[]): Promise<void>;
+    exceptions(mode: 'none' | 'uncaught' | 'all'): Promise<void>;
+    scopes(frameId: number): Promise<DebugValue[]>;
+    children(ref: number): Promise<DebugValue[]>;
+    evaluate(expr: string, frameId: number | undefined, context: 'watch' | 'repl' | 'hover'): Promise<DebugValue>;
+    setValue(ref: number, name: string, value: string): Promise<DebugValue>;
+    stdin(text: string): Promise<boolean>;
+    onEvent(cb: (ev: DebugEvent) => void): () => void;
   };
   lint: { check(code: string, ext: string): Promise<SyntaxResult>; };
   lsp: {
