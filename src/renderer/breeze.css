@@ -1969,7 +1969,8 @@ body.resizing-h iframe {
 .plugin-item.open > .plugin-skills {
   grid-template-rows: 1fr;
   opacity: 1;
-  visibility: visible;
+  /* inherit, not visible: visible would show the rows through anything hiding the app (the launch on a reload). */
+  visibility: inherit;
   transition: grid-template-rows .26s cubic-bezier(.2, .8, .2, 1), opacity .22s ease .04s, visibility 0s;
 }
 

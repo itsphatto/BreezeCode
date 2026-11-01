@@ -411,9 +411,26 @@ function ansi256Color(n: number): string {
   return `rgb(${gray}, ${gray}, ${gray})`;
 }
 
+// A file name's colour in git's diffstat: the main colour of its Explorer icon, unless that's too dark to read on the
+// terminal (then it keeps the text colour).
+function fileTint(name: string): string | null {
+  const hex = /#([0-9a-f]{6})\b/i.exec(fileIcon(name.replaceAll('&amp;', '&')))?.[1];
+  if (!hex) return null;
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return .2126 * r + .7152 * g + .0722 * b < .25 ? null : `#${hex}`;
+}
+const tinted = (name: string) => { const c = fileTint(name); return c ? `<span data-style="color:${c}">${name}</span>` : name; };
+
 // Plain CLI semantic output highlighter (errors, warnings, successes, URLs)
 function highlightPlainCli(text: string): string {
   let out = text;
+  // git's diffstat (pull, merge, diff --stat): " name | 13 +++--" or " name | Bin 0 -> 9 bytes". The name takes its
+  // file type's colour, the + run is green and the - run red, like the summary's insertions(+) and deletions(-).
+  out = out.replace(/^( *)(\S(?:.*?\S)?)( +\| +)(\d+ )(?=[+-])(\+*)(-*)$/gm, (_m, lead, name, bar, n, plus, minus) =>
+    `${lead}${tinted(name)}${bar}${n}${plus ? `<span class="term-kw-success">${plus}</span>` : ''}${minus ? `<span class="term-kw-error">${minus}</span>` : ''}`);
+  out = out.replace(/^( *)(\S(?:.*?\S)?)( +\| +Bin )/gm, (_m, lead, name, rest) => `${lead}${tinted(name)}${rest}`);
+  out = out.replace(/\b\d+ insertions?\(\+\)/g, '<span class="term-kw-success">$&</span>');
+  out = out.replace(/\b\d+ deletions?\(-\)/g, '<span class="term-kw-error">$&</span>');
   // npm CLI headers: "npm warn ...", "npm notice ...", "npm ERR! ..."
   out = out.replace(/\b(npm)(\s+)(warn(?:ing)?|notice|invalid|ERR!|error|info|http)\b/gi, (_m, npmWord, space, lvl) => {
     let lvlClass = 'term-kw-info';
