@@ -1821,6 +1821,25 @@ body.resizing-h iframe {
   animation: pop .25s cubic-bezier(.3, 1.6, .5, 1);
 }
 
+/* Only remote changes waiting: the badge reads ↓N in the incoming blue. */
+.act-btn .badge.incoming {
+  background: #6cb6ff;
+  color: #0b1a2b;
+}
+
+/* Local changes and remote changes both: a small incoming dot rides on the count. */
+.act-btn .badge.has-incoming::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6cb6ff;
+  box-shadow: 0 0 0 1.5px var(--bg-1);
+}
+
 .sidebar {
   position: relative;
   display: flex;

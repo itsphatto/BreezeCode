@@ -41,16 +41,27 @@ async function refreshGit(): Promise<void> {
     }
   }
 }
+// Incoming files already announced, so a toast only fires when the remote brings something new.
+let knownIncoming = new Set<string>();
 function renderBranch(): void {
   const s = gitState;
   const ahead = s.ahead ? ` ↑${s.ahead}` : '';
   const behind = s.behind ? ` ↓${s.behind}` : '';
   const branchLabel = s.repo ? esc((s.branch || 'main') + ahead + behind) : 'no repository';
   $('#sbBranch').innerHTML = `${svgIcon('gitBranch', 14)}<span>${branchLabel}</span>`;
+  // Local changes take the badge's number; files waiting on the remote show as ↓N on their own, or as a dot beside the count.
   const n = s.files?.length ?? 0;
+  const incoming = s.incoming ?? [];
+  const inN = incoming.length;
   const badge = $('.act-btn[data-view=git] .badge');
-  badge.textContent = n > 99 ? '99+' : String(n || '');
-  badge.classList.toggle('hidden', !n);
+  badge.textContent = n ? (n > 99 ? '99+' : String(n)) : inN ? `↓${inN > 99 ? '99+' : inN}` : '';
+  badge.classList.toggle('hidden', !n && !inN);
+  badge.classList.toggle('incoming', !n && !!inN);
+  badge.classList.toggle('has-incoming', !!n && !!inN);
+  badge.title = [n ? `${n} local change${n === 1 ? '' : 's'}` : '', inN ? `${inN} file${inN === 1 ? '' : 's'} changed on the remote, not pulled yet` : ''].filter(Boolean).join(' · ');
+  const fresh = incoming.filter(p => !knownIncoming.has(p));
+  if (fresh.length) toast(fresh.length === 1 ? `${baseName(fresh[0])} changed on the remote. Pull to get it.` : `${fresh.length} files changed on the remote. Pull to get them.`);
+  knownIncoming = new Set(incoming);
   renderPs();
 }
 // Explorer decorations: path -> status class, plus every folder that contains a change.
@@ -340,7 +351,7 @@ function renderScm(): void {
   const commitLabel = (!staged.length && changes.length ? 'Commit All' : 'Commit') + (gitState.hasRemote ? ' & Push' : '');
   const sync = syncLabel(gitState);
   const syncBtn = sync ? `<button class="btn btn-sm commit-btn" data-act="git.sync">${sync}</button>` : '';
-  const empty = files.length ? '' : '<p class="side-note">No changes. Everything is saved in a checkpoint.</p>';
+  const empty = files.length ? '' : gitState.incoming?.length ? '<p class="side-note">No local changes. The remote has files you haven’t pulled yet.</p>' : '<p class="side-note">No changes. Everything is saved in a checkpoint.</p>';
   el.innerHTML = `
     <div class="commit-box">
       <textarea class="input" id="scmMsg" rows="1" data-no-grow aria-label="Commit message" placeholder="Message (Ctrl+Enter to commit on ‘${escAttr(gitState.branch || 'main')}’)"></textarea>
