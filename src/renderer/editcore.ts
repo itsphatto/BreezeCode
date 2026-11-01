@@ -272,3 +272,87 @@ function emmetInsert(expansion: string, indent: string): { text: string; caret: 
   text += src.slice(last);
   return { text, caret: caret < 0 ? text.length : caret };
 }
+
+/* ----- Multiple selections ----- */
+// Clamped, in document order, with overlapping ranges and carets on the same spot merged into one. A merged
+// selection takes the direction of the later one; ranges that only touch stay apart.
+function normalizeSels(sels: Sel[], len: number): Sel[] {
+  const clamp = (n: number) => Math.max(0, Math.min(n, len));
+  const rs = sels.map(s => ({ lo: clamp(Math.min(s.anchor, s.head)), hi: clamp(Math.max(s.anchor, s.head)), back: s.head < s.anchor }));
+  rs.sort((a, b) => a.lo - b.lo || a.hi - b.hi);
+  const out: typeof rs = [];
+  for (const r of rs) {
+    const prev = out[out.length - 1];
+    if (prev && (r.lo < prev.hi || (r.lo === prev.hi && r.lo === r.hi && prev.lo === prev.hi))) {
+      prev.hi = Math.max(prev.hi, r.hi);
+      prev.back = r.back;
+    } else out.push({ ...r });
+  }
+  return out.map(r => r.back ? { anchor: r.hi, head: r.lo } : { anchor: r.lo, head: r.hi });
+}
+
+// All the edits at once, in one pass. `edits` are sorted and don't overlap; caret i ends up after edit i's text.
+function applyEdits(text: string, edits: TextEdit[]): { text: string; carets: number[] } {
+  let out = '', last = 0, delta = 0;
+  const carets: number[] = [];
+  for (const e of edits) {
+    out += text.slice(last, e.start) + e.text;
+    last = e.end;
+    carets.push(e.start + delta + e.text.length);
+    delta += e.text.length - (e.end - e.start);
+  }
+  return { text: out + text.slice(last), carets };
+}
+
+// A navigation key for every selection; cursors that land on each other become one.
+function moveSels(text: string, starts: number[], sels: Sel[], key: NavKey, mods: { shift: boolean; ctrl: boolean }, page: number): Sel[] {
+  return normalizeSels(sels.map(s => moveCaret(text, starts, s, key, mods, page, null).sel), text.length);
+}
+
+// The next place to add a cursor (Ctrl+D): the word under the last-added caret, else the next copy of the text
+// it has selected, wrapping round and passing over copies already selected. null when there are none left.
+function nextOccurrence(text: string, sels: Sel[]): Sel | null {
+  const last = sels[sels.length - 1];
+  if (!last) return null;
+  const lo = Math.min(last.anchor, last.head), hi = Math.max(last.anchor, last.head);
+  if (lo === hi) {
+    const [a, b] = wordAt(text, hi);
+    return a === b ? null : { anchor: a, head: b };
+  }
+  const needle = text.slice(lo, hi), taken = sels.filter(s => s.anchor !== s.head);
+  const free = (p: number) => !taken.some(s => p < Math.max(s.anchor, s.head) && p + needle.length > Math.min(s.anchor, s.head));
+  for (const [from, wrapped] of [[hi, false], [0, true]] as const)
+    for (let p = text.indexOf(needle, from); p !== -1 && !(wrapped && p >= hi); p = text.indexOf(needle, p + needle.length))
+      if (free(p)) return { anchor: p, head: p + needle.length };
+  return null;
+}
+
+// Every copy of `needle` (Ctrl+Shift+L), not overlapping each other, case-sensitive.
+function allOccurrences(text: string, needle: string): Sel[] {
+  const out: Sel[] = [];
+  if (!needle) return out;
+  for (let p = text.indexOf(needle); p !== -1; p = text.indexOf(needle, p + needle.length)) out.push({ anchor: p, head: p + needle.length });
+  return out;
+}
+
+// What each of `n` cursors pastes: one line each when the clipboard has exactly n lines, else all of it to each.
+// (A lone cursor always gets the clipboard whole, so a copied line keeps its newline.)
+function splitPaste(clip: string, n: number): string[] {
+  if (n > 1) {
+    const lines = clip.replace(/\r?\n$/, '').split(/\r?\n/);
+    if (lines.length === n) return lines;
+  }
+  return Array.from({ length: n }, () => clip);
+}
+
+// The cursors of a box drag: one per line between the two corners, each from the `from` visual column to the `to`
+// one, cut short where a line is shorter. The anchor is on the `from` side, so a leftward drag selects backward.
+function columnSels(text: string, starts: number[], fromLine: number, fromVcol: number, toLine: number, toVcol: number): Sel[] {
+  const top = Math.max(0, Math.min(fromLine, toLine)), bottom = Math.min(starts.length - 1, Math.max(fromLine, toLine));
+  const out: Sel[] = [];
+  for (let l = top; l <= bottom; l++) {
+    const ls = starts[l], line = text.slice(ls, lineEnd(text, ls));
+    out.push({ anchor: ls + colAtVisual(line, fromVcol), head: ls + colAtVisual(line, toVcol) });
+  }
+  return out;
+}

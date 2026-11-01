@@ -180,20 +180,20 @@ async function doRename(b: EditorBuffer, off: number, name: string): Promise<voi
     // Open files change in the editor (one undo step each, saved by the user); the rest are written to disk.
     if (open?.kind === 'text' && open.ta) {
       const caret = open.ta.selectionStart;
-      replaceRange(open.ta, 0, open.text.length, applyEdits(open.text, edits[path]), caret);
+      replaceRange(open.ta, 0, open.text.length, applyLspEdits(open.text, edits[path]), caret);
       continue;
     }
     try {
       const r = await api.fs.readFile(path);
       if (r.text == null) continue;
-      await api.fs.writeFile(path, applyEdits(r.text, edits[path]));
+      await api.fs.writeFile(path, applyLspEdits(r.text, edits[path]));
     } catch (e) { toast(`Couldn't rename in ${baseName(path)}: ${errMsg(e)}`); }
   }
   b.ta?.focus();
   toast(`Renamed ${plural(count, 'place')} in ${plural(files.length, 'file')}`);
 }
 // Applies LSP edits (line/column ranges) to a text, last first so earlier offsets stay right.
-function applyEdits(text: string, edits: LspEdit[]): string {
+function applyLspEdits(text: string, edits: LspEdit[]): string {
   const starts = lineStartsOf(text);
   const at = (pos: { line: number; character: number }) => Math.min(text.length, (starts[pos.line] ?? text.length) + pos.character);
   const sorted = edits.map(e => ({ s: at(e.start), e: at(e.end), t: e.text })).sort((a, c) => c.s - a.s);

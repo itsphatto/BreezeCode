@@ -5,8 +5,9 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/editcore.ts'), 'utf8')), ctx);
-const { lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore, emmetAbbrBefore, emmetInsert, EMMET_WORDS } =
-  vm.runInContext('({ lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore, emmetAbbrBefore, emmetInsert, EMMET_WORDS })', ctx);
+const { lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore, emmetAbbrBefore, emmetInsert, EMMET_WORDS,
+  normalizeSels, applyEdits, moveSels, nextOccurrence, allOccurrences, splitPaste, columnSels } =
+  vm.runInContext('({ lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore, emmetAbbrBefore, emmetInsert, EMMET_WORDS, normalizeSels, applyEdits, moveSels, nextOccurrence, allOccurrences, splitPaste, columnSels })', ctx);
 
 const T = 'ab cd\n  ef\n\nxyz';           // lines start at 0, 6, 11, 12; length 15
 const S = lineStarts(T);
@@ -175,4 +176,90 @@ test('emmetInsert indents and places the caret on the first field', () => {
   assert.deepEqual(plain(emmetInsert('<i>${2}</i><b>${1}</b>${0}', '')), { text: '<i></i><b></b>', caret: 14 }); // ${0} is the lowest number
   assert.deepEqual(plain(emmetInsert('<p>${0}</p>', '')), { text: '<p></p>', caret: 3 });
   assert.deepEqual(plain(emmetInsert('@media ${1:screen} {\n\t${0}\n}', '')), { text: '@media screen {\n\t\n}', caret: 17 }); // the body, not the query
+});
+
+/* ----- Multiple selections ----- */
+test('normalizeSels merges overlaps and duplicate carets', () => {
+  assert.deepEqual(plain(normalizeSels([{ anchor: 5, head: 5 }, { anchor: 1, head: 3 }, { anchor: 2, head: 4 }, { anchor: 5, head: 5 }], 10)),
+    [{ anchor: 1, head: 4 }, { anchor: 5, head: 5 }]);
+});
+test('normalizeSels clamps, keeps touching ranges apart, and keeps the later direction', () => {
+  assert.deepEqual(plain(normalizeSels([{ anchor: -3, head: 2 }, { anchor: 20, head: 8 }], 10)), [{ anchor: 0, head: 2 }, { anchor: 10, head: 8 }]);
+  assert.deepEqual(plain(normalizeSels([{ anchor: 0, head: 2 }, { anchor: 2, head: 4 }, { anchor: 4, head: 4 }], 10)),
+    [{ anchor: 0, head: 2 }, { anchor: 2, head: 4 }, { anchor: 4, head: 4 }]);
+  assert.deepEqual(plain(normalizeSels([{ anchor: 1, head: 4 }, { anchor: 6, head: 3 }], 10)), [{ anchor: 6, head: 1 }]);
+  assert.deepEqual(plain(normalizeSels([{ anchor: 3, head: 1 }, { anchor: 2, head: 6 }], 10)), [{ anchor: 1, head: 6 }]);
+  assert.deepEqual(plain(normalizeSels([], 10)), []);
+});
+test('applyEdits maps carets through edits of different lengths on one line', () => {
+  assert.deepEqual(plain(applyEdits('a b c', [{ start: 1, end: 1, text: 'XX' }, { start: 3, end: 3, text: 'Y' }, { start: 5, end: 5, text: '' }])),
+    { text: 'aXX bY c', carets: [3, 6, 8] });
+});
+test('applyEdits replaces ranges and handles shrinking edits', () => {
+  assert.deepEqual(plain(applyEdits('foo bar foo', [{ start: 0, end: 3, text: 'x' }, { start: 8, end: 11, text: 'yy' }])), { text: 'x bar yy', carets: [1, 8] });
+  assert.deepEqual(plain(applyEdits('', [])), { text: '', carets: [] });
+});
+test('Backspace at colliding carets merges them', () => {
+  // 'abc' with carets after a and after b: one Backspace deletes both and leaves one caret at 0.
+  // (A cursor whose Backspace deletes nothing still keeps its caret: callers pass a zero-length edit, not none.)
+  const t = 'abc', sels = [{ anchor: 1, head: 1 }, { anchor: 2, head: 2 }];
+  const edits = sels.map(s => { const [a, b] = deleteSpan(t, s, 'Backspace', false); return { start: a, end: b, text: '' }; });
+  const r = applyEdits(t, edits);
+  assert.equal(r.text, 'c');
+  assert.deepEqual(plain(normalizeSels(r.carets.map(c => ({ anchor: c, head: c })), r.text.length)), [{ anchor: 0, head: 0 }]);
+  assert.deepEqual(plain(applyEdits('c', [{ start: 0, end: 0, text: '' }])), { text: 'c', carets: [0] });
+});
+test('moveSels moves every cursor and merges the ones that meet', () => {
+  const p = (sels, key, shift = false) => plain(moveSels(T, S, sels, key, { shift, ctrl: false }, 10));
+  assert.deepEqual(p([{ anchor: 0, head: 0 }, { anchor: 6, head: 6 }], 'ArrowRight'), [{ anchor: 1, head: 1 }, { anchor: 7, head: 7 }]);
+  assert.deepEqual(p([{ anchor: 0, head: 0 }, { anchor: 3, head: 3 }], 'Home'), [{ anchor: 0, head: 0 }]);
+  assert.deepEqual(p([{ anchor: 0, head: 0 }, { anchor: 1, head: 1 }], 'ArrowLeft'), [{ anchor: 0, head: 0 }]);
+  assert.deepEqual(p([{ anchor: 0, head: 0 }, { anchor: 6, head: 6 }], 'ArrowRight', true), [{ anchor: 0, head: 1 }, { anchor: 6, head: 7 }]);
+  assert.deepEqual(p([{ anchor: 0, head: 2 }, { anchor: 1, head: 3 }], 'ArrowRight', true), [{ anchor: 0, head: 4 }]);
+});
+test('nextOccurrence selects the word first, then wraps and skips selected', () => {
+  const T = 'foo bar foo baz foo';
+  assert.deepEqual(plain(nextOccurrence(T, [{ anchor: 1, head: 1 }])), { anchor: 0, head: 3 });
+  assert.deepEqual(plain(nextOccurrence(T, [{ anchor: 0, head: 3 }])), { anchor: 8, head: 11 });
+  assert.deepEqual(plain(nextOccurrence(T, [{ anchor: 8, head: 11 }, { anchor: 16, head: 19 }])), { anchor: 0, head: 3 });
+  assert.equal(nextOccurrence(T, [{ anchor: 0, head: 3 }, { anchor: 8, head: 11 }, { anchor: 16, head: 19 }]), null);
+});
+test('nextOccurrence follows the last selection, a backward one included', () => {
+  const T = 'foo bar foo baz foo';
+  assert.deepEqual(plain(nextOccurrence(T, [{ anchor: 11, head: 8 }])), { anchor: 16, head: 19 });
+  // the last in order given, not the rightmost
+  assert.deepEqual(plain(nextOccurrence(T, [{ anchor: 8, head: 11 }, { anchor: 0, head: 3 }])), { anchor: 16, head: 19 });
+  assert.equal(nextOccurrence(T, [{ anchor: 0, head: 3 }, { anchor: 8, head: 11 }, { anchor: 16, head: 19 }]), null);
+  assert.deepEqual(plain(nextOccurrence('a   b', [{ anchor: 2, head: 2 }])), { anchor: 1, head: 4 }); // a blank run is the word under the caret
+  assert.equal(nextOccurrence('', [{ anchor: 0, head: 0 }]), null);
+  assert.equal(nextOccurrence('foo', []), null);
+});
+test('allOccurrences is non-overlapping and case-sensitive', () => {
+  assert.deepEqual(plain(allOccurrences('aaaa', 'aa')), [{ anchor: 0, head: 2 }, { anchor: 2, head: 4 }]);
+  assert.deepEqual(plain(allOccurrences('Foo foo FOO', 'foo')), [{ anchor: 4, head: 7 }]);
+  assert.deepEqual(plain(allOccurrences('abc', '')), []);
+  assert.deepEqual(plain(allOccurrences('abc', 'x')), []);
+});
+test('splitPaste distributes one line per cursor only on an exact match', () => {
+  assert.deepEqual(plain(splitPaste('a\nb\n', 2)), ['a', 'b']);
+  assert.deepEqual(plain(splitPaste('a\nb', 3)), ['a\nb', 'a\nb', 'a\nb']);
+  assert.deepEqual(plain(splitPaste('a\r\nb', 2)), ['a', 'b']);
+  assert.deepEqual(plain(splitPaste('x', 3)), ['x', 'x', 'x']);
+  assert.deepEqual(plain(splitPaste('a\n', 1)), ['a\n']); // a lone cursor pastes the clipboard whole
+  assert.deepEqual(plain(splitPaste('a\n\n', 2)), ['a', '']);
+});
+test('columnSels clamps short lines', () => {
+  const T = 'abcdef\nab\nabcdef', S = lineStarts(T);
+  assert.deepEqual(plain(columnSels(T, S, 0, 1, 2, 4)), [{ anchor: 1, head: 4 }, { anchor: 8, head: 9 }, { anchor: 11, head: 14 }]);
+});
+test('columnSels handles upward and backward drags, and tabs by visual column', () => {
+  const T = 'abcdef\nab\nabcdef', S = lineStarts(T);
+  // dragging up keeps lines in document order
+  assert.deepEqual(plain(columnSels(T, S, 2, 1, 0, 4)), [{ anchor: 1, head: 4 }, { anchor: 8, head: 9 }, { anchor: 11, head: 14 }]);
+  // dragging left puts the anchor on the from side
+  assert.deepEqual(plain(columnSels(T, S, 0, 4, 2, 1)), [{ anchor: 4, head: 1 }, { anchor: 9, head: 8 }, { anchor: 14, head: 11 }]);
+  // one line, zero width: a caret
+  assert.deepEqual(plain(columnSels(T, S, 2, 3, 2, 3)), [{ anchor: 13, head: 13 }]);
+  const U = '\tab\nabcdefgh', V = lineStarts(U);
+  assert.deepEqual(plain(columnSels(U, V, 0, 4, 1, 4)), [{ anchor: 1, head: 1 }, { anchor: 8, head: 8 }]);
 });
