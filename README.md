@@ -11,11 +11,11 @@ then watch Claude Code, Codex, Antigravity or a local model build it, live, righ
 
 <br>
 
-[**⬇ Download for Windows**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.itsphatto.site) &nbsp;·&nbsp; [FAQ](https://breezecode.itsphatto.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
+[**Download for Windows**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.itsphatto.site) &nbsp;·&nbsp; [FAQ](https://breezecode.itsphatto.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.6.0-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.6.5-007AFF?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows_10_%26_11-64--bit-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![Price](https://img.shields.io/badge/price-free-1d1d1f?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-1d1d1f?style=for-the-badge)
@@ -24,7 +24,7 @@ then watch Claude Code, Codex, Antigravity or a local model build it, live, righ
 ![TypeScript](https://img.shields.io/badge/TypeScript-7-1d1d1f?style=flat-square&logo=typescript&logoColor=3178c6)
 ![Size](https://img.shields.io/badge/installer-~110_MB-1d1d1f?style=flat-square)
 
-<sub>[Why](#why-breeze-code) · [Agents](#bring-your-own-agent) · [Multi-agent](#several-agents-one-prompt) · [Features](#features) · [Getting started](#getting-started) · [Configuration](#configuration) · [Installer](#building-the-installer) · [How it fits together](#how-it-fits-together)</sub>
+<sub>[Why](#why-breeze-code) · [Agents](#bring-your-own-agent) · [Multi-agent](#several-agents-one-prompt) · [Features](#features) · [Getting started](#getting-started) · [Configuration](#configuration) · [Installer](#building-the-installer) · [How it fits together](#how-it-fits-together) · [Team](#team) · [License](#license)</sub>
 
 <br>
 
@@ -40,13 +40,13 @@ then watch Claude Code, Codex, Antigravity or a local model build it, live, righ
 <tr>
 <td width="50%" valign="top">
 
-**👀 Watch every move**<br>
+**Watch every move**<br>
 Every file read, edit and command an agent makes streams into the chat as it happens, tagged with who did it. No black box.
 
 </td>
 <td width="50%" valign="top">
 
-**🤝 Bring the agent you already use**<br>
+**Bring the agent you already use**<br>
 Claude Code, Codex, Antigravity, or a local model through Ollama, LM Studio or any OpenAI-compatible server. Swap any time.
 
 </td>
@@ -54,13 +54,13 @@ Claude Code, Codex, Antigravity, or a local model through Ollama, LM Studio or a
 <tr>
 <td width="50%" valign="top">
 
-**🪶 Light and free**<br>
+**Light and free**<br>
 No plans and no credits. You only pay if you pick a paid agent. A local model runs with zero cloud.
 
 </td>
 <td width="50%" valign="top">
 
-**🔒 Yours stays yours**<br>
+**Yours stays yours**<br>
 Files stay on your PC, API keys and sign-in tokens are encrypted by the Windows keychain, and updates ask before downloading.
 
 </td>
@@ -84,15 +84,15 @@ Breeze finds the coding agents already installed on your computer and signs in w
 
 ```mermaid
 flowchart LR
-    P["💬 Your prompt<br/>@Claude front end<br/>@Codex backend"] --> S{"Breeze splits<br/>the task"}
+    P["Your prompt<br/>@Claude front end<br/>@Codex backend"] --> S{"Breeze splits<br/>the task"}
     S --> C["Claude claims<br/>src/ui/, index.html"]
     S --> X["Codex claims<br/>server/, package.json"]
     C & X --> O{"Overlap?"}
     O -- "yes" --> Y["You pick<br/>who gets it"]
     O -- "no" --> B
     Y --> B["Both build<br/>side by side"]
-    B --> L["📺 One chat,<br/>every line tagged"]
-    B -. "touches another<br/>agent's file" .-> G["🛡️ Breeze puts it<br/>back and tells you"]
+    B --> L["One chat,<br/>every line tagged"]
+    B -. "touches another<br/>agent's file" .-> G["Breeze puts it<br/>back and tells you"]
 ```
 
 ## Features
@@ -154,14 +154,14 @@ While an agent works, the IDE fades out and an Instagram or Facebook feed rolls.
 
 | | |
 | --- | --- |
-| ▶️ **Run with F5** | Python, C, C++, C#, Java and Rust run on the compilers you already have. Missing one? Breeze tells you what to grab |
-| 🌐 **Live preview** | Pop `index.html` open beside your code and refresh as you go |
-| 💻 **Built-in terminal** | Run Node and whatever else without leaving the editor |
-| 📄 **Big files, no sweat** | Only the lines on screen get drawn, so huge files stay snappy |
-| 🧠 **Local LLM, token-wise** | A project map, ranged file reads and snippet edits keep requests small |
-| 👥 **Accounts** | Sign in with GitHub or Google, with several accounts |
-| 🎮 **Discord** | Rich Presence shows what you're working on |
-| 🔊 **Feels alive** | Tiny synthesized sounds for clicks, typing and agents, with a volume slider |
+| **Run with F5** | Python, C, C++, C#, Java and Rust run on the compilers you already have. Missing one? Breeze tells you what to grab |
+| **Live preview** | Pop `index.html` open beside your code and refresh as you go |
+| **Built-in terminal** | Run Node and whatever else without leaving the editor |
+| **Big files, no sweat** | Only the lines on screen get drawn, so huge files stay snappy |
+| **Local LLM, token-wise** | A project map, ranged file reads and snippet edits keep requests small |
+| **Accounts** | Sign in with GitHub or Google, with several accounts |
+| **Discord** | Rich Presence shows what you're working on |
+| **Feels alive** | Tiny synthesized sounds for clicks, typing and agents, with a volume slider |
 
 ## Getting started
 
@@ -226,20 +226,20 @@ This runs `scripts/write-config.js`, which writes `breeze.config.json` from your
 
 ```mermaid
 flowchart TB
-    subgraph R["🖥️ Renderer · src/renderer"]
+    subgraph R["Renderer · src/renderer"]
         UI["breeze.html + breeze.css"]
         F["breeze/*.ts<br/>one file per feature"]
         E["editcore.ts + codeview.ts<br/>the code editor"]
     end
-    PL["🔌 preload.js<br/>the bridge"]
-    subgraph M["⚙️ Main process · src/main"]
+    PL["preload.js<br/>the bridge"]
+    subgraph M["Main process · src/main"]
         MJ["main.js<br/>files, terminal, Git, auth, runs"]
         T["team.js + mentions.js<br/>multi-agent prompts"]
         G["guard.js + pathguard.js<br/>path and command safety"]
         TC["toolchains.js<br/>compilers for F5"]
         AB["agentbrain.js<br/>local LLM context"]
     end
-    subgraph A["🤖 Agents"]
+    subgraph A["Agents"]
         CL["Claude Code CLI"]
         CX["Codex CLI"]
         AG["Antigravity"]
@@ -269,6 +269,22 @@ flowchart TB
 | `docs/screenshots/` | Screenshots used in this README |
 | `BreezeCode-Web/` | The website |
 | `test/` | Tests |
+
+## Team
+
+| Member |
+| --- | --- |
+| [@itsphatto](https://github.com/itsphatto) | Founder and Lead Software Engineer: |
+| [@sapfire151](https://github.com/sapfire151) | Lead Front End Designer and UI/UX Designer: |
+| [@LangZab](https://github.com/LangZab) | UI/UX Designer: |
+| [@esrazti](https://github.com/esrazti) | Contributor |
+
+
+Contributions are welcome. Open an [issue](https://github.com/itsphatto/BreezeCode/issues) to report a bug or suggest an idea, or send a pull request.
+
+## License
+
+Breeze Code is free and open source software, released under the [MIT License](LICENSE). You may use, copy, change and share it, including for commercial work, as long as the copyright and license notice stay with it.
 
 <br>
 
