@@ -55,6 +55,8 @@ const commands: Record<string, () => unknown> = {
   'sel.dup': duplicateLines,
   'sel.up': () => moveLines(-1),
   'sel.down': () => moveLines(1),
+  'view.palette': () => openPalette(),
+  'view.paletteF1': () => openPalette(),
   'view.files': () => showView('files', true),
   'view.search': searchSelection,
   'view.git': () => showView('git', true),
@@ -318,6 +320,8 @@ const MENUS: Menu[] = [
   },
   {
     name: 'View', items: [
+      { label: 'Command Palette…', act: 'view.palette', key: 'Ctrl+Shift+P' },
+      { sep: true },
       { label: 'Explorer', act: 'view.files', key: 'Ctrl+Shift+E' },
       { label: 'Search', act: 'view.search', key: 'Ctrl+Shift+F' },
       { label: 'Checkpoints', act: 'view.git', key: 'Ctrl+Shift+G' },
@@ -376,6 +380,7 @@ const MENUS: Menu[] = [
     name: 'Help', items: [
       { label: 'Settings', act: 'settings.open', key: 'Ctrl+,' },
       { label: 'Keyboard Shortcuts', act: 'help.keys' },
+      { label: 'Show All Commands', act: 'view.paletteF1', key: 'F1' },
       { label: 'Run Setup Again', act: 'help.setup' },
       { label: 'Vibe Mode Feeds', act: 'vibe.feeds' },
       { label: 'Sound Effects', act: 'sound.toggle', checked: () => sfx.on },

@@ -4757,6 +4757,17 @@ textarea:not(:placeholder-shown) + .ph-rot {
   text-overflow: ellipsis;
 }
 
+/* Letters the Command Palette matched. */
+.qo-item mark {
+  background: none;
+  color: var(--blue-bright, #93c5fd);
+  font-weight: 700;
+}
+
+.qo-item:not(.on) mark {
+  color: var(--text);
+}
+
 .kbd-table {
   display: grid;
   grid-template-columns: 1fr auto;

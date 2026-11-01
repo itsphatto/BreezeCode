@@ -1284,7 +1284,11 @@ function quickOpen(): void {
       $('#qoList', m).innerHTML = rows.join('') || '<div class="side-note">No matching files.</div>';
       $$('[data-i]', m).forEach(el => el.onclick = () => { closeModal(); openFile(shown[Number(el.dataset.i)]); });
     };
-    input.oninput = () => { sel = 0; render(); };
+    // A leading ">" turns Go to File into the Command Palette.
+    input.oninput = () => {
+      if (input.value.startsWith('>')) { closeModal(); openPalette(input.value.slice(1)); return; }
+      sel = 0; render();
+    };
     input.onkeydown = e => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sel += e.key === 'ArrowDown' ? 1 : -1; render(); $('.qo-item.on', m)?.scrollIntoView({ block: 'nearest' }); }
       if (e.key === 'Enter' && shown[sel]) { closeModal(); openFile(shown[sel]); }
