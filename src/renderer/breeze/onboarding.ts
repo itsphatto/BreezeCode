@@ -28,6 +28,7 @@ function goStep(n: number): void {
   // Once set up, Home is a screen of its own rather than a setup step, so the progress dots go.
   $('#onboard').classList.toggle('settled', appState.onboarded);
   $('#homeProfile').classList.toggle('hidden', n !== STEP.home);
+  placeSignIn(false); // opening Home on a short window: already in place, no flight
   // Past the welcome the photo stays up for the rest of setup (also after a restart mid-setup).
   if (n > STEP.welcome) revealBackdrop();
 }
@@ -88,8 +89,8 @@ function renderHomeProfile(): void {
   // Moved only when it isn't there already: re-inserting it restarts its fade-in from nothing, and opening a project
   // redraws the user, so the picture flashed out and back the moment Continue was clicked.
   if (user && btn.nextSibling !== name) name.before(btn); // with the name, in one piece that wraps together
-  else if (!user && btn.parentElement !== $('#onboard')) $('#onboard').appendChild(btn);
-  btn.classList.toggle('corner', !user);
+  if (user) btn.classList.remove('corner');
+  else placeSignIn(false);
   btn.innerHTML = user
     ? avatarHtml(user, '')
     : `<span class="hp-ico">${svgIcon('user', 15)}</span><span class="hp-txt"><span class="nm">Sign in</span></span>`;
@@ -99,6 +100,28 @@ function renderHomeProfile(): void {
   // Signed in it opens the account menu; signed out it goes straight to signing in.
   btn.setAttribute('aria-haspopup', user ? 'menu' : 'dialog');
 }
+// The Sign in button's corner is the gutter Home leaves under its cards. Once the window is too short for that gutter
+// Home scrolls and the button would sit on the cards, so it glides up to the heading's line, looking the same all the
+// way (and back when there's room). Hidden, nothing can be measured: it stays where it is.
+function placeSignIn(morph = true): void {
+  if (user) return;
+  const btn = $('#homeProfile'), ob = $('#onboard'), title = $('#homeTitle');
+  const shown = btn.getClientRects().length > 0;
+  const spot = (shown ? ob.scrollHeight > ob.clientHeight : btn.parentElement === title) ? title : ob;
+  if (btn.parentElement === spot) return;
+  const from = btn.getBoundingClientRect();
+  btn.getAnimations().forEach(a => a.cancel()); // from wherever a flight still running has it
+  spot.moveBefore(btn, null); // unlike appendChild, keeps its focus and doesn't restart its fade-in
+  btn.classList.toggle('corner', spot === ob);
+  if (!morph || !shown || document.documentElement.classList.contains('win-jump') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const to = btn.getBoundingClientRect();
+  btn.animate([
+    { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)` },
+    { transform: 'none' },
+  ], { duration: 480, easing: 'cubic-bezier(.4, 0, .2, 1)' });
+}
+new ResizeObserver(() => placeSignIn()).observe($('#onboard'));
+new ResizeObserver(() => placeSignIn()).observe($('.home-step'));
 let accounts: Accounts = { accounts: [], active: null };
 const accountKey = (u: User) => `${u.provider}:${u.login ?? ''}`;
 async function refreshAccounts(): Promise<void> {
