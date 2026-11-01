@@ -4,7 +4,7 @@ const net = require('node:net');
 const vm = require('node:vm');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { CdpClient, fileUrl, urlRegexFor, cdpCondition, valueOf, framesOf } = require('../src/main/cdp');
+const { CdpClient, fileUrl, urlRegexFor, cdpCondition, checkExpr, checkBp, valueOf, framesOf } = require('../src/main/cdp');
 
 // An open socket stand-in: what the client sends lands in `sent`; `receive` plays a frame from the inspector.
 class FakeSocket extends EventTarget {
@@ -63,10 +63,21 @@ test('cdpCondition: plain breakpoint has no condition', () => {
 });
 
 test('cdpCondition: a condition is parenthesised', () => {
-  assert.equal(cdpCondition({ line: 1, enabled: true, condition: 'x > 1' }, 1), '(x > 1)');
   const r = runner({ line: 1, enabled: true, condition: 'x > 1' });
   assert.equal(r.hit({ x: 0 }), false);
   assert.equal(r.hit({ x: 2 }), true);
+});
+
+test('cdpCondition: a trailing // comment or ; in a condition cannot break it', () => {
+  const c = runner({ line: 1, enabled: true, condition: 'i > 1 // c' });
+  assert.equal(c.hit({ i: 0 }), false);
+  assert.equal(c.hit({ i: 2 }), true);
+  const s = runner({ line: 1, enabled: true, condition: 'i > 1;' });
+  assert.equal(s.hit({ i: 0 }), false);
+  assert.equal(s.hit({ i: 2 }), true);
+  const both = runner({ line: 1, enabled: true, condition: 'i > 1; ', hitCondition: '2' });
+  assert.equal(both.hit({ i: 5 }), false);
+  assert.equal(both.hit({ i: 5 }), true);
 });
 
 test('cdpCondition: a comma expression stays one condition', () => {
@@ -128,11 +139,78 @@ test('cdpCondition: logMessage text is literal (backticks, ${, backslashes, quot
   assert.deepEqual(r.logs, ['a`b $5 ${ c\\d "q" 3']);
 });
 
+test('cdpCondition: empty or blank braces in a logMessage are literal text', () => {
+  const a = runner({ line: 1, enabled: true, logMessage: 'state: {}' });
+  assert.equal(a.hit(), false);
+  assert.deepEqual(a.logs, ['state: {}']);
+  const b = runner({ line: 1, enabled: true, logMessage: 'a { } b' });
+  b.hit();
+  assert.deepEqual(b.logs, ['a { } b']);
+});
+
+test('cdpCondition: a // comment inside {…} cannot swallow the closing', () => {
+  const r = runner({ line: 1, enabled: true, logMessage: '{x // note}' });
+  assert.equal(r.hit({ x: 5 }), false);
+  assert.deepEqual(r.logs, ['5']);
+});
+
+test('cdpCondition: a throwing {expr} prints an error marker and the rest still logs', () => {
+  const r = runner({ line: 1, enabled: true, logMessage: '{nope} ok {x}' });
+  assert.equal(r.hit({ x: 3 }), false);
+  assert.equal(r.logs.length, 1);
+  assert.match(r.logs[0], /^<error: .*nope.*> ok 3$/);
+});
+
 test('cdpCondition: a logpoint honours its condition', () => {
   const r = runner({ line: 1, enabled: true, condition: 'x > 1', logMessage: 'x={x}' });
   assert.equal(r.hit({ x: 0 }), false);
   assert.equal(r.hit({ x: 2 }), false);
   assert.deepEqual(r.logs, ['x=2']);
+});
+
+// ---- checkExpr / checkBp ----
+
+test('checkExpr: null for an expression that parses, a message for one that does not', () => {
+  assert.equal(checkExpr('x > 1'), null);
+  assert.equal(checkExpr('a = 1, a > 0'), null);
+  assert.equal(checkExpr('x > 1 // trailing comment'), null);
+  assert.equal(typeof checkExpr('x >'), 'string');
+  assert.ok(checkExpr('x >').length > 0);
+  assert.equal(typeof checkExpr('foo('), 'string');
+  assert.equal(typeof checkExpr(''), 'string');
+});
+
+test('checkExpr: parses only, never runs the expression', () => {
+  globalThis.__bzRan = false;
+  assert.equal(checkExpr('(globalThis.__bzRan = true)'), null);
+  assert.equal(globalThis.__bzRan, false);
+  delete globalThis.__bzRan;
+});
+
+test('checkBp: a plain or valid breakpoint is fine', () => {
+  assert.equal(checkBp({ line: 1, enabled: true }), null);
+  assert.equal(checkBp({ line: 1, enabled: true, condition: 'i > 1;', hitCondition: '>= 3', logMessage: 'i={i} {}' }), null);
+  assert.equal(checkBp({ line: 1, enabled: true, condition: '  ', hitCondition: ' ', logMessage: '' }), null);
+});
+
+test('checkBp: reports a bad condition', () => {
+  assert.match(checkBp({ line: 1, enabled: true, condition: 'i >' }), /condition/i);
+});
+
+test('checkBp: reports a bad {expr} in the log message, and says which', () => {
+  assert.match(checkBp({ line: 1, enabled: true, logMessage: 'ok {a} bad {b +}' }), /log message/i);
+});
+
+test('checkBp: reports a malformed hit condition', () => {
+  for (const h of ['abc', '>=', '3); process.exit(', '>> 2', '1.5']) {
+    assert.match(checkBp({ line: 1, enabled: true, hitCondition: h }) ?? '', /hit/i, h);
+  }
+  for (const h of ['3', '>= 3', '> 1', '== 2', '% 4', '=2']) assert.equal(checkBp({ line: 1, enabled: true, hitCondition: h }), null, h);
+});
+
+test('checkBp: the first problem wins (condition before log message before hit count)', () => {
+  assert.match(checkBp({ line: 1, enabled: true, condition: 'x >', logMessage: '{y +}', hitCondition: 'zz' }), /condition/i);
+  assert.match(checkBp({ line: 1, enabled: true, logMessage: '{y +}', hitCondition: 'zz' }), /log message/i);
 });
 
 // ---- valueOf ----

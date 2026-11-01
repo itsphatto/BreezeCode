@@ -4,6 +4,7 @@
 // breakpoints/frames/values and CDP's.
 const { EventEmitter } = require('node:events');
 const path = require('node:path');
+const vm = require('node:vm');
 const { pathToFileURL, fileURLToPath } = require('node:url');
 
 // Emits each CDP event by its method name ('Debugger.paused', …) with its params, 'warn' (an Error) when handling a
@@ -87,13 +88,26 @@ function urlRegexFor(absPath) {
   return `^(?:${[...new Set([href, decoded, absPath])].map(fold).join('|')})$`;
 }
 
+const HIT_RE = /^\s*(>=|<=|==|=|>|<|%)?\s*(\d+)\s*$/;
+
+// A condition as written: trimmed, one trailing ';' dropped (it would not parse inside parentheses).
+const conditionOf = bp => (bp.condition || '').trim().replace(/;$/, '').trim();
+
+// A logMessage as text and {expr} parts. Empty or blank braces are literal text, not an expression.
+function logParts(msg) {
+  return msg.split(/(\{[^{}]*\})/).filter(Boolean).map(seg =>
+    /^\{[^{}]*\}$/.test(seg) && seg.slice(1, -1).trim() ? { expr: seg.slice(1, -1) } : { text: seg });
+}
+
 // The breakpoint's `condition` for CDP, which pauses when the expression is truthy. Hit counts and logpoints are
 // folded into it: a counter per breakpoint id lives on globalThis in the debuggee, and a logpoint logs then evaluates false.
+// V8 treats a condition that fails to parse, or throws when run, as false: the breakpoint silently never pauses (see checkBp).
+// Every user expression is closed on its own line so a trailing // comment cannot swallow the closing paren.
 function cdpCondition(bp, id) {
   const parts = [];
-  const cond = (bp.condition || '').trim();
-  if (cond) parts.push(`(${cond})`);
-  const hit = /^\s*(>=|<=|==|=|>|<|%)?\s*(\d+)\s*$/.exec(bp.hitCondition || '');
+  const cond = conditionOf(bp);
+  if (cond) parts.push(`(${cond}\n)`);
+  const hit = HIT_RE.exec(bp.hitCondition || '');
   if (hit) {
     const n = Number(hit[2]);
     const op = hit[1] || '>=';
@@ -102,12 +116,35 @@ function cdpCondition(bp, id) {
     parts.push(`((globalThis.__bzHit ??= {})[${Number(id)}] = (${key} ?? 0) + 1, ${test})`);
   }
   if (bp.logMessage) {
-    // Text between {expr} groups is literal in the template.
-    const tpl = bp.logMessage.split(/(\{[^{}]*\})/).map(seg =>
-      /^\{[^{}]*\}$/.test(seg) ? '${' + seg.slice(1, -1) + '}' : seg.replace(/[\\`$]/g, '\\$&')).join('');
+    // Text is literal in the template; each {expr} runs on its own, so one that throws prints a marker instead of killing the log.
+    const tpl = logParts(bp.logMessage).map(p => p.text !== undefined
+      ? p.text.replace(/[\\`$]/g, '\\$&')
+      : `\${(() => { try { return (${p.expr}\n); } catch (e) { return '<error: ' + e.message + '>'; } })()}`).join('');
     parts.push(`(console.log(\`${tpl}\`), false)`);
   }
   return parts.join(' && ');
+}
+
+// Why an expression would not parse (a short message), or null when it does. Parses only: nothing runs.
+function checkExpr(expr) {
+  try { new vm.Script('(' + expr + '\n)'); return null; } catch (e) { return String((e && e.message) || e); }
+}
+
+// The first problem with a breakpoint's condition, log message or hit count, or null. V8 drops a bad condition
+// without a word, so the UI marks the breakpoint invalid instead. (A valid condition that throws when run just doesn't pause.)
+function checkBp(bp) {
+  const cond = conditionOf(bp);
+  if (cond) { const e = checkExpr(cond); if (e) return `Condition: ${e}`; }
+  if (bp.logMessage) {
+    for (const p of logParts(bp.logMessage)) {
+      if (p.expr === undefined) continue;
+      const e = checkExpr(p.expr);
+      if (e) return `Log message {${p.expr.trim()}}: ${e}`;
+    }
+  }
+  const hit = (bp.hitCondition || '').trim();
+  if (hit && !HIT_RE.test(hit)) return `Hit count "${hit}": use a number, or an operator (>=, >, ==, %) and a number`;
+  return null;
 }
 
 // ---- values and frames ----
@@ -160,4 +197,4 @@ function relativeFile(url, root) {
   return rel.split(path.sep).join('/');
 }
 
-module.exports = { CdpClient, fileUrl, urlRegexFor, cdpCondition, valueOf, framesOf };
+module.exports = { CdpClient, fileUrl, urlRegexFor, cdpCondition, checkExpr, checkBp, valueOf, framesOf };
