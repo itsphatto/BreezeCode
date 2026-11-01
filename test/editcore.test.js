@@ -5,8 +5,8 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/editcore.ts'), 'utf8')), ctx);
-const { lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore } =
-  vm.runInContext('({ lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore })', ctx);
+const { lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore, emmetAbbrBefore, emmetInsert, EMMET_WORDS } =
+  vm.runInContext('({ lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore, emmetAbbrBefore, emmetInsert, EMMET_WORDS })', ctx);
 
 const T = 'ab cd\n  ef\n\nxyz';           // lines start at 0, 6, 11, 12; length 15
 const S = lineStarts(T);
@@ -145,4 +145,33 @@ test('fuzzyScore matches subsequences and prefers word starts and runs', () => {
   assert.ok(fuzzyScore('View: Terminal', 'term').score > fuzzyScore('Edit: Toggle Breakpoint Menu', 'term').score);
   assert.ok(fuzzyScore('Go to File', 'GTF').score > 0); // case-insensitive
   assert.deepEqual(plain(fuzzyScore('xab Ac', 'ab')).hits, [1, 2]); // a word start with no room left for the rest is skipped
+});
+
+test('emmetAbbrBefore markup', () => {
+  assert.deepEqual(plain(emmetAbbrBefore('  ul>li.item*3', 14, 'markup')), { abbr: 'ul>li.item*3', start: 2 });
+  assert.deepEqual(plain(emmetAbbrBefore('div[title="a b"]', 16, 'markup')), { abbr: 'div[title="a b"]', start: 0 });
+  assert.equal(emmetAbbrBefore('hello', 5, 'markup'), null);              // bare non-tag word
+  assert.equal(emmetAbbrBefore('<div class', 10, 'markup'), null);        // inside a tag
+  assert.deepEqual(plain(emmetAbbrBefore('text section', 12, 'markup')), { abbr: 'section', start: 5 });
+  assert.deepEqual(plain(emmetAbbrBefore('<p>ul>li', 8, 'markup')), { abbr: 'ul>li', start: 3 }); // a finished tag is not part of it
+  assert.deepEqual(plain(emmetAbbrBefore('<img src=x>p', 12, 'markup')), { abbr: 'p', start: 11 });
+  assert.deepEqual(plain(emmetAbbrBefore('a{x > y}', 8, 'markup')), { abbr: 'a{x > y}', start: 0 });
+  assert.equal(emmetAbbrBefore('  ', 2, 'markup'), null);
+  assert.equal(emmetAbbrBefore('x)', 2, 'markup'), null);                 // unbalanced
+  assert.ok(EMMET_WORDS.has('div') && EMMET_WORDS.has('!') && !EMMET_WORDS.has('hello'));
+});
+test('emmetAbbrBefore stylesheet', () => {
+  assert.deepEqual(plain(emmetAbbrBefore('  m10', 5, 'stylesheet')), { abbr: 'm10', start: 2 });
+  assert.deepEqual(plain(emmetAbbrBefore('a { df', 6, 'stylesheet')), { abbr: 'df', start: 4 });
+  assert.deepEqual(plain(emmetAbbrBefore('a { color: red; m0', 18, 'stylesheet')), { abbr: 'm0', start: 16 });
+  assert.equal(emmetAbbrBefore('  color: red', 12, 'stylesheet'), null);  // Review Focus 5
+  assert.equal(emmetAbbrBefore('  margin: 0 auto', 16, 'stylesheet'), null);
+  assert.equal(emmetAbbrBefore('  ', 2, 'stylesheet'), null);
+});
+test('emmetInsert indents and places the caret on the first field', () => {
+  assert.deepEqual(plain(emmetInsert('<ul>\n\t<li>${1}</li>\n</ul>', '  ')), { text: '<ul>\n  \t<li></li>\n  </ul>', caret: 12 });
+  assert.deepEqual(plain(emmetInsert('<a href="${1:http://}">${2}</a>', '')), { text: '<a href="http://"></a>', caret: 9 });
+  assert.deepEqual(plain(emmetInsert('margin: 10px;', '')), { text: 'margin: 10px;', caret: 13 });
+  assert.deepEqual(plain(emmetInsert('<i>${2}</i><b>${1}</b>${0}', '')), { text: '<i></i><b></b>', caret: 10 }); // lowest number wins; ${0} is the last stop
+  assert.deepEqual(plain(emmetInsert('<p>${0}</p>', '')), { text: '<p></p>', caret: 3 });
 });

@@ -219,3 +219,56 @@ function fuzzyScore(label: string, query: string): { score: number; hits: number
   }
   return { score, hits };
 }
+
+/* ----- Emmet ----- */
+const EMMET_WORDS = new Set(('a div span p ul ol li img input button form table tr td th section header footer nav main article aside ' +
+  'h1 h2 h3 h4 h5 h6 label select option textarea script style link meta br hr canvas video audio iframe svg lorem !').split(' '));
+const EMMET_CLOSE: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
+// The abbreviation ending at `col` of `line`, or null. Markup abbreviations may hold balanced (), [] and {} groups
+// (their contents are free text); a bare word must be a known tag. A stylesheet abbreviation must start a declaration.
+function emmetAbbrBefore(line: string, col: number, kind: 'markup' | 'stylesheet'): { abbr: string; start: number } | null {
+  let start = col;
+  if (kind === 'stylesheet') {
+    while (start > 0 && /[A-Za-z0-9\-:!#.%]/.test(line[start - 1])) start--;
+    const before = line.slice(0, start).trimEnd();
+    return start < col && (!before || before.endsWith('{') || before.endsWith(';')) ? { abbr: line.slice(start, col), start } : null;
+  }
+  // Tags already on the line are off limits, and so is the inside of one still being typed.
+  const left = line.slice(0, col);
+  let floor = 0;
+  for (const m of left.matchAll(/<\/?[A-Za-z][\w:.-]*(?:"[^"]*"|'[^']*'|[^>"'])*>/g)) floor = m.index + m[0].length;
+  if (/<[/A-Za-z]/.test(left.slice(floor))) return null;
+  while (start > floor) {
+    const c = line[start - 1];
+    const open = EMMET_CLOSE[c];
+    if (open) {
+      let depth = 0, i = start - 1;
+      for (; i >= floor; i--) {
+        if (line[i] === c) depth++;
+        else if (line[i] === open && !--depth) break;
+      }
+      if (i < floor) break;
+      start = i;
+    } else if (/[A-Za-z0-9.#>+^*$@\-:!_=%]/.test(c)) start--;
+    else break;
+  }
+  const abbr = line.slice(start, col);
+  if (!abbr || (!/[.#>+^*[{(:!]/.test(abbr) && !EMMET_WORDS.has(abbr))) return null;
+  return { abbr, start };
+}
+
+// Lays an expansion out at `indent` and strips its ${N} / ${N:placeholder} fields. The caret goes to the
+// lowest-numbered field ($0 is the final stop, so it comes last), or to the end when there is none.
+function emmetInsert(expansion: string, indent: string): { text: string; caret: number } {
+  const src = expansion.split('\n').join('\n' + indent);
+  let text = '', last = 0, caret = -1, best = Infinity;
+  for (const m of src.matchAll(/\$\{(\d+)(?::([^}]*))?\}/g)) {
+    text += src.slice(last, m.index);
+    const n = +m[1] || Infinity;
+    if (caret < 0 || n < best) { best = n; caret = text.length; }
+    text += m[2] ?? '';
+    last = m.index + m[0].length;
+  }
+  text += src.slice(last);
+  return { text, caret: caret < 0 ? text.length : caret };
+}
