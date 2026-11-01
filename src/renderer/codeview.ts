@@ -29,6 +29,7 @@ class CodeSurface extends EventTarget {
   private selDir: SelDir = 'none';
   private extras: Sel[] = [];   // the other cursors, normalised with the primary, in document order
   private extraCarets: HTMLDivElement[] = []; // pooled carets for the extras in view
+  private edits: TextEdit[] | null = null; // see lastEdits
   private widest = 0;           // longest line, in visual columns
   private widthTimer = 0;
   private caretAt = '';         // last painted caret spot, to restart the blink only on moves
@@ -105,6 +106,7 @@ class CodeSurface extends EventTarget {
     this.starts = null;
     this.goal = null;
     this.extras = []; // a whole new text: where the other cursors were means nothing in it
+    this.edits = null;
     clearTimeout(this.widthTimer);
     this.widest = this.measureWidest();
     this.clampSel();
@@ -115,6 +117,9 @@ class CodeSurface extends EventTarget {
   get selectionStart() { return this.selStart; }
   get selectionEnd() { return this.selEnd; }
   get selectionDirection() { return this.selDir; }
+  // The user edit behind the latest text change, as sorted, non-overlapping edits in the old text's offsets, so
+  // line-based state (marks) can follow each cursor's change; null after a change made by `value` or setRangeText.
+  get lastEdits(): readonly TextEdit[] | null { return this.edits; }
 
   // Every cursor, the primary among them, in document order.
   get selections(): Sel[] {
@@ -177,6 +182,7 @@ class CodeSurface extends EventTarget {
     const len = this.text.length;
     start = Math.min(start, len); end = Math.min(end, len);
     this.text = this.text.slice(0, start) + text + this.text.slice(end);
+    this.edits = null;
     this.starts = this.starts && shiftLineStarts(this.starts, start, end, text);
     if (this.starts) rememberLineStarts(this.text, this.starts);
     const newEnd = start + text.length, delta = text.length - (end - start);
@@ -224,6 +230,7 @@ class CodeSurface extends EventTarget {
   private userEdit(start: number, end: number, text: string, inputType: string, data: string | null = null) {
     if (!this.dispatchEvent(new InputEvent('beforeinput', { inputType, data, cancelable: true }))) return;
     this.setRangeText(text, start, end, 'end');
+    this.edits = [{ start, end, text }];
     this.revealCaret();
     this.dispatchEvent(new InputEvent('input', { inputType, data }));
   }
@@ -235,6 +242,7 @@ class CodeSurface extends EventTarget {
     if (!this.dispatchEvent(new InputEvent('beforeinput', { inputType, data, cancelable: true }))) return;
     const r = applyEdits(this.text, merged);
     this.text = r.text;
+    this.edits = merged;
     this.starts = lineStartsOf(this.text);
     this.growWidth(r.carets[0] - merged[0].text.length, r.carets[r.carets.length - 1]);
     this.sizeSpacer();

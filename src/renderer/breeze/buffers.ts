@@ -160,7 +160,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
   ta.addEventListener('input', () => {
     lastUserTypeAt = Date.now();
     const wasDirty = isDirty(b);
-    shiftMarks(b.path, b.text, ta.value);
+    shiftMarks(b.path, b.text, ta.value, ta.lastEdits);
     b.text = ta.value;
     if (wasDirty !== isDirty(b)) { renderTabs(); renderTree(); }
     if (b.path === splitPath) renderSplit();

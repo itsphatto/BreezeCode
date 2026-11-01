@@ -451,30 +451,26 @@ function toggleMark(path: string | null, line: number): void {
   saveMarks();
   repaintMarks(path);
 }
-// After an edit, marks below it move with their lines; marks on removed lines go too.
-function shiftMarks(path: string, before: string, after: string): void {
+// After an edit, marks move with their lines (see shiftLinesByEdits). The surface's own edits, one per cursor, are
+// used when they describe this change; otherwise the change is diffed into one edit.
+function shiftMarks(path: string, before: string, after: string, edits: readonly TextEdit[] | null = null): void {
   const s = lineMarks.get(path);
-  if (!s?.size) return;
-  const count = (t: string) => { let n = 0; for (let i = t.indexOf('\n'); i !== -1; i = t.indexOf('\n', i + 1)) n++; return n; };
-  const delta = count(after) - count(before);
-  if (!delta) return;
-  // Where the edit starts: the shared start, measured after the shared end, so a removed line that begins like the
-  // next one ("const a…", "const b…") counts as that line and not the text after it.
+  if (!s?.size || before === after) return;
+  const fits = !!edits?.length && edits.reduce((n, e) => n + e.text.length - (e.end - e.start), before.length) === after.length;
+  const moved = shiftLinesByEdits([...s], before, fits ? edits! : [markEdit(before, after)]);
+  if (moved.length === s.size && moved.every(m => s.has(m))) return;
+  lineMarks.set(path, new Set(moved));
+  saveMarks();
+}
+// One edit from `before` to `after`, its start found after the shared end (not textEdit's start-first), so a line
+// added or removed that begins like the next one ("const a…", "const b…") counts as that line, not the text after it.
+function markEdit(before: string, after: string): TextEdit {
   let suf = 0;
   while (suf < before.length && suf < after.length && before[before.length - 1 - suf] === after[after.length - 1 - suf]) suf++;
   const most = Math.min(before.length, after.length) - suf;
   let p = 0;
   while (p < most && before[p] === after[p]) p++;
-  // The last line the edit leaves in place. Lines added or removed whole, at a line's start, start after the one above.
-  let anchor = count(before.slice(0, p));
-  if (p === 0 || before[p - 1] === '\n') anchor--;
-  const moved = new Set<number>();
-  for (const m of s) {
-    if (m <= anchor) moved.add(m);
-    else if (delta > 0 || m > anchor - delta) moved.add(m + delta);
-  }
-  lineMarks.set(path, moved);
-  saveMarks();
+  return { start: p, end: before.length - suf, text: after.slice(p, after.length - suf) };
 }
 // Next or previous mark from the caret, through every marked file in path order, round to the start again.
 function jumpMark(dir: 1 | -1): void {

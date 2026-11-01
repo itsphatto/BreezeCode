@@ -285,6 +285,26 @@ test('mergeEdits joins overlapping and touching deletes so applyEdits can take t
   mergeEdits(orig);
   assert.deepEqual(plain(orig), [{ start: 2, end: 5, text: '' }, { start: 0, end: 3, text: '' }]);
 });
+test('shiftLinesByEdits moves lines by each edit on its own', () => {
+  const shiftLinesByEdits = vm.runInContext('shiftLinesByEdits', ctx);
+  const t = 'l0\nl1\nl2\nl3\nl4\nl5\nl6'; // lines start at 0, 3, 6, 9, 12, 15, 18
+  // Backspace at the starts of lines 2 and 5: lines 3 and 4 move up one, not two, and are kept
+  const joins = [{ start: 5, end: 6, text: '' }, { start: 14, end: 15, text: '' }];
+  assert.deepEqual(plain(shiftLinesByEdits([3, 4], t, joins)), [2, 3]);
+  assert.deepEqual(plain(shiftLinesByEdits([0, 1, 2, 3, 4, 5, 6], t, joins)), [0, 1, 2, 3, 4]); // joined lines fall onto the one above
+  assert.deepEqual(plain(shiftLinesByEdits([3, 4], t, joins.slice().reverse())), [2, 3]); // order of the edits does not matter
+  // lines inserted at a line's start push it down; inserted mid-line, the line stays
+  assert.deepEqual(plain(shiftLinesByEdits([1, 2, 3], t, [{ start: 6, end: 6, text: 'a\nb\n' }])), [1, 4, 5]);
+  assert.deepEqual(plain(shiftLinesByEdits([2, 3], t, [{ start: 7, end: 7, text: 'X\n' }])), [2, 4]);
+  // a delete from mid line 2 to mid line 4: lines 3 and 4 collapse onto 2, line 5 moves up two
+  assert.deepEqual(plain(shiftLinesByEdits([2, 3, 4, 5], t, [{ start: 7, end: 13, text: '' }])), [2, 3]);
+  // the same span replaced with as many lines: nothing moves
+  assert.deepEqual(plain(shiftLinesByEdits([3, 4, 5], t, [{ start: 7, end: 13, text: 'A\nB\nC' }])), [3, 4, 5]);
+  // a two-line paste at two carets: each caret's newline counts once for the lines below it
+  const paste = [{ start: 4, end: 4, text: 'p\nq' }, { start: 10, end: 10, text: 'p\nq' }];
+  assert.deepEqual(plain(shiftLinesByEdits([1, 2, 3, 4], t, paste)), [1, 3, 4, 6]);
+  assert.deepEqual(plain(shiftLinesByEdits([2, 9], t, [])), [2, 9]);
+});
 test('selIndexOf finds where a selection went after normalizing', () => {
   const selIndexOf = vm.runInContext('selIndexOf', ctx);
   const sels = normalizeSels([{ anchor: 9, head: 9 }, { anchor: 0, head: 4 }, { anchor: 2, head: 6 }, { anchor: 6, head: 6 }], 20);

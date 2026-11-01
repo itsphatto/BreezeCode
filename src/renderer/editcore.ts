@@ -319,6 +319,31 @@ function mergeEdits(edits: TextEdit[]): TextEdit[] {
   return out;
 }
 
+// Where 0-based lines (marks, breakpoints) go after `edits`, given in `before`'s offsets and not overlapping. Each
+// edit moves the lines below it by the newlines it adds or removes. A line whose start an edit replaces lands on
+// the edit's first line, or on the matching new line while the edit puts newlines back. Sorted, without duplicates.
+function shiftLinesByEdits(lines: number[], before: string, edits: readonly TextEdit[]): number[] {
+  const starts = lineStartsOf(before);
+  const es = edits.slice().sort((a, b) => a.start - b.start || a.end - b.end).map(e => {
+    const line = lineOfOffset(starts, e.start);
+    let added = 0;
+    for (let i = e.text.indexOf('\n'); i !== -1; i = e.text.indexOf('\n', i + 1)) added++;
+    return { start: e.start, end: e.end, line, added, delta: added - (lineOfOffset(starts, e.end) - line) };
+  });
+  const out = new Set<number>();
+  for (const l of lines) {
+    const s = l < starts.length ? starts[l] : Infinity;
+    let shift = 0, to = -1;
+    for (const e of es) {
+      if (e.end <= s) { shift += e.delta; continue; } // above the line, or inserting right at its start
+      if (e.start <= s) to = e.line + shift + Math.min(l - e.line, e.added);
+      break;
+    }
+    out.add(to >= 0 ? to : l + shift);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
 // Where `s` went among normalised `sels`: the one at the same place, else the one that swallowed it, else the first.
 function selIndexOf(sels: Sel[], s: Sel): number {
   const lo = Math.min(s.anchor, s.head), hi = Math.max(s.anchor, s.head);
