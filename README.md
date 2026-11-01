@@ -280,7 +280,6 @@ flowchart TB
 | [@esrazti](https://github.com/esrazti) | Contributor |
 
 
-Contributions are welcome. Open an [issue](https://github.com/itsphatto/BreezeCode/issues) to report a bug or suggest an idea, or send a pull request.
 
 ## License
 
