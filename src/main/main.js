@@ -1335,13 +1335,19 @@ handle('agent:setFullAccess', (_e, on) => { saveState({ agentFullAccess: on === 
 const skillDirs = () => ({
   claudeHome: process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'),
   codexHome: process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),
+  agentsHome: path.join(os.homedir(), '.agents'),
+  geminiHome: path.join(os.homedir(), '.gemini'),
   root,
 });
-handle('skills:list', () => skillsLib.listSkills(skillDirs()));
+// Skills are shared by every agent: each listing first links any new skill into the agents that don't have it.
+handle('skills:list', async () => {
+  await skillsLib.shareSkills(skillDirs()).catch(logError('skills'));
+  return skillsLib.listSkills(skillDirs());
+});
 handle('skills:read', (_e, file) => skillsLib.readSkill(file, skillDirs()));
 handle('skills:remove', async (_e, dir) => {
   if (!skillsLib.removableSkill(dir, skillDirs())) throw new Error('Breeze can only remove a skill from an agent’s skills folder');
-  await shell.trashItem(path.resolve(dir));
+  if (await skillsLib.unlinkSkill(path.resolve(dir), skillDirs())) await shell.trashItem(path.resolve(dir));
   return true;
 });
 // MCP servers connected in Breeze (handed to Claude Code runs), and the ones Claude Code has set up itself.
@@ -3458,7 +3464,7 @@ const discordText = (s, max = 120) => (typeof s === 'string' && s.trim() ? s.tri
 handle('discord:set', async (_e, a) => {
   if (!/^\d{15,22}$/.test(discordClientId())) throw new Error('Discord presence needs a Discord application id. Add "discord": { "clientId": "…" } to breeze.config.json or set BREEZE_DISCORD_CLIENT_ID.');
   // With a language icon it takes the big picture and the Breeze logo sits in its corner, like other editors.
-  const icon = typeof a?.icon === 'string' && /^[a-z0-9]{1,20}$/.test(a.icon) ? a.icon : null;
+  const icon = typeof a?.icon === 'string' && /^[a-z0-9][a-z0-9-]{0,29}$/.test(a.icon) ? a.icon : null;
   const images = icon
     ? { largeImageKey: DISCORD_ICON_URL(icon), largeImageText: discordText(a?.lang) || icon, smallImageKey: DISCORD_LOGO_URL, smallImageText: 'Breeze Code' }
     : { largeImageKey: 'breeze', largeImageText: 'Breeze Code' };

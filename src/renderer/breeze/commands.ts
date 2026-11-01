@@ -616,11 +616,30 @@ function menuSliderHtml(sl: MenuSlider, i: number): string {
 function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
   const track = row.querySelector<HTMLElement>('.ms-track') as HTMLElement;
   const last = sl.steps.length - 1;
+  // Bubbles stream right through the fill (which clips them), each at its own height, size, speed and slight drift,
+  // and started part-way through its trip so they don't set off together.
+  const bubbles: Animation[] = [];
+  const fill = row.querySelector<HTMLElement>('.ms-fill');
+  if (fill && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const w = track.offsetWidth;
+    for (let k = 0; k < 16; k++) {
+      const b = document.createElement('span');
+      const size = 1.5 + Math.random() * 3;
+      b.className = 'ms-bubble';
+      b.style.cssText = `width:${size}px;height:${size}px;top:${2 + Math.random() * (16 - size)}px;opacity:${.25 + Math.random() * .55}`;
+      fill.append(b);
+      const drift = (Math.random() - .5) * 6, dur = 1100 + Math.random() * 1500;
+      bubbles.push(b.animate([{ transform: 'translate(-6px, 0)' }, { transform: `translate(${w}px, ${drift}px)` }],
+        { duration: dur, delay: -Math.random() * dur, iterations: Infinity }));
+    }
+  }
   const paint = (i: number, at = i / last) => {
     row.style.setProperty('--pos', String(at));
-    (row.querySelector('.ms-val') as HTMLElement).textContent = sl.steps[i];
+    // More effort, faster bubbles; updatePlaybackRate keeps each bubble where it is instead of jumping.
+    for (const a of bubbles) a.updatePlaybackRate(.6 + at * 2.4);
+    swapText(row.querySelector('.ms-val') as HTMLElement, sl.steps[i]);
     const hint = row.querySelector<HTMLElement>('.ms-hint');
-    if (hint && sl.hint) hint.textContent = sl.hint(i);
+    if (hint && sl.hint) swapText(hint, sl.hint(i));
     track.setAttribute('aria-valuenow', String(i));
     track.setAttribute('aria-valuetext', sl.steps[i]);
   };
@@ -704,8 +723,12 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
   const depth = Number(btn.closest<HTMLElement>('.menu')?.dataset.depth ?? 0) + 1;
   closeSubmenu(depth);
   btn.classList.add('sub-open');
-  const r = btn.getBoundingClientRect();
-  const edge = btn.closest('.menu')?.getBoundingClientRect() ?? r; // a gap from the menu itself, not the row inside it
+  // Measured by layout: hovered while the menu is still growing in, its bounding box is the shrunken one mid-animation,
+  // which put the submenu on top of it. (A menu is position: fixed, so its offsets are from the window.)
+  const menu = btn.closest<HTMLElement>('.menu');
+  const top = (menu ? menu.offsetTop + menu.clientTop : 0) + btn.offsetTop;
+  const r = { top, bottom: top + btn.offsetHeight };
+  const edge = menu ? { left: menu.offsetLeft, right: menu.offsetLeft + menu.offsetWidth } : btn.getBoundingClientRect(); // a gap from the menu itself, not the row inside it
   const cls = 'menu sub' + (it.subClass ? ` ${it.subClass}` : '');
   const sub = renderMenu(edge.right + 8, r.top - 5, it.sub?.() ?? [], cls, depth);
   if (!btn.closest('.menu')?.classList.contains('stagger')) sub.classList.remove('stagger'); // like its parent menu
@@ -713,7 +736,7 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
     sub.classList.add('up');
     sub.style.top = `${Math.max(8, r.bottom - sub.offsetHeight + 5)}px`;
   }
-  if (sub.getBoundingClientRect().left < edge.right) sub.style.left = `${Math.max(8, edge.left - sub.offsetWidth - 8)}px`; // no room on the right
+  if (sub.offsetLeft < edge.right) sub.style.left = `${Math.max(8, edge.left - sub.offsetWidth - 8)}px`; // no room on the right
 }
 // Closes the submenus at `depth` and deeper (1, the default, is all of them).
 function closeSubmenu(depth = 1): void {

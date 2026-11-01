@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { frontMatter, listSkills, removableSkill, readSkill, setPluginEnabled } = require('../src/main/skills');
+const { frontMatter, listSkills, removableSkill, readSkill, setPluginEnabled, shareSkills, unlinkSkill } = require('../src/main/skills');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-skills-'));
 const write = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
@@ -11,7 +11,7 @@ const skill = (dir, name, description) => write(path.join(dir, name, 'SKILL.md')
 
 function homes() {
   const base = tmp();
-  return { claudeHome: path.join(base, 'claude'), codexHome: path.join(base, 'codex'), root: path.join(base, 'proj') };
+  return { claudeHome: path.join(base, 'claude'), codexHome: path.join(base, 'codex'), agentsHome: path.join(base, 'agents'), geminiHome: path.join(base, 'gemini'), root: path.join(base, 'proj') };
 }
 
 test('frontMatter reads name and description, quoted or folded', () => {
@@ -20,15 +20,21 @@ test('frontMatter reads name and description, quoted or folded', () => {
   assert.deepEqual(frontMatter('no front matter'), {});
 });
 
-test('listSkills finds each agent skills, leaving out hidden folders and Claude Desktop synced ones', async () => {
+test('listSkills finds each agent skills, with synced and built-in ones read-only', async () => {
   const h = homes();
   skill(path.join(h.claudeHome, 'skills'), 'review', 'Review a diff');
   skill(path.join(h.claudeHome, 'skills', 'synced', 'acct-1'), 'pdf', 'Work with PDFs');
   skill(path.join(h.codexHome, 'skills'), 'lint', 'Lint the code');
   skill(path.join(h.codexHome, 'skills', '.system'), 'builtin', 'Built in');
+  skill(path.join(h.agentsHome, 'skills'), 'shared', 'Shared skill');
+  skill(path.join(h.geminiHome, 'config', 'skills'), 'tidy', 'Tidy up');
+  skill(path.join(h.geminiHome, 'antigravity-cli', 'builtin', 'skills'), 'guide', 'Antigravity guide');
+  skill(path.join(h.geminiHome, 'antigravity-ide', 'builtin', 'skills'), 'guide', 'Antigravity guide');
   fs.mkdirSync(path.join(h.claudeHome, 'skills', 'no-skill-md'), { recursive: true });
   const { skills, plugins } = await listSkills(h);
-  assert.deepEqual(skills.map(s => [s.agent, s.scope, s.name, s.removable]).sort(), [['claude', 'user', 'review', true], ['codex', 'user', 'lint', true]]);
+  assert.deepEqual(skills.map(s => [s.agent, s.scope, s.name, s.removable]).sort(), [
+    ['antigravity', 'builtin', 'guide', false], ['antigravity', 'user', 'tidy', true], ['claude', 'synced', 'pdf', false],
+    ['claude', 'user', 'review', true], ['codex', 'builtin', 'builtin', false], ['codex', 'user', 'lint', true], ['codex', 'user', 'shared', true]]);
   assert.deepEqual(plugins, []);
 });
 
@@ -91,4 +97,22 @@ test('setPluginEnabled keeps the rest of settings.json', async () => {
   write(path.join(h.claudeHome, 'settings.json'), '{ not json');
   await assert.rejects(setPluginEnabled(h.claudeHome, 'b@m', true));
   assert.equal(fs.readFileSync(path.join(h.claudeHome, 'settings.json'), 'utf8'), '{ not json');
+});
+
+test('shareSkills links each skill into the agents that lack it, and unlinkSkill takes the links back out', async () => {
+  const h = homes();
+  skill(path.join(h.claudeHome, 'skills'), 'review', 'Review a diff');
+  skill(path.join(h.agentsHome, 'skills'), 'lint', 'Lint the code');
+  skill(path.join(h.geminiHome, 'config', 'skills'), 'review', 'Antigravity own review'); // same name: left alone
+  assert.equal(await shareSkills(h), 3); // review → Codex; lint → Claude and Antigravity
+  assert.equal(await shareSkills(h), 0); // nothing new the second time
+  const { skills } = await listSkills(h);
+  const row = name => skills.filter(k => k.name === name && k.scope === 'user').map(k => [k.agent, k.agents.sort()]);
+  assert.deepEqual(row('lint'), [['codex', ['antigravity', 'claude', 'codex']]]);
+  assert.deepEqual(row('review').sort(), [['antigravity', ['antigravity']], ['claude', ['claude', 'codex']]]);
+  const lint = path.join(h.agentsHome, 'skills', 'lint');
+  assert.equal(await unlinkSkill(lint, h), true); // the real folder stays for the Recycle Bin
+  assert.equal(fs.existsSync(path.join(h.claudeHome, 'skills', 'lint')), false);
+  assert.equal(fs.existsSync(path.join(h.geminiHome, 'config', 'skills', 'lint', 'SKILL.md')), false);
+  assert.equal(fs.existsSync(path.join(lint, 'SKILL.md')), true);
 });

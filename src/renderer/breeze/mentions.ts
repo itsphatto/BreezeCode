@@ -62,7 +62,8 @@ let slashList: { items: MenuItem[]; key: string; s: Surface } | null = null;
 function setSlashSkills(d: SkillList): void {
   const own = d.skills.map(k => ({ cmd: k.name, desc: k.description }));
   const plug = d.plugins.filter(p => p.enabled).flatMap(p => p.skills.map(k => ({ cmd: `${p.name}:${k.name}`, desc: k.description })));
-  slashSkills = [...own, ...plug].sort((a, b) => a.cmd.localeCompare(b.cmd));
+  // The same skill can sit in several agents' folders; the menu lists it once.
+  slashSkills = [...new Map([...own, ...plug].map(k => [k.cmd, k])).values()].sort((a, b) => a.cmd.localeCompare(b.cmd));
 }
 function loadSlashSkills(): Promise<void> {
   return (slashLoading ??= api.skills.list().then(setSlashSkills).catch(() => { slashSkills = []; }));
