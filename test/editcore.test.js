@@ -172,6 +172,7 @@ test('emmetInsert indents and places the caret on the first field', () => {
   assert.deepEqual(plain(emmetInsert('<ul>\n\t<li>${1}</li>\n</ul>', '  ')), { text: '<ul>\n  \t<li></li>\n  </ul>', caret: 12 });
   assert.deepEqual(plain(emmetInsert('<a href="${1:http://}">${2}</a>', '')), { text: '<a href="http://"></a>', caret: 9 });
   assert.deepEqual(plain(emmetInsert('margin: 10px;', '')), { text: 'margin: 10px;', caret: 13 });
-  assert.deepEqual(plain(emmetInsert('<i>${2}</i><b>${1}</b>${0}', '')), { text: '<i></i><b></b>', caret: 10 }); // lowest number wins; ${0} is the last stop
+  assert.deepEqual(plain(emmetInsert('<i>${2}</i><b>${1}</b>${0}', '')), { text: '<i></i><b></b>', caret: 14 }); // ${0} is the lowest number
   assert.deepEqual(plain(emmetInsert('<p>${0}</p>', '')), { text: '<p></p>', caret: 3 });
+  assert.deepEqual(plain(emmetInsert('@media ${1:screen} {\n\t${0}\n}', '')), { text: '@media screen {\n\t\n}', caret: 17 }); // the body, not the query
 });

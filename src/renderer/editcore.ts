@@ -258,13 +258,13 @@ function emmetAbbrBefore(line: string, col: number, kind: 'markup' | 'stylesheet
 }
 
 // Lays an expansion out at `indent` and strips its ${N} / ${N:placeholder} fields. The caret goes to the
-// lowest-numbered field ($0 is the final stop, so it comes last), or to the end when there is none.
+// lowest-numbered field (so `${0}` when present), or to the end when there is none.
 function emmetInsert(expansion: string, indent: string): { text: string; caret: number } {
   const src = expansion.split('\n').join('\n' + indent);
   let text = '', last = 0, caret = -1, best = Infinity;
   for (const m of src.matchAll(/\$\{(\d+)(?::([^}]*))?\}/g)) {
     text += src.slice(last, m.index);
-    const n = +m[1] || Infinity;
+    const n = +m[1];
     if (caret < 0 || n < best) { best = n; caret = text.length; }
     text += m[2] ?? '';
     last = m.index + m[0].length;
