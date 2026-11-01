@@ -150,7 +150,7 @@ function renderEditor(): void {
       empty.addEventListener('animationend', () => empty.classList.remove('enter'), { once: true });
     }
     hlLines.replaceChildren(); hlBoxes.replaceChildren(); gutLines.replaceChildren();
-    updateVSlider();
+    updateSliders();
     closeFind();
     updateStatus();
     return;
@@ -608,40 +608,49 @@ function syncScroll(): void {
   if (vf < winFirst || vl > winLast) { renderCode(); return; }
   hlInner.style.transform = `translate(${-b.ta.scrollLeft}px, ${-b.ta.scrollTop}px)`;
   gutInner.style.transform = `translateY(${-b.ta.scrollTop}px)`;
-  updateVSlider(b.ta);
+  updateSliders(b.ta);
 }
 
-/* ----- Vertical scroll slider on the right edge of an editor (native scrollbars are hidden) ----- */
-// Returns the function that brings the slider up to date with its surface. The track runs the editor's height less
-// an inset at each end (V_SLIDER_INSET, as in .v-slider), so the thumb never touches the tab bar or the bottom edge;
-// its room is worked out from the editor because the track itself measures 0 while it is hidden. The thumb is a
-// quarter of the room at most, so it reads as a handle rather than a bar.
-const V_SLIDER_INSET = 6;
-function vSlider(host: HTMLElement, surface: () => CodeSurface | undefined): (ta?: CodeSurface) => void {
+/* ----- Scroll sliders on an editor's right and bottom edges (native scrollbars are hidden) ----- */
+// Returns the function that brings the slider up to date with its surface. The track runs the host's length on its
+// axis less an inset at each end (SLIDER_INSET, as in .v-slider and .h-slider), so the thumb never touches the tab bar
+// or the edges; its room is worked out from the host because the track itself measures 0 while it is hidden. The
+// thumb is a quarter of the room at most, so it reads as a handle rather than a bar. The horizontal track also stops
+// short of the right edge (H_SLIDER_END) so it never runs under the vertical one.
+const SLIDER_INSET = 6, H_SLIDER_END = 18;
+type SliderAxis = 'v' | 'h';
+function scrollSlider(host: HTMLElement, surface: () => CodeSurface | undefined, axis: SliderAxis): (ta?: CodeSurface) => void {
+  const v = axis === 'v';
   const track = document.createElement('div');
-  track.className = 'v-slider';
+  track.className = `${axis}-slider`;
   const thumb = document.createElement('div');
-  thumb.className = 'v-slider-thumb';
+  thumb.className = `${axis}-slider-thumb`;
   track.append(thumb);
   host.append(track);
+  const room = (): number => v ? host.clientHeight - 2 * SLIDER_INSET : host.clientWidth - SLIDER_INSET - H_SLIDER_END;
+  const size = (ta: CodeSurface) => v ? ta.scrollHeight : ta.scrollWidth;
+  const view = (ta: CodeSurface) => v ? ta.clientHeight : ta.clientWidth;
+  const pos = (ta: CodeSurface) => v ? ta.scrollTop : ta.scrollLeft;
+  const setPos = (ta: CodeSurface, n: number): void => { if (v) ta.scrollTop = n; else ta.scrollLeft = n; };
   const update = (ta = surface()): void => {
-    const room = host.clientHeight - 2 * V_SLIDER_INSET;
-    const overflow = ta ? ta.scrollHeight - ta.clientHeight : 0;
-    track.classList.toggle('on', !!ta && overflow > 0 && room > 0);
-    if (!ta || overflow <= 0 || room <= 0) return;
-    const h = Math.max(24, Math.min(room / 4, room * ta.clientHeight / ta.scrollHeight));
-    thumb.style.height = `${h}px`;
-    thumb.style.transform = `translateY(${(room - h) * ta.scrollTop / overflow}px)`;
+    const r = room();
+    const overflow = ta ? size(ta) - view(ta) : 0;
+    track.classList.toggle('on', !!ta && overflow > 0 && r > 0);
+    if (!ta || overflow <= 0 || r <= 0) return;
+    const len = Math.max(24, Math.min(r / 4, r * view(ta) / size(ta)));
+    const at = (r - len) * pos(ta) / overflow;
+    if (v) { thumb.style.height = `${len}px`; thumb.style.transform = `translateY(${at}px)`; }
+    else { thumb.style.width = `${len}px`; thumb.style.transform = `translateX(${at}px)`; }
   };
   thumb.addEventListener('pointerdown', e => {
     const ta = surface();
     if (!ta || e.button !== 0) return;
-    const startY = e.clientY, startTop = ta.scrollTop;
+    const start = v ? e.clientY : e.clientX, startPos = pos(ta);
     try { thumb.setPointerCapture(e.pointerId); } catch { /* pointer already gone: the drag still follows moves over the thumb */ }
     track.classList.add('drag');
     const move = (ev: PointerEvent): void => {
-      const travel = host.clientHeight - 2 * V_SLIDER_INSET - thumb.offsetHeight;
-      if (travel > 0) ta.scrollTop = startTop + (ev.clientY - startY) * (ta.scrollHeight - ta.clientHeight) / travel;
+      const travel = room() - (v ? thumb.offsetHeight : thumb.offsetWidth);
+      if (travel > 0) setPos(ta, startPos + ((v ? ev.clientY : ev.clientX) - start) * (size(ta) - view(ta)) / travel);
     };
     const up = (): void => {
       track.classList.remove('drag');
@@ -659,14 +668,21 @@ function vSlider(host: HTMLElement, surface: () => CodeSurface | undefined): (ta
     const ta = surface();
     if (e.target !== track || !ta || e.button !== 0) return;
     const r = track.getBoundingClientRect();
-    ta.scrollTop = (e.clientY - r.top) / r.height * ta.scrollHeight - ta.clientHeight / 2;
+    const frac = v ? (e.clientY - r.top) / r.height : (e.clientX - r.left) / r.width;
+    setPos(ta, frac * size(ta) - view(ta) / 2);
     e.preventDefault();
   });
   // A panel resize changes the room without a scroll.
   new ResizeObserver(() => update()).observe(host);
   return update;
 }
-const updateVSlider = vSlider($('#editor'), () => activeText()?.ta);
+// Both sliders of one editor, updated together: typing a long line changes the width without a scroll.
+function editorSliders(editor: HTMLElement, surface: () => CodeSurface | undefined): (ta?: CodeSurface) => void {
+  const vert = scrollSlider(editor, surface, 'v');
+  const horiz = scrollSlider(editor.querySelector<HTMLElement>('.code') ?? editor, surface, 'h');
+  return ta => { vert(ta); horiz(ta); };
+}
+const updateSliders = editorSliders($('#editor'), () => activeText()?.ta);
 
 
 
@@ -785,7 +801,7 @@ function syncSplitScroll(): void {
   splitGutInner.style.transform = `translateY(${-splitTa.scrollTop}px)`;
   updateSplitSlider();
 }
-const updateSplitSlider = vSlider($('.split-editor'), () => (splitBuf() ? splitTa : undefined));
+const updateSplitSlider = editorSliders($('.split-editor'), () => (splitBuf() ? splitTa : undefined));
 splitTa.addEventListener('scroll', syncSplitScroll);
 splitTa.addEventListener('input', () => {
   const b = splitBuf();

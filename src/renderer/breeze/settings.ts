@@ -18,6 +18,11 @@ const SETTINGS_TABS: [SettingsTab, string, string][] = [
 // Developer stays out of the list until its code is entered under Miscellaneous.
 const DEV_CODE = 'developermode';
 const visibleSettingsTabs = () => SETTINGS_TABS.filter(([id]) => id !== 'dev' || appState.devMode);
+// Developer mode shows on the app icon and the Discord logo.
+function applyDevMode(): void {
+  background(api.win.devIcon(appState.devMode));
+  queueDiscord();
+}
 // Agents the user has come first, then this order; anything else keeps its place after.
 const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'ollama'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
@@ -293,8 +298,8 @@ function settingsBody(tab: SettingsTab): string {
           <div class="dc-head"><span>Playing</span>${svgIcon('more', 16)}</div>
           <div class="dc-body">
             <span class="dc-art-box">${a.icon
-              ? `<img class="dc-art" src="${DC_ICON_URL}${a.icon}.png" alt="" draggable="false"><img class="dc-badge" src="../../assets/brand/Icon.png" alt="" draggable="false">`
-              : '<img class="dc-art" src="../../assets/brand/Icon.png" alt="" draggable="false">'}</span>
+              ? `<img class="dc-art" src="${DC_ICON_URL}${a.icon}.png" alt="" draggable="false"><img class="dc-badge" src="${appIcon()}" alt="" draggable="false">`
+              : `<img class="dc-art" src="${appIcon()}" alt="" draggable="false">`}</span>
             <div class="dc-txt"><b>Breeze Code</b><span>${esc(a.details ?? '')}</span><span>${esc(a.state ?? '')}</span>
               <span class="dc-time">${DC_PAD}<span data-dc-since="${a.start ?? Date.now()}"></span></span></div>
           </div>
@@ -551,14 +556,14 @@ function bindSettings(m: HTMLElement): void {
     const v = codeIn.value.trim().toLowerCase();
     if (!v) return;
     if (v !== DEV_CODE) { toast('That code didn’t work'); codeIn.select(); return; }
-    appState.devMode = true; saveApp();
+    appState.devMode = true; saveApp(); applyDevMode();
     toast('Developer unlocked');
     settingsTab = 'dev';
     refreshSettings();
   };
   on('sCodeGo', tryCode);
   if (codeIn) codeIn.onkeydown = e => { if (e.key === 'Enter') tryCode(); };
-  on('sDevOff', () => { appState.devMode = false; saveApp(); settingsTab = 'misc'; refreshSettings(); });
+  on('sDevOff', () => { appState.devMode = false; saveApp(); applyDevMode(); settingsTab = 'misc'; refreshSettings(); });
   // Discord
   on('sDiscord', el => {
     if (appState.discord) { discordOff(); return; }

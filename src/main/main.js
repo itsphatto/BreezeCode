@@ -219,6 +219,8 @@ function saveState(patch) {
 // The app icon on the taskbar, window and dock.
 const ROOT = path.join(__dirname, '..', '..'); // project root: assets, runtime, .env and breeze.config.json live here
 const APP_ICON = path.join(ROOT, 'assets', 'brand', 'Icon.png');
+// Developer mode flips it: a white tile with the blue wind.
+const APP_ICON_DEV = path.join(ROOT, 'assets', 'brand', 'IconDev.png');
 // The one page the window may show. Anything else (a file dropped onto the window, a link) would run with the
 // preload bridge, which can run commands, so the window never navigates away from it.
 const APP_PAGE = path.join(ROOT, 'src', 'renderer', 'breeze.html');
@@ -383,12 +385,12 @@ function createWindow() {
 // Windows draws the taskbar button from the app's user model id, which in development is electron.exe, so the
 // button showed Electron's atom instead of Breeze. setAppDetails points that id at our icon; it wants an .ico,
 // so one is written once (a PNG inside an ICO wrapper) into the user data folder.
-function showTaskbarIcon(w) {
+function showTaskbarIcon(w, icon = APP_ICON) {
   if (!isWin) return;
   try {
-    const png = nativeImage.createFromPath(APP_ICON).resize({ width: 256, height: 256, quality: 'best' }).toPNG();
-    const ico = path.join(app.getPath('userData'), 'Icon.ico');
-    if (!fs.existsSync(ico) || fs.statSync(ico).mtimeMs < fs.statSync(APP_ICON).mtimeMs) {
+    const png = nativeImage.createFromPath(icon).resize({ width: 256, height: 256, quality: 'best' }).toPNG();
+    const ico = path.join(app.getPath('userData'), `${path.basename(icon, '.png')}.ico`);
+    if (!fs.existsSync(ico) || fs.statSync(ico).mtimeMs < fs.statSync(icon).mtimeMs) {
       const head = Buffer.alloc(22);
       head.writeUInt16LE(0, 0); head.writeUInt16LE(1, 2); head.writeUInt16LE(1, 4); // ICO, one image
       head.writeUInt8(0, 6); head.writeUInt8(0, 7); // 0 = 256 px
@@ -1405,6 +1407,12 @@ handle('win:quit', () => app.quit());
 const THEME_BG = { dark: '#1d1d1f', contrast: '#000000', light: '#fbf9f4' };
 handle('win:theme', (_e, theme) => {
   if (THEME_BG[theme] && win) win.setBackgroundColor(THEME_BG[theme]);
+});
+// Developer mode swaps the window, taskbar and dock icon for the flipped one, and back.
+handle('win:devIcon', (_e, on) => {
+  const icon = on ? APP_ICON_DEV : APP_ICON;
+  if (win) isWin ? showTaskbarIcon(win, icon) : win.setIcon(icon);
+  if (process.platform === 'darwin') app.dock?.setIcon(icon);
 });
 // The page's own minimize, maximize and close buttons.
 handle('win:minimize', () => win?.minimize());
@@ -3460,14 +3468,17 @@ const discord = new DiscordPresence(() => new DiscordRpc(discordClientId()), { o
 const DISCORD_ICON_URL = key => `https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/${key}.png`;
 // The corner badge is a link too, so it shows without uploading art to the Discord application.
 const DISCORD_LOGO_URL = 'https://breezecode.itsphatto.site/favicon-192.png';
+// Developer mode's flipped logo, straight from the repository (it shows once IconDev.png is on main).
+const DISCORD_DEV_LOGO_URL = 'https://raw.githubusercontent.com/itsphatto/BreezeCode/main/assets/brand/IconDev.png';
 const discordText = (s, max = 120) => (typeof s === 'string' && s.trim() ? s.trim().slice(0, max) : undefined);
 handle('discord:set', async (_e, a) => {
   if (!/^\d{15,22}$/.test(discordClientId())) throw new Error('Discord presence needs a Discord application id. Add "discord": { "clientId": "…" } to breeze.config.json or set BREEZE_DISCORD_CLIENT_ID.');
   // With a language icon it takes the big picture and the Breeze logo sits in its corner, like other editors.
   const icon = typeof a?.icon === 'string' && /^[a-z0-9][a-z0-9-]{0,29}$/.test(a.icon) ? a.icon : null;
+  const logo = a?.dev ? DISCORD_DEV_LOGO_URL : DISCORD_LOGO_URL;
   const images = icon
-    ? { largeImageKey: DISCORD_ICON_URL(icon), largeImageText: discordText(a?.lang) || icon, smallImageKey: DISCORD_LOGO_URL, smallImageText: 'Breeze Code' }
-    : { largeImageKey: 'breeze', largeImageText: 'Breeze Code' };
+    ? { largeImageKey: DISCORD_ICON_URL(icon), largeImageText: discordText(a?.lang) || icon, smallImageKey: logo, smallImageText: 'Breeze Code' }
+    : { largeImageKey: a?.dev ? DISCORD_DEV_LOGO_URL : 'breeze', largeImageText: 'Breeze Code' };
   const user = await discord.set({
     details: discordText(a?.details), state: discordText(a?.state), startTimestamp: Number(a?.start) || undefined, ...images,
   });

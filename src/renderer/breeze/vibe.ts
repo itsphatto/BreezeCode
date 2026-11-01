@@ -128,7 +128,7 @@ function vibeDone(ok: boolean, plan = false): void {
 function notifyVibe(title: string, body: string): void {
   if (typeof Notification === 'undefined') return;
   const show = () => {
-    const n = new Notification(title, { body, icon: '../../assets/brand/Icon.png', tag: 'breeze-vibe' });
+    const n = new Notification(title, { body, icon: appIcon(), tag: 'breeze-vibe' });
     n.onclick = () => { window.focus(); n.close(); };
   };
   if (Notification.permission === 'granted') show();

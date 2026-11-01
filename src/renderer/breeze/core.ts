@@ -71,7 +71,7 @@ interface Completion { text: string; dir: boolean; }
 interface DetectedTool { id: string; name: string; found: boolean; version: string | null; optional?: boolean; hint?: string | null; cmd?: string | null; url?: string | null; }
 interface Detection { agents: DetectedAgent[]; tools: DetectedTool[]; platform: string; demo?: boolean; }
 interface Rect { x: number; y: number; width: number; height: number; }
-interface DiscordActivity { details?: string; state?: string; start?: number; icon?: string; lang?: string; }
+interface DiscordActivity { details?: string; state?: string; start?: number; icon?: string; lang?: string; dev?: boolean; }
 interface RecentFolder { path: string; name: string; openedAt?: number | null; missing?: boolean; }
 interface LiveStatus { available: boolean; running: boolean; url: string; }
 
@@ -215,7 +215,7 @@ interface BreezeApi {
     mute(muted: boolean): Promise<void>;
     hide(): Promise<void>;
   };
-  win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>;
+  win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>; devIcon(on: boolean): Promise<void>;
     minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>;
     onMaximized(cb: (maximized: boolean) => void): () => void;
     launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };

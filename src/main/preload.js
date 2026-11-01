@@ -169,6 +169,7 @@ contextBridge.exposeInMainWorld('breeze', {
     quit: () => invoke('win:quit'),
     edit: role => invoke('win:edit', role),
     theme: t => invoke('win:theme', t),
+    devIcon: on => invoke('win:devIcon', on),
     minimize: () => invoke('win:minimize'),
     toggleMaximize: () => invoke('win:toggleMaximize'),
     close: () => invoke('win:close'),

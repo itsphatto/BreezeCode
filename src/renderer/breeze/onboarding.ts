@@ -11,6 +11,8 @@ const appState: AppState = {
   ...store.get<Partial<AppState>>('breeze.app', {}),
 };
 const saveApp = () => store.set('breeze.app', appState);
+// The blue app icon, or in developer mode the flipped one (white tile, blue wind).
+const appIcon = () => `../../assets/brand/${appState.devMode ? 'IconDev' : 'Icon'}.png`;
 
 /* ================= Onboarding: welcome → login → agent → home ================= */
 // Home is also where every later launch lands (see init.ts).

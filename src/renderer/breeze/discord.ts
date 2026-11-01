@@ -11,7 +11,7 @@ function discordActivity(): DiscordActivity {
     let details = 'Writing code';
     if (working) details = 'Vibe coding with agents';
     else if (inBox) details = 'Chatting with an agent';
-    return { details, state: 'Breeze Code', start: discordSince };
+    return { details, state: 'Breeze Code', start: discordSince, dev: appState.devMode };
   }
   let details = inBox ? 'Chatting in Breeze Box' : 'Idle';
   if (working) details = `${working.name}: ${working.task}`;
@@ -19,7 +19,7 @@ function discordActivity(): DiscordActivity {
   const lang = !inBox && active ? langOf(active)[1] : '';
   const where = rootInfo ? `in ${rootInfo.name}` : 'Breeze Code';
   const icon = !inBox && !working && active ? discordIcon(active) : undefined;
-  return { details, state: lang && !working ? `${lang} · ${where}` : where, start: discordSince, icon, lang: lang || undefined };
+  return { details, state: lang && !working ? `${lang} · ${where}` : where, start: discordSince, icon, lang: lang || undefined, dev: appState.devMode };
 }
 // The file's language icon for the big presence picture (names of the PNGs main.js links to, from vscord's set).
 const DISCORD_ICONS: Record<string, string> = {

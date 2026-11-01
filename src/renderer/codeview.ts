@@ -150,6 +150,7 @@ class CodeSurface extends EventTarget {
   get clientHeight() { return this.root.clientHeight; }
   get clientWidth() { return this.root.clientWidth; }
   get scrollHeight() { return this.root.scrollHeight; }
+  get scrollWidth() { return this.root.scrollWidth; }
   get classList() { return this.root.classList; }
 
   focus(opts?: FocusOptions) { this.input.focus(opts); }

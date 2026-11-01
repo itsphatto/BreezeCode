@@ -8445,7 +8445,7 @@ body.vibing .box {
   height: 0;
 }
 
-/* Editor scroll slider (right edge), inset from the top, bottom and side (the insets match V_SLIDER_INSET). */
+/* Editor scroll sliders (right and bottom edges), inset from the ends and side (the insets match SLIDER_INSET). */
 .v-slider {
   position: absolute;
   top: 6px;
@@ -8481,6 +8481,43 @@ body.vibing .box {
 }
 
 .v-slider.drag .v-slider-thumb {
+  background: color-mix(in srgb, var(--accent, var(--blue-text)) 70%, transparent);
+}
+
+/* The bottom one spans the code only (not the gutter) and stops short of the right slider (H_SLIDER_END). */
+.h-slider {
+  position: absolute;
+  left: 6px;
+  right: 18px;
+  bottom: 3px;
+  height: 12px;
+  display: none;
+  z-index: 5;
+}
+
+.h-slider.on {
+  display: block;
+}
+
+.h-slider-thumb {
+  position: absolute;
+  left: 0;
+  bottom: 2px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(var(--ink), .16);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), .1);
+  backdrop-filter: blur(6px) saturate(140%);
+  transition: background-color .15s, box-shadow .15s;
+  cursor: pointer;
+}
+
+.h-slider:hover .h-slider-thumb {
+  background: rgba(var(--ink), .3);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), .16);
+}
+
+.h-slider.drag .h-slider-thumb {
   background: color-mix(in srgb, var(--accent, var(--blue-text)) 70%, transparent);
 }
 

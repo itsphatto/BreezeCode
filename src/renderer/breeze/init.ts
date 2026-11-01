@@ -29,6 +29,7 @@ async function boot(): Promise<void> {
   renderDetection();
   setVibeArmed(appState.vibeArmed);
   if (appState.discord) { renderDiscord('off', 'Connecting to Discord'); queueDiscord(); }
+  if (appState.devMode) background(api.win.devIcon(true));
   // The main process remembers who signed in; it wins over the renderer's copy.
   const signed = await api.auth.user().catch(() => null);
   if (signed || isDesktop) { user = signed; appState.user = signed; saveApp(); }
