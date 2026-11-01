@@ -1,7 +1,8 @@
 /* ================= Autofill ================= */
 // One suggestion list, used by the code editor (words and keywords) and the terminal (files, commands, history).
 // insert/from: a language server's completion, which may insert other text than its label, from another spot.
-interface Suggestion { text: string; hint?: string; insert?: string; from?: number; }
+// run: does its own thing instead of inserting; plain: the typed prefix is not part of its label, so none of it is bolded.
+interface Suggestion { text: string; hint?: string; insert?: string; from?: number; run?: () => void; plain?: boolean; }
 interface SuggestState { owner: HTMLElement; items: Suggestion[]; sel: number; typed: number; accept: (s: Suggestion) => void; onRender?: () => void; }
 let suggest: SuggestState | null = null;
 const suggestEl = document.createElement('div');
@@ -23,7 +24,7 @@ function renderSuggest(): void {
   const { items, sel, typed } = suggest;
   suggestEl.innerHTML = items.map((s, i) => {
     const hint = s.hint ? `<small>${esc(s.hint)}</small>` : '';
-    return `<div class="${i === sel ? 'on' : ''}" data-sg="${i}" role="option"><span><b>${esc(s.text.slice(0, typed))}</b>${esc(s.text.slice(typed))}</span>${hint}</div>`;
+    return `<div class="${i === sel ? 'on' : ''}" data-sg="${i}" role="option"><span><b>${esc(s.text.slice(0, s.plain ? 0 : typed))}</b>${esc(s.text.slice(s.plain ? 0 : typed))}</span>${hint}</div>`;
   }).join('');
   suggestEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
   suggest.onRender?.();
@@ -114,7 +115,10 @@ function editorSuggest(b: EditorBuffer, force = false): void {
   const pos = ta.selectionStart, ls = lineStart(b.text, pos), line = b.text.slice(ls, pos);
   // Right after a "." the language server lists the members.
   const lsp = lspOn.has(b.path), member = lsp && b.text[pos - prefix.length - 1] === '.';
-  if (prefix.length < (force || member ? 0 : 2)) { hideSuggest(); return; }
+  const short = prefix.length < (force || member ? 0 : 2);
+  // An abbreviation like `ul>li.x*3` ends in no word, so it is looked for before the length check.
+  const abbr = emmetCandidate(b, ta);
+  if (short && !abbr) { hideSuggest(); return; }
   const cw = measureChar();
   const r = ta.getBoundingClientRect();
   const x = r.left + 4 + visualCol(line, pos - ls - prefix.length) * cw - ta.scrollLeft;
@@ -130,13 +134,29 @@ function editorSuggest(b: EditorBuffer, force = false): void {
     // A half-typed line is usually a syntax error; its message would sit under the ghost text.
     $('#editor').classList.add('suggesting');
   };
-  const show = (items: Suggestion[]) => showSuggest({
-    owner: ta.input, items, sel: 0, typed: prefix.length,
-    accept: s => { hideSuggest(); replaceRange(ta, s.from ?? pos - prefix.length, ta.selectionStart, s.insert ?? s.text); },
-    onRender: ghost,
-  }, x - 8, top + LINE_H + 2, top - 2);
-  const words = member ? [] : editorCandidates(b, prefix);
+  let emmetItem: Suggestion | undefined, listed: Suggestion[] = [];
+  const show = (items: Suggestion[]) => {
+    listed = items;
+    showSuggest({
+      owner: ta.input, items: emmetItem ? [emmetItem, ...items] : items, sel: 0, typed: prefix.length,
+      accept: s => {
+        hideSuggest();
+        if (s.run) s.run(); else replaceRange(ta, s.from ?? pos - prefix.length, ta.selectionStart, s.insert ?? s.text);
+      },
+      onRender: ghost,
+    }, x - 8, top + LINE_H + 2, top - 2);
+  };
+  const words = member || short ? [] : editorCandidates(b, prefix);
   if (words.length) show(words); else hideSuggest();
+  // The expansion goes on top of the list once main has it, unless the user moved on.
+  if (abbr) {
+    void emmetPreview(b, ta).then(expansion => {
+      if (!expansion || document.activeElement !== ta.input || ta.selectionStart !== pos) return;
+      const first = emmetInsert(expansion, '').text.split('\n')[0];
+      emmetItem = { text: `Emmet: ${first.length > 48 ? first.slice(0, 48) : first}…`, plain: true, run: () => { void tryEmmet(b, ta); } };
+      show(listed);
+    });
+  }
   if (!lsp) return;
   // The server's answer comes first, then the file's words it didn't have. Dropped if the user moved on.
   const ask = ++lspAsk, text = b.text;
