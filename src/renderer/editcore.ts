@@ -316,8 +316,11 @@ function nextOccurrence(text: string, sels: Sel[]): Sel | null {
   if (!last) return null;
   const lo = Math.min(last.anchor, last.head), hi = Math.max(last.anchor, last.head);
   if (lo === hi) {
-    const [a, b] = wordAt(text, hi);
-    return a === b ? null : { anchor: a, head: b };
+    // The word touching the caret: the one it is in or before, else the one that ends at it. Never a newline or blanks.
+    const at = hi < text.length && isWordCh(text[hi]) ? hi : hi > 0 && isWordCh(text[hi - 1]) ? hi - 1 : -1;
+    if (at < 0) return null;
+    const [a, b] = wordAt(text, at);
+    return { anchor: a, head: b };
   }
   const needle = text.slice(lo, hi), taken = sels.filter(s => s.anchor !== s.head);
   const free = (p: number) => !taken.some(s => p < Math.max(s.anchor, s.head) && p + needle.length > Math.min(s.anchor, s.head));

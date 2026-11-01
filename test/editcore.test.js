@@ -230,7 +230,11 @@ test('nextOccurrence follows the last selection, a backward one included', () =>
   // the last in order given, not the rightmost
   assert.deepEqual(plain(nextOccurrence(T, [{ anchor: 8, head: 11 }, { anchor: 0, head: 3 }])), { anchor: 16, head: 19 });
   assert.equal(nextOccurrence(T, [{ anchor: 0, head: 3 }, { anchor: 8, head: 11 }, { anchor: 16, head: 19 }]), null);
-  assert.deepEqual(plain(nextOccurrence('a   b', [{ anchor: 2, head: 2 }])), { anchor: 1, head: 4 }); // a blank run is the word under the caret
+  assert.equal(nextOccurrence('a   b', [{ anchor: 2, head: 2 }]), null); // between blanks there is no word
+  assert.deepEqual(plain(nextOccurrence('foo\nbar', [{ anchor: 3, head: 3 }])), { anchor: 0, head: 3 }); // end of line: the word before, not the newline
+  assert.equal(nextOccurrence('a\n\nb', [{ anchor: 2, head: 2 }]), null); // blank line
+  assert.deepEqual(plain(nextOccurrence('foo', [{ anchor: 3, head: 3 }])), { anchor: 0, head: 3 });
+  assert.deepEqual(plain(nextOccurrence('foo(x)', [{ anchor: 3, head: 3 }])), { anchor: 0, head: 3 });
   assert.equal(nextOccurrence('', [{ anchor: 0, head: 0 }]), null);
   assert.equal(nextOccurrence('foo', []), null);
 });
