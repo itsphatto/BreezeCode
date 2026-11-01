@@ -19,6 +19,7 @@ const { parseMentions, shortName } = require('./mentions');
 const { LspManager, SERVERS, findOnPath } = require('./lsp');
 const skillsLib = require('./skills');
 const mcpLib = require('./mcp');
+const { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } = require('./previewServer');
 
 let autoUpdater = null;
 try {
@@ -407,35 +408,12 @@ function showTaskbarIcon(w, icon = APP_ICON) {
   } catch (e) { logError('taskbar icon')(e); }
 }
 
-// The preview iframe is sandboxed (an opaque origin), and Chromium won't let an opaque origin load file://
-// stylesheets, scripts or images. So the preview is served from breeze-preview://project/<path> instead.
-const PREVIEW_SCHEME = 'breeze-preview';
-protocol.registerSchemesAsPrivileged([{ scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
-const PREVIEW_STYLE = '<style data-breeze-preview>html,body{scrollbar-width:none}::-webkit-scrollbar{display:none;width:0;height:0}</style>';
-// Goes right after <head> (or <html>) so the doctype stays first and the page keeps standards mode.
-function withHiddenScrollbars(html) {
-  const at = /<head\b[^>]*>/i.exec(html) || /<html\b[^>]*>/i.exec(html);
-  return at ? html.slice(0, at.index + at[0].length) + PREVIEW_STYLE + html.slice(at.index + at[0].length) : html + PREVIEW_STYLE;
-}
-async function servePreview(req) {
-  try {
-    const rel = decodeURIComponent(new URL(req.url).pathname).replace(/^\/+/, '');
-    let abs = resolveIn(rel);
-    if ((await fsp.stat(abs)).isDirectory()) abs = resolveIn(path.join(rel, 'index.html')); // it may be a link too
-    const res = await net.fetch(pathToFileURL(abs).href);
-    const type = res.headers.get('content-type') || 'application/octet-stream';
-    const headers = { 'Content-Type': type, 'Cache-Control': 'no-store' };
-    // Pages scroll without a scrollbar in the preview, like the rest of Breeze (the sandboxed frame can't be styled from outside).
-    if (/text\/html/i.test(type)) return new Response(withHiddenScrollbars(await res.text()), { status: res.status, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8' } });
-    return new Response(res.body, { status: res.status, headers });
-  } catch {
-    return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
-  }
-}
+// The preview is served from its own scheme (previewServer.js): a sandboxed frame can't load file:// pages' assets.
+protocol.registerSchemesAsPrivileged([{ scheme: PREVIEW_SCHEME, privileges: PREVIEW_PRIVILEGES }]);
 
 async function startApp() {
   await app.whenReady();
-  protocol.handle(PREVIEW_SCHEME, servePreview);
+  protocol.handle(PREVIEW_SCHEME, createPreviewHandler(resolveIn));
   fsp.rm(UNDO_DIR, { recursive: true, force: true }).catch(logError('undo dir')); // last session's undo copies
   // The menu bar is drawn in HTML; the native one would only duplicate it.
   Menu.setApplicationMenu(null);

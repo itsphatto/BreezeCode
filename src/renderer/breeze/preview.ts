@@ -2,7 +2,10 @@
 let running = false;
 let previewPath: string | null = null;
 const frame = $<HTMLIFrameElement>('#previewFrame');
-frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
+// allow-same-origin gives the page its own breeze-preview://project origin (not Breeze's file:// one), so its fonts,
+// module scripts, fetch, workers and storage load; with an opaque origin every one of them was refused.
+frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock');
+frame.setAttribute('allow', 'fullscreen; autoplay; clipboard-read; clipboard-write');
 function isHtml(p: string | null): p is string { return !!p && /\.html?$/i.test(p); }
 // The page Preview opens by default: the open HTML file, else the project's index.html.
 function previewTarget(): string | null {
