@@ -27,6 +27,8 @@ class CodeSurface extends EventTarget {
   private selStart = 0;
   private selEnd = 0;
   private selDir: SelDir = 'none';
+  private extras: Sel[] = [];   // the other cursors, normalised with the primary, in document order
+  private extraCarets: HTMLDivElement[] = []; // pooled carets for the extras in view
   private widest = 0;           // longest line, in visual columns
   private widthTimer = 0;
   private caretAt = '';         // last painted caret spot, to restart the blink only on moves
@@ -70,7 +72,9 @@ class CodeSurface extends EventTarget {
       this.input.value = '';
       this.input.classList.remove('composing');
       this.input.style.width = '';
+      // An IME writes in one place: the primary gets the text, the other cursors go.
       if (t) this.userEdit(this.selStart, this.selEnd, t, 'insertText', t);
+      this.clearExtras();
     });
     // The app keeps the only history; the hidden input's own undo must not change anything.
     this.input.addEventListener('beforeinput', e => { if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') e.preventDefault(); });
@@ -79,7 +83,9 @@ class CodeSurface extends EventTarget {
     this.input.addEventListener('paste', e => {
       e.preventDefault();
       const t = e.clipboardData?.getData('text/plain').replace(/\r\n?/g, '\n');
-      if (t) this.userEdit(this.selStart, this.selEnd, t, 'insertFromPaste');
+      if (!t) return;
+      if (this.multi) this.replaceEach(splitPaste(t, this.extras.length + 1), 'insertFromPaste');
+      else this.userEdit(this.selStart, this.selEnd, t, 'insertFromPaste');
     });
     this.root.addEventListener('pointerdown', e => this.onPointerDown(e));
     // Block native selection and focus loss on mousedown, not pointerdown: a canceled pointerdown would
@@ -98,6 +104,7 @@ class CodeSurface extends EventTarget {
     this.text = v;
     this.starts = null;
     this.goal = null;
+    this.extras = []; // a whole new text: where the other cursors were means nothing in it
     clearTimeout(this.widthTimer);
     this.widest = this.measureWidest();
     this.clampSel();
@@ -109,13 +116,56 @@ class CodeSurface extends EventTarget {
   get selectionEnd() { return this.selEnd; }
   get selectionDirection() { return this.selDir; }
 
+  // Every cursor, the primary among them, in document order.
+  get selections(): Sel[] {
+    const all = this.extras.slice();
+    all.splice(this.primaryIndex, 0, { anchor: this.anchor(), head: this.head() });
+    return all;
+  }
+  // The primary owns selectionStart/End, the hidden input and scrolling.
+  get primaryIndex(): number {
+    let n = 0;
+    for (const s of this.extras) {
+      const a = Math.min(s.anchor, s.head);
+      if (a < this.selStart || (a === this.selStart && Math.max(s.anchor, s.head) < this.selEnd)) n++;
+    }
+    return n;
+  }
+  get multi() { return this.extras.length > 0; }
+
+  // Normalised (see normalizeSels); sels[primary] becomes the primary, or what it merged into.
+  setSelections(sels: Sel[], primary: number) {
+    if (!sels.length) return;
+    const len = this.text.length, clamp = (n: number) => Math.max(0, Math.min(n, len));
+    const want = sels[Math.max(0, Math.min(primary, sels.length - 1))];
+    const all = normalizeSels(sels, len), p = selIndexOf(all, { anchor: clamp(want.anchor), head: clamp(want.head) });
+    const before = this.selKey(), { anchor, head } = all[p];
+    this.extras = all.filter((_, i) => i !== p);
+    this.selStart = Math.min(anchor, head); this.selEnd = Math.max(anchor, head);
+    this.selDir = head < anchor ? 'backward' : head > anchor ? 'forward' : 'none';
+    this.goal = null;
+    this.paint();
+    if (this.selKey() !== before) this.dispatchEvent(new Event('selectionchange'));
+  }
+  // The new cursor becomes the primary.
+  addSelection(sel: Sel) { this.setSelections([...this.selections, sel], this.extras.length + 1); }
+  clearExtras() {
+    if (!this.extras.length) return;
+    this.extras = [];
+    this.paint();
+    this.dispatchEvent(new Event('selectionchange'));
+  }
+  private selKey() { return `${this.selStart},${this.selEnd},${this.selDir};` + this.extras.map(s => s.anchor + ',' + s.head).join(';'); }
+
   // Textarea semantics: clamped to the text, and an end before the start collapses onto the end.
+  // One cursor afterwards, so every app caller keeps working as before.
   setSelectionRange(start: number, end: number, dir: SelDir = 'none') {
     const len = this.text.length;
     end = Math.max(0, Math.min(end, len));
     start = Math.max(0, Math.min(start, end));
-    const changed = start !== this.selStart || end !== this.selEnd || dir !== this.selDir;
+    const changed = start !== this.selStart || end !== this.selEnd || dir !== this.selDir || this.extras.length > 0;
     this.selStart = start; this.selEnd = end; this.selDir = dir;
+    this.extras = [];
     this.goal = null; // only vertical moves keep it, and they set it again after this
     this.paint();
     if (changed) this.dispatchEvent(new Event('selectionchange'));
@@ -130,17 +180,20 @@ class CodeSurface extends EventTarget {
     this.starts = this.starts && shiftLineStarts(this.starts, start, end, text);
     if (this.starts) rememberLineStarts(this.text, this.starts);
     const newEnd = start + text.length, delta = text.length - (end - start);
+    const mapLo = (p: number) => p > end ? p + delta : p > start ? start : p;
+    const mapHi = (p: number) => p > end ? p + delta : p > start ? newEnd : p;
     let a = this.selStart, b = this.selEnd;
     if (mode === 'select') { a = start; b = newEnd; }
     else if (mode === 'start') a = b = start;
     else if (mode === 'end') a = b = newEnd;
-    else {
-      a = a > end ? a + delta : a > start ? start : a;
-      b = b > end ? b + delta : b > start ? newEnd : b;
-    }
+    else { a = mapLo(a); b = mapHi(b); }
     this.growWidth(start, newEnd);
     this.sizeSpacer();
-    this.setSelectionRange(a, b, this.selDir);
+    if (!this.extras.length) { this.setSelectionRange(a, b, this.selDir); return; }
+    // The other cursors move with the text as 'preserve' moves the primary.
+    const sels = this.extras.map(s => s.head < s.anchor ? { anchor: mapHi(s.anchor), head: mapLo(s.head) } : { anchor: mapLo(s.anchor), head: mapHi(s.head) });
+    sels.push(this.selDir === 'backward' ? { anchor: b, head: a } : { anchor: a, head: b });
+    this.setSelections(sels, sels.length - 1);
   }
 
   get scrollTop() { return this.root.scrollTop; }
@@ -162,7 +215,10 @@ class CodeSurface extends EventTarget {
   refresh() { this.sizeSpacer(); this.paint(); }
 
   // Replace the selection as if the user typed `text`.
-  insertText(text: string) { this.userEdit(this.selStart, this.selEnd, text, 'insertText', text); }
+  insertText(text: string) {
+    if (this.multi) this.replaceEach(this.extras.map(() => text).concat(text), 'insertText', text);
+    else this.userEdit(this.selStart, this.selEnd, text, 'insertText', text);
+  }
 
   // Every user edit: a cancelable 'beforeinput' (the app records history there), the change, then 'input'.
   private userEdit(start: number, end: number, text: string, inputType: string, data: string | null = null) {
@@ -171,12 +227,32 @@ class CodeSurface extends EventTarget {
     this.revealCaret();
     this.dispatchEvent(new InputEvent('input', { inputType, data }));
   }
+  // userEdit for several cursors: `edits` are one per selection, in order. Still one 'beforeinput' and one
+  // 'input', so the app records one undo step. Each cursor lands after its edit's text.
+  private multiEdit(edits: TextEdit[], inputType: string, data: string | null = null) {
+    if (edits.every(e => e.start === e.end && !e.text)) return; // e.g. Backspace with every caret at the start
+    const pe = edits[this.primaryIndex], merged = mergeEdits(edits); // overlapping deletes become one
+    if (!this.dispatchEvent(new InputEvent('beforeinput', { inputType, data, cancelable: true }))) return;
+    const r = applyEdits(this.text, merged);
+    this.text = r.text;
+    this.starts = lineStartsOf(this.text);
+    this.growWidth(r.carets[0] - merged[0].text.length, r.carets[r.carets.length - 1]);
+    this.sizeSpacer();
+    const spans = merged.map(m => ({ anchor: m.start, head: m.end }));
+    this.setSelections(r.carets.map(c => ({ anchor: c, head: c })), selIndexOf(spans, { anchor: pe.start, head: pe.end }));
+    this.revealCaret();
+    this.dispatchEvent(new InputEvent('input', { inputType, data }));
+  }
+  // Replace selection i with texts[i].
+  private replaceEach(texts: string[], inputType: string, data: string | null = null) {
+    this.multiEdit(this.selections.map((s, i) => ({ start: Math.min(s.anchor, s.head), end: Math.max(s.anchor, s.head), text: texts[i] })), inputType, data);
+  }
 
   private onInput(e: InputEvent) {
     if (e.isComposing || this.input.classList.contains('composing')) { this.sizeComposing(); return; }
     const t = this.input.value;
     this.input.value = '';
-    if (t) this.userEdit(this.selStart, this.selEnd, t, 'insertText', t);
+    if (t) this.insertText(t);
   }
   // A textarea's auto width comes from cols, so the visible IME box is sized to its text, measured
   // rather than counted, since full-width (CJK) characters are wider than charWidth.
@@ -186,10 +262,20 @@ class CodeSurface extends EventTarget {
   }
 
   private onCopy(e: ClipboardEvent, cut: boolean) {
-    if (this.selStart === this.selEnd || !e.clipboardData) return; // nothing selected: copy nothing
-    e.clipboardData.setData('text/plain', this.text.slice(this.selStart, this.selEnd));
+    const t = this.selectedText();
+    if (!t || !e.clipboardData) return; // nothing selected: copy nothing
+    e.clipboardData.setData('text/plain', t);
     e.preventDefault();
-    if (cut) this.userEdit(this.selStart, this.selEnd, '', 'deleteByCut');
+    if (cut) this.cut();
+  }
+  // Every non-empty selection's text, one per line.
+  private selectedText(): string {
+    return this.selections.filter(s => s.anchor !== s.head)
+      .map(s => this.text.slice(Math.min(s.anchor, s.head), Math.max(s.anchor, s.head))).join('\n');
+  }
+  private cut() {
+    if (this.multi) this.replaceEach(this.selections.map(() => ''), 'deleteByCut');
+    else this.userEdit(this.selStart, this.selEnd, '', 'deleteByCut');
   }
 
   private anchor() { return this.selDir === 'backward' ? this.selEnd : this.selStart; }
@@ -206,25 +292,35 @@ class CodeSurface extends EventTarget {
     if (SURFACE_NAV_KEYS.has(e.key)) {
       e.preventDefault();
       const page = Math.max(1, Math.floor(this.root.clientHeight / this.opts.lineHeight) - 1);
-      const vertical = /Up|Down/.test(e.key);
-      const r = moveCaret(this.text, this.lines(), { anchor: this.anchor(), head: this.head() }, e.key as NavKey,
-        { shift: e.shiftKey, ctrl }, page, vertical ? this.goal : null);
-      this.select(r.sel.anchor, r.sel.head);
-      this.goal = r.goal;
+      const vertical = /Up|Down/.test(e.key), key = e.key as NavKey, mods = { shift: e.shiftKey, ctrl };
+      if (this.multi) {
+        // The primary stays the cursor that came from it, even when others merge into it.
+        const sels = this.selections, next = moveSels(this.text, this.lines(), sels, key, mods, page);
+        this.setSelections(next, selIndexOf(next, moveCaret(this.text, this.lines(), sels[this.primaryIndex], key, mods, page, null).sel));
+      } else {
+        const r = moveCaret(this.text, this.lines(), { anchor: this.anchor(), head: this.head() }, key, mods, page, vertical ? this.goal : null);
+        this.select(r.sel.anchor, r.sel.head);
+        this.goal = r.goal;
+      }
       this.revealCaret();
-    } else if (e.key === 'Delete' && e.shiftKey && !ctrl && this.selStart !== this.selEnd) {
+    } else if (e.key === 'Delete' && e.shiftKey && !ctrl && this.selectedText()) {
       // Shift+Delete cuts, as in a Windows textarea. The cut command fires 'cut' (onCopy writes the clipboard and
       // deletes); when the page may not run it (no user activation), cut by hand.
       e.preventDefault();
       if (!document.execCommand('cut')) {
-        void navigator.clipboard?.writeText(this.text.slice(this.selStart, this.selEnd)).catch(() => {});
-        this.userEdit(this.selStart, this.selEnd, '', 'deleteByCut');
+        void navigator.clipboard?.writeText(this.selectedText()).catch(() => {});
+        this.cut();
       }
     } else if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
-      const [a, b] = deleteSpan(this.text, { anchor: this.anchor(), head: this.head() }, e.key, ctrl);
-      const back = e.key === 'Backspace';
-      if (a !== b) this.userEdit(a, b, '', ctrl ? (back ? 'deleteWordBackward' : 'deleteWordForward') : (back ? 'deleteContentBackward' : 'deleteContentForward'));
+      const key = e.key, back = key === 'Backspace';
+      const type = ctrl ? (back ? 'deleteWordBackward' : 'deleteWordForward') : (back ? 'deleteContentBackward' : 'deleteContentForward');
+      if (this.multi) {
+        this.multiEdit(this.selections.map(s => { const [start, end] = deleteSpan(this.text, s, key, ctrl); return { start, end, text: '' }; }), type);
+      } else {
+        const [a, b] = deleteSpan(this.text, { anchor: this.anchor(), head: this.head() }, key, ctrl);
+        if (a !== b) this.userEdit(a, b, '', type);
+      }
     } else if ((e.key === 'Enter' && !ctrl) || (e.key === 'Tab' && !ctrl && !e.shiftKey)) {
       e.preventDefault();
       this.insertText(e.key === 'Enter' ? '\n' : '\t');
@@ -381,18 +477,21 @@ class CodeSurface extends EventTarget {
     this.spacer.style.width = this.widest * this.opts.charWidth() + pad.left + pad.right + 'px';
   }
 
-  // Paint selection boxes and the caret for the visible lines plus a 5-line margin; the input follows the caret always.
+  // Paint selection boxes and carets for the visible lines plus a 5-line margin; the input follows the primary always.
   private paint() {
     const { lineHeight: lh, pad } = this.opts, starts = this.lines(), cw = this.opts.charWidth();
     const top = this.root.scrollTop;
     const lo = Math.max(0, Math.floor((top - pad.top) / lh) - 5);
     const hi = Math.min(starts.length - 1, Math.floor((top + this.root.clientHeight - pad.top) / lh) + 5);
+    const from = starts[lo], to = hi + 1 < starts.length ? starts[hi + 1] : this.text.length; // the window, as offsets
     const boxes: HTMLDivElement[] = [];
-    if (this.selStart !== this.selEnd) {
-      const la = lineOfOffset(starts, this.selStart), lb = lineOfOffset(starts, this.selEnd);
+    for (const s of this.extras.length ? this.selections : [{ anchor: this.selStart, head: this.selEnd }]) {
+      const a = Math.min(s.anchor, s.head), b = Math.max(s.anchor, s.head);
+      if (a === b || b < from || a > to) continue;
+      const la = lineOfOffset(starts, a), lb = lineOfOffset(starts, b);
       for (let l = Math.max(la, lo); l <= Math.min(lb, hi); l++) {
-        const x1 = this.xOf(l, l === la ? this.selStart - starts[l] : 0);
-        const x2 = l === lb ? this.xOf(l, this.selEnd - starts[l]) : this.xOf(l, this.lineText(l).length) + cw;
+        const x1 = this.xOf(l, l === la ? a - starts[l] : 0);
+        const x2 = l === lb ? this.xOf(l, b - starts[l]) : this.xOf(l, this.lineText(l).length) + cw;
         if (x2 <= x1) continue;
         const box = document.createElement('div');
         box.className = 'code-sel';
@@ -408,10 +507,27 @@ class CodeSurface extends EventTarget {
     this.caret.style.display = line >= lo && line <= hi ? '' : 'none';
     this.caret.style.left = x + 'px';
     this.caret.style.top = y + 'px';
-    const at = x + ',' + y;
+    let at = x + ',' + y, n = 0;
+    for (const s of this.extras) {
+      if (s.head < from || s.head > to) continue;
+      const l = lineOfOffset(starts, s.head);
+      if (l < lo || l > hi) continue;
+      let c = this.extraCarets[n++];
+      if (!c) {
+        c = document.createElement('div');
+        c.className = 'code-caret extra';
+        this.root.insertBefore(c, this.input);
+        this.extraCarets.push(c);
+      }
+      const cx = this.xOf(l, s.head - starts[l]), cy = pad.top + l * lh;
+      c.style.cssText = `left:${cx}px;top:${cy}px`;
+      at += `;${cx},${cy}`;
+    }
+    for (let i = n; i < this.extraCarets.length; i++) this.extraCarets[i].style.display = 'none';
+    // Any caret moving restarts every blink, so they stay in step.
     if (at !== this.caretAt) {
       this.caretAt = at;
-      for (const a of this.caret.getAnimations()) a.currentTime = 0;
+      for (const c of [this.caret, ...this.extraCarets.slice(0, n)]) for (const a of c.getAnimations()) a.currentTime = 0;
     }
   }
 }

@@ -267,3 +267,30 @@ test('columnSels handles upward and backward drags, and tabs by visual column', 
   const U = '\tab\nabcdefgh', V = lineStarts(U);
   assert.deepEqual(plain(columnSels(U, V, 0, 4, 1, 4)), [{ anchor: 1, head: 1 }, { anchor: 8, head: 8 }]);
 });
+test('mergeEdits joins overlapping and touching deletes so applyEdits can take them', () => {
+  const mergeEdits = vm.runInContext('mergeEdits', ctx);
+  // Ctrl+Backspace at carets 3 and 6 in one word: both reach back to 0
+  const t = 'abcdefg', spans = [deleteSpan(t, { anchor: 3, head: 3 }, 'Backspace', true), deleteSpan(t, { anchor: 6, head: 6 }, 'Backspace', true)];
+  const m = mergeEdits(spans.map(([start, end]) => ({ start, end, text: '' })));
+  assert.deepEqual(plain(m), [{ start: 0, end: 6, text: '' }]);
+  assert.deepEqual(plain(applyEdits(t, m)), { text: 'g', carets: [0] });
+  // out of order, with a caret's no-op inside a range; touching deletes
+  assert.deepEqual(plain(mergeEdits([{ start: 4, end: 7, text: '' }, { start: 2, end: 5, text: '' }, { start: 5, end: 5, text: '' }])), [{ start: 2, end: 7, text: '' }]);
+  assert.deepEqual(plain(mergeEdits([{ start: 0, end: 3, text: '' }, { start: 3, end: 5, text: '' }])), [{ start: 0, end: 5, text: '' }]);
+  // touching edits that insert stay apart: each cursor keeps its own text
+  const ins = [{ start: 3, end: 3, text: 'x' }, { start: 3, end: 5, text: 'x' }, { start: 5, end: 7, text: 'y' }];
+  assert.deepEqual(plain(mergeEdits(ins)), ins);
+  // the input is left alone
+  const orig = [{ start: 2, end: 5, text: '' }, { start: 0, end: 3, text: '' }];
+  mergeEdits(orig);
+  assert.deepEqual(plain(orig), [{ start: 2, end: 5, text: '' }, { start: 0, end: 3, text: '' }]);
+});
+test('selIndexOf finds where a selection went after normalizing', () => {
+  const selIndexOf = vm.runInContext('selIndexOf', ctx);
+  const sels = normalizeSels([{ anchor: 9, head: 9 }, { anchor: 0, head: 4 }, { anchor: 2, head: 6 }, { anchor: 6, head: 6 }], 20);
+  assert.deepEqual(plain(sels), [{ anchor: 0, head: 6 }, { anchor: 6, head: 6 }, { anchor: 9, head: 9 }]);
+  assert.equal(selIndexOf(sels, { anchor: 9, head: 9 }), 2);
+  assert.equal(selIndexOf(sels, { anchor: 4, head: 2 }), 0); // swallowed by the merged range
+  assert.equal(selIndexOf(sels, { anchor: 6, head: 6 }), 1); // a caret touching a range's end is its own
+  assert.equal(selIndexOf(sels, { anchor: 30, head: 30 }), 0); // nowhere: the first
+});

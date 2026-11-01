@@ -304,6 +304,28 @@ function applyEdits(text: string, edits: TextEdit[]): { text: string; carets: nu
   return { text: out + text.slice(last), carets };
 }
 
+// Edits made ready for applyEdits: sorted, with overlapping ones joined (texts end to end) and touching deletes too.
+// Overlaps come from deletes: Ctrl+Backspace at two carets in one word reaches back over the same span. Touching
+// edits that insert stay apart, so each cursor keeps its own text.
+function mergeEdits(edits: TextEdit[]): TextEdit[] {
+  const out: TextEdit[] = [];
+  for (const e of edits.map(e => ({ ...e })).sort((a, b) => a.start - b.start || a.end - b.end)) {
+    const prev = out[out.length - 1];
+    if (prev && (e.start < prev.end || (e.start === prev.end && !e.text && !prev.text))) {
+      prev.end = Math.max(prev.end, e.end);
+      prev.text += e.text;
+    } else out.push(e);
+  }
+  return out;
+}
+
+// Where `s` went among normalised `sels`: the one at the same place, else the one that swallowed it, else the first.
+function selIndexOf(sels: Sel[], s: Sel): number {
+  const lo = Math.min(s.anchor, s.head), hi = Math.max(s.anchor, s.head);
+  const at = sels.findIndex(t => Math.min(t.anchor, t.head) === lo && Math.max(t.anchor, t.head) === hi);
+  return at >= 0 ? at : Math.max(0, sels.findIndex(t => Math.min(t.anchor, t.head) <= lo && hi <= Math.max(t.anchor, t.head)));
+}
+
 // A navigation key for every selection; cursors that land on each other become one.
 function moveSels(text: string, starts: number[], sels: Sel[], key: NavKey, mods: { shift: boolean; ctrl: boolean }, page: number): Sel[] {
   return normalizeSels(sels.map(s => moveCaret(text, starts, s, key, mods, page, null).sel), text.length);
