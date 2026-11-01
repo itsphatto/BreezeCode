@@ -28,7 +28,7 @@ function debugKind(file) {
 const isTs = file => /\.m?ts$/i.test(file);
 
 function launchArgs(kind, file, { port, ts } = {}) {
-  if (kind === 'python') return { args: ['-m', 'debugpy', '--listen', `127.0.0.1:${port}`, '--wait-for-client', file] };
+  if (kind === 'python') return { args: ['-Xfrozen_modules=off', '-m', 'debugpy', '--listen', `127.0.0.1:${port}`, '--wait-for-client', file] };
   return { args: ['--inspect-brk=127.0.0.1:0', ...(ts ? ['--experimental-strip-types'] : []), file] };
 }
 
@@ -58,6 +58,7 @@ class DebugManager extends EventEmitter {
     this.last = null;            // the last start() options, for restart()
     this.bps = new Map();        // absolute path → Bp[]: kept between sessions
     this.exceptions = 'none';
+    this.settled = Promise.resolve(); // every session but the newest has finished (its 'stopped' is out)
   }
 
   get pid() { return this.session?.child?.pid ?? null; }
@@ -69,7 +70,12 @@ class DebugManager extends EventEmitter {
     const prev = this.session;
     // Claimed at once, so a stop() right after start() finds this session even before the old one is gone.
     const s = this.session = { opts, state: null, child: null, backend: null, live: false, dead: false, finished: false, exitCode: undefined, out: { stdout: '', stderr: '' }, timer: null };
-    await this.stopSession(prev);
+    if (prev) prev.superseded = true;
+    // Waits for every earlier session, not just the last one: two quick starts (a double-pressed Restart) must not
+    // let the second spawn while the first one's predecessor is still being killed, or its events follow 'starting'.
+    const stopping = this.stopSession(prev);
+    s.after = this.settled = this.settled.then(() => stopping);
+    await s.after;
     if (s.dead) return;
     const root = path.resolve(String(opts.root ?? ''));
     const file = path.resolve(root, String(opts.file ?? ''));
@@ -181,7 +187,7 @@ class DebugManager extends EventEmitter {
     if (s.finished) return;
     this.flush(s);
     if (s.child && !s.spawnFailed) this.emitFor(s, { type: 'exited', code: code ?? null });
-    this.setState(s, 'stopped');
+    if (!(s.superseded && s.state === null)) this.setState(s, 'stopped'); // a start replaced before it began says nothing
     s.finished = s.dead = true;
     try { s.backend?.close(); } catch (e) { console.warn('[breeze] debug:', e?.message ?? e); }
     if (s.child && s.child.exitCode === null && s.child.signalCode === null) killTree(s.child); // e.g. the adapter outlived the program
@@ -189,13 +195,15 @@ class DebugManager extends EventEmitter {
   }
 
   // Asks the adapter to let go, then kills the process tree. Always ends in 'stopped', even with a wedged adapter.
+  // A backend whose disconnect would let the program run on (Node resumes when its last inspector session goes)
+  // has the tree killed first and the connection closed after.
   stopSession(s) {
     if (!s || s.finished) return Promise.resolve();
     if (s.stopping) return s.stopping;
     s.dead = true; // no connection attempt outlives this
     s.stopping = (async () => {
-      if (s.backend && s.live) await within(s.backend.disconnect(), 1500, 'disconnect').catch(() => {});
-      try { s.backend?.close(); } catch { /* closing anyway */ }
+      await s.after; // the sessions before this one are gone first, so their events come before this 'stopped'
+      if (s.backend && s.live && !s.backend.killFirst) await within(s.backend.disconnect(), 1500, 'disconnect').catch(() => {});
       if (s.child && s.exitCode === undefined && !s.spawnFailed) {
         const gone = new Promise(r => { s.child.once('exit', r); s.child.once('error', r); });
         killTree(s.child);
@@ -203,6 +211,7 @@ class DebugManager extends EventEmitter {
         await Promise.race([gone, new Promise(r => { timer = setTimeout(r, STOP_MS); })]);
         clearTimeout(timer);
       }
+      try { s.backend?.close(); } catch { /* closing anyway */ }
       this.finish(s, s.exitCode ?? null);
     })();
     return s.stopping;

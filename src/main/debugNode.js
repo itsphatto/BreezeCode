@@ -49,6 +49,7 @@ class NodeBackend {
     this.urlWaiter = null;
     this.wsUrl = null;
     this.ended = false;
+    this.killFirst = true;      // V8 resumes a paused program when the inspector disconnects: stop kills, then closes
   }
 
   env() { return { ...this.baseEnv }; }

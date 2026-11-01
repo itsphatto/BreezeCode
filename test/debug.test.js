@@ -36,7 +36,7 @@ test('nodeSupportsTs: 22.18+, 23.6+, any 24+', () => {
 
 test('launchArgs: debugpy and node --inspect-brk command lines', () => {
   assert.deepEqual(launchArgs('python', 'C:\\a b\\x.py', { port: 5678 }),
-    { args: ['-m', 'debugpy', '--listen', '127.0.0.1:5678', '--wait-for-client', 'C:\\a b\\x.py'] });
+    { args: ['-Xfrozen_modules=off', '-m', 'debugpy', '--listen', '127.0.0.1:5678', '--wait-for-client', 'C:\\a b\\x.py'] });
   assert.deepEqual(launchArgs('node', '/a b/x.js', { ts: false }), { args: ['--inspect-brk=127.0.0.1:0', '/a b/x.js'] });
   assert.deepEqual(launchArgs('node', '/a b/x.ts', { ts: true }),
     { args: ['--inspect-brk=127.0.0.1:0', '--experimental-strip-types', '/a b/x.ts'] });
@@ -55,7 +55,7 @@ test('DebugManager: a file it cannot debug reports an error and ends stopped', a
   const m = new DebugManager();
   const events = [];
   m.on('event', e => events.push(e));
-  await m.start({ file: path.join(FIX, 'notes.txt'), root: FIX, node: process.execPath, python: 'python' });
+  await m.start({ file: path.join(FIX, 'notes.txt'), root: FIX, node: process.execPath });
   assert.equal(events.find(e => e.type === 'error')?.type, 'error');
   assert.deepEqual(events.at(-1), { type: 'state', state: 'stopped' });
 });
@@ -224,6 +224,39 @@ test('node: start while a session runs stops the old one first', { timeout: 3000
   assert.notEqual(m.pid, first);
 });
 
+test('node: Restart pressed twice while running: one debuggee, and no old event after the newest start', { timeout: 30000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({ file: LOOP_JS, root: FIX, node: process.execPath, stopOnEntry: true });
+  await r.next(e => e.type === 'paused', 15000, 'entry pause');
+  const first = m.pid;
+  const mark = r.events.length;
+  m.restart();
+  await m.restart();
+  await r.next(e => e.type === 'paused', 15000, 'entry pause of the new session');
+  const after = r.events.slice(mark);
+  const starts = after.map((e, i) => (isState('starting')(e) ? i : -1)).filter(i => i !== -1);
+  assert.equal(starts.length, 1, `one session started: ${JSON.stringify(after)}`);
+  const tail = after.slice(starts[0] + 1);
+  assert.ok(!tail.some(e => e.type === 'exited' || isState('stopped')(e)), `no old-session event after 'starting': ${JSON.stringify(after)}`);
+  assert.deepEqual(after.slice(0, starts[0]).filter(e => e.type === 'exited' || e.type === 'state').map(e => e.type === 'state' ? e.state : 'exited'), ['exited', 'stopped']);
+  assert.ok(!alive(first));
+  assert.ok(alive(m.pid));
+});
+
+test('node: stop while paused does not let the program run on', { timeout: 20000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({ file: LOOP_JS, root: FIX, node: process.execPath, breakpoints: { [LOOP_JS]: [{ line: 3, enabled: true }] } });
+  await r.next(e => e.type === 'paused', 15000, 'pause');
+  const mark = r.events.length;
+  await m.stop();
+  const ex = await r.next(e => e.type === 'exited', 5000, 'exit');
+  assert.notEqual(ex.code, 0);
+  const later = r.events.slice(mark).filter(e => e.type === 'output' && e.stream === 'stdout').map(e => e.text).join('');
+  assert.equal(later, '', 'no program output after the stop');
+});
+
 test('node: uncaught exceptions pause with the message when asked', { timeout: 20000 }, async t => {
   const m = new DebugManager();
   const r = recorder(m, t);
@@ -271,13 +304,16 @@ test('node: stdin reaches the program; set a closure variable; run to a line', {
 
 // ---- Python (real debugpy, when installed) ----
 
+// BREEZE_TEST_PYTHON picks the interpreter (a venv with debugpy, say); otherwise `python` on the PATH.
+const PYTHON = process.env.BREEZE_TEST_PYTHON || 'python';
 let hasDebugpy = false;
-try { execFileSync('python', ['-m', 'debugpy', '--version'], { stdio: 'ignore', timeout: 15000, windowsHide: true }); hasDebugpy = true; } catch { /* not installed */ }
+try { execFileSync(PYTHON, ['-m', 'debugpy', '--version'], { stdio: 'ignore', timeout: 15000, windowsHide: true }); hasDebugpy = true; } catch { /* not installed */ }
+const withDebugpy = hasDebugpy ? test : test.skip;
 
-(hasDebugpy ? test : test.skip)('python: break, read a local, evaluate, step over, finish', { timeout: 60000 }, async t => {
+withDebugpy('python: break, read a local, evaluate, step over, finish', { timeout: 60000 }, async t => {
   const m = new DebugManager();
   const r = recorder(m, t);
-  await m.start({ file: LOOP_PY, root: FIX, python: 'python', breakpoints: { 'loop.py': [{ line: 3, enabled: true }] } });
+  await m.start({ file: LOOP_PY, root: FIX, python: PYTHON, breakpoints: { 'loop.py': [{ line: 3, enabled: true }] } });
   const bps = await r.next(e => e.type === 'breakpoints' && e.lines.length > 0, 20000, 'verified breakpoints');
   assert.deepEqual(bps, { type: 'breakpoints', file: 'loop.py', lines: [3] });
   const p = await r.next(e => e.type === 'paused', 20000, 'pause');
@@ -296,6 +332,79 @@ try { execFileSync('python', ['-m', 'debugpy', '--version'], { stdio: 'ignore', 
   assert.equal((await r.next(e => e.type === 'exited', 15000, 'exit')).code, 0);
   await r.next(isState('stopped'), 5000, 'stopped');
   assert.match(r.output(), /i = 3/);
+});
+
+// The process and every descendant of `pid`, by pid.
+function treeOf(pid) {
+  const out = process.platform === 'win32'
+    ? execFileSync('powershell.exe', ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }'], { windowsHide: true }).toString()
+    : execFileSync('ps', ['-A', '-o', 'pid=,ppid=']).toString();
+  const kids = new Map();
+  for (const line of out.split(/\r?\n/)) {
+    const [p, pp] = line.trim().split(/\s+/).map(Number);
+    if (p) kids.set(pp, [...(kids.get(pp) ?? []), p]);
+  }
+  const all = [pid];
+  for (let i = 0; i < all.length; i++) all.push(...(kids.get(all[i]) ?? []));
+  return all;
+}
+
+withDebugpy('python: natural end, logpoints once, and debugpy leaves nothing running', { timeout: 60000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({ file: LOOP_PY, root: FIX, python: PYTHON, breakpoints: { 'loop.py': [{ line: 3, enabled: true }, { line: 4, enabled: true, logMessage: 'log i={i}' }] } });
+  await r.next(e => e.type === 'paused', 20000, 'pause');
+  const tree = treeOf(m.pid);
+  assert.ok(tree.length >= 2, `debugpy's adapter runs beside the program: ${tree}`);
+  await m.setBreakpoints(LOOP_PY, [{ line: 4, enabled: true, logMessage: 'log i={i}' }]);
+  await m.continue();
+  assert.equal((await r.next(e => e.type === 'exited', 15000, 'exit')).code, 0);
+  await r.next(isState('stopped'), 5000, 'stopped');
+  const out = r.events.filter(e => e.type === 'output');
+  const text = s => out.filter(e => e.stream === s).map(e => e.text).join('');
+  assert.equal(text('stdout').match(/i = \d/g)?.length, 3, 'print() output arrives once');
+  assert.equal(text('console').match(/log i=\d/g)?.length, 3, 'each logpoint arrives once');
+  assert.doesNotMatch(text('stdout') + text('stderr'), /log i=|frozen modules|Debugger warning/);
+  await waitUntil(() => tree.every(pid => !alive(pid)), 5000);
+});
+
+withDebugpy('python: stop while paused ends the program there', { timeout: 60000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({ file: LOOP_PY, root: FIX, python: PYTHON, breakpoints: { 'loop.py': [{ line: 3, enabled: true }] } });
+  await r.next(e => e.type === 'paused', 20000, 'pause');
+  const tree = treeOf(m.pid);
+  const mark = r.events.length;
+  await m.stop();
+  await r.next(isState('stopped'), 5000, 'stopped');
+  assert.equal(r.events.slice(mark).filter(e => e.type === 'output' && e.stream === 'stdout').length, 0, 'no program output after the stop');
+  await waitUntil(() => tree.every(pid => !alive(pid)), 5000);
+});
+
+withDebugpy('python: stop while still starting kills debugpy and the program', { timeout: 30000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  m.start({ file: LOOP_PY, root: FIX, python: PYTHON });
+  await waitUntil(() => m.pid, 15000);
+  const pid = m.pid;
+  const t0 = Date.now();
+  await m.stop();
+  await r.next(isState('stopped'), 2000, 'stopped');
+  assert.ok(Date.now() - t0 < 2000);
+  assert.ok(!alive(pid));
+  assert.ok(!r.events.some(e => e.type === 'output' && e.stream === 'stdout'), 'the program never ran');
+});
+
+withDebugpy('python: stop on entry pauses on the first line', { timeout: 60000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({ file: LOOP_PY, root: FIX, python: PYTHON, stopOnEntry: true, breakpoints: { 'loop.py': [{ line: 4, enabled: true }] } });
+  const p = await r.next(e => e.type === 'paused', 20000, 'entry pause');
+  assert.deepEqual([p.reason, p.frames[0].file, p.frames[0].line], ['entry', 'loop.py', 1]);
+  await m.continue();
+  const p2 = await r.next(e => e.type === 'paused', 10000, 'the user breakpoint, not a one-off one');
+  assert.deepEqual([p2.reason, p2.frames[0].line], ['breakpoint', 4]);
+  assert.ok(!r.events.some(e => e.type === 'breakpoints' && e.lines.some(l => l !== 4)), 'one-off lines are never reported');
 });
 
 // ---- Python backend against a stand-in adapter (runs without debugpy) ----

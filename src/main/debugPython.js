@@ -2,6 +2,7 @@
 // Protocol (dap.js). The manager spawns the process and owns its stdio; this connects to debugpy's port and maps
 // DAP to the session API.
 const net = require('node:net');
+const fs = require('node:fs');
 const { execFile } = require('node:child_process');
 const { DapClient } = require('./dap');
 const { checkBp } = require('./cdp');
@@ -9,6 +10,7 @@ const { checkBp } = require('./cdp');
 const CONNECT_MS = 15000;
 const DIAL_MS = 10000; // debugpy takes a moment to start listening
 const DIAL_EVERY = 100;
+const ENTRY_MAX_LINES = 20000; // stop-on-entry puts a one-off breakpoint on every line of the file, up to this many
 
 const HIT_RE = /^\s*(>=|<=|==|=|>|<|%)?\s*(\d+)\s*$/;
 // The hit count as debugpy reads it. A bare number means "from that hit on" in both backends (debugpy alone would
@@ -37,7 +39,8 @@ class PythonBackend {
     this.threadId = null;
     this.byFile = new Map();  // abs → [{ id, line, verified }]
     this.queue = Promise.resolve(); // breakpoint changes, one at a time
-    this.runToFile = null;    // a file whose breakpoints carry runTo's extra line until the next stop
+    this.tempFiles = new Set(); // files whose breakpoints carry one-off lines (runTo, stop on entry) until the next stop
+    this.entry = false;         // the next stop is the stop on entry
     this.ended = false;
   }
 
@@ -98,6 +101,17 @@ class PythonBackend {
     attached.catch(() => { /* awaited below */ });
     await host.within(ready, CONNECT_MS, 'initialized');
     for (const [file, bps] of host.bps()) await this.setBreakpoints(file, bps);
+    // debugpy's attach has no stop on entry (it ignores `stopOnEntry` there): a one-off breakpoint on every line of
+    // the file stops on the first one that runs, wherever the code starts.
+    if (host.stopOnEntry) {
+      let count = 0;
+      try { count = Math.min(fs.readFileSync(host.file, 'utf8').split('\n').length, ENTRY_MAX_LINES); } catch { /* unreadable: runs on */ }
+      if (count) {
+        this.entry = true;
+        this.tempFiles.add(host.file);
+        await this.setBreakpoints(host.file, host.bps().get(host.file) ?? [], Array.from({ length: count }, (_, i) => i + 1));
+      }
+    }
     await this.setExceptions(host.exceptions());
     await req('configurationDone');
     await host.within(attached, CONNECT_MS, 'attach');
@@ -134,10 +148,19 @@ class PythonBackend {
   async stopped(body) {
     const { host } = this;
     if (body.threadId !== undefined) this.threadId = body.threadId;
-    if (this.runToFile) { const f = this.runToFile; this.runToFile = null; this.setBreakpoints(f, host.bps().get(f) ?? []).catch(e => host.warn(e)); }
+    for (const f of this.tempFiles) this.setBreakpoints(f, host.bps().get(f) ?? []).catch(e => host.warn(e));
+    this.tempFiles.clear();
+    const entry = this.entry;
+    this.entry = false;
     const { stackFrames = [] } = await host.within(this.request('stackTrace', { threadId: this.threadId, startFrame: 0, levels: 100 }), CONNECT_MS, 'stackTrace');
     const frames = stackFrames.map(f => ({ id: f.id, name: f.name, file: host.rel(f.source?.path), line: f.line, col: f.column }));
-    const ev = { type: 'paused', reason: body.reason || 'pause', frames };
+    let reason = body.reason || 'pause';
+    if (entry && reason === 'breakpoint') {
+      const top = frames[0];
+      const own = top && [...this.byFile].some(([f, list]) => host.rel(f) === top.file && list.some(b => b.line === top.line));
+      if (!own) reason = 'entry';
+    }
+    const ev = { type: 'paused', reason, frames };
     if (body.reason === 'exception') {
       const info = await host.within(this.request('exceptionInfo', { threadId: this.threadId }), CONNECT_MS, 'exceptionInfo').catch(() => null);
       ev.exception = info ? [info.exceptionId, info.description].filter(Boolean).join(': ') : (body.text || body.description || 'Exception');
@@ -148,12 +171,13 @@ class PythonBackend {
 
   // ---- breakpoints ----
 
-  setBreakpoints(file, bps, extraLine) {
-    const run = this.queue.then(() => this.applyBreakpoints(file, bps, extraLine));
+  setBreakpoints(file, bps, extraLines) {
+    const run = this.queue.then(() => this.applyBreakpoints(file, bps, extraLines));
     this.queue = run.catch(() => {});
     return run;
   }
-  async applyBreakpoints(file, bps, extraLine) {
+  // `extraLines` are one-off stops (not the user's): sent plainly, never reported.
+  async applyBreakpoints(file, bps, extraLines = []) {
     if (!this.client) return; // not connected yet: connect() sends what the manager holds then
     const sent = [];
     for (const bp of bps) {
@@ -165,7 +189,8 @@ class PythonBackend {
       if (bp.logMessage) b.logMessage = bp.logMessage;
       sent.push(b);
     }
-    if (extraLine && !sent.some(b => b.line === extraLine)) sent.push({ line: extraLine, temp: true });
+    const own = new Set(sent.map(b => b.line));
+    for (const line of extraLines) if (!own.has(line)) sent.push({ line, temp: true });
     const { breakpoints = [] } = await this.request('setBreakpoints', {
       source: { path: file }, breakpoints: sent.map(({ temp, ...b }) => b), sourceModified: false,
     });
@@ -202,8 +227,8 @@ class PythonBackend {
   step(kind) { return this.go(kind === 'into' ? 'stepIn' : kind === 'out' ? 'stepOut' : 'next'); }
   // The file's breakpoints plus one on `line`, until the next stop.
   async runTo(file, line) {
-    await this.setBreakpoints(file, this.host.bps().get(file) ?? [], line);
-    this.runToFile = file;
+    this.tempFiles.add(file);
+    await this.setBreakpoints(file, this.host.bps().get(file) ?? [], [line]);
     await this.go('continue');
   }
 
