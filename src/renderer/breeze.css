@@ -721,6 +721,12 @@ button {
   display: none;
 }
 
+/* The backdrop stays put when a short window scrolls the step over it; absolute, it scrolled away and left a bare strip.
+   shortcut: April Fools' filter on .onboard makes it their containing block again, so they still scroll that day. */
+.onboard > :is(.ob-bg, .ob-sky, .home-fireworks) {
+  position: fixed;
+}
+
 /* Over the sky the blue button would vanish into the blue, so it turns white until the city comes up. */
 .ob-step[data-step="0"] .btn-primary {
   background: #f5f5f7;
@@ -6892,8 +6898,10 @@ body.vibing .ide {
 }
 
 /* Solid night-blue panels rather than glass: the sky behind them is the brand, the panels are content and stay calm.
-   #aaaaaa-level greys on #1C1F2E read about 7:1. */
-.onboard .ob-step.home-step {
+   #aaaaaa-level greys on #1C1F2E read about 7:1. The Sign in button shares them in its corner outside the step, so its
+   border doesn't change as it moves between there and the heading. */
+.onboard .ob-step.home-step,
+.onboard > .home-profile {
   --bg: rgba(28, 31, 46, .94);
   --bg-1: rgba(28, 31, 46, .94);
   --bg-2: rgba(28, 31, 46, .94);
@@ -6914,7 +6922,8 @@ body.vibing .ide {
 
 /* Light theme: the same white-on-panel Home, the panels lifted to a lighter slate so they sit lighter on the bright
    sky. White on #46527d reads about 7.6:1, and the greys rise with it. */
-:root[data-theme="light"] .onboard .ob-step.home-step {
+:root[data-theme="light"] .onboard .ob-step.home-step,
+:root[data-theme="light"] .onboard > .home-profile {
   --bg: rgba(70, 82, 125, .92);
   --bg-1: rgba(70, 82, 125, .92);
   --bg-2: rgba(70, 82, 125, .92);
@@ -7489,6 +7498,21 @@ body.vibing .ide {
   bottom: 22px;
   left: 22px;
   display: flex;
+}
+
+/* Too short for the corner (placeSignIn, onboarding.ts): the far end of the heading's line. Nowrap keeps it on that
+   line; the greeting wraps instead. */
+.home-head h2:has(> .home-profile) {
+  flex-wrap: nowrap;
+}
+
+/* Exactly what it was in the corner, so nothing changes as it moves: Home's zoom divided back out, and the UI face
+   rather than the heading's. */
+.home-head h2 > .home-profile {
+  zoom: calc(1 / 1.15);
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-ui);
 }
 
 .home-profile.open {
