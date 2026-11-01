@@ -193,3 +193,29 @@ function openTagAt(text: string, pos: number, xml: boolean): string | null {
   }
   return stack.at(-1)?.written ?? null;
 }
+
+/* ----- Fuzzy matching ----- */
+// Case-insensitive subsequence match of `query` in `label`, or null. `hits` are the matched indices.
+// Scores +1 per hit, +5 for one right after the previous hit, +8 for one at a word start.
+function fuzzyScore(label: string, query: string): { score: number; hits: number[] } | null {
+  const q = query.toLowerCase();
+  const eq = (i: number, j: number) => label[i].toLowerCase() === q[j];
+  const wordStart = (i: number) => i === 0 || ' :.-_/'.includes(label[i - 1]) ||
+    (label[i - 1] !== label[i - 1].toUpperCase() && label[i] !== label[i].toLowerCase());
+  // The latest index each query char may take while the rest of the query still fits after it.
+  const limit: number[] = [];
+  let left = q.length;
+  for (let i = label.length - 1; i >= 0 && left > 0; i--) if (eq(i, left - 1)) limit[--left] = i;
+  if (left) return null;
+  const hits: number[] = [];
+  let score = 0;
+  for (let j = 0, from = 0; j < q.length; j++) {
+    let at = -1;
+    for (let i = from; i <= limit[j] && at < 0; i++) if (wordStart(i) && eq(i, j)) at = i; // a word start first,
+    for (let i = from; i <= limit[j] && at < 0; i++) if (eq(i, j)) at = i; // else any occurrence
+    score += 1 + (j && at === from ? 5 : 0) + (wordStart(at) ? 8 : 0);
+    hits.push(at);
+    from = at + 1;
+  }
+  return { score, hits };
+}

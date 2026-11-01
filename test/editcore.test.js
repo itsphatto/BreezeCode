@@ -5,8 +5,8 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/editcore.ts'), 'utf8')), ctx);
-const { lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt } =
-  vm.runInContext('({ lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt })', ctx);
+const { lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore } =
+  vm.runInContext('({ lineStarts, colAtVisual, wordLeft, wordRight, wordAt, moveCaret, deleteSpan, openTagAt, fuzzyScore })', ctx);
 
 const T = 'ab cd\n  ef\n\nxyz';           // lines start at 0, 6, 11, 12; length 15
 const S = lineStarts(T);
@@ -136,4 +136,13 @@ test('openTagAt finds the element a closing tag should close', () => {
   assert.equal(open('<Foo.Bar><Baz/>', true), 'Foo.Bar');
   assert.equal(open('<g><circle r="1"/><rect></rect>', true), 'g');
   assert.equal(open('plain text'), null);
+});
+
+test('fuzzyScore matches subsequences and prefers word starts and runs', () => {
+  assert.equal(fuzzyScore('Edit: Find in Files', 'xyz'), null);
+  assert.deepEqual(plain(fuzzyScore('Edit: Find', '')), { score: 0, hits: [] });
+  assert.deepEqual(plain(fuzzyScore('Edit: Find in Files', 'fif')).hits, [6, 11, 14]);
+  assert.ok(fuzzyScore('View: Terminal', 'term').score > fuzzyScore('Edit: Toggle Breakpoint Menu', 'term').score);
+  assert.ok(fuzzyScore('Go to File', 'GTF').score > 0); // case-insensitive
+  assert.deepEqual(plain(fuzzyScore('xab Ac', 'ab')).hits, [1, 2]); // a word start with no room left for the rest is skipped
 });
