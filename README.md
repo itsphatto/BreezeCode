@@ -275,7 +275,7 @@ flowchart TB
 | Member |
 | --- | --- |
 | [@itsphatto](https://github.com/itsphatto) | Founder and Lead Software Engineer: |
-| [@sapfire151](https://github.com/sapfire151) | Lead Front End Designer and UI/UX Designer: |
+| [@sapfire151](https://github.com/sapfire151) | Lead Front End Developer and UI/UX Designer: |
 | [@LangZab](https://github.com/LangZab) | UI/UX Designer: |
 | [@esrazti](https://github.com/esrazti) | Contributor |
 
