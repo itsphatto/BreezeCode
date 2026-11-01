@@ -9,11 +9,35 @@ const fsp = fs.promises;
 
 // Where each agent keeps the user's own skills. A skill in one of these folders can be removed; a plugin's can't
 // (the plugin brings it back).
-function skillSources({ claudeHome, codexHome }) {
+// ~/.agents/skills is the shared folder Codex also reads (and where `npx skills` installs); Antigravity keeps the
+// user's skills in ~/.gemini/config/skills.
+function skillSources({ claudeHome, codexHome, agentsHome, geminiHome }) {
   return [
     { agent: 'claude', scope: 'user', dir: path.join(claudeHome, 'skills') },
     { agent: 'codex', scope: 'user', dir: path.join(codexHome, 'skills') },
+    ...agentsHome ? [{ agent: 'codex', scope: 'user', dir: path.join(agentsHome, 'skills') }] : [],
+    ...geminiHome ? [{ agent: 'antigravity', scope: 'user', dir: path.join(geminiHome, 'config', 'skills') }] : [],
   ];
+}
+
+// Skills an agent brings itself or gets from the account: listed and readable, never removed here. Claude's synced
+// ones sit under skills/synced/<account>/, Codex keeps its built-ins in skills/.system, and each Antigravity install
+// has a builtin/skills of its own (the same skill in two installs is listed once).
+async function readOnlySkills({ claudeHome, codexHome, geminiHome }) {
+  const out = [];
+  const synced = path.join(claudeHome, 'skills', 'synced');
+  for (const acct of await fsp.readdir(synced, { withFileTypes: true }).catch(() => [])) {
+    if (acct.isDirectory()) out.push(...await skillsIn(path.join(synced, acct.name), { agent: 'claude', scope: 'synced', removable: false }));
+  }
+  out.push(...await skillsIn(path.join(codexHome, 'skills', '.system'), { agent: 'codex', scope: 'builtin', removable: false }));
+  if (geminiHome) {
+    for (const install of ['antigravity-cli', 'antigravity', 'antigravity-ide']) {
+      for (const k of await skillsIn(path.join(geminiHome, install, 'builtin', 'skills'), { agent: 'antigravity', scope: 'builtin', removable: false })) {
+        if (!out.some(o => o.agent === 'antigravity' && o.folder === k.folder)) out.push(k);
+      }
+    }
+  }
+  return out;
 }
 
 // `name` and `description` from a SKILL.md's front matter (YAML between --- lines). A folded or literal block
@@ -43,7 +67,8 @@ async function skillsIn(dir, extra) {
   const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
   const out = [];
   for (const e of entries) {
-    if (!e.isDirectory() || e.name.startsWith('.')) continue;
+    // A linked skill folder (how `npx skills` shares one between agents) counts too.
+    if (!(e.isDirectory() || e.isSymbolicLink()) || e.name.startsWith('.')) continue;
     const file = path.join(dir, e.name, 'SKILL.md');
     const text = await fsp.readFile(file, 'utf8').catch(() => null);
     if (text == null) continue;
@@ -102,10 +127,68 @@ async function claudePlugins(claudeHome) {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// The user's own skills, one entry per skill folder: a folder linked into other agents' folders (by sharing, or by
+// `npx skills`) is listed once, with every agent that has it in `agents`; its own folder (not a link) is the entry.
+async function userSkills(opts) {
+  const byReal = new Map();
+  for (const src of skillSources(opts)) {
+    for (const k of await skillsIn(src.dir, { agent: src.agent, scope: src.scope, removable: true })) {
+      const real = await fsp.realpath(k.id).catch(() => k.id);
+      const linked = await fsp.lstat(k.id).then(st => st.isSymbolicLink(), () => false);
+      const had = byReal.get(real);
+      if (!had) { byReal.set(real, { ...k, real, linked, agents: [k.agent] }); continue; }
+      if (!had.agents.includes(k.agent)) had.agents.push(k.agent);
+      if (had.linked && !linked) byReal.set(real, { ...k, real, linked, agents: had.agents });
+    }
+  }
+  return [...byReal.values()].map(({ linked, ...k }) => k);
+}
+
 async function listSkills(opts) {
-  const skills = [];
-  for (const s of skillSources(opts)) skills.push(...await skillsIn(s.dir, { agent: s.agent, scope: s.scope, removable: true }));
+  const skills = await userSkills(opts);
+  skills.push(...await readOnlySkills(opts));
   return { skills, plugins: await claudePlugins(opts.claudeHome) };
+}
+
+// Where sharing links a skill so each agent loads it: Claude Code's skills folder, ~/.agents/skills for Codex and
+// Antigravity's config/skills.
+function shareTargets({ claudeHome, agentsHome, geminiHome }) {
+  return [
+    { agent: 'claude', dir: path.join(claudeHome, 'skills') },
+    ...agentsHome ? [{ agent: 'codex', dir: path.join(agentsHome, 'skills') }] : [],
+    ...geminiHome ? [{ agent: 'antigravity', dir: path.join(geminiHome, 'config', 'skills') }] : [],
+  ];
+}
+
+// Links each of the user's skills into the agents that don't have it yet. A link, not a copy, so an edit shows for
+// every agent; on Windows a junction, which needs no admin rights. A folder of the same name already there is left
+// alone (it's a different skill, or the agent's own copy). Returns how many links it made.
+async function shareSkills(opts) {
+  let made = 0;
+  for (const k of await userSkills(opts)) {
+    for (const t of shareTargets(opts)) {
+      if (k.agents.includes(t.agent)) continue;
+      const to = path.join(t.dir, k.folder);
+      if (await fsp.lstat(to).then(() => true, () => false)) continue;
+      await fsp.mkdir(t.dir, { recursive: true });
+      await fsp.symlink(k.real, to, process.platform === 'win32' ? 'junction' : 'dir');
+      made++;
+    }
+  }
+  return made;
+}
+
+// Removing a shared skill: the links to it in every agent's folder go first (only the link, never what it points
+// to). Returns whether the folder itself is still there to be put in the Recycle Bin (it isn't when it was a link).
+async function unlinkSkill(dir, opts) {
+  const real = await fsp.realpath(dir);
+  for (const src of skillSources(opts)) {
+    for (const e of await fsp.readdir(src.dir, { withFileTypes: true }).catch(() => [])) {
+      const p = path.join(src.dir, e.name);
+      if (e.isSymbolicLink() && await fsp.realpath(p).catch(() => null) === real) await fsp.unlink(p);
+    }
+  }
+  return fs.existsSync(dir);
 }
 
 // A folder the Skills view may remove: a skill (it has a SKILL.md) directly inside one of the agents' own skill
@@ -138,4 +221,4 @@ async function setPluginEnabled(claudeHome, id, on) {
   return on === true;
 }
 
-module.exports = { skillSources, frontMatter, listSkills, removableSkill, readSkill, setPluginEnabled };
+module.exports = { skillSources, frontMatter, listSkills, removableSkill, readSkill, setPluginEnabled, shareSkills, unlinkSkill };

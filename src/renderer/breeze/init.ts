@@ -1,4 +1,13 @@
 /* ================= Init ================= */
+// Ctrl+R reloads the window: the screen it was on (the editor or Breeze Box) comes back instead of Home. The screen
+// is kept for this window's session only (swapScreen), so a fresh launch still opens on Home.
+const reloadedMode: WorkMode | null = (() => {
+  if (!appState.onboarded) return null;
+  try {
+    const s = sessionStorage.getItem(SCREEN_KEY);
+    return s === '#ide' ? 'ide' : s === '#box' ? 'box' : null;
+  } catch { return null; }
+})();
 // Opened from Explorer: straight into the editor with the right-clicked file (setup still comes first on a first run).
 function showLaunched(info: LaunchInfo): void {
   if (info.open) openFile(info.open);
@@ -32,6 +41,7 @@ async function boot(): Promise<void> {
   if (info) await loadWorkspace(info);
   else { term.cwd = await api.term.cwd(); renderPs(); }
   if (info && 'launched' in info) showLaunched(info);
+  else if (reloadedMode) enterMode(reloadedMode);
   renderTree(); renderScm();
   if (step === STEP.home) renderHome();
   renderBoxFolder();
@@ -62,6 +72,7 @@ async function boot(): Promise<void> {
 // off until start-up has settled (8s at most).
 {
   if (appState.onboarded) goStep(STEP.home);
+  if (reloadedMode) swapScreen(reloadedMode === 'ide' ? '#ide' : '#box'); // before start-up, so Home never flashes by
   const welcome = $('.ob-step[data-step="0"]');
   const starting = boot();
   background(starting);

@@ -1522,7 +1522,7 @@ textarea:focus-visible {
    --pos (0–1) places the fill and thumb; it follows the pointer while dragging and settles on a step. */
 .menu-slider {
   --pos: 0;
-  --knob: 20px;
+  --knob: 24px; /* as tall as the track, so it's taller than the fill and hides the fill's end */
   padding: 6px 10px 8px;
 }
 
@@ -1582,28 +1582,40 @@ textarea:focus-visible {
   box-shadow: 0 0 0 2px var(--blue);
 }
 
-/* Inset like the thumb and ending at its centre. At the first step it fades out, so no edge of it rims the thumb.
-   It is painted with the signature accent as one track-wide band that drifts to the right and wraps (both ends are
-   the same colour), so a longer fill uncovers more of the sky rather than squeezing it. */
+/* Inset 2px and ending 8px past the thumb's centre, so its rounded end sits wholly under the (taller) thumb: ending
+   at the centre, its square corners showed above and below the thumb. At the first step it fades out.
+   It is painted with the signature accent as one band twice the track's width, blended in oklab, that drifts to the
+   right and wraps (both ends are the same colour), so a longer fill uncovers more of the sky rather than squeezing
+   it, and no colour change is ever tighter than half the track. */
 .ms-fill {
-  --band: calc(100cqw - 4px);
+  --band: calc(200cqw - 8px);
   position: absolute;
   inset: 2px auto 2px 2px;
-  width: calc(var(--knob) / 2 + (100% - var(--knob) - 4px) * var(--pos));
+  width: calc(var(--knob) / 2 + 6px + (100% - var(--knob)) * var(--pos));
+  overflow: hidden;
   border-radius: 999px;
-  background: var(--sig-band) 0 0 / var(--band) 100% repeat-x;
+  background: linear-gradient(90deg in oklab, #8fc3ff, #2f6bff 22%, #1f4dff 42%, #7a5cff 58%, #3d7bff 78%, #8fc3ff) 0 0 / var(--band) 100% repeat-x;
   opacity: clamp(0, var(--pos) * 12, 1);
-  animation: ms-sky 4s linear infinite;
+  animation: ms-sky 6s linear infinite;
 }
 
 @keyframes ms-sky {
   to { background-position-x: var(--band); }
 }
 
+/* Bubbles (made and moved in bindMenuSlider, faster as the effort goes up). */
+.ms-bubble {
+  position: absolute;
+  left: 0;
+  border-radius: 50%;
+  background: #fff;
+  pointer-events: none;
+}
+
 .ms-track i {
   position: absolute;
   top: 50%;
-  left: calc(var(--knob) / 2 + 2px + (100% - var(--knob) - 4px) * var(--at));
+  left: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--at));
   width: 4px;
   height: 4px;
   border-radius: 50%;
@@ -1614,7 +1626,7 @@ textarea:focus-visible {
 .ms-thumb {
   position: absolute;
   top: 50%;
-  left: calc(var(--knob) / 2 + 2px + (100% - var(--knob) - 4px) * var(--pos));
+  left: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--pos));
   width: var(--knob);
   height: var(--knob);
   border-radius: 50%;
@@ -1875,22 +1887,20 @@ body.resizing-h iframe {
   width: 100%;
 }
 
-/* ----- Skills & Plugins view: per agent, its skills (click to read, bin to remove) and Claude's plugins ----- */
-.skill-agent + .skill-agent {
-  margin-top: 14px;
+/* ----- Skills & Plugins view: one shared list of skills (click to read, bin to remove), plugins and MCP servers ----- */
+/* A shared skill shows each agent's mark, overlapped like a stack of avatars. */
+.skill-marks {
+  display: flex;
+  flex: none;
 }
 
-.skill-agent h6 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 8px 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
+.skill-marks .skill-mark + .skill-mark {
+  margin-left: -5px;
+  box-shadow: 0 0 0 1.5px var(--bg-1);
 }
 
 .skill-mark {
+  flex: none;
   display: inline-grid;
   place-items: center;
   width: 16px;
@@ -1914,10 +1924,8 @@ body.resizing-h iframe {
   border-radius: 6px;
   background: none;
   font: inherit;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
   color: var(--text-3);
   text-align: left;
   cursor: pointer;
@@ -1946,8 +1954,36 @@ body.resizing-h iframe {
   cursor: default;
 }
 
-.skill-group:not(.open) > .skill-group-body {
-  display: none;
+/* Groups and plugins fold by easing their row track between 0 and its content's height; once shut, the rows are
+   hidden so Tab skips them. */
+.skill-group-body,
+.plugin-skills {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows .26s cubic-bezier(.2, .8, .2, 1), opacity .18s ease, visibility 0s .26s;
+}
+
+.skill-group.open > .skill-group-body,
+.plugin-item.open > .plugin-skills {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows .26s cubic-bezier(.2, .8, .2, 1), opacity .22s ease .04s, visibility 0s;
+}
+
+.skill-group-body > div,
+.plugin-skills > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skill-group-body,
+  .plugin-skills {
+    transition: none !important;
+  }
 }
 
 .skill-row {
@@ -1989,19 +2025,14 @@ body.resizing-h iframe {
   color: var(--text-3);
 }
 
-/* The bin shows on the row the pointer is over. */
-.skill-del {
-  flex: none;
+/* The hold-to-remove bin shows on the row the pointer is over, and stays while it's held. */
+.skill-row .br-del {
   opacity: 0;
-  color: var(--text-3);
 }
 
-.skill-row:is(:hover, :focus-within) .skill-del {
+.skill-row:is(:hover, :focus-within) .br-del,
+.skill-row .br-del.holding {
   opacity: 1;
-}
-
-.skill-del:hover {
-  color: var(--err);
 }
 
 /* "Synced": a plugin from the Claude account, which owns it, so no switch. */
@@ -2062,17 +2093,12 @@ body.resizing-h iframe {
   transform: rotate(90deg);
 }
 
-.plugin-skills {
-  display: none;
+.plugin-skills > div {
   padding-left: 14px;
 }
 
-.plugin-item.open .plugin-skills {
-  display: block;
-}
-
 .plugin-item.off .plugin-name b,
-.plugin-item.off .plugin-skills {
+.plugin-item.off .plugin-skills > div {
   opacity: .5;
 }
 
@@ -2119,6 +2145,25 @@ body.resizing-h iframe {
 
 .mcp-form [data-mcp-for][hidden] {
   display: none;
+}
+
+/* Command sits left of URL, so each slides in from its own side. */
+.mcp-form.switched [data-mcp-for="stdio"] {
+  animation: mcp-slide .24s cubic-bezier(.2, .8, .2, 1) both;
+  --from: -16px;
+}
+
+.mcp-form.switched [data-mcp-for="http"] {
+  animation: mcp-slide .24s cubic-bezier(.2, .8, .2, 1) both;
+  --from: 16px;
+}
+
+@keyframes mcp-slide {
+  from { opacity: 0; transform: translateX(var(--from)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcp-form.switched [data-mcp-for] { animation: none; }
 }
 
 .mcp-type {
@@ -2683,15 +2728,21 @@ svg.ico-svg:active {
   background: linear-gradient(90deg, var(--blue-soft), transparent 55%);
   pointer-events: none;
   opacity: 0;
+  transition: opacity .22s ease;
 }
 
-/* Fades in, but goes at once: after a drop the split slides in right where the wash is, and a fading wash on top of
-   it reads as a blue flash. */
+/* Fades in and out, but goes at once on a drop: the split then slides in right where the wash is, and a fading wash
+   on top of it reads as a blue flash. */
 .split-drop-hint.on {
   transition: opacity .18s ease;
 }
 
-/* Round dots (a CSS dotted border draws ragged squares at this size), inset from the pane's top and bottom. */
+.split-drop-hint.dropped {
+  transition: none;
+}
+
+/* Round dots (a CSS dotted border draws ragged squares at this size), inset from the pane's top and bottom. While
+   it waits for the drop the dots march downward, fading in at the top and out at the bottom. */
 .split-drop-hint::before {
   content: "";
   position: absolute;
@@ -2700,6 +2751,15 @@ svg.ico-svg:active {
   left: -2px;
   width: 4px;
   background: radial-gradient(circle, var(--blue) 1.3px, transparent 1.8px) center top / 4px 8px repeat-y;
+  mask-image: linear-gradient(transparent, #000 10%, #000 90%, transparent);
+}
+
+.split-drop-hint.on::before {
+  animation: split-march .5s linear infinite;
+}
+
+@keyframes split-march {
+  to { background-position-y: 8px; }
 }
 
 .split-drop-hint::after {
@@ -2728,6 +2788,7 @@ svg.ico-svg:active {
 
 @media (prefers-reduced-motion: reduce) {
   .split-drop-hint::after { transform: translate(-50%, -50%); transition: none; }
+  .split-drop-hint.on::before { animation: none; }
 }
 
 .editor-row>.editor {
@@ -3486,6 +3547,21 @@ svg.ico-svg:active {
   padding: 24px;
   min-height: 100%;
   margin: auto 0;
+}
+
+/* The agents' empty state keeps its description on one line, cut with … when the panel is too narrow for it. */
+.empty:has(.empty-line) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.empty:has(.empty-line) > div {
+  width: 100%;
+}
+
+.empty-line {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .empty h4 {
@@ -8369,12 +8445,12 @@ body.vibing .box {
   height: 0;
 }
 
-/* Editor scroll slider (right edge) */
+/* Editor scroll slider (right edge), inset from the top, bottom and side (the insets match V_SLIDER_INSET). */
 .v-slider {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  top: 6px;
+  right: 3px;
+  bottom: 6px;
   width: 12px;
   display: none;
   z-index: 5;
@@ -8390,19 +8466,22 @@ body.vibing .box {
   right: 2px;
   width: 8px;
   border-radius: 4px;
-  background: var(--text-3);
-  opacity: 0.35;
-  transition: opacity .15s, background .15s;
+  /* Frosted glass: the code under it shows through blurred. Translucent colours, not opacity, which would fade the
+     blur away too. */
+  background: rgba(var(--ink), .16);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), .1);
+  backdrop-filter: blur(6px) saturate(140%);
+  transition: background-color .15s, box-shadow .15s;
   cursor: pointer;
 }
 
-.v-slider:hover .v-slider-thumb,
-.v-slider.drag .v-slider-thumb {
-  opacity: 0.7;
+.v-slider:hover .v-slider-thumb {
+  background: rgba(var(--ink), .3);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), .16);
 }
 
 .v-slider.drag .v-slider-thumb {
-  background: var(--accent, var(--blue-text));
+  background: color-mix(in srgb, var(--accent, var(--blue-text)) 70%, transparent);
 }
 
 /* ================= Agents panel: cards appear once a task needs them ================= */
@@ -10686,10 +10765,11 @@ body.layout-animating #previewPane {
 /* "Friends will see": Discord's own activity card, as it shows on a profile (its dark colours in every theme, since
    it's a picture of Discord): "Playing" over the app's art, its name, the two lines, and the green elapsed time. */
 .discord-preview {
+  max-width: 340px;
   margin-bottom: 10px;
-  padding: 12px 12px 14px;
+  padding: 10px 12px 14px;
   border-radius: 8px;
-  background: #18191c;
+  background: #232428;
   color: #dbdee1;
   font-size: 14px;
   line-height: 1.3;
@@ -10700,9 +10780,13 @@ body.layout-animating #previewPane {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
-  color: #b5bac1;
-  font-size: 12px;
+  color: #dbdee1;
+  font-size: 14px;
   font-weight: 600;
+}
+
+.dc-head .ico-svg {
+  color: #b5bac1;
 }
 
 .dc-body {
@@ -10712,16 +10796,40 @@ body.layout-animating #previewPane {
   min-width: 0;
 }
 
-.dc-art {
+/* The big picture with the Breeze logo in its corner, cut out of the card by a ring of the card's colour. */
+.dc-art-box {
+  position: relative;
   flex: none;
-  width: 64px;
-  height: 64px;
+  width: 76px;
+  height: 76px;
+}
+
+.dc-art {
+  width: 100%;
+  height: 100%;
   border-radius: 8px;
+}
+
+.dc-art-old {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.dc-badge {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 32px;
+  height: 32px;
+  border: 3px solid #232428;
+  border-radius: 50%;
+  background: #232428;
 }
 
 .dc-txt {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 
@@ -10733,17 +10841,17 @@ body.layout-animating #previewPane {
 
 .dc-txt b {
   color: #f2f3f5;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .dc-time {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 1px;
+  gap: 6px;
+  margin-top: 2px;
   color: #23a55a;
-  font: 600 13px var(--font-code);
+  font: 600 14px var(--font-code);
   font-variant-numeric: tabular-nums;
 }
 

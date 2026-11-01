@@ -2,10 +2,13 @@
 // Skills are folders with a SKILL.md, per agent (main/skills.js). A click shows one; the bin removes it (its folder
 // goes to the Recycle Bin). A Claude Code plugin brings its own skills, which can't be removed one by one, so the
 // plugin has an on/off switch instead (a plugin synced from the Claude account is left to the account).
-const SKILL_AGENTS: [string, string][] = [['claude', 'Claude Code'], ['codex', 'Codex']];
+const SKILL_AGENTS: [string, string][] = [['claude', 'Claude Code'], ['codex', 'Codex'], ['antigravity', 'Antigravity']];
+const SKILL_TAGS: Record<string, [string, string]> = {
+  synced: ['Synced', 'Synced from your Claude account'], builtin: ['Built-in', 'Comes with the agent'],
+};
 let skillData: SkillList | null = null;
 const openPlugins = new Set<string>();
-// Groups ("claude:user", "claude:plugins", …) start open; these are the ones folded shut.
+// Groups ("skills", "claude:plugins", "claude:mcp") start open; these are the ones folded shut.
 const foldedSkillGroups = new Set<string>();
 
 // A drop-down group: open by default, folds on a click. An empty one stays shut and can't be opened.
@@ -14,16 +17,18 @@ function skillGroupHtml(key: string, title: string, count: number, rows: string)
   return `<div class="skill-group${open ? ' open' : ''}${count ? '' : ' no-items'}">
     <button class="skill-group-head" type="button" data-skill-group="${escAttr(key)}" aria-expanded="${open}"${count ? '' : ' disabled'}>
       ${svgIcon('chevronRight', 12)}<span>${esc(title)}</span><span class="n">${count}</span></button>
-    <div class="skill-group-body">${rows}</div>
+    <div class="skill-group-body"><div>${rows}</div></div>
   </div>`;
 }
 
 function skillRowHtml(s: AgentSkill): string {
-  const bin = s.removable
-    ? `<button class="icon-btn skill-del" type="button" data-skill-del="${escAttr(s.id)}" title="Remove skill" aria-label="Remove ${escAttr(s.name)}">${svgIcon('trash', 13)}</button>`
-    : '';
+  const tag = SKILL_TAGS[s.scope];
+  const end = s.removable ? holdDelHtml(s.name, `data-skill-del="${escAttr(s.id)}"`)
+    : tag ? `<span class="skill-tag" title="${escAttr(tag[1])}">${tag[0]}</span>` : '';
+  // One shared list, so a skill shows the mark of every agent that has it (a plugin's are all Claude Code's).
+  const mark = s.plugin ? '' : `<span class="skill-marks">${(s.agents ?? [s.agent]).map(a => brandMark('skill-mark', a, agentLabel(a)[0])).join('')}</span>`;
   return `<div class="skill-row" role="button" tabindex="0" data-skill="${escAttr(s.id)}" title="${escAttr(s.description || s.name)}">
-    <span class="skill-text"><b>${esc(s.name)}</b>${s.description ? `<small>${esc(s.description)}</small>` : ''}</span>${bin}</div>`;
+    ${mark}<span class="skill-text"><b>${esc(s.name)}</b>${s.description ? `<small>${esc(s.description)}</small>` : ''}</span>${end}</div>`;
 }
 
 function pluginHtml(p: AgentPlugin): string {
@@ -37,7 +42,7 @@ function pluginHtml(p: AgentPlugin): string {
         ? '<span class="skill-tag" title="Synced from your Claude account, which turns it on and off">Synced</span>'
         : `<button class="switch switch-sm${p.enabled ? ' on' : ''}" type="button" role="switch" data-plugin="${escAttr(p.id)}" aria-checked="${p.enabled}" aria-label="${escAttr(p.name)} on"><span class="sw-knob"></span></button>`}
     </div>
-    <div class="plugin-skills">${skills}</div>
+    <div class="plugin-skills"><div>${skills}</div></div>
   </div>`;
 }
 
@@ -47,7 +52,7 @@ let mcpData: McpList | null = null;
 const MCP_SCOPES: Record<string, string> = { user: 'Claude Code', local: 'This project', project: '.mcp.json' };
 function mcpRowHtml(m: McpServer, mine: boolean): string {
   const end = mine
-    ? `<button class="icon-btn skill-del" type="button" data-mcp-del="${escAttr(m.name)}" title="Disconnect" aria-label="Disconnect ${escAttr(m.name)}">${svgIcon('trash', 13)}</button>`
+    ? holdDelHtml(m.name, `data-mcp-del="${escAttr(m.name)}"`)
     : `<span class="skill-tag" title="Set up in Claude Code itself">${esc(MCP_SCOPES[m.scope ?? 'user'] ?? 'Claude Code')}</span>`;
   return `<div class="skill-row mcp-row" title="${escAttr(m.detail)}">
     <span class="skill-text"><b>${esc(m.name)}</b><small>${esc(m.detail || (m.type === 'http' ? 'URL' : 'Command'))}</small></span>${end}</div>`;
@@ -62,16 +67,13 @@ function renderSkills(): void {
   const box = $('#skillList');
   if (!skillData) { box.innerHTML = '<p class="side-note">Looking for skills…</p>'; return; }
   const { skills, plugins } = skillData;
-  let html = '';
-  for (const [agent, label] of SKILL_AGENTS) {
-    const mine = skills.filter(s => s.agent === agent);
-    html += `<section class="skill-agent"><h6>${brandMark('skill-mark', agent, label[0])}${esc(label)}</h6>`;
-    html += skillGroupHtml(`${agent}:user`, 'Your skills', mine.length, mine.map(skillRowHtml).join(''));
-    // Only Claude Code has plugins.
-    if (agent === 'claude') html += skillGroupHtml('claude:plugins', 'Plugins', plugins.length, plugins.map(pluginHtml).join('')) + mcpGroupHtml();
-    html += '</section>';
-  }
-  box.innerHTML = html;
+  box.innerHTML = skillGroupHtml('skills', 'Skills', skills.length, skills.map(skillRowHtml).join(''))
+    + skillGroupHtml('claude:plugins', 'Plugins', plugins.length, plugins.map(pluginHtml).join('')) + mcpGroupHtml();
+  $$<HTMLElement>('[data-skill-del]', box).forEach(b => holdToDelete(b, () => { const k = allSkills().find(x => x.id === b.dataset.skillDel); if (k) void removeSkill(k); }));
+  $$<HTMLElement>('[data-mcp-del]', box).forEach(b => holdToDelete(b, () => {
+    const name = b.dataset.mcpDel as string;
+    background(api.mcp.remove(name).then(() => { toast(`Disconnected ${name}`); return refreshSkills(); }));
+  }));
 }
 
 async function refreshSkills(): Promise<void> {
@@ -94,11 +96,11 @@ function connectMcp(): void {
       </div>
       <div data-mcp-for="stdio">
         <label>Command<input class="input" name="command" placeholder="npx -y @modelcontextprotocol/server-github" spellcheck="false"></label>
-        <label>Environment variables <small>one per line, optional</small><textarea class="input" name="env" rows="2" placeholder="GITHUB_TOKEN=…" spellcheck="false"></textarea></label>
+        <label>Environment variables <small>one per line, optional</small><textarea class="input" name="env" rows="1" placeholder="GITHUB_TOKEN=…" spellcheck="false"></textarea></label>
       </div>
       <div data-mcp-for="http" hidden>
         <label>URL<input class="input" name="url" placeholder="https://example.com/mcp" spellcheck="false"></label>
-        <label>Headers <small>one per line, optional</small><textarea class="input" name="headers" rows="2" placeholder="Authorization: Bearer …" spellcheck="false"></textarea></label>
+        <label>Headers <small>one per line, optional</small><textarea class="input" name="headers" rows="1" placeholder="Authorization: Bearer …" spellcheck="false"></textarea></label>
       </div>
       <p class="mcp-error" id="mcpError" role="alert"></p>
       <div class="row end"><button class="btn" type="button" data-close>Cancel</button><button class="btn btn-primary" type="submit">Connect</button></div>
@@ -109,6 +111,7 @@ function connectMcp(): void {
       type = b.dataset.mcpType === 'http' ? 'http' : 'stdio';
       $$<HTMLButtonElement>('[data-mcp-type]', m).forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); });
       $$<HTMLElement>('[data-mcp-for]', m).forEach(x => { x.hidden = x.dataset.mcpFor !== type; });
+      form.classList.add('switched'); // fields slide in only on a switch, not when the dialog opens
     });
     form.onsubmit = async e => {
       e.preventDefault();
@@ -128,14 +131,15 @@ function connectMcp(): void {
 commands['mcp.connect'] = connectMcp;
 
 const allSkills = (): AgentSkill[] => [...skillData?.skills ?? [], ...(skillData?.plugins ?? []).flatMap(p => p.skills)];
-const skillAgentName = (s: AgentSkill) => SKILL_AGENTS.find(([id]) => id === s.agent)?.[1] ?? s.agent;
+const agentLabel = (id: string) => SKILL_AGENTS.find(([a]) => a === id)?.[1] ?? id;
+const skillAgentName = (s: AgentSkill) => agentLabel(s.agent);
 
 async function viewSkill(s: AgentSkill): Promise<void> {
   let text = '';
   try { text = await api.skills.read(s.file); } catch (e) { toast(`Couldn't open ${s.name}: ${errMsg(e)}`); return; }
   const body = text.replace(/^﻿?---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
-  const where = s.plugin ? `Plugin ${s.plugin}` : `${skillAgentName(s)} · your skills`;
-  const del = s.removable ? '<button class="btn btn-danger" id="skillViewDel">Remove</button>' : '';
+  const where = s.plugin ? `Plugin ${s.plugin}` : `${skillAgentName(s)} · ${SKILL_TAGS[s.scope]?.[0].toLowerCase() ?? 'your skills'}`;
+  const del = s.removable ? holdDelHtml(s.name, 'id="skillViewDel"') : '';
   openModal(`<h3>${esc(s.name)}</h3>
     <p class="sub">${esc(where)}</p>
     ${s.description ? `<p class="skill-view-desc">${esc(s.description)}</p>` : ''}
@@ -143,62 +147,61 @@ async function viewSkill(s: AgentSkill): Promise<void> {
     <p class="skill-view-path" title="${escAttr(s.file)}">${esc(s.file)}</p>
     <div class="row end"><button class="btn" data-close>Close</button>${del}</div>`, m => {
     m.classList.add('skill-view');
-    m.querySelector<HTMLElement>('#skillViewDel')?.addEventListener('click', () => confirmRemoveSkill(s));
+    const del = m.querySelector<HTMLElement>('#skillViewDel');
+    if (del) holdToDelete(del, () => { closeModal(); void removeSkill(s); });
   });
 }
 
-function confirmRemoveSkill(s: AgentSkill): void {
-  openModal(`<h3>Remove ${esc(s.name)}?</h3>
-    <p class="sub">Its folder goes to the Recycle Bin, and ${esc(skillAgentName(s))} stops using it in new chats. Restore it from the Recycle Bin to get it back.</p>
-    <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-danger" id="skillDelOk">Remove</button></div>`, m => {
-    $('#skillDelOk', m).onclick = async () => {
-      closeModal();
-      try {
-        await api.skills.remove(s.id);
-        toast(`Removed ${s.name}`);
-      } catch (e) { toast(`Couldn't remove ${s.name}: ${errMsg(e)}`); }
-      await refreshSkills();
-    };
-  });
+// Held for 5 seconds: its folder goes to the Recycle Bin, where it can be restored.
+async function removeSkill(s: AgentSkill): Promise<void> {
+  try {
+    await api.skills.remove(s.id);
+    toast(`Removed ${s.name}. Restore it from the Recycle Bin to get it back.`);
+  } catch (e) { toast(`Couldn't remove ${s.name}: ${errMsg(e)}`); }
+  await refreshSkills();
 }
 
 $('#skillList').addEventListener('click', e => {
   const t = e.target as HTMLElement;
   const find = (id?: string) => allSkills().find(s => s.id === id);
-  const mcpDel = t.closest<HTMLElement>('[data-mcp-del]');
-  if (mcpDel) {
-    const name = mcpDel.dataset.mcpDel as string;
-    background(api.mcp.remove(name).then(() => { toast(`Disconnected ${name}`); return refreshSkills(); }));
-    return;
-  }
-  const del = t.closest<HTMLElement>('[data-skill-del]');
-  if (del) { const s = find(del.dataset.skillDel); if (s) confirmRemoveSkill(s); return; }
   const sw = t.closest<HTMLButtonElement>('[data-plugin]');
   if (sw) {
     const id = sw.dataset.plugin as string;
     const on = sw.getAttribute('aria-checked') !== 'true';
-    background(api.skills.setPlugin(id, on).then(v => {
-      const p = skillData?.plugins.find(x => x.id === id);
+    const p = skillData?.plugins.find(x => x.id === id);
+    // Flip it in place so the knob slides; a re-render would swap in a switch already at the end.
+    const show = (v: boolean) => {
       if (p) p.enabled = v;
+      sw.classList.toggle('on', v);
+      sw.setAttribute('aria-checked', String(v));
+      sw.closest('.plugin-item')?.classList.toggle('off', !v);
+    };
+    show(on);
+    background(api.skills.setPlugin(id, on).then(v => {
+      show(v);
       if (skillData) setSlashSkills(skillData);
-      renderSkills();
       toast(v ? `${p?.name ?? id} is on` : `${p?.name ?? id} is off: Claude Code won't load its skills in new chats`);
-    }).catch(err => toast(`Couldn't change ${id}: ${errMsg(err)}`)));
+    }).catch(err => { show(!on); toast(`Couldn't change ${id}: ${errMsg(err)}`); }));
     return;
   }
+  // Groups and plugins fold in place, so the body and chevron animate.
   const group = t.closest<HTMLButtonElement>('[data-skill-group]');
   if (group) {
     if (group.disabled) return;
     const key = group.dataset.skillGroup as string;
-    if (foldedSkillGroups.has(key)) foldedSkillGroups.delete(key); else foldedSkillGroups.add(key);
-    renderSkills();
+    const open = foldedSkillGroups.has(key);
+    if (open) foldedSkillGroups.delete(key); else foldedSkillGroups.add(key);
+    group.parentElement?.classList.toggle('open', open);
+    group.setAttribute('aria-expanded', String(open));
     return;
   }
-  const open = t.closest<HTMLElement>('[data-plugin-open]');
-  if (open) {
-    const id = open.dataset.pluginOpen as string;
-    if (openPlugins.has(id)) openPlugins.delete(id); else openPlugins.add(id);
-    renderSkills();
+  const plug = t.closest<HTMLElement>('[data-plugin-open]');
+  if (plug) {
+    const id = plug.dataset.pluginOpen as string;
+    const open = !openPlugins.has(id);
+    if (open) openPlugins.add(id); else openPlugins.delete(id);
+    plug.closest('.plugin-item')?.classList.toggle('open', open);
+    plug.setAttribute('aria-expanded', String(open));
     return;
   }
   const row = t.closest<HTMLElement>('[data-skill]');
@@ -212,4 +215,5 @@ $('#skillList').addEventListener('keydown', e => {
   row.click();
 });
 commands['skills.refresh'] = () => void refreshSkills();
+
 renderSkills();

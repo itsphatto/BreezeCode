@@ -29,6 +29,22 @@ function morphSideHead(from: HTMLElement, to: HTMLElement): void {
   const icons = (p: HTMLElement) => $$<HTMLElement>('.side-head .head-actions .icon-btn:not(.hidden)', p).reverse();
   const old = icons(from).map(b => b.querySelector<SVGSVGElement>('svg.ico-svg')?.dataset.icon ?? 'dot');
   icons(to).forEach((b, i) => void morphIconFrom(b, old[i] ?? 'dot'));
+  // A tab with fewer tools: the old ones it lacks (the leftmost) stay a moment as copies that shrink away and close
+  // their gap, instead of vanishing. Tools sit at the right, so the closing gap moves nothing else.
+  const actions = $('.side-head .head-actions', to);
+  if (!actions || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const b of icons(from).slice(icons(to).length)) {
+    const ghost = b.cloneNode(true) as HTMLElement;
+    ghost.removeAttribute('id');
+    ghost.removeAttribute('data-act');
+    ghost.setAttribute('aria-hidden', 'true');
+    ghost.tabIndex = -1;
+    ghost.style.pointerEvents = 'none';
+    actions.prepend(ghost);
+    const w = `${ghost.offsetWidth}px`;
+    ghost.animate([{ opacity: 1, transform: 'none', width: w, minWidth: w }, { opacity: 0, transform: 'scale(.4)', width: '0px', minWidth: '0px', paddingInline: '0px' }],
+      { duration: 220, easing: 'cubic-bezier(.23, 1, .32, 1)', fill: 'forwards' }).onfinish = () => ghost.remove();
+  }
   $('.side-head > span:first-child', to).animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }],
     { duration: 160, easing: 'cubic-bezier(.23, 1, .32, 1)' });
 }

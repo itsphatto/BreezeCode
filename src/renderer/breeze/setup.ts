@@ -424,7 +424,6 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false): MenuItem[] {
     value: () => EFFORTS.indexOf(agentEffort(a)),
     set: i => apply(current(), EFFORTS[i]),
     hint: i => EFFORT_HINTS[EFFORTS[i]],
-    reset: () => apply(current(), currentEffort()), // back to the level picked in Settings
   } }];
   return [{ label: 'Switch Model', enabled: () => false }, ...models, ...effort];
 }
@@ -762,7 +761,8 @@ function glideOnReflow(container: HTMLElement): void {
   const restart = (el: HTMLElement) => { for (const a of el.getAnimations()) if (a.id === 'reflow-glide') a.cancel(); };
   new ResizeObserver(() => {
     // A maximize, restore or snap is instant (win-jump, platform.ts): everything just takes its new place.
-    const still = reduceMotion.matches || document.documentElement.classList.contains('win-jump');
+    // Read live (not the shared reduceMotion constant): this can fire before mentions.js, which defines it, has run.
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('win-jump');
     const opts = { ...REFLOW_GLIDE, id: 'reflow-glide' };
     for (const el of container.children) {
       if (!(el instanceof HTMLElement) || !el.offsetParent) continue;
@@ -957,7 +957,9 @@ const holdStartup = <T>(p: Promise<T>): Promise<T> => { startupWaits?.push(p.cat
 // True until the app has faded in over the launch (init.ts). Background work that starts processes (git, tool
 // checks) waits for it: on Windows each process start freezes the main process, which drives that fade.
 let launching = true;
+const SCREEN_KEY = 'breeze.screen'; // the screen showing, for a reload to come back to (init.ts)
 function swapScreen(to: string): void {
+  try { sessionStorage.setItem(SCREEN_KEY, to); } catch { /* storage off: a reload opens on Home */ }
   const next = $(to);
   const screens = ['#onboard', '#ide', '#box'].map(id => $(id));
   // At launch the remembered screen just appears; the animation is for switching.

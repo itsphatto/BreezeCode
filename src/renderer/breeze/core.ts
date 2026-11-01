@@ -30,7 +30,7 @@ type AgentMode = 'plan' | 'build' | 'ask';
 interface AgentEvent { t: 'session' | 'approve' | 'draft' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; }
 // Agent teams: one prompt, several agents building in parallel (main process: team.js).
 // Skills view (main/skills.js): a skill is a folder with a SKILL.md; `id` is that folder.
-interface AgentSkill { id: string; file: string; folder: string; name: string; description: string; agent: string; scope: 'user' | 'plugin'; removable: boolean; plugin?: string; }
+interface AgentSkill { id: string; file: string; folder: string; name: string; description: string; agent: string; scope: 'user' | 'plugin' | 'synced' | 'builtin'; removable: boolean; plugin?: string; agents?: string[]; }
 // `synced`: from the user's Claude account, which turns it on and off (no switch here).
 interface AgentPlugin { id: string; name: string; marketplace: string; version: string; description: string; enabled: boolean; synced: boolean; skills: AgentSkill[]; }
 // MCP servers (main/mcp.js): `breeze` ones are connected here and handed to Claude Code runs; `claude` ones are
@@ -38,6 +38,7 @@ interface AgentPlugin { id: string; name: string; marketplace: string; version: 
 interface McpServer { name: string; type: 'stdio' | 'http'; detail: string; scope?: 'user' | 'local' | 'project'; }
 interface McpList { breeze: McpServer[]; claude: McpServer[]; }
 interface McpInput { name: string; type: 'stdio' | 'http'; command?: string; env?: string; url?: string; headers?: string; }
+// A skill's `agents`: every agent that has it (Breeze links each skill into every agent's folder).
 interface SkillList { skills: AgentSkill[]; plugins: AgentPlugin[]; }
 interface TeamParse { shared: string; tasks: { agentId: string; text: string }[]; unknown: string[]; }
 interface TeamClaimResult { teamId: string; claims: Record<string, string[]>; clashes: { path: string; agents: string[] }[]; failed: string[]; sessions: Record<string, string>; }

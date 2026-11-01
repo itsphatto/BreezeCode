@@ -2,6 +2,8 @@
 // One pop-up for everything: the gear opens it (in the IDE and in Breeze Box) and turns while it is open.
 type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
 // The controller Discord puts beside a game's elapsed time (Lucide's gamepad-2), for the Discord tab's preview.
+// The same language art main.js hands Discord, so the preview shows what friends see.
+const DC_ICON_URL = 'https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/';
 const DC_PAD = '<svg class="dc-pad" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59l-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258l-.017-.151A4 4 0 0 0 17.32 5z"/></svg>';
 const SETTINGS_TABS: [SettingsTab, string, string][] = [
   ['general', 'General', 'gear'],
@@ -290,7 +292,9 @@ function settingsBody(tab: SettingsTab): string {
         <div class="discord-preview" role="img" aria-label="${escAttr(`Playing Breeze Code: ${a.details ?? ''}, ${a.state ?? ''}`)}">
           <div class="dc-head"><span>Playing</span>${svgIcon('more', 16)}</div>
           <div class="dc-body">
-            <img class="dc-art" src="../../assets/brand/Icon.png" alt="" draggable="false">
+            <span class="dc-art-box">${a.icon
+              ? `<img class="dc-art" src="${DC_ICON_URL}${a.icon}.png" alt="" draggable="false"><img class="dc-badge" src="../../assets/brand/Icon.png" alt="" draggable="false">`
+              : '<img class="dc-art" src="../../assets/brand/Icon.png" alt="" draggable="false">'}</span>
             <div class="dc-txt"><b>Breeze Code</b><span>${esc(a.details ?? '')}</span><span>${esc(a.state ?? '')}</span>
               <span class="dc-time">${DC_PAD}<span data-dc-since="${a.start ?? Date.now()}"></span></span></div>
           </div>
@@ -566,8 +570,20 @@ function bindSettings(m: HTMLElement): void {
     // The pane is rebuilt, so put the old lines back and fade them over to the new ones.
     const lines = () => $$('.dc-txt > span:not(.dc-time)', pane);
     const old = lines().map(s => s.textContent ?? '');
+    const oldArt = $('.dc-art-box', pane)?.cloneNode(true) as HTMLElement | undefined;
     refreshSettings();
     lines().forEach((s, i) => { const text = s.textContent ?? ''; s.textContent = old[i] ?? text; blurSwap(s, text); });
+    // The picture crossfades: the old one, laid over the new, fades and shrinks away while the new one grows in and
+    // the Breeze badge pops into its corner.
+    const art = $('.dc-art-box', pane);
+    if (!art || !oldArt || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    oldArt.classList.add('dc-art-old');
+    oldArt.setAttribute('aria-hidden', 'true');
+    art.append(oldArt);
+    const ease = 'cubic-bezier(.32, .72, 0, 1)';
+    oldArt.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.9)' }], { duration: 260, easing: ease, fill: 'forwards' }).onfinish = () => oldArt.remove();
+    art.querySelector('.dc-art')?.animate([{ opacity: 0, transform: 'scale(.9)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 360, easing: ease });
+    art.querySelector('.dc-badge')?.animate([{ opacity: 0, transform: 'scale(.3)' }, { opacity: 1, transform: 'scale(1.12)', offset: .65 }, { transform: 'none' }], { duration: 380, delay: 140, easing: ease, fill: 'backwards' });
   });
   // The preview's elapsed time counts up like Discord's, from when Breeze started; it stops once the tab is gone.
   const since = pane.querySelector<HTMLElement>('[data-dc-since]');

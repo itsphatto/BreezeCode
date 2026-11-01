@@ -843,9 +843,11 @@ function splitHintX(row: HTMLElement): number {
   const split = $('#split');
   return splitPath && !split.classList.contains('hidden') ? split.offsetLeft : row.clientWidth / 2;
 }
-// dragover fires many times a second, so the hint is only touched when it actually changes.
+// dragover fires many times a second, so the hint is only touched when it actually changes. `dropped`: gone at
+// once (see .split-drop-hint.dropped); otherwise it fades.
 let splitHintLeft = '';
-function markSplitDrop(on: boolean): void {
+function markSplitDrop(on: boolean, dropped = false): void {
+  splitHint.classList.toggle('dropped', dropped);
   if (on) {
     const left = `${splitHintX($('#editorRow'))}px`;
     if (left !== splitHintLeft) splitHint.style.left = splitHintLeft = left;
@@ -1549,7 +1551,7 @@ document.addEventListener('drop', e => {
   if (!hasFiles(e) && !draggedTreePath) return;
 
   const target = e.target as HTMLElement | null;
-  markSplitDrop(false);
+  markSplitDrop(false, true);
   const toSplit = splitDropSide(e);
 
   const ag = agentDropTarget(e);

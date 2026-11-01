@@ -612,8 +612,11 @@ function syncScroll(): void {
 }
 
 /* ----- Vertical scroll slider on the right edge of an editor (native scrollbars are hidden) ----- */
-// Returns the function that brings the slider up to date with its surface. The track fills its editor
-// top to bottom, so its room is the editor's height (the track itself measures 0 while it is hidden).
+// Returns the function that brings the slider up to date with its surface. The track runs the editor's height less
+// an inset at each end (V_SLIDER_INSET, as in .v-slider), so the thumb never touches the tab bar or the bottom edge;
+// its room is worked out from the editor because the track itself measures 0 while it is hidden. The thumb is a
+// quarter of the room at most, so it reads as a handle rather than a bar.
+const V_SLIDER_INSET = 6;
 function vSlider(host: HTMLElement, surface: () => CodeSurface | undefined): (ta?: CodeSurface) => void {
   const track = document.createElement('div');
   track.className = 'v-slider';
@@ -622,11 +625,11 @@ function vSlider(host: HTMLElement, surface: () => CodeSurface | undefined): (ta
   track.append(thumb);
   host.append(track);
   const update = (ta = surface()): void => {
-    const room = host.clientHeight;
+    const room = host.clientHeight - 2 * V_SLIDER_INSET;
     const overflow = ta ? ta.scrollHeight - ta.clientHeight : 0;
     track.classList.toggle('on', !!ta && overflow > 0 && room > 0);
     if (!ta || overflow <= 0 || room <= 0) return;
-    const h = Math.max(32, room * ta.clientHeight / ta.scrollHeight);
+    const h = Math.max(24, Math.min(room / 4, room * ta.clientHeight / ta.scrollHeight));
     thumb.style.height = `${h}px`;
     thumb.style.transform = `translateY(${(room - h) * ta.scrollTop / overflow}px)`;
   };
@@ -637,7 +640,7 @@ function vSlider(host: HTMLElement, surface: () => CodeSurface | undefined): (ta
     try { thumb.setPointerCapture(e.pointerId); } catch { /* pointer already gone: the drag still follows moves over the thumb */ }
     track.classList.add('drag');
     const move = (ev: PointerEvent): void => {
-      const travel = host.clientHeight - thumb.offsetHeight;
+      const travel = host.clientHeight - 2 * V_SLIDER_INSET - thumb.offsetHeight;
       if (travel > 0) ta.scrollTop = startTop + (ev.clientY - startY) * (ta.scrollHeight - ta.clientHeight) / travel;
     };
     const up = (): void => {

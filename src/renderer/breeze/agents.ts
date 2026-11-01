@@ -237,7 +237,7 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
   } else if (s.name === 'box') {
     tab.panel.innerHTML = boxEmptyHtml();
   } else {
-    tab.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div>Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
+    tab.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div class="empty-line">Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
   }
   s.chat.appendChild(tab.panel);
   surfaceTabs[s.name].push(tab);
@@ -773,7 +773,7 @@ function emptyChat(s: Surface = SURFACES.ide, tab?: AgentTabState): void {
     t.panel.innerHTML = boxEmptyHtml();
     return;
   }
-  t.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div>Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
+  t.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div class="empty-line">Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
 }
 // A small, safe subset of Markdown for agent replies: inline code, bold and line breaks. Fenced code blocks
 // become artifacts: a card with the file name, Copy and Download. A fence may name its file: ```html index.html
