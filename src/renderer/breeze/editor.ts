@@ -822,6 +822,7 @@ splitTa.addEventListener('keydown', (e: Event) => {
   if (k.isComposing) return;
   const b = splitBuf();
   if (!b) return;
+  if (k.key === 'Escape') wordRun = null; // ends a whole-word Ctrl+D run, even with one selection left
   if (k.key === 'Escape' && splitTa.multi) { k.preventDefault(); splitTa.clearExtras(); return; } // back to one cursor
   // Ctrl+S goes through file.save, which saves this side's file while it has focus.
   if (k.key === 'Tab' && !k.ctrlKey && !k.altKey) {
@@ -1009,6 +1010,7 @@ function editorKeys(e: KeyboardEvent): void {
   const multi = ta.multi;
   if (multi) { if (suggest?.owner === ta.input) hideSuggest(); } else if (suggestKeys(e, ta.input)) return;
   if (e.key === 'F2' && !e.ctrlKey && !e.shiftKey && !e.altKey && ta !== splitTa) { e.preventDefault(); renameSymbol(); return; }
+  if (e.key === 'Escape') wordRun = null; // ends a whole-word Ctrl+D run, even with one selection left
   if (multi && e.key === 'Escape' && plainKey(e) && !e.shiftKey) { e.preventDefault(); ta.clearExtras(); return; }
   if (multi && e.key === 'Tab' && plainKey(e)) { e.preventDefault(); if (!e.shiftKey) ta.insertText(INDENT); return; }
   if (b && !multi && closeTagKey(e, ta, b)) { e.preventDefault(); return; }
@@ -1137,25 +1139,34 @@ function selectLine(): void {
 function revealPrimary(b: EditorBuffer, ta: CodeSurface): void {
   revealOffset(b, ta.selectionDirection === 'backward' ? ta.selectionStart : ta.selectionEnd, ta);
 }
+// The editor whose Ctrl+D run began on an empty caret: that run matches whole words only. Any selection change but
+// the run's own presses (a click, typing, arrows), or Esc, ends it.
+let wordRun: CodeSurface | null = null;
 // Ctrl+D: an empty caret selects the word it touches; a selection gains the next copy of the newest one's text.
 function addNextOccurrence(): void {
   const fe = focusedEditor();
   if (!fe) return;
-  const { ta } = fe, sels = ta.selections, p = ta.primaryIndex, newest = sels[p];
-  const next = nextOccurrence(ta.value, [...sels.filter((_, i) => i !== p), newest]);
+  const { ta } = fe, sels = ta.selections, p = ta.primaryIndex, newest = sels[p], fromCaret = newest.anchor === newest.head;
+  const whole = fromCaret || wordRun === ta;
+  const next = nextOccurrence(ta.value, [...sels.filter((_, i) => i !== p), newest], whole);
   if (!next) return;
-  if (newest.anchor === newest.head) ta.setSelections(sels.map((s, i) => (i === p ? next : s)), p);
+  if (fromCaret) ta.setSelections(sels.map((s, i) => (i === p ? next : s)), p);
   else ta.addSelection(next);
+  wordRun = whole ? ta : null;
+  // Registered after this press's own change, so the next change is someone else's.
+  if (whole) ta.addEventListener('selectionchange', () => { if (wordRun === ta) wordRun = null; }, { once: true });
   revealPrimary(fe.b, ta);
 }
-// Ctrl+Shift+L: every copy of the primary's text (of the word at an empty caret), the primary staying where it was.
+// Ctrl+Shift+L: every copy of the primary's text, the primary staying where it was. From an empty caret (or during a
+// Ctrl+D run that began on one) it is the word at the caret, matched as a whole word.
 function selectAllOccurrences(): void {
   const ta = focusedEditor()?.ta;
   if (!ta) return;
-  const v = ta.value, prim = ta.selections[ta.primaryIndex];
-  const r = prim.anchor === prim.head ? nextOccurrence(v, [prim]) : prim;
+  const v = ta.value, prim = ta.selections[ta.primaryIndex], fromCaret = prim.anchor === prim.head;
+  const r = fromCaret ? nextOccurrence(v, [prim]) : prim;
   if (!r) return;
-  const lo = Math.min(r.anchor, r.head), hi = Math.max(r.anchor, r.head), all = allOccurrences(v, v.slice(lo, hi));
+  const lo = Math.min(r.anchor, r.head), hi = Math.max(r.anchor, r.head);
+  const all = allOccurrences(v, v.slice(lo, hi), fromCaret || wordRun === ta);
   ta.setSelections(all, selIndexOf(all, { anchor: lo, head: hi }));
 }
 // Ctrl+Alt+Up/Down: a caret on the line above the top-most selection (below the bottom-most) at its visual column.

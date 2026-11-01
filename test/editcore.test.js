@@ -244,6 +244,21 @@ test('allOccurrences is non-overlapping and case-sensitive', () => {
   assert.deepEqual(plain(allOccurrences('abc', '')), []);
   assert.deepEqual(plain(allOccurrences('abc', 'x')), []);
 });
+test('allOccurrences with wholeWord skips copies inside longer words', () => {
+  assert.deepEqual(plain(allOccurrences('e = de + e', 'e', true)), [{ anchor: 0, head: 1 }, { anchor: 9, head: 10 }]);
+  assert.deepEqual(plain(allOccurrences('e = de + e', 'e')).length, 3);
+  assert.deepEqual(plain(allOccurrences('foo(foo_1, $foo, foo)', 'foo', true)), [{ anchor: 0, head: 3 }, { anchor: 17, head: 20 }]);
+  assert.deepEqual(plain(allOccurrences('aaa a', 'a', true)), [{ anchor: 4, head: 5 }]);
+});
+test('nextOccurrence with wholeWord skips copies inside longer words', () => {
+  const T = 'e = de + e';
+  assert.deepEqual(plain(nextOccurrence(T, [{ anchor: 0, head: 1 }], true)), { anchor: 9, head: 10 });
+  assert.deepEqual(plain(nextOccurrence(T, [{ anchor: 0, head: 1 }])), { anchor: 5, head: 6 });
+  assert.equal(nextOccurrence(T, [{ anchor: 0, head: 1 }, { anchor: 9, head: 10 }], true), null);
+  assert.equal(nextOccurrence('fooBar foo', [{ anchor: 7, head: 10 }], true), null); // wrapping finds only `foo` in fooBar
+  // a rejected copy doesn't hide one that overlaps it: 'aa' inside 'aaa' is no word, the next 'aa' is
+  assert.deepEqual(plain(nextOccurrence('aa aaa aa', [{ anchor: 0, head: 2 }], true)), { anchor: 7, head: 9 });
+});
 test('splitPaste distributes one line per cursor only on an exact match', () => {
   assert.deepEqual(plain(splitPaste('a\nb\n', 2)), ['a', 'b']);
   assert.deepEqual(plain(splitPaste('a\nb', 3)), ['a\nb', 'a\nb', 'a\nb']);

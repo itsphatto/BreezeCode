@@ -356,9 +356,13 @@ function moveSels(text: string, starts: number[], sels: Sel[], key: NavKey, mods
   return normalizeSels(sels.map(s => moveCaret(text, starts, s, key, mods, page, null).sel), text.length);
 }
 
+// True when text[p, p + len) has no word character right before or after it.
+const wholeWordAt = (text: string, p: number, len: number) => !(p > 0 && isWordCh(text[p - 1])) && !(p + len < text.length && isWordCh(text[p + len]));
+
 // The next place to add a cursor (Ctrl+D): the word under the last-added caret, else the next copy of the text
-// it has selected, wrapping round and passing over copies already selected. null when there are none left.
-function nextOccurrence(text: string, sels: Sel[]): Sel | null {
+// it has selected, wrapping round and passing over copies already selected (and, with wholeWord, copies inside a
+// longer word). null when there are none left.
+function nextOccurrence(text: string, sels: Sel[], wholeWord = false): Sel | null {
   const last = sels[sels.length - 1];
   if (!last) return null;
   const lo = Math.min(last.anchor, last.head), hi = Math.max(last.anchor, last.head);
@@ -372,16 +376,21 @@ function nextOccurrence(text: string, sels: Sel[]): Sel | null {
   const needle = text.slice(lo, hi), taken = sels.filter(s => s.anchor !== s.head);
   const free = (p: number) => !taken.some(s => p < Math.max(s.anchor, s.head) && p + needle.length > Math.min(s.anchor, s.head));
   for (const [from, wrapped] of [[hi, false], [0, true]] as const)
-    for (let p = text.indexOf(needle, from); p !== -1 && !(wrapped && p >= hi); p = text.indexOf(needle, p + needle.length))
-      if (free(p)) return { anchor: p, head: p + needle.length };
+    for (let p = text.indexOf(needle, from); p !== -1 && !(wrapped && p >= hi); p = text.indexOf(needle, p + 1))
+      if (free(p) && (!wholeWord || wholeWordAt(text, p, needle.length))) return { anchor: p, head: p + needle.length };
   return null;
 }
 
-// Every copy of `needle` (Ctrl+Shift+L), not overlapping each other, case-sensitive.
-function allOccurrences(text: string, needle: string): Sel[] {
+// Every copy of `needle` (Ctrl+Shift+L), not overlapping each other, case-sensitive; with wholeWord, only the
+// copies that aren't part of a longer word.
+function allOccurrences(text: string, needle: string, wholeWord = false): Sel[] {
   const out: Sel[] = [];
   if (!needle) return out;
-  for (let p = text.indexOf(needle); p !== -1; p = text.indexOf(needle, p + needle.length)) out.push({ anchor: p, head: p + needle.length });
+  for (let p = text.indexOf(needle); p !== -1; ) {
+    if (wholeWord && !wholeWordAt(text, p, needle.length)) { p = text.indexOf(needle, p + 1); continue; }
+    out.push({ anchor: p, head: p + needle.length });
+    p = text.indexOf(needle, p + needle.length);
+  }
   return out;
 }
 
