@@ -28,7 +28,7 @@ class DapReader {
   }
 }
 
-// Emits 'event' ({ event, body }) for the adapter's events and 'close' once, when the stream ends or close() is called.
+// Emits 'event' ({ event, body }) for the adapter's events, 'warn' (an Error) when handling a message threw, and 'close' once, when the stream ends or close() is called.
 class DapClient extends EventEmitter {
   constructor(stream) {
     super();
@@ -37,7 +37,13 @@ class DapClient extends EventEmitter {
     this.pending = new Map(); // seq → { resolve, reject }
     this.closed = false;
     const reader = new DapReader();
-    stream.on('data', c => { for (const m of reader.push(c)) this.receive(m); });
+    // One bad message or a throwing listener must not drop the rest of the chunk (a lost response leaves its request
+    // pending) or escape a stream handler (an uncaught exception in the main process).
+    stream.on('data', c => {
+      for (const m of reader.push(c)) {
+        try { this.receive(m); } catch (e) { this.emit('warn', e); } // 'warn', not 'error': nothing need listen
+      }
+    });
     stream.on('error', () => this.shutdown());
     stream.on('end', () => this.shutdown());
     stream.on('close', () => this.shutdown());
@@ -47,11 +53,13 @@ class DapClient extends EventEmitter {
     if (this.closed) return Promise.reject(new Error('The debug adapter connection is closed'));
     const seq = this.seq++;
     return new Promise((resolve, reject) => {
+      const data = frame({ seq, type: 'request', command, arguments: args }); // may throw: nothing registered yet
       this.pending.set(seq, { resolve, reject });
-      this.stream.write(frame({ seq, type: 'request', command, arguments: args }));
+      this.stream.write(data);
     });
   }
   receive(m) {
+    if (!m || typeof m !== 'object') return; // valid JSON, but not a message
     if (m.type === 'event') { this.emit('event', { event: m.event, body: m.body }); return; }
     if (m.type !== 'response') return; // reverse requests (runInTerminal, startDebugging) are not handled yet
     const p = this.pending.get(m.request_seq);

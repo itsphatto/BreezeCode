@@ -116,6 +116,42 @@ test('close() rejects pending requests and later requests, and emits close', asy
   await assert.rejects(c.request('threads'), /closed/i);
 });
 
+test('a JSON null (or other non-object) in a chunk is ignored; the response after it still resolves', async () => {
+  const { stream, adapter } = pair();
+  const c = new DapClient(stream);
+  const p = c.request('threads');
+  const sent = await nextMessage(adapter.in);
+  adapter.out.write(Buffer.concat([
+    frame(null), frame(7), frame('text'),
+    frame({ seq: 1, type: 'response', request_seq: sent.seq, success: true, body: { ok: 1 } }),
+  ]));
+  assert.deepEqual(await p, { ok: 1 });
+});
+
+test('a throwing event listener does not drop the next message in the chunk or throw out of the stream', async () => {
+  const { stream, adapter } = pair();
+  const c = new DapClient(stream);
+  const warned = [];
+  c.on('warn', e => warned.push(e.message));
+  c.on('event', () => { throw new Error('listener boom'); });
+  const p = c.request('threads');
+  const sent = await nextMessage(adapter.in);
+  adapter.out.write(Buffer.concat([
+    frame({ seq: 1, type: 'event', event: 'output', body: {} }),
+    frame({ seq: 2, type: 'response', request_seq: sent.seq, success: true, body: { ok: 2 } }),
+  ]));
+  assert.deepEqual(await p, { ok: 2 });
+  assert.deepEqual(warned, ['listener boom']);
+});
+
+test('a request that cannot be serialized rejects and leaves nothing pending', async () => {
+  const { stream } = pair();
+  const c = new DapClient(stream);
+  const cyclic = {}; cyclic.self = cyclic;
+  await assert.rejects(c.request('x', cyclic));
+  assert.equal(c.pending.size, 0);
+});
+
 test('the stream ending emits close and rejects pending requests', async () => {
   const { stream, adapter } = pair();
   const c = new DapClient(stream);
