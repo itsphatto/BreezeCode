@@ -93,6 +93,9 @@ contextBridge.exposeInMainWorld('breeze', {
     setModel: model => invoke('llm:setModel', model),
     disconnect: () => invoke('llm:disconnect'),
   },
+  emmet: {
+    expand: (abbr, syntax) => invoke('emmet:expand', abbr, syntax),
+  },
   agent: {
     run: opts => invoke('agent:run', opts),
     stop: runId => invoke('agent:stop', runId),

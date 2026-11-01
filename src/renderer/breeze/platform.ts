@@ -483,6 +483,10 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async mute() { /* placeholder only */ },
       async hide() { /* placeholder only */ },
     },
+    // Emmet runs in the desktop app's main process; the browser preview has no engine for it.
+    emmet: {
+      async expand() { return null; },
+    },
     discord: {
       async set() { return { user: null }; },
       async clear() { /* nothing to clear in the browser */ },

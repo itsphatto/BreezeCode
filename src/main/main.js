@@ -20,6 +20,7 @@ const { LspManager, SERVERS, findOnPath } = require('./lsp');
 const skillsLib = require('./skills');
 const mcpLib = require('./mcp');
 const { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } = require('./previewServer');
+const { expandAbbr } = require('./emmet');
 
 let autoUpdater = null;
 try {
@@ -1496,6 +1497,10 @@ handle('llm:disconnect', () => {
   setSecret('llmKey', null);
   saveState({ llmUrl: null, llmModel: null, llmModels: null, llmOff: true });
 });
+
+/* ================= Emmet ================= */
+// Expands an abbreviation to a snippet with ${N} fields, or null when there is nothing to expand.
+handle('emmet:expand', (_e, abbr, syntax) => expandAbbr(String(abbr).slice(0, 500), syntax));
 
 /* ================= Agents ================= */
 // Every run streams normalized events to the renderer:

@@ -143,6 +143,8 @@ interface BreezeApi {
   // A local LLM server (Ollama, LM Studio or anything OpenAI-compatible).
   // An empty url makes the desktop app look for Ollama or LM Studio at their usual addresses.
   llm: { connect(url: string, key: string): Promise<{ url?: string; model: string; models: string[] }>; setModel(model: string): Promise<void>; disconnect(): Promise<void>; };
+  // Emmet abbreviation expansion; the snippet uses ${N} / ${N:placeholder} fields, or null when nothing expands.
+  emmet: { expand(abbr: string, syntax: string): Promise<string | null>; };
   // Discord Rich Presence through the Discord app on this computer.
   discord: { set(activity: DiscordActivity): Promise<{ user: string | null }>; clear(): Promise<void>; };
   agent: {
