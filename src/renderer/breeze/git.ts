@@ -53,12 +53,16 @@ function renderBranch(): void {
   const n = s.files?.length ?? 0;
   const incoming = s.incoming ?? [];
   const inN = incoming.length;
-  const badge = $('.act-btn[data-view=git] .badge');
-  badge.textContent = n ? (n > 99 ? '99+' : String(n)) : inN ? `↓${inN > 99 ? '99+' : inN}` : '';
-  badge.classList.toggle('hidden', !n && !inN);
-  badge.classList.toggle('incoming', !n && !!inN);
-  badge.classList.toggle('has-incoming', !!n && !!inN);
-  badge.title = [n ? `${n} local change${n === 1 ? '' : 's'}` : '', inN ? `${inN} file${inN === 1 ? '' : 's'} changed on the remote, not pulled yet` : ''].filter(Boolean).join(' · ');
+  // The debugger's copy of the activity bar (debugview.ts) shows the same badge.
+  $$('.act-btn:is([data-view=git], [data-rail-view=git]) .badge').forEach(badge => {
+    // Popped from here, not by CSS: a CSS animation replays each time its screen is shown again.
+    if (badge.classList.contains('hidden') && (n || inN)) badge.animate([{ transform: 'scale(.6)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 250, easing: 'cubic-bezier(.3, 1.6, .5, 1)' });
+    badge.textContent = n ? (n > 99 ? '99+' : String(n)) : inN ? `↓${inN > 99 ? '99+' : inN}` : '';
+    badge.classList.toggle('hidden', !n && !inN);
+    badge.classList.toggle('incoming', !n && !!inN);
+    badge.classList.toggle('has-incoming', !!n && !!inN);
+    badge.title = [n ? `${n} local change${n === 1 ? '' : 's'}` : '', inN ? `${inN} file${inN === 1 ? '' : 's'} changed on the remote, not pulled yet` : ''].filter(Boolean).join(' · ');
+  });
   const fresh = incoming.filter(p => !knownIncoming.has(p));
   if (fresh.length) toast(fresh.length === 1 ? `${baseName(fresh[0])} changed on the remote. Pull to get it.` : `${fresh.length} files changed on the remote. Pull to get them.`);
   knownIncoming = new Set(incoming);

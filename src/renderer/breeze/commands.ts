@@ -910,7 +910,7 @@ document.addEventListener('keydown', e => {
   if (menuKeys(e)) return;
   if (e.key === 'Escape') {
     if (vibeOn) { exitVibe(); return; }
-    if (modalOpen()) { dismissModal(); return; }
+    if (modalOpen()) { closeModal(); return; }
     if (findOpen) { closeFind(); activeText()?.ta.focus(); return; }
   }
   if (modalOpen() || vibeOn) return;

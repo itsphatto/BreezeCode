@@ -1854,7 +1854,6 @@ body.resizing-h iframe {
   color: #f5f5f7;
   font: 600 10px/16px var(--font-ui);
   text-align: center;
-  animation: pop .25s cubic-bezier(.3, 1.6, .5, 1);
 }
 
 /* Only remote changes waiting: the badge reads ↓N in the incoming blue. */
@@ -2002,7 +2001,7 @@ body.resizing-h iframe {
 
 .skill-group-head .ico-svg {
   flex: none;
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: transform .42s cubic-bezier(.32, .72, 0, 1);
 }
 
 .skill-group.open > .skill-group-head .ico-svg {
@@ -2022,8 +2021,7 @@ body.resizing-h iframe {
   grid-template-rows: 0fr;
   opacity: 0;
   visibility: hidden;
-  /* Closing is quick: a long list relays out on every frame of it, and nobody watches a list leave. */
-  transition: grid-template-rows .12s cubic-bezier(.2, .8, .2, 1), opacity .08s ease, visibility 0s .12s;
+  transition: grid-template-rows .42s cubic-bezier(.4, 0, .2, 1), opacity .3s ease, visibility 0s .42s;
 }
 
 .skill-group.open > .skill-group-body,
@@ -2032,7 +2030,7 @@ body.resizing-h iframe {
   opacity: 1;
   /* inherit, not visible: visible would show the rows through anything hiding the app (the launch on a reload). */
   visibility: inherit;
-  transition: grid-template-rows .26s cubic-bezier(.2, .8, .2, 1), opacity .22s ease .04s, visibility 0s;
+  transition: grid-template-rows .56s cubic-bezier(.32, .72, 0, 1), opacity .42s ease .06s, visibility 0s;
 }
 
 .skill-group-body > div,
@@ -4968,25 +4966,6 @@ textarea:not(:placeholder-shown) + .ph-rot {
 }
 
 /* ---------- modal ---------- */
-/* "‹ Settings" at the top of a modal opened from Settings. */
-.modal-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin: -6px 0 10px -6px;
-  padding: 3px 8px 3px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-3);
-  font-size: 12px;
-  transition: background .15s ease, color .15s ease;
-}
-
-.modal-back:hover {
-  color: var(--text);
-}
-
 .scrim {
   position: fixed;
   inset: 0;
@@ -5007,6 +4986,20 @@ textarea:not(:placeholder-shown) + .ph-rot {
   backdrop-filter: blur(6px);
   /* Faded here, not on the scrim: a fading parent cuts the blur off from the page behind until it's fully opaque. */
   animation: fade .35s cubic-bezier(.16, 1, .3, 1);
+}
+
+/* A dialog over Settings: Settings stays in place behind it, eased back a little, dimmed and still sharp. */
+.scrim.over::before {
+  background: rgba(0, 0, 0, .42);
+  backdrop-filter: none;
+}
+
+.settings-shell {
+  transition: transform .32s cubic-bezier(.32, .72, 0, 1);
+}
+
+.scrim.under .settings-shell {
+  transform: scale(.975);
 }
 
 /* Fading the whole scrim would fade the panel with it and hide the roll-up, so only the dim and blur clear away. */
@@ -5609,7 +5602,7 @@ body.vibing .ide {
    :where() keeps the `position: relative` the layer needs weaker than any rule that places a button itself. */
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
   .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .social-card, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
-  .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
+  .sb, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
   .chat-file-chip, .seg button, .kb-key, .switch) {
   position: relative;
   isolation: isolate;
@@ -5617,7 +5610,7 @@ body.vibing .ide {
 
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
   .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .social-card, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
-  .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
+  .sb, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
   .chat-file-chip, .seg button, .kb-key, .switch)::after {
   content: "";
   position: absolute;
@@ -5632,7 +5625,7 @@ body.vibing .ide {
 
 :where(.btn, .icon-btn, .act-btn, .pill-btn, button.pill, .dd-btn, .agent-chip, .pill.blue, .chip-more, .set-agent, .set-theme,
   .set-volume-ico, .cloud-ws, .cloud-ws-go, .start-tile, .agent-row, .social-card, .recent-open, .recent-go, .home-profile, .menu-top, .titlebar .logo-home,
-  .sb, .modal-back, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
+  .sb, .vibe-sites button, .prompt-model, .term-new-btn, .avatars, .tab-run, .tab-split, #previewUrl, .attachment-chip,
   .chat-file-chip, .seg button, .kb-key, .switch):hover:not(:disabled)::after,
 :where(.recent-open:hover .recent-go, .cloud-ws:hover .cloud-ws-go)::after {
   opacity: 1;
@@ -9230,8 +9223,9 @@ body.vibing .box {
   animation: none;
 }
 
-.screen-out.screen-team .activity > :not(#settingsBtn, [data-rail="settingsBtn"]) {
-  visibility: hidden;
+/* The settings button is carried down and up the bar, past the end of the IDE's, which the status bar would cover. */
+.screen-team .activity {
+  z-index: 1;
 }
 
 .swap-team {
@@ -10876,6 +10870,40 @@ body.layout-animating #previewPane {
   .set-main::after {
     bottom: -24px;
     margin-block: -16px -24px;
+    mask-image: linear-gradient(transparent, #000);
+    opacity: var(--fade-bot);
+  }
+
+  /* The same for the Skills & Plugins list, which also keeps the side panels' fade-in. */
+  #skillList {
+    mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent);
+    animation: fade .18s, setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: auto, scroll(self), scroll(self);
+    animation-range: normal, 0 48px, calc(100% - 48px) 100%;
+  }
+
+  #skillList::before,
+  #skillList::after {
+    content: "";
+    position: sticky;
+    z-index: 4;
+    display: block;
+    height: 40px;
+    margin-inline: -6px;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+  }
+
+  #skillList::before {
+    top: 0;
+    margin-block: 0 -40px;
+    mask-image: linear-gradient(#000, transparent);
+    opacity: var(--fade-top);
+  }
+
+  #skillList::after {
+    bottom: -10px;
+    margin-block: -30px -10px;
     mask-image: linear-gradient(transparent, #000);
     opacity: var(--fade-bot);
   }
