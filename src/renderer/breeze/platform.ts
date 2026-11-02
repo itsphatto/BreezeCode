@@ -333,6 +333,7 @@ function demoApi(): BreezeApi {
         return {
           usage: { claude: 182400, codex: 46100 },
           limits: { claude: [{ label: '5-hour', used: 14, resetsAt: in2h }, { label: 'Weekly', used: 69, resetsAt: in4d }], codex: [{ label: 'Monthly', used: 11, resetsAt: in4d }] },
+          notes: {},
         };
       },
       onEvent(cb) { agentListeners.push(cb); return () => { }; },
