@@ -20,3 +20,15 @@ test('expands stylesheet', () => {
   assert.equal(expandAbbr('df', 'css'), 'display: flex;');
 });
 test('returns null on garbage', () => { assert.equal(expandAbbr('ul>>>', 'html'), null); });
+test('refuses a repeat count that would build a huge snippet', () => {
+  const t = Date.now();
+  assert.equal(expandAbbr('div*100000', 'html'), null);
+  assert.ok(Date.now() - t < 200, `took ${Date.now() - t} ms`);
+  assert.equal(expandAbbr('ul>li*1000>a*1000', 'html'), null);
+  assert.equal(expandAbbr('p*1000000', 'html'), null);
+  assert.match(expandAbbr('li*3', 'html'), /^(<li>\$\{\d\}<\/li>\n?){3}$/);
+  const t2 = Date.now();
+  assert.equal(expandAbbr('lorem9999999', 'html'), null);
+  assert.ok(Date.now() - t2 < 200, `took ${Date.now() - t2} ms`);
+  assert.match(expandAbbr('lorem5', 'html'), /^\w+( \w+)*[.!?]$/);
+});
