@@ -45,6 +45,9 @@ These four points are equally weighted and should not be traded against each oth
 
 - Editor: reorderable tabs, go to file or line, find, and JS/TS syntax checking.
 - Run with F5: C, C++, C# (.NET SDK), Python, Java (JDK 11+) and Rust (rustc, or cargo inside a Cargo project), using compilers Breeze finds on the machine. It explains how to install anything that's missing. JavaScript runs on Node in the terminal, and HTML/CSS get a live preview.
+- Debugger: step through Python, JavaScript and TypeScript in a full-page view with breakpoints, a call stack, variables, a watch list and your program's output. Python needs the free `debugpy` helper (Breeze offers to install it) and TypeScript needs Node 22.18 or newer. One debug session runs at a time, and it stops when you close the folder.
+- Command Palette (Ctrl+Shift+P or F1): type a few letters to find any menu command.
+- Multi-cursor editing (Alt+Click, Ctrl+D, Ctrl+Shift+L) and Emmet shortcuts (press Tab on something like `ul>li*3` in HTML, JSX or CSS). Emmet is off while several cursors are active.
 - Git: stage, discard, commit and push, with a graph of checkpoints and branches. Files an agent is editing are marked in the explorer and tabs.
 - Local LLM loop is token-efficient (project map, ranged reads, snippet edits). It assumes a 4k-token context on Ollama and 8k elsewhere.
 - Discord Rich Presence. Auto-updates via electron-updater, which asks before downloading.

@@ -155,6 +155,10 @@ While an agent works, the IDE fades out and an Instagram or Facebook feed rolls.
 | | |
 | --- | --- |
 | **Run with F5** | Python, C, C++, C#, Java and Rust run on the compilers you already have. Missing one? Breeze tells you what to grab |
+| **Debugger** | Step through Python, JavaScript and TypeScript in a full-page view. Click a line number to set a breakpoint (F9), then watch variables, the call stack and your program's output. Python needs `debugpy`, and Breeze offers to install it; TypeScript needs Node 22.18 or newer |
+| **Command Palette** | Ctrl+Shift+P or F1 finds any command by typing a few letters, and lists the ones you used last first |
+| **Multi-cursor** | Alt+Click adds a cursor. Ctrl+D picks the next match, Ctrl+Shift+L picks them all, Shift+Alt+drag selects a column |
+| **Emmet** | Type `ul>li*3` in HTML, JSX or CSS and press Tab to expand it |
 | **Live preview** | Pop `index.html` open beside your code and refresh as you go |
 | **Built-in terminal** | Run Node and whatever else without leaving the editor |
 | **Big files, no sweat** | Only the lines on screen get drawn, so huge files stay snappy |

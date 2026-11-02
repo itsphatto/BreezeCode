@@ -534,6 +534,8 @@ function showShortcuts(): void {
     { label: 'Indent / outdent', key: 'Tab / Shift+Tab' },
     { label: 'Add cursor', key: 'Alt+Click' },
     { label: 'Column select', key: 'Shift+Alt+Drag' },
+    { label: 'Back to one cursor', key: 'Esc' },
+    { label: 'Expand Emmet abbreviation', key: 'Tab' },
     { label: 'Rename file', key: 'F2' },
     { label: 'Menu bar', key: 'Alt' },
     { label: 'Reorder tabs', key: 'Drag a tab' }
