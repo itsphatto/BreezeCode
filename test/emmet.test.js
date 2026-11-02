@@ -27,6 +27,12 @@ test('refuses a repeat count that would build a huge snippet', () => {
   assert.equal(expandAbbr('ul>li*1000>a*1000', 'html'), null);
   assert.equal(expandAbbr('p*1000000', 'html'), null);
   assert.match(expandAbbr('li*3', 'html'), /^(<li>\$\{\d\}<\/li>\n?){3}$/);
+  // A zero count must not reset the product and let a huge one through after it.
+  const t0 = Date.now();
+  assert.equal(expandAbbr('p*0+div*100000', 'html'), null);
+  assert.equal(expandAbbr('p*0>div*100000', 'html'), null);
+  assert.equal(expandAbbr('lorem0+lorem9999999', 'html'), null);
+  assert.ok(Date.now() - t0 < 200, `took ${Date.now() - t0} ms`);
   const t2 = Date.now();
   assert.equal(expandAbbr('lorem9999999', 'html'), null);
   assert.ok(Date.now() - t2 < 200, `took ${Date.now() - t2} ms`);

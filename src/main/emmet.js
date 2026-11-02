@@ -13,12 +13,12 @@ const MAX_OUT = 100 * 1024;
 function tooBig(abbr) {
   let repeats = 1;
   for (const m of abbr.matchAll(/\*\s*(\d+)/g)) {
-    repeats *= Number(m[1]);
+    repeats *= Math.max(1, Number(m[1]));
     if (repeats > MAX_REPEAT) return true;
   }
   let words = repeats;
   for (const m of abbr.matchAll(/(?:lorem|lipsum)[a-z]*(\d+)/gi)) {
-    words *= Number(m[1]);
+    words *= Math.max(1, Number(m[1]));
     if (words > MAX_WORDS) return true;
   }
   return false;
