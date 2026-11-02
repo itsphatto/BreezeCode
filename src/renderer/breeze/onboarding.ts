@@ -31,6 +31,14 @@ function goStep(n: number): void {
   placeSignIn(false); // opening Home on a short window: already in place, no flight
   // Past the welcome the photo stays up for the rest of setup (also after a restart mid-setup).
   if (n > STEP.welcome) revealBackdrop();
+  // During the launch the welcome isn't on screen yet: init.ts starts its clock when it shows.
+  if (n === STEP.welcome && !launching) armWelcome();
+}
+// The welcome has no button: it moves on to signing in by itself, 3s after it shows.
+let welcomeTimer = 0;
+function armWelcome(): void {
+  clearTimeout(welcomeTimer);
+  welcomeTimer = window.setTimeout(() => { if (step === STEP.welcome) goStep(STEP.signIn); }, 3000);
 }
 $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
 // While the onboarding screen (and so Home) is up, the window buttons sit straight on its backdrop and draw light.
@@ -42,14 +50,13 @@ function syncTitleBar(): void {
 new MutationObserver(syncTitleBar).observe($('#onboard'), { attributes: true, attributeFilter: ['class'] });
 syncTitleBar();
 
-/* Welcome: it sits on the launch sky; Start breezing eases the sky away to the city video (the fade is in breeze.css). */
+/* Welcome: it sits on the launch sky; moving on eases the sky away to the city video (the fade is in breeze.css). */
 const obBg = $('#obBg');
 // The video only plays once the sky lifts off it: decoding it unseen under the sky stutters the launch fade.
 const revealBackdrop = () => {
   obBg.classList.add('revealed');
   $<HTMLVideoElement>('.ob-video', obBg).play().catch(() => undefined);
 };
-$('#obStart').onclick = () => goStep(STEP.signIn);
 // The dots before the current one take you back to that step.
 $$('.ob-dots span').forEach((d, i) => {
   d.onclick = () => { if (i < step) goStep(i); };
@@ -122,6 +129,10 @@ function placeSignIn(morph = true): void {
 }
 new ResizeObserver(() => placeSignIn()).observe($('#onboard'));
 new ResizeObserver(() => placeSignIn()).observe($('.home-step'));
+// The progress dots sit in the gutter under a step. Once the window is too short for that gutter the step scrolls
+// under them, so they go. Every step is watched: each has its own height, and showing one resizes it from nothing.
+const fitDots = new ResizeObserver(() => { const ob = $('#onboard'); ob.classList.toggle('no-dots', ob.scrollHeight > ob.clientHeight); });
+[$('#onboard'), ...$$('.ob-step')].forEach(el => fitDots.observe(el));
 let accounts: Accounts = { accounts: [], active: null };
 const accountKey = (u: User) => `${u.provider}:${u.login ?? ''}`;
 async function refreshAccounts(): Promise<void> {
