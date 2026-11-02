@@ -583,7 +583,16 @@ function renderDebugPill(): void {
 $('#sbDebug').onclick = openDebugView;
 
 /* ----- Redrawing ----- */
+// A step goes paused → running → paused within a few milliseconds. Drawing "Running" for that (the note above the
+// source, the call stack's placeholder, the toolbar swapping Continue for Pause) only flashes, most of all with a
+// step key held down. So leaving a pause waits a beat: if the next pause comes first, nothing changed on screen.
+const DBG_RUN_GRACE = 220;
+let dbgRunHold: TimeoutId | undefined;
+let dbgDrawnPaused = false;
 function renderDebug(): void {
+  clearTimeout(dbgRunHold);
+  dbgRunHold = undefined;
+  dbgDrawnPaused = debugState === 'paused';
   renderDebugPill();
   renderDbgTools();
   renderDbgNote();
@@ -594,11 +603,17 @@ function renderDebug(): void {
 // Breakpoints changed (toggled, edited, moved with their lines, accepted by the debugger).
 function refreshDebugBreakpoints(): void {
   renderDbgBps();
-  renderDbgNote();
+  if (dbgRunHold === undefined) renderDbgNote();
   if (debugPageShowing()) paintDbg();
 }
 // Every debugger event but program output (debug.ts has already noted what it says).
 function onDebugEvent(ev: DebugEvent): void {
+  if (ev.type === 'state' && ev.state === 'running' && dbgDrawnPaused) { // a step, or a Continue: wait to see which
+    clearTimeout(dbgRunHold);
+    dbgRunHold = setTimeout(renderDebug, DBG_RUN_GRACE);
+    return;
+  }
+  if (dbgRunHold !== undefined && ev.type !== 'paused' && ev.type !== 'state' && ev.type !== 'breakpoints') return; // the timer redraws
   if (ev.type === 'paused') {
     const f = debugFrames[debugFrameIdx];
     if (f?.file) showDbgSource(f.file, f.line - 1);
