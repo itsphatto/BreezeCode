@@ -419,10 +419,10 @@ function lineHtml(h: string, i: number, add: Set<number> | undefined, d: Diag | 
   const msg = d ? `<span class="diag-msg">${esc(d.msg)}</span>` : '';
   return `<div class="${cls}">${h}${msg}</div>`;
 }
-function gutterHtml(i: number, d: Diag | undefined, mark?: ChangeMark, marked = false): string {
+function gutterHtml(path: string, i: number, d: Diag | undefined, mark?: ChangeMark, marked = false): string {
   const cls = [i === curLine ? 'cur' : '', d ? 'err' : '', mark ? `git-${mark}` : ''].filter(Boolean).join(' ');
   const attrs = (cls ? ` class="${cls}"` : '') + (d ? ` title="${escAttr(d.msg)}"` : '');
-  return `<div${attrs}>${markDot(i, marked)}${i + 1}</div>`;
+  return `<div${attrs}>${markDot(i, marked)}${lineNoHtml(path, i)}</div>`;
 }
 
 /* ----- Line marks ----- */
@@ -451,13 +451,16 @@ function toggleMark(path: string | null, line: number): void {
   saveMarks();
   repaintMarks(path);
 }
-// After an edit, marks move with their lines (see shiftLinesByEdits). The surface's own edits, one per cursor, are
-// used when they describe this change; otherwise the change is diffed into one edit.
+// The edits that turn `before` into `after`, for moving marks and breakpoints (see shiftLinesByEdits). The surface's
+// own edits, one per cursor, are used when they describe this change; otherwise the change is diffed into one edit.
+function editsFor(before: string, after: string, edits: readonly TextEdit[] | null): readonly TextEdit[] {
+  const fits = !!edits?.length && edits.reduce((n, e) => n + e.text.length - (e.end - e.start), before.length) === after.length;
+  return fits ? edits! : [markEdit(before, after)];
+}
 function shiftMarks(path: string, before: string, after: string, edits: readonly TextEdit[] | null = null): void {
   const s = lineMarks.get(path);
   if (!s?.size || before === after) return;
-  const fits = !!edits?.length && edits.reduce((n, e) => n + e.text.length - (e.end - e.start), before.length) === after.length;
-  const moved = shiftLinesByEdits([...s], before, fits ? edits! : [markEdit(before, after)]);
+  const moved = shiftLinesByEdits([...s], before, editsFor(before, after, edits));
   if (moved.length === s.size && moved.every(m => s.has(m))) return;
   lineMarks.set(path, new Set(moved));
   saveMarks();
@@ -492,7 +495,9 @@ function renameMarks(move: (path: string) => string): void {
 for (const [gutter, path] of [['#gutter', () => active], ['#splitGutter', () => splitPath]] as const) {
   $(gutter).addEventListener('click', e => {
     const dot = (e.target as HTMLElement).closest<HTMLElement>('[data-mark]');
-    if (dot) toggleMark(path(), Number(dot.dataset.mark));
+    if (dot) { toggleMark(path(), Number(dot.dataset.mark)); return; }
+    const no = (e.target as HTMLElement).closest<HTMLElement>('[data-bp]');
+    if (no) toggleBreakpoint(path(), Number(no.dataset.bp));
   });
 }
 
@@ -582,7 +587,7 @@ function renderCode(): void {
   const rows: string[] = [], nums: string[] = [];
   for (let i = winFirst; i < winLast; i++) {
     rows.push(lineHtml(lineHtmlOf(doc, i, shownOf(b, i)), i, add, errAt.get(i)));
-    nums.push(gutterHtml(i, errAt.get(i), marks?.get(i), !!marked?.has(i)));
+    nums.push(gutterHtml(b.path, i, errAt.get(i), marks?.get(i), !!marked?.has(i)));
   }
   patchRows(hlLines, rows);
   hlLines.style.top = `${winFirst * LINE_H}px`;
@@ -590,7 +595,7 @@ function renderCode(): void {
   gutLines.style.top = `${winFirst * LINE_H}px`;
   hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
   tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
-  $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 40}px`; // +8 for the mark dot
+  $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 48}px`; // +8 each for the mark dot and the breakpoint dot
   // The surface painted before these lines were drawn; repaint so carets on measured (non-ASCII) lines match them.
   b.ta.refresh();
   syncScroll();
@@ -779,12 +784,12 @@ function paintSplit(): void {
   for (let i = splitWin.first; i < splitWin.last; i++) {
     rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lineHtmlOf(doc, i, shownOf(b, i))}</div>`);
     const cls = [i === cur ? 'cur' : '', marks?.has(i) ? `git-${marks.get(i)}` : ''].filter(Boolean).join(' ');
-    nums.push(`<div${cls ? ` class="${cls}"` : ''}>${markDot(i, !!lineMarks.get(b.path)?.has(i))}${i + 1}</div>`);
+    nums.push(`<div${cls ? ` class="${cls}"` : ''}>${markDot(i, !!lineMarks.get(b.path)?.has(i))}${lineNoHtml(b.path, i)}</div>`);
   }
   patchRows(splitLines, rows);
   splitLines.style.top = splitGutLines.style.top = `${splitWin.first * LINE_H}px`;
   patchRows(splitGutLines, nums);
-  $('#splitGutter').style.width = `${Math.max(3, String(count).length) * 8 + 40}px`; // +8 for the mark dot
+  $('#splitGutter').style.width = `${Math.max(3, String(count).length) * 8 + 48}px`; // +8 each for the mark dot and the breakpoint dot
   splitInner.querySelectorAll('.guide').forEach(g => g.remove());
   splitInner.append(...guideBoxes(b, splitTa.selectionStart, measureChar(), splitWin.first, splitWin.last));
   syncSplitScroll();

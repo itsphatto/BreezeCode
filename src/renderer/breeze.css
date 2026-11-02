@@ -3032,6 +3032,44 @@ svg.ico-svg:active {
   transform: scale(.8);
 }
 
+/* Breakpoints: a dot before the line number, faint while the pointer is on the number, red once set, hollow when
+   disabled or not yet accepted by a running debugger. */
+.gutter .ln-no {
+  position: relative;
+  padding-left: 11px;
+  cursor: pointer;
+}
+
+.bp-dot {
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  background: var(--err);
+  transition: opacity .12s ease;
+}
+
+.gutter .ln-no:hover .bp-dot {
+  opacity: .4;
+}
+
+.gutter .bp-dot.on {
+  opacity: 1;
+}
+
+.gutter .bp-dot.off,
+.gutter .bp-dot.pending {
+  opacity: 1;
+  background: transparent;
+  border: 1.5px solid var(--err);
+}
+
 .gutter .git-add::before {
   content: "";
   position: absolute;

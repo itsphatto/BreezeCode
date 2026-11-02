@@ -97,6 +97,7 @@ const commands: Record<string, () => unknown> = {
   'go.line': goToLine,
   'go.nextProblem': nextProblem,
   'mark.toggle': () => { const b = activeText(); if (b) toggleMark(b.path, lineAt(b.text, b.ta.selectionStart)); },
+  'debug.toggleBreakpoint': () => { const b = activeText(); if (b) toggleBreakpoint(b.path, lineAt(b.text, b.ta.selectionStart)); },
   'mark.next': () => jumpMark(1),
   'mark.prev': () => jumpMark(-1),
   'mark.clear': () => { if (active && lineMarks.delete(active)) { saveMarks(); repaintMarks(active); } },
@@ -373,6 +374,8 @@ const MENUS: Menu[] = [
       { label: 'Reload Preview', act: 'run.reload', key: 'Ctrl+F5', enabled: () => running },
       { label: 'Stop Preview', act: 'run.stop', key: 'Shift+F5', enabled: () => running || term.runId != null },
       { sep: true },
+      { label: 'Toggle Breakpoint', act: 'debug.toggleBreakpoint', key: 'F9', enabled: hasFile },
+      { sep: true },
       { label: 'Toggle Live Share', act: 'live.toggle' },
     ]
   },
@@ -481,7 +484,7 @@ function comboOf(e: KeyboardEvent): string {
 }
 // Commands that only make sense while typing in the code editor.
 const EDITOR_ONLY = new Set(['edit.comment', 'sel.line', 'sel.dup', 'sel.up', 'sel.down', 'sel.addNext', 'sel.allOccurrences', 'sel.cursorAbove',
-  'sel.cursorBelow', 'go.definition', 'go.references']);
+  'sel.cursorBelow', 'go.definition', 'go.references', 'debug.toggleBreakpoint']);
 
 // The Keyboard shortcuts pop-up: every menu item that has a key, plus a few gestures, with a search box.
 // It lives here rather than with Settings because `commands` above holds it by name while this file loads.

@@ -19,6 +19,7 @@ async function loadWorkspace(info: RootInfo): Promise<void> {
   gitLoaded = false;
   loadTreeOrder();
   loadMarks();
+  loadBreakpoints();
   background(holdStartup(loadNpmScripts()));
   swapText($('#projectName'), info.name);
   $('#projectName').title = info.root;
@@ -161,6 +162,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
     lastUserTypeAt = Date.now();
     const wasDirty = isDirty(b);
     shiftMarks(b.path, b.text, ta.value, ta.lastEdits);
+    shiftBreakpoints(b.path, b.text, ta.value, ta.lastEdits);
     b.text = ta.value;
     if (wasDirty !== isDirty(b)) { renderTabs(); renderTree(); }
     if (b.path === splitPath) renderSplit();
