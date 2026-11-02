@@ -61,7 +61,8 @@ class PythonBackend {
     await new Promise((resolve, reject) => execFile(this.cmd, debugpyArgs(['--version']), { cwd: this.host.root, windowsHide: true, timeout: CONNECT_MS, env: this.env() }, e => {
       if (!e) resolve();
       else if (e.code === 'ENOENT') reject(Object.assign(new Error(`Python wasn't found (${this.cmd})`), { hint: 'not-found' }));
-      else reject(Object.assign(new Error('Debugging Python needs debugpy. Install it with: python -m pip install debugpy'), { hint: 'install-debugpy' }));
+      // `python` is the interpreter that needs it, so the page's Install button installs into this one.
+      else reject(Object.assign(new Error('Debugging Python needs debugpy. Install it with: python -m pip install debugpy'), { hint: 'install-debugpy', python: this.cmd }));
     }));
     this.port = await freePort();
     return { port: this.port };

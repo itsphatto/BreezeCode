@@ -39,7 +39,10 @@ function showSuggest(state: SuggestState, x: number, y: number, above: number): 
   suggestEl.style.left = `${Math.max(8, Math.min(x, innerWidth - w - 8))}px`;
   suggestEl.style.top = `${y + h > innerHeight - 8 ? Math.max(8, above - h) : y}px`;
 }
+// Counts closes, so a late answer (the Emmet preview) can tell the list was closed after it was asked for.
+let suggestHidden = 0;
 function hideSuggest(): void {
+  suggestHidden++;
   suggest = null;
   suggestEl.classList.add('hidden');
   editorGhost.textContent = '';
@@ -148,10 +151,11 @@ function editorSuggest(b: EditorBuffer, force = false): void {
   };
   const words = member || short ? [] : editorCandidates(b, prefix);
   if (words.length) show(words); else hideSuggest();
-  // The expansion goes on top of the list once main has it, unless the user moved on.
+  // The expansion goes on top of the list once main has it, unless the user moved on or closed the list (Esc).
   if (abbr) {
+    const hidden = suggestHidden;
     void emmetPreview(b, ta).then(expansion => {
-      if (!expansion || document.activeElement !== ta.input || ta.selectionStart !== pos) return;
+      if (!expansion || document.activeElement !== ta.input || ta.selectionStart !== pos || suggestHidden !== hidden) return;
       const first = emmetInsert(expansion, '').text.split('\n')[0];
       emmetItem = { text: `Emmet: ${first.length > 48 ? first.slice(0, 48) : first}…`, plain: true, run: () => { void tryEmmet(b, ta); } };
       show(listed);

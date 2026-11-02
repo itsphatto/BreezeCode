@@ -298,13 +298,19 @@ function renderDbgTools(): void {
 /* ----- The note above the source: how to start, what went wrong, an exception ----- */
 let dbgInstall: 'idle' | 'running' | 'failed' = 'idle';
 let dbgInstallProc: number | null = null;
-const INSTALL_DEBUGPY = 'python -m pip install debugpy';
+let dbgInstallCmd = '';
+// pip for the Python the debugger runs (main names it with the error), so debugpy lands where it is looked for.
+// Quoted for the terminal's shell when the path has spaces.
+function installDebugpyCmd(): string {
+  const py = debugError?.python || 'python';
+  return `${/^[\w.:\\/-]+$/.test(py) ? py : `"${py}"`} -m pip install debugpy`;
+}
 function dbgNoteHtml(): { cls: string; html: string } | null {
   const s = debugState;
   const target = debugTarget();
   if (s === 'stopped' && dbgInstall !== 'idle') {
     return dbgInstall === 'running'
-      ? { cls: 'info', html: `<b>Installing debugpy…</b><span>Breeze is running <code>${INSTALL_DEBUGPY}</code> in the terminal. Debugging starts again when it's done.</span>` }
+      ? { cls: 'info', html: `<b>Installing debugpy…</b><span>Breeze is running <code>${esc(dbgInstallCmd)}</code> in the terminal. Debugging starts again when it's done.</span>` }
       : { cls: 'err', html: `<b>debugpy didn't install</b><span>The terminal shows what went wrong.</span><div class="dbg-note-acts"><button class="btn btn-sm" data-dbg="terminal">Show terminal</button><button class="btn btn-sm" data-dbg="retry">Try again</button></div>` };
   }
   if (s === 'stopped' && debugError) {
@@ -312,7 +318,7 @@ function dbgNoteHtml(): { cls: string; html: string } | null {
     let fix = '', foot = '';
     if (e.hint === 'install-debugpy') {
       fix = '<button class="btn btn-sm btn-primary" data-dbg="install">Install debugpy</button>';
-      foot = `<small class="dbg-note-foot">Install runs <code>${INSTALL_DEBUGPY}</code> in the terminal.</small>`;
+      foot = `<small class="dbg-note-foot">Install runs <code>${esc(installDebugpyCmd())}</code> in the terminal.</small>`;
     }
     else if (e.hint === 'node-too-old' || (e.hint === 'not-found' && !py)) fix = `<button class="btn btn-sm btn-primary" data-dbg="node">Get Node.js ${svgIcon('external', 12)}</button>`;
     else if (e.hint === 'not-found') fix = `<button class="btn btn-sm btn-primary" data-dbg="python">Get Python ${svgIcon('external', 12)}</button>`;
@@ -365,8 +371,9 @@ function installDebugpy(): void {
   if (!session) { toast('Open the terminal first'); return; }
   if (session.proc != null) { toast('The terminal is busy. Stop what is running there, then try again.'); return; }
   dbgInstall = 'running';
+  dbgInstallCmd = installDebugpyCmd();
   renderDebug();
-  void runCommand(INSTALL_DEBUGPY).then(() => {
+  void runCommand(dbgInstallCmd).then(() => {
     dbgInstallProc = session.proc;
     if (dbgInstallProc == null) { dbgInstall = 'failed'; renderDebug(); } // it never started
   });

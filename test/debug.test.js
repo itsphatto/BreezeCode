@@ -73,6 +73,18 @@ test('DebugManager: a missing Node reports not-found and ends stopped', async ()
   assert.ok(!events.some(e => e.type === 'exited'), 'nothing ran, so nothing exited');
 });
 
+test('DebugManager: a Python without debugpy says which interpreter needs it', { timeout: 20000 }, async () => {
+  const m = new DebugManager();
+  const events = [];
+  m.on('event', e => events.push(e));
+  // Node stands in for a Python that can't run debugpy: the check fails, but the program was found.
+  await m.start({ file: LOOP_PY, root: FIX, python: process.execPath });
+  await waitUntil(() => events.some(e => e.type === 'state' && e.state === 'stopped'), 15000);
+  const err = events.find(e => e.type === 'error');
+  assert.equal(err?.hint, 'install-debugpy');
+  assert.equal(err?.python, process.execPath);
+});
+
 // ---- helpers for live sessions ----
 
 async function waitUntil(cond, ms) {

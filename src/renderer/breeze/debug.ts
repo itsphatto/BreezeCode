@@ -85,7 +85,7 @@ let debugFile: string | null = null;      // the file the session runs, or ran l
 let debugFrames: DebugFrame[] = [];        // innermost first, while paused
 let debugFrameIdx = 0;                     // the frame the page shows (selectFrame)
 let debugPause: { reason: string; exception?: string } | null = null;
-let debugError: { message: string; hint?: string } | null = null; // why the last start failed, until the next one
+let debugError: { message: string; hint?: string; python?: string } | null = null; // why the last start failed, until the next one
 let debugExit: number | null | undefined;  // the last run's exit code; undefined while none has finished
 let debugStopped = false;                  // the user stopped the last run (its exit code says nothing then)
 const EXC_KEY = 'breeze.debug.exceptions';
@@ -180,7 +180,7 @@ api.debug.onEvent(ev => {
       debugExit = ev.code;
       break;
     case 'error':
-      debugError = { message: ev.message, hint: ev.hint };
+      debugError = { message: ev.message, hint: ev.hint, python: ev.python };
       break;
     case 'output':
       onDebugOutput(ev.stream, ev.text);

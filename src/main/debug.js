@@ -178,7 +178,7 @@ class DebugManager extends EventEmitter {
   }
 
   fail(s, e) {
-    this.emitFor(s, { type: 'error', message: e?.message || String(e), ...(e?.hint ? { hint: e.hint } : {}) });
+    this.emitFor(s, { type: 'error', message: e?.message || String(e), ...(e?.hint ? { hint: e.hint } : {}), ...(e?.python ? { python: e.python } : {}) });
     this.stopSession(s);
   }
 

@@ -119,7 +119,7 @@ function cdpCondition(bp, id) {
     // Text is literal in the template; each {expr} runs on its own, so one that throws prints a marker instead of killing the log.
     const tpl = logParts(bp.logMessage).map(p => p.text !== undefined
       ? p.text.replace(/[\\`$]/g, '\\$&')
-      : `\${(() => { try { return (${p.expr}\n); } catch (e) { return '<error: ' + e.message + '>'; } })()}`).join('');
+      : `\${(() => { try { return (${p.expr}\n); } catch (e) { return '<error: ' + String(e && e.message || e) + '>'; } })()}`).join('');
     parts.push(`(console.log(\`${tpl}\`), false)`);
   }
   return parts.join(' && ');

@@ -808,6 +808,8 @@ splitTa.addEventListener('input', () => {
   const b = splitBuf();
   if (!b) return;
   const wasDirty = isDirty(b);
+  shiftMarks(b.path, b.text, splitTa.value, splitTa.lastEdits);
+  shiftBreakpoints(b.path, b.text, splitTa.value, splitTa.lastEdits);
   b.text = splitTa.value;
   // The same file open on the left follows along, keeping its own caret.
   if (b.ta && b.ta.value !== b.text) {
@@ -1015,7 +1017,10 @@ function editorKeys(e: KeyboardEvent): void {
   const multi = ta.multi;
   if (multi) { if (suggest?.owner === ta.input) hideSuggest(); } else if (suggestKeys(e, ta.input)) return;
   if (e.key === 'F2' && !e.ctrlKey && !e.shiftKey && !e.altKey && ta !== splitTa) { e.preventDefault(); renameSymbol(); return; }
-  if (e.key === 'Escape') wordRun = null; // ends a whole-word Ctrl+D run, even with one selection left
+  if (e.key === 'Escape') {
+    wordRun = null; // ends a whole-word Ctrl+D run, even with one selection left
+    hideSuggest(); // with no list showing yet, an Emmet preview still on its way must not open one
+  }
   if (multi && e.key === 'Escape' && plainKey(e) && !e.shiftKey) { e.preventDefault(); ta.clearExtras(); return; }
   if (multi && e.key === 'Tab' && plainKey(e)) { e.preventDefault(); if (!e.shiftKey) ta.insertText(INDENT); return; }
   if (b && !multi && closeTagKey(e, ta, b)) { e.preventDefault(); return; }

@@ -161,6 +161,12 @@ test('cdpCondition: a throwing {expr} prints an error marker and the rest still 
   assert.match(r.logs[0], /^<error: .*nope.*> ok 3$/);
 });
 
+test('cdpCondition: an {expr} that throws null or a string still prints a marker and the rest', () => {
+  const r = runner({ line: 1, enabled: true, logMessage: '{f()} {g()} ok {x}' });
+  assert.equal(r.hit({ x: 3, f: () => { throw null; }, g: () => { throw 'bad'; } }), false);
+  assert.deepEqual(r.logs, ['<error: null> <error: bad> ok 3']);
+});
+
 test('cdpCondition: a logpoint honours its condition', () => {
   const r = runner({ line: 1, enabled: true, condition: 'x > 1', logMessage: 'x={x}' });
   assert.equal(r.hit({ x: 0 }), false);
