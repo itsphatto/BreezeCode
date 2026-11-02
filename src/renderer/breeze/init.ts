@@ -5,7 +5,7 @@ const reloadedMode: WorkMode | null = (() => {
   if (!appState.onboarded) return null;
   try {
     const s = sessionStorage.getItem(SCREEN_KEY);
-    return s === '#ide' ? 'ide' : s === '#box' ? 'box' : null;
+    return s === '#ide' || s === '#debug' ? 'ide' : s === '#box' ? 'box' : null; // a reload ends the debug session: back to the editor
   } catch { return null; }
 })();
 // Opened from Explorer: straight into the editor with the right-clicked file (setup still comes first on a first run).

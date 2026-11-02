@@ -12666,3 +12666,483 @@ body.layout-animating #previewPane {
   0% { transform: none; }
   65%, 100% { transform: rotate(360deg); }
 }
+
+/* ================= Debugger page (debugview.ts) ================= */
+/* Title bar with the controls · activity bar · call stack over breakpoints · the source, as cards like the IDE's. */
+.debug {
+  display: grid;
+  grid-template-rows: 45px minmax(0, 1fr);
+  height: 100vh;
+  background: var(--bg);
+}
+
+.dbg-bar {
+  gap: 12px;
+}
+
+.dbg-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg-1);
+  -webkit-app-region: no-drag;
+}
+
+.dbg-tool {
+  width: 30px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.dbg-tool:hover:not(:disabled) {
+  background: rgba(var(--ink), .08);
+}
+
+.dbg-tool:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+#dbgGo:not(:disabled) {
+  color: var(--ok);
+}
+
+.dbg-stop:not(:disabled) {
+  color: var(--err);
+}
+
+.dbg-tool-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line);
+}
+
+.dbg-what {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.dbg-what b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.dbg-what-ico,
+.dbg-src-ico {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.dbg-what-ico :is(svg, img),
+.dbg-src-ico :is(svg, img) {
+  width: 16px;
+  height: 16px;
+}
+
+.dbg-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+}
+
+.dbg-main {
+  --gap: 6px;
+  --dbg-left: 280px;
+  display: grid;
+  grid-template-columns: 44px var(--dbg-left) var(--gap) minmax(0, 1fr);
+  min-height: 0;
+  padding: var(--gap) var(--gap) var(--gap) 0;
+  background: var(--bg);
+}
+
+.dbg-left {
+  --dbg-stack: .45;
+  display: grid;
+  grid-template-rows: minmax(70px, calc((100% - var(--gap)) * var(--dbg-stack))) var(--gap) minmax(110px, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.dbg-panel,
+.dbg-center {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.dbg-panel {
+  background: var(--bg-1);
+}
+
+.dbg-center {
+  background: var(--bg);
+}
+
+/* The gaps between the cards are the splitters: a dotted line shows on hover, like the IDE's. */
+.dbg-sash-v,
+.dbg-sash-h {
+  position: relative;
+  touch-action: none;
+}
+
+.dbg-sash-v {
+  cursor: col-resize;
+}
+
+.dbg-sash-h {
+  cursor: row-resize;
+}
+
+.dbg-sash-v::after,
+.dbg-sash-h::after {
+  content: "";
+  position: absolute;
+  background: radial-gradient(circle, var(--blue) 0 1px, transparent 1.2px) center / 6px 6px;
+  filter: blur(.5px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s .1s;
+}
+
+.dbg-sash-v::after {
+  inset: 8px 2px;
+}
+
+.dbg-sash-h::after {
+  inset: 2px 8px;
+}
+
+:is(.dbg-sash-v, .dbg-sash-h):is(:hover, .active)::after {
+  opacity: 1;
+}
+
+.dbg-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 4px 6px;
+}
+
+.dbg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.dbg-row:hover {
+  background: rgba(var(--ink), .05);
+}
+
+.dbg-row.on {
+  background: var(--blue-soft);
+  color: var(--text);
+}
+
+.dbg-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.dbg-fn,
+.dbg-bp-file,
+.dbg-bp-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbg-fn {
+  flex: 1;
+  font: 12px/1.4 var(--font-code);
+}
+
+.dbg-loc {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dbg-frame.internal {
+  opacity: .6;
+}
+
+/* The innermost frame, where the program is paused: the same arrow as the source's gutter. */
+.dbg-frame-at,
+.dbg-frame-gap {
+  flex: none;
+  width: 7px;
+}
+
+.dbg-frame-at {
+  height: 0;
+  border-left: 7px solid var(--warn);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.dbg-empty-row {
+  padding: 4px 8px 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dbg-check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: none;
+  color: transparent;
+}
+
+.dbg-check.on {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #f5f5f7;
+}
+
+.dbg-bp-detail {
+  flex: 1;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.dbg-bp.off :is(.dbg-bp-file, .dbg-loc, .dbg-bp-detail) {
+  opacity: .5;
+}
+
+.dbg-bp-bad {
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--warn);
+}
+
+.dbg-link {
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--blue-text);
+  font-size: 11.5px;
+}
+
+.dbg-link:hover {
+  text-decoration: underline;
+}
+
+.dbg-exc {
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px 8px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.dbg-exc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 26px;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dbg-src-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  flex-shrink: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+  font-size: 12.5px;
+}
+
+.dbg-src-name {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.dbg-src-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+
+.dbg-src-ro {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+/* How to start, what went wrong, the exception it paused on. */
+.dbg-note {
+  flex-shrink: 0;
+  margin: 10px 12px 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  font-size: 12.5px;
+}
+
+.dbg-note.err {
+  border-color: rgba(239, 68, 68, .45);
+  background: rgba(239, 68, 68, .08);
+}
+
+.dbg-note-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dbg-note b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.dbg-note-body>span {
+  color: var(--text-2);
+}
+
+.dbg-note code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(var(--ink), .07);
+  font: 11.5px var(--font-code);
+}
+
+.dbg-note-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.dbg-note-acts .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dbg-note-foot {
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.dbg-note-pre {
+  max-height: 120px;
+  margin: 4px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: #fca5a5;
+  font: 12px/1.45 var(--font-code);
+}
+
+.dbg-blank {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* The paused line (amber), another frame's line picked in the call stack (green), an exception's line (red). */
+.ln.dbg-at {
+  background: rgba(245, 158, 11, .16);
+  box-shadow: inset 2px 0 var(--warn);
+}
+
+.ln.dbg-sel {
+  background: rgba(34, 197, 94, .1);
+  box-shadow: inset 2px 0 var(--ok);
+}
+
+.ln.dbg-exc-line {
+  background: rgba(239, 68, 68, .13);
+  box-shadow: inset 2px 0 var(--err);
+}
+
+.gutter .dbg-at,
+.gutter .dbg-sel {
+  color: var(--text);
+}
+
+.gutter :is(.dbg-at, .dbg-sel)::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  margin-top: -5px;
+  border-left: 7px solid var(--warn);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.gutter .dbg-sel::after {
+  border-left-color: var(--ok);
+}
+
+/* The IDE's status bar while a session is going. */
+.sb-debug {
+  color: var(--blue-text);
+}
+
+.sb-debug.paused {
+  color: var(--warn);
+}
+
+.dbg-form-err {
+  margin: -6px 0 12px;
+  color: #f87171;
+  font-size: 12px;
+}
+
+:root[data-theme="light"] :is(.dbg-panel, .dbg-src-head) {
+  background-image: var(--paper-grain);
+}
+
+:root[data-theme="light"] :is(.dbg-note-pre, .dbg-form-err) {
+  color: #b91c1c;
+}

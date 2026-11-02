@@ -579,6 +579,12 @@ const LINE_ICONS: Record<string, IconNode> = {
   undo: [['path', { d: 'M9 14 4 9l5-5' }], ['path', { d: 'M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11' }]],
   stop: [['rect', { x: 6, y: 6, width: 12, height: 12, rx: 2, fill: 'currentColor' }]],
   play: [['path', { d: 'M6 3l14 9-14 9z', fill: 'currentColor' }]],
+  pause: [['rect', { x: 6, y: 4, width: 4, height: 16, rx: 1, fill: 'currentColor' }], ['rect', { x: 14, y: 4, width: 4, height: 16, rx: 1, fill: 'currentColor' }]],
+  // The debugger: the activity-bar bug and the step buttons (an arc over a line, into a line, out of one).
+  bug: [['path', { d: 'm8 2 1.88 1.88' }], ['path', { d: 'M14.12 3.88 16 2' }], ['path', { d: 'M9 7.13v-1a3.003 3.003 0 1 1 6 0v1' }], ['path', { d: 'M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6' }], ['path', { d: 'M12 20v-9' }], ['path', { d: 'M6.53 9C4.6 8.8 3 7.1 3 5' }], ['path', { d: 'M6 13H2' }], ['path', { d: 'M3 21c0-2.1 1.7-3.9 3.8-4' }], ['path', { d: 'M20.97 5c0 2.1-1.6 3.8-3.5 4' }], ['path', { d: 'M22 13h-4' }], ['path', { d: 'M17.2 17c2.1.1 3.8 1.9 3.8 4' }]],
+  stepOver: [['path', { d: 'M21 7v6h-6' }], ['path', { d: 'M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7' }], ['circle', { cx: 12, cy: 19, r: 1.5, fill: 'currentColor' }]],
+  stepInto: [['path', { d: 'M12 2v13' }], ['path', { d: 'm18 9-6 6-6-6' }], ['circle', { cx: 12, cy: 20.5, r: 1.5, fill: 'currentColor' }]],
+  stepOut: [['path', { d: 'M12 15V2' }], ['path', { d: 'm6 8 6-6 6 6' }], ['circle', { cx: 12, cy: 20.5, r: 1.5, fill: 'currentColor' }]],
   send: [['path', { d: 'M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z' }], ['path', { d: 'M6 12h16' }]],
   more: [['circle', { cx: 12, cy: 12, r: 1 }], ['circle', { cx: 19, cy: 12, r: 1 }], ['circle', { cx: 5, cy: 12, r: 1 }]],
   up: [['path', { d: 'm5 12 7-7 7 7' }], ['path', { d: 'M12 19V5' }]],

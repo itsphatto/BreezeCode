@@ -327,6 +327,8 @@
             <use href="#i-git" />
           </svg><span class="badge"></span></button>
         <button class="act-btn" data-view="skills" title="Skills &amp; Plugins"><svg data-i="puzzle" data-size="20"></svg></button>
+        <!-- Not a side-bar view: opens the full-page debugger (debugview.ts) -->
+        <button class="act-btn" id="debugBtn" data-debug-btn title="Debug (Ctrl+Shift+D)" aria-label="Debug"><svg data-i="bug" data-size="20"></svg></button>
         <span class="flex-1"></span>
         <button class="act-btn" title="Settings" id="settingsBtn" aria-haspopup="dialog" aria-expanded="false"><svg
             width="20" height="20">
@@ -524,6 +526,7 @@
           data-size="14"></svg><span>—</span></button>
       <span class="sb" id="sbTools"><span class="dot-ok"></span> Checking tools</span>
       <button class="sb hidden" id="sbProblems" data-act="go.nextProblem" title="Go to the next problem (F8)"></button>
+      <button class="sb sb-debug hidden" id="sbDebug" title="Open the debugger"></button>
       <span class="spacer"></span>
       <button class="sb hidden" id="liveShare" title="Host index.html locally and open it in your browser"><svg
           data-i="play" data-size="14"></svg><span>Live Share</span></button>
@@ -594,6 +597,57 @@
     </div>
   </div>
 
+  <!-- ================= DEBUGGER (full page; debugview.ts) ================= -->
+  <!-- Shown with swapScreen like Breeze Box; leaving it keeps the session running. -->
+  <div class="debug hidden" id="debug">
+    <header class="titlebar dbg-bar">
+      <div class="dbg-tools" id="dbgTools" role="toolbar" aria-label="Debug controls">
+        <button class="icon-btn dbg-tool" id="dbgGo" data-act="run.start"><svg data-i="play" data-size="15"></svg></button>
+        <button class="icon-btn dbg-tool" id="dbgPause" data-act="debug.pause"><svg data-i="pause" data-size="15"></svg></button>
+        <button class="icon-btn dbg-tool" id="dbgOver" data-act="debug.stepOver"><svg data-i="stepOver" data-size="16"></svg></button>
+        <button class="icon-btn dbg-tool" id="dbgInto" data-act="debug.stepInto"><svg data-i="stepInto" data-size="16"></svg></button>
+        <button class="icon-btn dbg-tool" id="dbgOut" data-act="debug.stepOut"><svg data-i="stepOut" data-size="16"></svg></button>
+        <span class="dbg-tool-sep" aria-hidden="true"></span>
+        <button class="icon-btn dbg-tool" id="dbgRestart" data-act="debug.restart"><svg data-i="rotateCw" data-size="15"></svg></button>
+        <button class="icon-btn dbg-tool dbg-stop" id="dbgStop" data-act="debug.stop"><svg data-i="stop" data-size="15"></svg></button>
+      </div>
+      <span class="dbg-what" id="dbgWhat"></span>
+      <span class="spacer"></span>
+      <button class="btn btn-sm dbg-back" id="dbgBack" title="Back to the editor. The program keeps running."><svg data-i="chevronLeft" data-size="14"></svg><span>Back to editor</span></button>
+    </header>
+    <div class="dbg-main" id="dbgMain">
+      <!-- The IDE's activity bar is copied in here at start-up, with Debug lit -->
+      <nav class="activity dbg-rail" id="dbgRail" aria-label="Views"></nav>
+      <aside class="dbg-left" id="dbgLeft" aria-label="Call stack and breakpoints">
+        <section class="dbg-panel dbg-stack-panel" id="dbgStackPanel" aria-labelledby="dbgStackTitle">
+          <div class="side-head"><span id="dbgStackTitle">Call Stack</span></div>
+          <div class="dbg-list" id="dbgStack" role="list"></div>
+        </section>
+        <div class="dbg-sash-h" id="dbgStackSash" role="separator" aria-orientation="horizontal" aria-label="Resize the call stack"></div>
+        <section class="dbg-panel dbg-bp-panel" id="dbgBpPanel" aria-labelledby="dbgBpTitle">
+          <div class="side-head"><span id="dbgBpTitle">Breakpoints</span><span class="head-actions"><button class="dbg-link" id="dbgBpClear" type="button">Remove all</button></span></div>
+          <div class="dbg-list" id="dbgBps" role="list"></div>
+          <div class="dbg-exc">
+            <label class="dbg-exc-row"><span>Pause on uncaught exceptions</span><button class="switch switch-sm" id="dbgExcUncaught" type="button" role="switch" aria-checked="false" aria-label="Pause on uncaught exceptions"><span class="sw-knob"></span></button></label>
+            <label class="dbg-exc-row"><span>Pause on all exceptions</span><button class="switch switch-sm" id="dbgExcAll" type="button" role="switch" aria-checked="false" aria-label="Pause on all exceptions"><span class="sw-knob"></span></button></label>
+          </div>
+        </section>
+      </aside>
+      <div class="dbg-sash-v" id="dbgLeftSash" role="separator" aria-orientation="vertical" aria-label="Resize the left column"></div>
+      <section class="dbg-center" id="dbgCenter" aria-label="Source">
+        <div class="dbg-src-head" id="dbgSrcHead"></div>
+        <div class="dbg-note hidden" id="dbgNote" aria-live="polite"></div>
+        <div class="editor dbg-editor" id="dbgEditor">
+          <div class="gutter" id="dbgGutter"></div>
+          <div class="code">
+            <pre class="hl" id="dbgHl" aria-hidden="true"></pre>
+          </div>
+        </div>
+        <div class="dbg-blank hidden" id="dbgBlank"></div>
+      </section>
+    </div>
+  </div>
+
   <!-- ================= VIBE MODE ================= -->
   <!-- While an agent works, the IDE fades and blurs and a 9:16 feed plays here. -->
   <div class="vibe-stage hidden" id="vibe">
@@ -659,6 +713,7 @@
   <script src="breeze/palette.js" defer></script>
   <script src="breeze/emmet.js" defer></script>
   <script src="breeze/debug.js" defer></script>
+  <script src="breeze/debugview.js" defer></script>
   <script src="breeze/views.js" defer></script>
   <script src="breeze/vibe.js" defer></script>
   <script src="breeze/discord.js" defer></script>

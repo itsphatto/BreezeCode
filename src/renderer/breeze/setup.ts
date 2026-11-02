@@ -961,7 +961,8 @@ const SCREEN_KEY = 'breeze.screen'; // the screen showing, for a reload to come 
 function swapScreen(to: string): void {
   try { sessionStorage.setItem(SCREEN_KEY, to); } catch { /* storage off: a reload opens on Home */ }
   const next = $(to);
-  const screens = ['#onboard', '#ide', '#box'].map(id => $(id));
+  const screens = ['#onboard', '#ide', '#box', '#debug'].map(id => $(id));
+  $('#debugBtn').classList.toggle('on', to === '#debug'); // the activity bar's Debug stays lit while its page shows
   // At launch the remembered screen just appears; the animation is for switching.
   if (!booted) {
     for (const el of screens) {

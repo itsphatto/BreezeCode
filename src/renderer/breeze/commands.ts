@@ -1,6 +1,7 @@
 /* ================= Commands, menu bar & shortcuts ================= */
 interface MenuItem {
   label?: string; icon?: string; remove?: () => void; act?: string; run?: () => void; key?: string; sep?: boolean; checked?: () => boolean; enabled?: () => boolean; native?: boolean;
+  keyFrom?: string;           // shows the key of that command, which does this job when it applies; has none of its own
   header?: User;              // a "who is signed in" row
   sub?: () => MenuItem[];     // opens a submenu on hover
   subClass?: string;          // custom css class for submenu
@@ -27,7 +28,8 @@ function searchSelection(): void {
 }
 function backToOnboarding(n: number): void {
   appState.onboarded = false; saveApp();
-  $('#ide').classList.add('hidden'); $('#box').classList.add('hidden'); $('#onboard').classList.remove('hidden');
+  for (const id of ['#ide', '#box', '#debug']) $(id).classList.add('hidden');
+  $('#onboard').classList.remove('hidden');
   goStep(n);
 }
 const commands: Record<string, () => unknown> = {
@@ -97,14 +99,31 @@ const commands: Record<string, () => unknown> = {
   'go.line': goToLine,
   'go.nextProblem': nextProblem,
   'mark.toggle': () => { const b = activeText(); if (b) toggleMark(b.path, lineAt(b.text, b.ta.selectionStart)); },
-  'debug.toggleBreakpoint': () => { const b = activeText(); if (b) toggleBreakpoint(b.path, lineAt(b.text, b.ta.selectionStart)); },
+  'debug.toggleBreakpoint': () => {
+    if (debugPageShowing()) { toggleDebugSourceBreakpoint(); return; }
+    const b = activeText();
+    if (b) toggleBreakpoint(b.path, lineAt(b.text, b.ta.selectionStart));
+  },
+  // Wrapped: debug.ts and debugview.ts load after this file.
+  'debug.start': () => startDebugging(),
+  'debug.stop': () => stopDebugging(),
+  'debug.restart': () => restartDebugging(),
+  'debug.continue': () => { if (debugState === 'paused') return api.debug.continue(); },
+  'debug.pause': () => { if (debugState === 'running') return api.debug.pause(); },
+  'debug.stepOver': () => { if (debugState === 'paused') return api.debug.step('over'); },
+  'debug.stepInto': () => { if (debugState === 'paused') return api.debug.step('into'); },
+  'debug.stepOut': () => { if (debugState === 'paused') return api.debug.step('out'); },
+  'debug.open': () => openDebugView(),
   'mark.next': () => jumpMark(1),
   'mark.prev': () => jumpMark(-1),
   'mark.clear': () => { if (active && lineMarks.delete(active)) { saveMarks(); repaintMarks(active); } },
   'go.nextEditor': () => cycleTab(1),
   'go.prevEditor': () => cycleTab(-1),
   'run.file': runFile,
+  // F5: continues a paused debug session first; on the debug page it starts one. Otherwise it runs or previews.
   'run.start': () => {
+    if (debugState === 'paused') return api.debug.continue();
+    if (debugPageShowing()) return debugState === 'stopped' ? startDebugging() : undefined;
     if (runnable(active)) return run('run.file');
     return running && previewPath === previewTarget() ? reloadPreview() : startPreview();
   },
@@ -374,7 +393,17 @@ const MENUS: Menu[] = [
       { label: 'Reload Preview', act: 'run.reload', key: 'Ctrl+F5', enabled: () => running },
       { label: 'Stop Preview', act: 'run.stop', key: 'Shift+F5', enabled: () => running || term.runId != null },
       { sep: true },
-      { label: 'Toggle Breakpoint', act: 'debug.toggleBreakpoint', key: 'F9', enabled: hasFile },
+      { label: 'Start Debugging', act: 'debug.start', key: 'Ctrl+Shift+D' },
+      { label: 'Open Debug View', act: 'debug.open' },
+      // Continue and Stop Debugging share F5 and Shift+F5 with the two above (see run.start and debugKeyAct).
+      { label: 'Continue', act: 'debug.continue', keyFrom: 'run.start', enabled: () => debugState === 'paused' },
+      { label: 'Pause', act: 'debug.pause', key: 'F6', enabled: () => debugState === 'running' },
+      { label: 'Step Over', act: 'debug.stepOver', key: 'F10', enabled: () => debugState === 'paused' },
+      { label: 'Step Into', act: 'debug.stepInto', key: 'F11', enabled: () => debugState === 'paused' },
+      { label: 'Step Out', act: 'debug.stepOut', key: 'Shift+F11', enabled: () => debugState === 'paused' },
+      { label: 'Restart Debugging', act: 'debug.restart', key: 'Ctrl+Shift+F5', enabled: () => debugState !== 'stopped' },
+      { label: 'Stop Debugging', act: 'debug.stop', keyFrom: 'run.stop', enabled: () => debugState !== 'stopped' },
+      { label: 'Toggle Breakpoint', act: 'debug.toggleBreakpoint', key: 'F9', enabled: () => hasFile() || debugPageShowing() },
       { sep: true },
       { label: 'Toggle Live Share', act: 'live.toggle' },
     ]
@@ -428,13 +457,18 @@ const keymap = new Map<string, string>();
 // The menus' own keys ('' for a command without one), kept before any change. Native ones (copy, paste, undo…)
 // belong to the editor and stay put.
 const DEFAULT_KEYS = new Map<string, string>();
-for (const { items } of MENUS) for (const it of items) if (it.act && it.label && !it.native && !DEFAULT_KEYS.has(it.act)) DEFAULT_KEYS.set(it.act, it.key ?? '');
+for (const { items } of MENUS) for (const it of items) if (it.act && it.label && !it.native && !it.keyFrom && !DEFAULT_KEYS.has(it.act)) DEFAULT_KEYS.set(it.act, it.key ?? '');
 // The user's changes: command → combo, '' for one with its key removed.
 let keyBinds = store.get<Record<string, string>>('breeze.keys', {});
 const keyOf = (act: string): string => (act in keyBinds ? keyBinds[act] : DEFAULT_KEYS.get(act) ?? '');
 // The menus show, and the keymap runs, the keys in use now.
 function applyKeyBinds(): void {
-  for (const { items } of MENUS) for (const it of items) if (it.act && DEFAULT_KEYS.has(it.act)) it.key = keyOf(it.act) || undefined;
+  for (const { items } of MENUS) {
+    for (const it of items) {
+      if (it.keyFrom) it.key = keyOf(it.keyFrom) || undefined;
+      else if (it.act && DEFAULT_KEYS.has(it.act)) it.key = keyOf(it.act) || undefined;
+    }
+  }
   keymap.clear();
   for (const [k, act] of EXTRA_KEYS) keymap.set(canonKey(k), act);
   for (const act of DEFAULT_KEYS.keys()) { const k = keyOf(act); if (k) keymap.set(canonKey(k), act); }
@@ -854,6 +888,18 @@ function menuKeys(e: KeyboardEvent): boolean {
 }
 
 const focused = () => document.activeElement as HTMLElement | null;
+// Shift+F5 stops the debugger while a session is going, and the run or preview otherwise: one key, two jobs. (F5's
+// own command continues a paused session first; see run.start.) The menu's Stop Preview stays the preview's.
+const debugKeyAct = (act: string | undefined) => (act === 'run.stop' && debugState !== 'stopped' ? 'debug.stop' : act);
+// The debug page answers only the debugger's keys and a few app-wide ones: the rest would act on the hidden editor.
+const DEBUG_PAGE_ACTS = new Set(['run.start', 'debug.start', 'debug.stop', 'debug.restart', 'debug.continue', 'debug.pause', 'debug.stepOver',
+  'debug.stepInto', 'debug.stepOut', 'debug.toggleBreakpoint', 'view.palette', 'view.paletteF1', 'settings.open', 'help.keys', 'win.reload', 'win.devtools']);
+function debugPageKey(e: KeyboardEvent): void {
+  const act = debugKeyAct(keymap.get(comboOf(e)));
+  if (!act || !DEBUG_PAGE_ACTS.has(act)) return;
+  e.preventDefault();
+  run(act);
+}
 document.addEventListener('keydown', e => {
   if (menuKeys(e)) return;
   if (e.key === 'Escape') {
@@ -861,7 +907,8 @@ document.addEventListener('keydown', e => {
     if (modalOpen()) { dismissModal(); return; }
     if (findOpen) { closeFind(); activeText()?.ta.focus(); return; }
   }
-  if (modalOpen() || vibeOn || $('#ide').classList.contains('hidden')) return;
+  if (modalOpen() || vibeOn) return;
+  if ($('#ide').classList.contains('hidden')) { if (debugPageShowing()) debugPageKey(e); return; }
 
   const isCtrlZ = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z' && !e.shiftKey;
   const isCtrlY = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey));
@@ -950,7 +997,7 @@ document.addEventListener('keydown', e => {
     }
   }
 
-  const act = keymap.get(comboOf(e));
+  const act = debugKeyAct(keymap.get(comboOf(e)));
   if (!act) return;
   if (EDITOR_ONLY.has(act) && !focused()?.classList.contains('ta')) return;
   if (act === 'explorer.rename' && focused()?.matches('input, textarea')) return;
