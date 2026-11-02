@@ -949,6 +949,7 @@ document.addEventListener('keydown', e => {
 // Switching between the onboarding, the IDE and Breeze Box: the old screen fades back, the new one rises in.
 let swapTimer: TimeoutId | undefined;
 let swapSeq = 0;
+let stopTeam: (() => void) | null = null;
 let booted = false;
 // Startup work that fills the screen (git status, fonts, pictures) is collected here, so start-up only counts as
 // finished (and sounds come on) once the app looks finished.
@@ -973,6 +974,9 @@ function swapScreen(to: string): void {
 
   const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out') && !el.classList.contains('screen-prep'));
   clearTimeout(swapTimer);
+  stopTeam?.();
+  stopTeam = null;
+  const seq = ++swapSeq; // a swap still waiting to play is cancelled, even if `to` is already showing
 
   for (const el of screens) {
     if (el !== next && el !== prev) {
@@ -987,12 +991,18 @@ function swapScreen(to: string): void {
   // The new screen is laid out and painted unseen first (the caller fills it in right after this), and the swap only
   // plays once frames come steadily, so a slow machine doesn't stutter through it.
   next.classList.add('screen-prep');
-  const seq = ++swapSeq;
   void settleFrames(700).then(() => {
     if (seq !== swapSeq) return; // switched again meanwhile
+    const team = prev && (prev.id === 'debug' || next.id === 'debug') && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (team) { // teamswap.ts
+      prev.classList.add('screen-team');
+      next.classList.add('screen-team');
+    }
     next.classList.remove('screen-prep');
-    next.classList.add('screen-in');
-    next.addEventListener('animationend', () => next.classList.remove('screen-in'), { once: true });
+    if (!team) {
+      next.classList.add('screen-in');
+      next.addEventListener('animationend', () => next.classList.remove('screen-in'), { once: true });
+    }
     if (!prev) return;
     prev.classList.add('screen-out');
     // Hidden once its fade has actually finished, not after a fixed 260 ms: opening a project keeps the page busy
@@ -1000,6 +1010,8 @@ function swapScreen(to: string): void {
     // vanished in a flash). The timer stays as a fallback for a fade that never gets to run.
     const done = () => {
       prev.removeEventListener('animationend', onEnd);
+      stopTeam?.();
+      stopTeam = null;
       if (!prev.classList.contains('screen-out')) return; // switched back to it meanwhile
       prev.classList.remove('screen-out');
       prev.classList.add('hidden');
@@ -1007,6 +1019,12 @@ function swapScreen(to: string): void {
     const onEnd = (e: AnimationEvent) => { if (e.target === prev && e.animationName === 'screenOut') done(); };
     prev.addEventListener('animationend', onEnd);
     swapTimer = setTimeout(done, 900);
+    if (team) {
+      const play = teamSwap(prev, next, done);
+      stopTeam = play.stop;
+      clearTimeout(swapTimer);
+      swapTimer = setTimeout(done, play.ms + 500);
+    }
   });
 }
 

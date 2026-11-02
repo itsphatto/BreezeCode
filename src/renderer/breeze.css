@@ -9213,6 +9213,36 @@ body.vibing .box {
   }
 }
 
+/* Into and out of the debugger (teamswap.ts): the new screen comes in above the old one, which stays put beneath it and
+   shows through until each of its panels is replaced. Both activity bars match, so the new one simply takes over. */
+.screen-team:not(.screen-out) {
+  position: relative;
+  z-index: 31;
+  transition: none;
+}
+
+.screen-team:not(.screen-out),
+.screen-team:not(.screen-out) > :is(.main, .dbg-main, .titlebar) {
+  background: transparent;
+}
+
+.screen-out.screen-team {
+  animation: none;
+}
+
+.screen-out.screen-team .activity > :not(#settingsBtn, [data-rail="settingsBtn"]) {
+  visibility: hidden;
+}
+
+.swap-team {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
 .box.screen-in .box-composer {
   animation: rise .5s .08s cubic-bezier(.2, .8, .2, 1) both;
 }

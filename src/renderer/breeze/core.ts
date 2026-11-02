@@ -59,7 +59,7 @@ interface SearchHit { path: string; line: number; col: number; text: string; }
 interface DetectedAgent { id: string; name: string; vendor: string; url: string; found: boolean; path: string | null; version: string | null; api?: boolean; models?: string[]; install?: string | null; }
 // Tokens each agent used this month (counted by Breeze), and the plan windows the agent itself reports (percent used).
 interface LimitWindow { label: string; used: number; resetsAt: number | null; }
-interface AgentUsage { usage: Record<string, number>; limits: Record<string, LimitWindow[]>; }
+interface AgentUsage { usage: Record<string, number>; limits: Record<string, LimitWindow[]>; notes: Record<string, string | null>; }
 interface Accounts { accounts: User[]; active: string | null; }
 // Workspace sync (main.js + sync.js). A failure comes back as { error, code } instead of throwing.
 interface SyncFail { error: string; code: string | null; }

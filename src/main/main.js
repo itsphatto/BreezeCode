@@ -1626,8 +1626,8 @@ const windowLabel = min => ({ 300: '5-hour', 10080: 'Weekly', 43200: 'Monthly' }
 const limitWindow = (label, usedPct, resetsAt) =>
   resetsAt && resetsAt * 1000 < Date.now() ? { label, used: 0, resetsAt: null } : { label, used: Math.min(100, Math.max(0, usedPct)), resetsAt: resetsAt || null };
 const CLAUDE_WINDOWS = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
-// The last Breeze run's numbers (rate_limit_event: utilization 0–1, resetsAt in seconds). Only a fallback: they go stale
-// as soon as Claude is used anywhere else.
+// The last numbers seen, from a Breeze run (rate_limit_event: utilization 0–1, resetsAt in seconds) or the live ask
+// below. Only a fallback: they go stale as soon as Claude is used anywhere else.
 function claudeLimits() {
   const w = loadState().claudeLimits || {};
   return Object.entries(w).filter(([, v]) => typeof v?.utilization === 'number')
@@ -1635,11 +1635,13 @@ function claudeLimits() {
 }
 // Live numbers, the same ones Claude's own usage page shows (utilization in percent, resets_at as a date), asked for
 // with the sign-in Claude Code saved on this computer. The token is only ever sent to Anthropic; Breeze keeps nothing.
-// At most once a minute; null when it can't (signed out, an expired token Claude Code hasn't refreshed yet, offline).
-let claudeLive = { at: 0, windows: null };
+// At most once a minute, or as long as the server asks; null when it can't, with `why` saying so in Settings
+// (signed out, an expired token Claude Code hasn't refreshed yet, offline).
+let claudeLive = { next: 0, windows: null, why: null };
+const claudeLiveFailed = why => { claudeLive.why = why; return (claudeLive.windows = null); };
 async function claudeLiveLimits() {
-  if (Date.now() - claudeLive.at < 60_000) return claudeLive.windows;
-  claudeLive.at = Date.now();
+  if (Date.now() < claudeLive.next) return claudeLive.windows;
+  claudeLive.next = Date.now() + 60_000;
   try {
     const file = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
     const readAuth = async () => JSON.parse(await fs.promises.readFile(file, 'utf8')).claudeAiOauth;
@@ -1654,17 +1656,25 @@ async function claudeLiveLimits() {
       auth = await readAuth();
     }
     const token = auth?.accessToken;
-    if (!token) return (claudeLive.windows = null);
+    if (!token) return claudeLiveFailed('Sign in to Claude Code to see its plan limits');
     const res = await net.fetch('https://api.anthropic.com/api/oauth/usage', {
       headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' },
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return (claudeLive.windows = null);
+    if (res.status === 429) {
+      claudeLive.next = Date.now() + Math.max(60, Number(res.headers.get('retry-after')) || 0) * 1000;
+      return claudeLiveFailed('Claude is limiting how often its plan limits are read. Trying again soon');
+    }
+    if (res.status === 401 || res.status === 403) return claudeLiveFailed('Claude Code\'s sign-in can\'t read plan limits. Sign in to it again');
+    if (!res.ok) return claudeLiveFailed('Claude couldn\'t send its plan limits. Trying again soon');
     const d = await res.json();
-    const windows = Object.entries(CLAUDE_WINDOWS).filter(([k]) => typeof d?.[k]?.utilization === 'number')
-      .map(([k, label]) => limitWindow(label, d[k].utilization, d[k].resets_at ? Date.parse(d[k].resets_at) / 1000 : null));
-    return (claudeLive.windows = windows.length ? windows : null);
-  } catch { return (claudeLive.windows = null); }
+    const shown = Object.keys(CLAUDE_WINDOWS).filter(k => typeof d?.[k]?.utilization === 'number');
+    if (!shown.length) return claudeLiveFailed('Claude sent no plan limits for this account');
+    const resets = k => (d[k].resets_at ? Date.parse(d[k].resets_at) / 1000 : null);
+    saveState({ claudeLimits: Object.fromEntries(shown.map(k => [k, { utilization: d[k].utilization / 100, resetsAt: resets(k) }])) });
+    claudeLive.why = null;
+    return (claudeLive.windows = shown.map(k => limitWindow(CLAUDE_WINDOWS[k], d[k].utilization, resets(k))));
+  } catch { return claudeLiveFailed('Couldn\'t reach Claude to read its plan limits. Trying again soon'); }
 }
 // The newest Codex session log (sessions/YYYY/MM/DD/rollout-*.jsonl) holds the latest rate_limits it was sent.
 function codexLimits() {
@@ -1753,7 +1763,7 @@ async function agentUsage() {
   // The logs include Breeze's own runs; Breeze's count stays as a floor in case an agent logs somewhere else.
   usage.claude = Math.max(usage.claude || 0, await claudeTokens());
   usage.codex = Math.max(usage.codex || 0, await codexTokens());
-  return { usage, limits: { claude: (await claudeLiveLimits()) ?? claudeLimits(), codex: codexLimits() } };
+  return { usage, limits: { claude: (await claudeLiveLimits()) ?? claudeLimits(), codex: codexLimits() }, notes: { claude: claudeLive.why } };
 }
 handle('agent:usage', () => (usageJob ??= agentUsage().finally(() => { usageJob = null; })));
 handle('agent:stop', (_e, runId) => stopRun(runId));
