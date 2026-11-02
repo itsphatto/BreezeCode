@@ -22,6 +22,13 @@ function pythonHit(text) {
   return `${op} ${m[2]}`;
 }
 
+// Runs debugpy as `python -m debugpy` would, but with the current folder (the project root) off sys.path first:
+// `-m` puts it ahead of the standard library, so a project file like random.py broke debugpy's own imports. debugpy
+// puts the script's folder on sys.path itself before running it, so the program's imports match a plain run.
+// With -c, sys.argv is ['-c', …debugpy's args]; run_module(alter_sys=True) gives it debugpy's argv[0].
+const DEBUGPY_MAIN = "import sys; sys.path[0] == '' and sys.path.pop(0); import runpy; runpy.run_module('debugpy', run_name='__main__', alter_sys=True)";
+const debugpyArgs = args => ['-Xfrozen_modules=off', '-c', DEBUGPY_MAIN, ...args];
+
 const freePort = () => new Promise((resolve, reject) => {
   const s = net.createServer();
   s.on('error', reject);
@@ -50,7 +57,8 @@ class PythonBackend {
   }
 
   async prepare() {
-    await new Promise((resolve, reject) => execFile(this.cmd, ['-m', 'debugpy', '--version'], { windowsHide: true, timeout: CONNECT_MS, env: this.env() }, e => {
+    // Launched the same way, from the same folder, so it fails when the real launch would.
+    await new Promise((resolve, reject) => execFile(this.cmd, debugpyArgs(['--version']), { cwd: this.host.root, windowsHide: true, timeout: CONNECT_MS, env: this.env() }, e => {
       if (!e) resolve();
       else if (e.code === 'ENOENT') reject(Object.assign(new Error(`Python wasn't found (${this.cmd})`), { hint: 'not-found' }));
       else reject(Object.assign(new Error('Debugging Python needs debugpy. Install it with: python -m pip install debugpy'), { hint: 'install-debugpy' }));
@@ -262,4 +270,4 @@ class PythonBackend {
   }
 }
 
-module.exports = { PythonBackend, pythonHit };
+module.exports = { PythonBackend, pythonHit, debugpyArgs, DEBUGPY_MAIN };

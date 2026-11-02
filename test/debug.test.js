@@ -4,7 +4,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { DebugManager, debugKind, nodeSupportsTs, launchArgs, killTree, relOf } = require('../src/main/debug');
-const { PythonBackend } = require('../src/main/debugPython');
+const { PythonBackend, DEBUGPY_MAIN } = require('../src/main/debugPython');
 const { DapReader, frame } = require('../src/main/dap');
 
 // The folder name has a space on purpose: breakpoints must bind in a path like `…\Breeze Code\…`.
@@ -36,7 +36,10 @@ test('nodeSupportsTs: 22.18+, 23.6+, any 24+', () => {
 
 test('launchArgs: debugpy and node --inspect-brk command lines', () => {
   assert.deepEqual(launchArgs('python', 'C:\\a b\\x.py', { port: 5678 }),
-    { args: ['-Xfrozen_modules=off', '-m', 'debugpy', '--listen', '127.0.0.1:5678', '--wait-for-client', 'C:\\a b\\x.py'] });
+    { args: ['-Xfrozen_modules=off', '-c', DEBUGPY_MAIN, '--listen', '127.0.0.1:5678', '--wait-for-client', 'C:\\a b\\x.py'] });
+  // The launcher drops the current folder from sys.path before anything is imported, so a project file named like
+  // a standard module (random.py) can't break debugpy's own imports.
+  assert.match(DEBUGPY_MAIN, /^import sys; sys\.path\[0\] == '' and sys\.path\.pop\(0\); import runpy; runpy\.run_module\('debugpy', run_name='__main__', alter_sys=True\)$/);
   assert.deepEqual(launchArgs('node', '/a b/x.js', { ts: false }), { args: ['--inspect-brk=127.0.0.1:0', '/a b/x.js'] });
   assert.deepEqual(launchArgs('node', '/a b/x.ts', { ts: true }),
     { args: ['--inspect-brk=127.0.0.1:0', '--experimental-strip-types', '/a b/x.ts'] });
@@ -348,6 +351,25 @@ withDebugpy('python: break, read a local, evaluate, step over, finish', { timeou
   assert.equal((await r.next(e => e.type === 'exited', 15000, 'exit')).code, 0);
   await r.next(isState('stopped'), 5000, 'stopped');
   assert.match(r.output(), /i = 3/);
+});
+
+// The project folder holds a random.py, which shadows the standard library's: debugpy imports random while it
+// starts (through tempfile), so with the project root first on sys.path it ran the project file and then died.
+withDebugpy('python: a project file named like a standard module does not break debugging', { timeout: 60000 }, async t => {
+  const SHADOW = path.join(__dirname, 'fixtures', 'debug shadow');
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({ file: path.join(SHADOW, 'main.py'), root: SHADOW, python: PYTHON, breakpoints: { 'main.py': [{ line: 4, enabled: true }] } });
+  const bps = await r.next(e => e.type === 'breakpoints' && e.lines.length > 0, 20000, 'verified breakpoints');
+  assert.deepEqual(bps, { type: 'breakpoints', file: 'main.py', lines: [4] });
+  const p = await r.next(e => e.type === 'paused', 20000, 'pause');
+  const locals = (await m.scopes(p.frames[0].id)).find(s => /^Locals$/.test(s.name));
+  assert.equal((await m.children(locals.ref)).find(v => v.name === 'total')?.value, '3');
+  await m.continue();
+  assert.equal((await r.next(e => e.type === 'exited', 15000, 'exit')).code, 0);
+  await r.next(isState('stopped'), 5000, 'stopped');
+  assert.match(r.output(), /total 3/);
+  assert.doesNotMatch(r.output(), /project random\.py ran|Traceback/);
 });
 
 // The process and every descendant of `pid`, by pid.

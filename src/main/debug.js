@@ -5,7 +5,7 @@
 const { EventEmitter } = require('node:events');
 const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
-const { PythonBackend } = require('./debugPython');
+const { PythonBackend, debugpyArgs } = require('./debugPython');
 const { NodeBackend, nodeSupportsTs } = require('./debugNode');
 
 const REQUEST_MS = 10000; // an adapter call that takes longer is a hung adapter: reject that call, keep the session
@@ -28,7 +28,7 @@ function debugKind(file) {
 const isTs = file => /\.m?ts$/i.test(file);
 
 function launchArgs(kind, file, { port, ts } = {}) {
-  if (kind === 'python') return { args: ['-Xfrozen_modules=off', '-m', 'debugpy', '--listen', `127.0.0.1:${port}`, '--wait-for-client', file] };
+  if (kind === 'python') return { args: debugpyArgs(['--listen', `127.0.0.1:${port}`, '--wait-for-client', file]) };
   return { args: ['--inspect-brk=127.0.0.1:0', ...(ts ? ['--experimental-strip-types'] : []), file] };
 }
 
