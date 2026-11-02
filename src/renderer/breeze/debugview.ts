@@ -15,9 +15,11 @@ function openDebugView(): void {
   if (f?.file) showDbgSource(f.file, f.line - 1);
   else showDbgSource(debugState === 'stopped' ? debugTarget() : debugFile);
   renderDebug();
+  renderDbgPanels();
   placeRailIndicator();
 }
 function leaveDebugView(): void {
+  hideDbgHover();
   showIde();
 }
 $('#dbgBack').onclick = leaveDebugView;
@@ -50,17 +52,25 @@ function placeRailIndicator(): void {
   ind.style.opacity = '1';
 }
 
-/* ----- Layout: the left column's width and the call stack's share of it, dragged and remembered ----- */
+/* ----- Layout: both side columns' widths, the call stack's and the variables' share of theirs, and the output's
+   height, dragged and remembered ----- */
 const DBG_LAYOUT_KEY = 'breeze.debug.layout';
-const dbgLayout = { left: 280, stack: .45 };
+const dbgLayout = { left: 280, stack: .45, right: 300, vars: .6, bottom: 220 };
 {
   const saved = store.get<Record<string, unknown>>(DBG_LAYOUT_KEY, {});
-  if (typeof saved.left === 'number' && Number.isFinite(saved.left)) dbgLayout.left = clamp(saved.left, 180, 640);
-  if (typeof saved.stack === 'number' && Number.isFinite(saved.stack)) dbgLayout.stack = clamp(saved.stack, .15, .85);
+  const num = (k: string, lo: number, hi: number) => { const v = saved[k]; return typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : null; };
+  dbgLayout.left = num('left', 180, 640) ?? dbgLayout.left;
+  dbgLayout.stack = num('stack', .15, .85) ?? dbgLayout.stack;
+  dbgLayout.right = num('right', 200, 640) ?? dbgLayout.right;
+  dbgLayout.vars = num('vars', .15, .85) ?? dbgLayout.vars;
+  dbgLayout.bottom = num('bottom', 80, 2000) ?? dbgLayout.bottom;
 }
 function applyDbgLayout(): void {
   $('#dbgMain').style.setProperty('--dbg-left', `${dbgLayout.left}px`);
+  $('#dbgMain').style.setProperty('--dbg-right', `${dbgLayout.right}px`);
   $('#dbgLeft').style.setProperty('--dbg-stack', String(dbgLayout.stack));
+  $('#dbgRight').style.setProperty('--dbg-vars', String(dbgLayout.vars));
+  $('#dbgMid').style.setProperty('--dbg-bottom', `${dbgLayout.bottom}px`);
 }
 applyDbgLayout();
 // Other keys under the same name (later panels' sizes) are kept.
@@ -88,6 +98,21 @@ dbgSash($('#dbgLeftSash'), true, e => {
 dbgSash($('#dbgStackSash'), false, e => {
   const r = $('#dbgLeft').getBoundingClientRect();
   dbgLayout.stack = clamp((e.clientY - r.top) / Math.max(1, r.height), .15, .85);
+  applyDbgLayout();
+});
+dbgSash($('#dbgRightSash'), true, e => {
+  const right = $('#dbgRight').getBoundingClientRect().right;
+  dbgLayout.right = clamp(right - e.clientX, 200, Math.min(640, innerWidth * .4));
+  applyDbgLayout();
+});
+dbgSash($('#dbgVarsSash'), false, e => {
+  const r = $('#dbgRight').getBoundingClientRect();
+  dbgLayout.vars = clamp((e.clientY - r.top) / Math.max(1, r.height), .15, .85);
+  applyDbgLayout();
+});
+dbgSash($('#dbgBottomSash'), false, e => {
+  const r = $('#dbgMid').getBoundingClientRect();
+  dbgLayout.bottom = clamp(r.bottom - e.clientY, 80, Math.max(80, r.height - 140));
   applyDbgLayout();
 });
 
@@ -369,12 +394,14 @@ function renderDbgStack(): void {
   }
   if (list.dataset.html !== html) { list.innerHTML = html; list.dataset.html = html; }
 }
-// Picks the frame the source (and, later, the variables and console) show.
+// Picks the frame the source, the variables and watch show, and the one hover and the console evaluate in.
 function selectFrame(i: number): void {
   const f = debugFrames[i];
   if (!f) return;
+  const moved = i !== debugFrameIdx;
   debugFrameIdx = i;
   renderDbgStack();
+  if (moved) refreshDebugValues();
   if (f.file) showDbgSource(f.file, f.line - 1);
   else toast("This frame is outside your project, so there's no code to show");
 }

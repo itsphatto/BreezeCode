@@ -634,16 +634,48 @@
         </section>
       </aside>
       <div class="dbg-sash-v" id="dbgLeftSash" role="separator" aria-orientation="vertical" aria-label="Resize the left column"></div>
-      <section class="dbg-center" id="dbgCenter" aria-label="Source">
-        <div class="dbg-src-head" id="dbgSrcHead"></div>
-        <div class="dbg-note hidden" id="dbgNote" aria-live="polite"></div>
-        <div class="editor dbg-editor" id="dbgEditor">
-          <div class="gutter" id="dbgGutter"></div>
-          <div class="code">
-            <pre class="hl" id="dbgHl" aria-hidden="true"></pre>
+      <div class="dbg-mid" id="dbgMid">
+        <section class="dbg-center" id="dbgCenter" aria-label="Source">
+          <div class="dbg-src-head" id="dbgSrcHead"></div>
+          <div class="dbg-note hidden" id="dbgNote" aria-live="polite"></div>
+          <div class="editor dbg-editor" id="dbgEditor">
+            <div class="gutter" id="dbgGutter"></div>
+            <div class="code">
+              <pre class="hl" id="dbgHl" aria-hidden="true"></pre>
+            </div>
           </div>
-        </div>
-        <div class="dbg-blank hidden" id="dbgBlank"></div>
+          <div class="dbg-blank hidden" id="dbgBlank"></div>
+        </section>
+        <div class="dbg-sash-h" id="dbgBottomSash" role="separator" aria-orientation="horizontal" aria-label="Resize the output"></div>
+        <!-- The program's output (with its input line) and the Debug Console, as tabs -->
+        <section class="dbg-panel dbg-bottom" id="dbgBottom" aria-label="Output and Debug Console">
+          <div class="dbg-tabs" role="tablist" aria-label="Output and Debug Console">
+            <button class="dbg-tab on" id="dbgTabOutput" type="button" role="tab" aria-selected="true" aria-controls="dbgOutputPane" data-dbg-tab="output">Output<span class="dbg-tab-dot" aria-hidden="true"></span></button>
+            <button class="dbg-tab" id="dbgTabConsole" type="button" role="tab" aria-selected="false" aria-controls="dbgConsolePane" data-dbg-tab="console" tabindex="-1">Debug Console<span class="dbg-tab-dot" aria-hidden="true"></span></button>
+            <span class="spacer"></span>
+            <button class="icon-btn" id="dbgClear" type="button" title="Clear" aria-label="Clear"><svg data-i="backspace" data-size="14"></svg></button>
+          </div>
+          <div class="dbg-pane" id="dbgOutputPane" role="tabpanel" aria-labelledby="dbgTabOutput">
+            <div class="dbg-log selectable" id="dbgOutLog" role="log" aria-label="Program output" tabindex="0" data-empty="What your program prints shows here."></div>
+            <label class="dbg-prompt"><span class="dbg-prompt-mark" aria-hidden="true"><svg data-i="send" data-size="12"></svg></span><input id="dbgStdin" spellcheck="false" autocomplete="off" aria-label="Input for your program"></label>
+          </div>
+          <div class="dbg-pane hidden" id="dbgConsolePane" role="tabpanel" aria-labelledby="dbgTabConsole">
+            <div class="dbg-log selectable" id="dbgConsole" role="log" aria-label="Debug Console" tabindex="0" data-empty="While the program is paused, type an expression below to see its value."></div>
+            <label class="dbg-prompt"><span class="dbg-prompt-mark" aria-hidden="true">›</span><input id="dbgConsoleIn" spellcheck="false" autocomplete="off" aria-label="Expression to evaluate"></label>
+          </div>
+        </section>
+      </div>
+      <div class="dbg-sash-v" id="dbgRightSash" role="separator" aria-orientation="vertical" aria-label="Resize the right column"></div>
+      <section class="dbg-right" id="dbgRight" aria-label="Variables and watch">
+        <section class="dbg-panel" id="dbgVarsPanel" aria-labelledby="dbgVarsTitle">
+          <div class="side-head"><span id="dbgVarsTitle">Variables</span></div>
+          <div class="dbg-list dbg-tree" id="dbgVars" role="tree" aria-labelledby="dbgVarsTitle"></div>
+        </section>
+        <div class="dbg-sash-h" id="dbgVarsSash" role="separator" aria-orientation="horizontal" aria-label="Resize the variables"></div>
+        <section class="dbg-panel" id="dbgWatchPanel" aria-labelledby="dbgWatchTitle">
+          <div class="side-head"><span id="dbgWatchTitle">Watch</span><span class="head-actions"><button class="icon-btn" id="dbgWatchAdd" type="button" title="Add an expression to watch" aria-label="Add an expression to watch"><svg data-i="plus" data-size="14"></svg></button></span></div>
+          <div class="dbg-list dbg-tree" id="dbgWatch" role="tree" aria-labelledby="dbgWatchTitle"></div>
+        </section>
       </section>
     </div>
   </div>
@@ -714,6 +746,7 @@
   <script src="breeze/emmet.js" defer></script>
   <script src="breeze/debug.js" defer></script>
   <script src="breeze/debugview.js" defer></script>
+  <script src="breeze/debugpanels.js" defer></script>
   <script src="breeze/views.js" defer></script>
   <script src="breeze/vibe.js" defer></script>
   <script src="breeze/discord.js" defer></script>

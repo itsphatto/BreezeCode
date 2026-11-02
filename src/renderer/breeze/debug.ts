@@ -121,6 +121,7 @@ async function startDebugFile(path: string): Promise<void> {
   debugFrames = [];
   debugPause = null;
   forgetDebugSources();
+  resetDebugPanels();
   openDebugView();
   try {
     await api.debug.start(path, { breakpoints: Object.fromEntries(breakpoints), exceptions: debugExceptions });
@@ -146,7 +147,8 @@ function setDebugExceptions(mode: ExceptionMode): void {
   renderDebug();
 }
 
-// The one subscription: the breakpoint dots (above), then the page and the status bar (debugview.ts).
+// The one subscription: the breakpoint dots (above), then the page and the status bar (debugview.ts), then the
+// variables, watch, console and output (debugpanels.ts).
 api.debug.onEvent(ev => {
   switch (ev.type) {
     case 'state': {
@@ -181,7 +183,9 @@ api.debug.onEvent(ev => {
       debugError = { message: ev.message, hint: ev.hint };
       break;
     case 'output':
-      return; // program output: the page has no Output panel yet
+      onDebugOutput(ev.stream, ev.text);
+      return;
   }
   onDebugEvent(ev);
+  onDebugPanelsEvent(ev);
 });

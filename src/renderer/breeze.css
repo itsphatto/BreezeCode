@@ -12762,8 +12762,9 @@ body.layout-animating #previewPane {
 .dbg-main {
   --gap: 6px;
   --dbg-left: 280px;
+  --dbg-right: 300px;
   display: grid;
-  grid-template-columns: 44px var(--dbg-left) var(--gap) minmax(0, 1fr);
+  grid-template-columns: 44px var(--dbg-left) var(--gap) minmax(0, 1fr) var(--gap) var(--dbg-right);
   min-height: 0;
   padding: var(--gap) var(--gap) var(--gap) 0;
   background: var(--bg);
@@ -12773,6 +12774,24 @@ body.layout-animating #previewPane {
   --dbg-stack: .45;
   display: grid;
   grid-template-rows: minmax(70px, calc((100% - var(--gap)) * var(--dbg-stack))) var(--gap) minmax(110px, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The right column: variables over watch, split like the left. */
+.dbg-right {
+  --dbg-vars: .6;
+  display: grid;
+  grid-template-rows: minmax(70px, calc((100% - var(--gap)) * var(--dbg-vars))) var(--gap) minmax(90px, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The middle: the source over the output and console. The output gives way first when the window is short. */
+.dbg-mid {
+  --dbg-bottom: 220px;
+  display: grid;
+  grid-template-rows: minmax(120px, 1fr) var(--gap) minmax(0, var(--dbg-bottom));
   min-width: 0;
   min-height: 0;
 }
@@ -13139,10 +13158,345 @@ body.layout-animating #previewPane {
   font-size: 12px;
 }
 
+/* ----- Variables, watch and console results: value trees ----- */
+.dbg-tree {
+  padding-top: 2px;
+}
+
+.dbg-var,
+.dbg-var-note {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 6px 0 2px;
+  border-radius: 5px;
+  font: 12px/1.4 var(--font-code);
+  white-space: nowrap;
+}
+
+.dbg-var:hover {
+  background: rgba(var(--ink), .05);
+}
+
+.dbg-var[aria-expanded] {
+  cursor: pointer;
+}
+
+.dbg-var:focus-visible {
+  outline-offset: -2px;
+}
+
+.dbg-ind {
+  flex: none;
+  width: 12px;
+}
+
+.dbg-twisty {
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
+  width: 14px;
+  color: var(--text-3);
+}
+
+.dbg-name {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.dbg-colon {
+  flex: none;
+  margin: 0 2px 0 -4px;
+  color: var(--text-3);
+}
+
+.dbg-val {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 3px;
+}
+
+/* Under the token colours (.tk-str, .tk-num, .tk-kw) a value may carry. */
+:where(.dbg-val) {
+  color: var(--code-text);
+}
+
+.dbg-var.scope .dbg-name {
+  color: var(--text-2);
+  font: 600 12px var(--font-ui);
+}
+
+/* An error says what's wrong in full, over as many lines as it needs. */
+.dbg-val-err {
+  padding: 2px 0;
+  color: #f87171;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dbg-val-idle {
+  color: var(--text-3);
+}
+
+/* A value that differs from the last pause's: it flashes, then keeps its amber until the next pause. */
+.dbg-var.changed .dbg-val {
+  color: var(--warn);
+  animation: dbgChanged 1.4s ease-out;
+}
+
+@keyframes dbgChanged {
+  from { background: rgba(245, 158, 11, .32); }
+  to { background: transparent; }
+}
+
+/* Running between steps: the last pause's values, dimmed. */
+.dbg-tree.stale :is(.dbg-val, .dbg-var-note) {
+  opacity: .5;
+}
+
+.dbg-var-note {
+  color: var(--text-3);
+  font: 11.5px var(--font-ui);
+}
+
+.dbg-var-note.err {
+  color: #f87171;
+}
+
+.dbg-var-x {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  border-radius: 4px;
+  opacity: 0;
+}
+
+.dbg-var:is(:hover, :focus-within) .dbg-var-x {
+  opacity: 1;
+}
+
+.dbg-edit {
+  flex: 1;
+  min-width: 60px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--blue);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px var(--font-code);
+}
+
+input.dbg-edit:focus-visible {
+  border-color: var(--blue);
+}
+
+.dbg-edit.bad,
+input.dbg-edit.bad:focus-visible {
+  border-color: var(--err);
+}
+
+.dbg-edit-err {
+  padding: 2px 8px 4px 32px;
+  color: #f87171;
+  font-size: 11.5px;
+  white-space: normal;
+}
+
+.dbg-watch-new {
+  display: flex;
+  flex-shrink: 0;
+  padding: 4px 8px 8px;
+}
+
+.dbg-watch-new .dbg-edit {
+  height: 26px;
+}
+
+.dbg-empty-row code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(var(--ink), .07);
+  font: 11.5px var(--font-code);
+}
+
+/* ----- The bottom tabs: Output and Debug Console ----- */
+.dbg-tabs {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dbg-tabs .spacer {
+  flex: 1;
+}
+
+.dbg-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  font: 500 11.5px var(--font-ui);
+}
+
+.dbg-tab:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.dbg-tab.on {
+  border-color: var(--line);
+  background: var(--bg-2);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Something new arrived in a tab that isn't showing. */
+.dbg-tab-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue-text);
+}
+
+.dbg-tab.has-new .dbg-tab-dot {
+  display: block;
+}
+
+.dbg-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dbg-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 12px;
+  color: var(--code-text);
+  font: 12px/1.55 var(--font-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-anchor: none; /* the output keeps its place itself as old lines go (debugpanels.ts) */
+}
+
+.dbg-log:empty::before {
+  content: attr(data-empty);
+  color: var(--text-3);
+  font-family: var(--font-ui);
+}
+
+.dbg-log:focus-visible {
+  outline-offset: -2px;
+}
+
+.dbg-o-err,
+.dbg-c-err {
+  color: #f87171;
+}
+
+/* What was typed into the program's input line, echoed where the program would have shown it. */
+.dbg-o-echo {
+  color: var(--blue-text);
+}
+
+.dbg-o-note,
+.dbg-o-trim,
+.dbg-c-log {
+  color: var(--text-3);
+}
+
+.dbg-o-trim {
+  font-style: italic;
+}
+
+.dbg-c-in {
+  color: var(--text-2);
+}
+
+.dbg-c-in::before {
+  content: "› ";
+  color: var(--blue-text);
+}
+
+.dbg-c-res .dbg-var {
+  margin-left: -4px;
+}
+
+.dbg-prompt {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-top: 1px solid var(--line);
+  cursor: text;
+}
+
+.dbg-prompt-mark {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 12px;
+  color: var(--blue-text);
+  font: 600 14px var(--font-code);
+}
+
+.dbg-prompt input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 12px var(--font-code);
+}
+
+.dbg-prompt input:disabled {
+  cursor: default;
+}
+
+.dbg-prompt:has(input:disabled) {
+  opacity: .6;
+  cursor: default;
+}
+
+.dbg-hover small {
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dbg-var.changed .dbg-val { animation: none; }
+}
+
 :root[data-theme="light"] :is(.dbg-panel, .dbg-src-head) {
   background-image: var(--paper-grain);
 }
 
-:root[data-theme="light"] :is(.dbg-note-pre, .dbg-form-err) {
+:root[data-theme="light"] :is(.dbg-note-pre, .dbg-form-err, .dbg-val-err, .dbg-var-note.err, .dbg-edit-err, .dbg-o-err, .dbg-c-err) {
   color: #b91c1c;
+}
+
+:root[data-theme="light"] .dbg-var.changed .dbg-val {
+  color: #a8380a;
 }

@@ -895,6 +895,10 @@ const debugKeyAct = (act: string | undefined) => (act === 'run.stop' && debugSta
 const DEBUG_PAGE_ACTS = new Set(['run.start', 'debug.start', 'debug.stop', 'debug.restart', 'debug.continue', 'debug.pause', 'debug.stepOver',
   'debug.stepInto', 'debug.stepOut', 'debug.toggleBreakpoint', 'view.palette', 'view.paletteF1', 'settings.open', 'help.keys', 'win.reload', 'win.devtools']);
 function debugPageKey(e: KeyboardEvent): void {
+  // Typing in the page's own boxes (watch, console, program input) is theirs: only F-keys and Ctrl/Cmd chords
+  // still reach the debugger from there.
+  const el = focused();
+  if (el?.matches('input:not([readonly]), textarea:not([readonly])') && !/^F\d+$/.test(e.key) && !e.ctrlKey && !e.metaKey) return;
   const act = debugKeyAct(keymap.get(comboOf(e)));
   if (!act || !DEBUG_PAGE_ACTS.has(act)) return;
   e.preventDefault();
