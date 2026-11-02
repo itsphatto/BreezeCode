@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/breeze/teamswap.ts'), 'utf8')), ctx);
-const { changedBlocks, planTeam, teamShape } = vm.runInContext('({ changedBlocks, planTeam, teamShape })', ctx);
+const { changedBlocks, movedBlocks, planTeam, teamShape } = vm.runInContext('({ changedBlocks, movedBlocks, planTeam, teamShape })', ctx);
 
 const block = (key, x, y, w, h) => ({ key, x, y, w, h });
 const crew = [{ x: -30, y: 0 }, { x: 900, y: 0 }, { x: 0, y: 700 }, { x: 900, y: 700 }];
@@ -16,6 +16,31 @@ test('a block in the same place on both screens is left out', () => {
   const [out, typed] = changedBlocks([{ key: 'rail' }, { key: 'old' }], [{ key: 'rail' }, { key: 'new' }]);
   assert.deepEqual(Array.from(out, b => b.key), ['old']);
   assert.deepEqual(Array.from(typed, b => b.key), ['new']);
+});
+
+test('a block with the same size and content in a new place counts as moved', () => {
+  const gear = { ...block('a', 8, 900, 32, 32), look: '32x32|gear' }, gearLower = { ...block('b', 8, 930, 32, 32), look: '32x32|gear' };
+  const biggerGear = { ...block('c', 8, 100, 40, 40), look: '40x40|gear' }, blankA = { ...block('d', 0, 0, 9, 9), look: '' }, blankB = { ...block('e', 50, 0, 9, 9), look: '' };
+  const r = movedBlocks([gear, blankA, biggerGear], [blankB, gearLower]);
+  assert.equal(r.moved.length, 1);
+  assert.equal(r.moved[0].from.key, 'a');
+  assert.equal(r.moved[0].to.key, 'b');
+  assert.deepEqual(Array.from(r.old, b => b.key), ['d', 'c'], 'a different size or blank block is not the same thing');
+  assert.deepEqual(Array.from(r.fresh, b => b.key), ['e']);
+});
+
+test('a moved block is carried from its old place to its new one, whole and solid', () => {
+  const from = block('old', 8, 930, 32, 32), to = block('new', 8, 900, 32, 32);
+  for (let run = 0; run < 25; run++) {
+    const tasks = planTeam(oldBlocks, newBlocks, crew, Math.random, [{ from, to }]);
+    const t = tasks.find(k => k.block === to);
+    assert.equal(tasks.length, oldBlocks.length + newBlocks.length + 1);
+    assert.equal(t.from, from);
+    for (const [p, y] of [[0, 930], [.5, 915], [1, 900]]) {
+      const s = teamShape(t, p);
+      assert.deepEqual([s.x, s.y, s.w, s.h, s.alpha], [8, y, 32, 32, 1]);
+    }
+  }
 });
 
 test('every block gets one job, and nobody works on two at once', () => {

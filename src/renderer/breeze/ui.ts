@@ -16,6 +16,7 @@ function settleFrames(cap: number): Promise<void> {
 }
 let modalOnClose: (() => void) | null = null;
 const modalOpen = () => !!document.querySelector('#modalRoot .scrim:not(.closing)');
+const topScrim = () => $$('#modalRoot .scrim:not(.closing)').pop();
 // Pop-ups come in Apple-style: the panel settles first and its parts follow one after another (and leave in reverse).
 // Elements already running their own animation (spinners and the like) are left alone.
 function staggerIn(items: Iterable<Element>, from = 0): void {
@@ -90,23 +91,28 @@ function staggerModal(m: HTMLElement): void {
   const kids = [...m.children];
   staggerIn(kids.length === 1 ? kids[0].children : kids);
 }
-// A modal opened from Settings (or from a modal that was) leads back there: it gets a "Settings" back button,
-// and dismissing it (Esc, its close or cancel button, a click outside) reopens Settings on the same page.
-let modalBackToSettings = false;
 // The button a dialog swelled out of, so closing can shrink it back onto that button.
 let modalGrowOwner: HTMLElement | null = null;
+// A dialog opened while Settings is up sits on top of it: Settings stays open underneath, waiting with what it needs
+// when closed, and closing the dialog (Esc, a button, a click outside) just uncovers it.
+let modalUnder: { onClose: (() => void) | null; owner: HTMLElement | null } | null = null;
 function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () => void, place: 'center' | 'top' = 'center'): void {
-  const back = !html.includes('settings-modal') && (!!settingsRoot() || modalBackToSettings);
-  closeModal();
+  const isSettings = html.includes('settings-modal');
+  if (isSettings || !topScrim()?.querySelector('.settings-modal')) closeModal();
   $$('#modalRoot .scrim.closing').forEach(x => x.remove());
+  const under = isSettings ? undefined : topScrim(); // only Settings can still be open
+  if (under) {
+    modalUnder = { onClose: modalOnClose, owner: modalGrowOwner };
+    under.classList.add('under');
+    under.inert = true;
+  }
   const top = place === 'top';
-  const backBtn = back ? `<button type="button" class="modal-back" data-back aria-label="Back to Settings">${svgIcon('chevronLeft', 14)}<span>Settings</span></button>` : '';
-  $('#modalRoot').insertAdjacentHTML('beforeend', `<div class="scrim ${top ? 'top' : ''}"><div class="modal ${top ? 'wide' : ''}" role="dialog" aria-modal="true">${backBtn}${html}</div></div>`);
-  const m = $('#modalRoot .scrim:not(.closing) .modal');
+  $('#modalRoot').insertAdjacentHTML('beforeend', `<div class="scrim ${top ? 'top' : ''} ${under ? 'over' : ''}"><div class="modal ${top ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div></div>`);
+  const scrim = topScrim() as HTMLElement;
+  const m = $('.modal', scrim);
   modalOnClose = onClose ?? null;
-  modalBackToSettings = back;
-  $('#modalRoot .scrim:not(.closing)').onmousedown = e => { if ((e.target as HTMLElement).classList.contains('scrim')) dismissModal(); };
-  $$('[data-close], [data-back]', m).forEach(b => b.onclick = dismissModal);
+  scrim.onmousedown = e => { if ((e.target as HTMLElement).classList.contains('scrim')) closeModal(); };
+  $$('[data-close]', m).forEach(b => b.onclick = closeModal);
   const owner = popOwner();
   bind?.(m);
   // Measured once filled in: a dialog centred on screen moves as its content arrives.
@@ -117,8 +123,7 @@ function openModal(html: string, bind?: (m: HTMLElement) => void, onClose?: () =
   staggerModal(m);
 }
 function closeModal(): void {
-  const scrim = $('#modalRoot .scrim:not(.closing)');
-  modalBackToSettings = false;
+  const scrim = topScrim();
   if (!scrim) return;
   // Shrink onto the button's own box (place, size and rounded ends), not just toward its centre, so it lands there.
   const m = scrim.querySelector<HTMLElement>('.modal.grow-from');
@@ -134,13 +139,17 @@ function closeModal(): void {
   // Play the closing animation on a detached copy so a new modal can open immediately.
   scrim.classList.add('closing');
   setTimeout(() => scrim.remove(), scrim.querySelector('.settings-shell') ? 460 : 380);
-  const cb = modalOnClose; modalOnClose = null; cb?.();
-}
-// Closing without acting on the modal: one opened from Settings goes back there.
-function dismissModal(): void {
-  const back = modalBackToSettings;
-  closeModal();
-  if (back) openSettings($('#settingsBtn'));
+  const cb = modalOnClose; modalOnClose = null;
+  const under = modalUnder && topScrim();
+  if (modalUnder && under) {
+    under.classList.remove('under');
+    under.inert = false;
+    modalOnClose = modalUnder.onClose;
+    modalGrowOwner = modalUnder.owner;
+    modalUnder = null;
+    refreshSettings(); // the dialog may have changed what it shows (a new account, the feeds)
+  }
+  cb?.();
 }
 function bindToasts(root: ParentNode = document): void {
   $$('[data-toast]', root).forEach(b => b.onclick = () => toast(b.dataset.toast ?? ''));

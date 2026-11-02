@@ -33,7 +33,6 @@ for (const n of Array.from($('#ide .activity').children)) {
   const c = n.cloneNode(true) as HTMLElement;
   if (n.id) c.dataset.rail = n.id;
   for (const el of [c, ...Array.from(c.querySelectorAll<HTMLElement>('[id]'))]) el.removeAttribute('id');
-  c.querySelectorAll('.badge').forEach(b => b.remove());
   if (c.dataset.view) { c.dataset.railView = c.dataset.view; delete c.dataset.view; }
   c.classList.toggle('on', c.hasAttribute('data-debug-btn'));
   dbgRail.append(c);

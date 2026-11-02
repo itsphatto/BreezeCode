@@ -664,7 +664,7 @@ function bindSettings(m: HTMLElement): void {
   on('sAddAcct', () => addAccount());
   on('sSignOut', () => background(signOut().then(refreshSettings)));
   // Help and Developer
-  // A command that opens a modal replaces Settings and leads back to it; setup and reload close Settings first.
+  // A command that opens a modal opens it on top of Settings; setup and reload close Settings first.
   $$('[data-set-cmd]', pane).forEach(b => b.onclick = () => {
     const c = b.dataset.setCmd ?? '';
     if (c === 'help.setup' || c === 'win.reload') closeModal();

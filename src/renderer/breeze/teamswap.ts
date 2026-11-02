@@ -1,25 +1,42 @@
 /* ================= Into and out of the debugger: a small team rebuilds the window ================= */
 // swapScreen plays this between the IDE and the debugger, like watching people work in a shared design file: a few
 // mouse cursors take the panels one at a time, cropping or dragging the old ones away and drawing or dropping the new
-// ones in. A panel in the same place with the same content on both screens is never touched. The panels are the real
-// elements, clipped and moved without any layout; the cursors and selection boxes are drawn on one canvas above them.
+// ones in. A panel in the same place with the same content on both screens is never touched, and one that has only
+// changed place is just dragged over. The panels are the real elements, clipped and moved without any layout; the
+// cursors and selection boxes are drawn on one canvas above them.
 const TEAM_BLOCKS = '#logoHome, #menubar, #projectName, #updateBtn, .layout-btns, #avatars, #sidebar, #editorPane, #previewPane, #terminal, #agents, .statusbar, #settingsBtn, [data-rail="settingsBtn"], #dbgTools, #dbgWhat, #dbgBack, #dbgStackPanel, #dbgBpPanel, #dbgCenter, #dbgBottom, #dbgVarsPanel, #dbgWatchPanel';
-const TEAM_CREW = [{ name: 'Planner', colour: '#a78bfa' }, { name: 'Builder', colour: '#38bdf8' }, { name: 'Assistant', colour: '#34d399' }, { name: 'Reviewer', colour: '#fbbf24' }, { name: 'Tester', colour: '#f472b6' }];
+const TEAM_CREW = [
+  { name: 'Planner', colour: '#c084fc', to: '#6366f1' }, { name: 'Builder', colour: '#38bdf8', to: '#2563eb' }, { name: 'Assistant', colour: '#34d399', to: '#0891b2' },
+  { name: 'Reviewer', colour: '#fbbf24', to: '#f97316' }, { name: 'Tester', colour: '#f472b6', to: '#e11d48' },
+];
 const TEAM_HOLD_MS = 50; // a beat with the block selected before the drag starts
 const TEAM_REST_MS = 30; // and one after letting go
 const TEAM_EXIT_MS = 220; // the crew leaving the window
-const TEAM_ARROW = 'M0 0 L0 15 L4 11.5 L6.5 17 L9 16 L6.5 10.5 L12 10.5 Z';
+// The cursor's corners as x, y and how round. The hot spot, (0, 0), is just inside the rounded tip.
+const TEAM_ARROW = [[-2, -2.5, 2.5], [-2, 18.5, 2.5], [5, 12.5, 2], [15, 11, 2]];
+function teamArrow(): Path2D {
+  const path = new Path2D(), last = TEAM_ARROW[TEAM_ARROW.length - 1];
+  path.moveTo((last[0] + TEAM_ARROW[0][0]) / 2, (last[1] + TEAM_ARROW[0][1]) / 2);
+  TEAM_ARROW.forEach(([x, y, r], i) => {
+    const next = TEAM_ARROW[(i + 1) % TEAM_ARROW.length];
+    path.arcTo(x, y, next[0], next[1], r);
+  });
+  path.closePath();
+  return path;
+}
 
-interface TeamBlock { el?: HTMLElement; x: number; y: number; w: number; h: number; key: string; }
+// look: what it shows and its size, so the same thing can be recognised in a new place. Empty when it shows nothing.
+interface TeamBlock { el?: HTMLElement; x: number; y: number; w: number; h: number; key: string; look?: string; }
 // ax/ay: the side of the block that stays put while it's cropped (0 left or top, 1 right or bottom, -1 that axis isn't
-// cropped). Neither cropped means it's dragged instead, from or to (dx, dy) away.
-interface TeamTask { block: TeamBlock; out: boolean; who: number; ax: number; ay: number; dx: number; dy: number; at: number; start: number; end: number; }
+// cropped). Neither cropped means it's dragged instead, from or to (dx, dy) away. `from` is its old self when it has
+// only moved: the new copy takes its place from the start, so nothing can cover it, and travels without fading.
+interface TeamTask { block: TeamBlock; from?: TeamBlock; out: boolean; who: number; ax: number; ay: number; dx: number; dy: number; at: number; start: number; end: number; }
 type TeamPoint = { x: number; y: number };
 
 function teamBlocks(screen: HTMLElement): TeamBlock[] {
   return Array.from(screen.querySelectorAll<HTMLElement>(TEAM_BLOCKS)).filter(el => el.checkVisibility()).map(el => {
-    const r = el.getBoundingClientRect();
-    return { el, x: r.left, y: r.top, w: r.width, h: r.height, key: `${[r.left, r.top, r.width, r.height].map(Math.round).join()}|${el.textContent}` };
+    const r = el.getBoundingClientRect(), shows = `${el.textContent?.trim()}${el.querySelector('svg')?.innerHTML ?? ''}`;
+    return { el, x: r.left, y: r.top, w: r.width, h: r.height, key: `${[r.left, r.top, r.width, r.height].map(Math.round).join()}|${shows}`, look: shows && `${Math.round(r.width)}x${Math.round(r.height)}|${shows}` };
   }).filter(b => b.w > 2 && b.h > 2);
 }
 
@@ -29,12 +46,24 @@ function changedBlocks<T extends { key: string }>(from: T[], to: T[]): [T[], T[]
   return [from.filter(b => !inTo.has(b.key)), to.filter(b => !inFrom.has(b.key))];
 }
 
+// Among what changed, the blocks that only moved: same size and content in a new place. They're taken out of both lists.
+function movedBlocks(old: TeamBlock[], fresh: TeamBlock[]): { old: TeamBlock[]; fresh: TeamBlock[]; moved: { from: TeamBlock; to: TeamBlock }[] } {
+  const left = [...fresh], moved: { from: TeamBlock; to: TeamBlock }[] = [];
+  const stay = old.filter(from => {
+    const i = from.look ? left.findIndex(n => n.look === from.look) : -1;
+    if (i < 0) return true;
+    moved.push({ from, to: left.splice(i, 1)[0] });
+    return false;
+  });
+  return { old: stay, fresh: left, moved };
+}
+
 // The block and the hand on it at p (0 to 1) through a task.
 function teamShape(t: TeamTask, p: number): { x: number; y: number; w: number; h: number; alpha: number; cx: number; cy: number } {
   const b = t.block, shown = t.out ? 1 - p : p;
   if (t.ax < 0 && t.ay < 0) {
     const x = b.x + t.dx * (1 - shown), y = b.y + t.dy * (1 - shown);
-    return { x, y, w: b.w, h: b.h, alpha: shown, cx: x + b.w / 2, cy: y + b.h / 2 };
+    return { x, y, w: b.w, h: b.h, alpha: t.from ? 1 : shown, cx: x + b.w / 2, cy: y + b.h / 2 };
   }
   const w = t.ax < 0 ? b.w : b.w * shown, h = t.ay < 0 ? b.h : b.h * shown;
   const x = t.ax === 1 ? b.x + b.w - w : b.x, y = t.ay === 1 ? b.y + b.h - h : b.y;
@@ -43,26 +72,28 @@ function teamShape(t: TeamTask, p: number): { x: number; y: number; w: number; h
 
 // Who does what, when. Each old block is followed by the new one taking most of its place, and whoever is free next
 // takes the next job, so the window changes a few blocks at a time rather than all at once.
-function planTeam(old: TeamBlock[], fresh: TeamBlock[], from: TeamPoint[], random: () => number = Math.random): TeamTask[] {
+function planTeam(old: TeamBlock[], fresh: TeamBlock[], from: TeamPoint[], random: () => number = Math.random, moved: { from: TeamBlock; to: TeamBlock }[] = []): TeamTask[] {
   const shuffled = <T>(list: T[]) => {
     const a = [...list];
     for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
     return a;
   };
   const overlap = (a: TeamBlock, b: TeamBlock) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
-  const left = shuffled(fresh), jobs: { block: TeamBlock; out: boolean }[] = [];
+  const left = shuffled(fresh), jobs: { block: TeamBlock; out: boolean; from?: TeamBlock }[] = [];
   for (const block of shuffled(old)) {
     jobs.push({ block, out: true });
     const areas = left.map(n => overlap(block, n)), most = Math.max(0, ...areas);
     if (most > 0) jobs.push({ block: left.splice(areas.indexOf(most), 1)[0], out: false });
   }
   for (const block of left) jobs.push({ block, out: false });
+  for (const m of moved) jobs.splice(Math.floor(random() * (jobs.length + 1)), 0, { block: m.to, from: m.from, out: false });
 
   const hands = from.map(p => ({ ...p })), free = from.map((_, i) => i * 80);
-  return jobs.map(({ block, out }) => {
+  return jobs.map(({ block, out, from: was }) => {
     const who = free.indexOf(Math.min(...free)), kind = random(), side = () => (random() < .5 ? 0 : 1);
-    const t: TeamTask = { block, out, who, ax: -1, ay: -1, dx: 0, dy: 0, at: free[who], start: 0, end: 0 };
-    if (kind < .4) { if (block.h < 60 || random() < .5) t.ax = side(); else t.ay = side(); }
+    const t: TeamTask = { block, from: was, out, who, ax: -1, ay: -1, dx: 0, dy: 0, at: free[who], start: 0, end: 0 };
+    if (was) { t.dx = was.x - block.x; t.dy = was.y - block.y; }
+    else if (kind < .4) { if (block.h < 60 || random() < .5) t.ax = side(); else t.ay = side(); }
     else if (kind < .75 && block.h >= 60) { t.ax = side(); t.ay = side(); }
     else { const far = (side() ? 1 : -1) * 70; if (side()) t.dx = far; else t.dy = far; }
     const s = teamShape(t, 0), e = teamShape(t, 1), hand = hands[who];
@@ -126,7 +157,7 @@ function paintTeam(g: CanvasRenderingContext2D, tasks: TeamTask[], from: TeamPoi
       }
     }
   }
-  const arrow = new Path2D(TEAM_ARROW);
+  const arrow = teamArrow();
   g.font = `600 11px ${font}`;
   g.textBaseline = 'middle';
   TEAM_CREW.forEach((c, who) => {
@@ -134,26 +165,32 @@ function paintTeam(g: CanvasRenderingContext2D, tasks: TeamTask[], from: TeamPoi
     g.save();
     g.translate(hand.x, hand.y);
     if (hand.down) g.scale(.88, .88); // the button held down
-    g.fillStyle = c.colour;
-    g.strokeStyle = '#fff';
-    g.lineWidth = 1.25;
-    g.fill(arrow);
-    g.stroke(arrow);
     const w = g.measureText(c.name).width + 12;
+    const fill = (x0: number, y0: number, x1: number, y1: number) => {
+      const paint = g.createLinearGradient(x0, y0, x1, y1);
+      paint.addColorStop(0, c.colour);
+      paint.addColorStop(1, c.to);
+      return paint;
+    };
+    g.fillStyle = fill(-2, -2.5, 15, 18.5);
+    g.fill(arrow);
+    g.fillStyle = fill(13, 0, 13 + w, 0);
     g.beginPath();
-    g.roundRect(11, 17, w, 18, 5);
+    g.roundRect(13, 19, w, 18, 9);
     g.fill();
-    g.fillStyle = '#111114';
-    g.fillText(c.name, 17, 26.5);
+    g.fillStyle = '#fff';
+    g.fillText(c.name, 19, 28.5);
     g.restore();
   });
 }
 
 // Plays it with `next` above `prev` and calls done when it has finished. Gives back how to stop early, and how long it takes.
 function teamSwap(prev: HTMLElement, next: HTMLElement, done: () => void): { stop: () => void; ms: number } {
-  const [old, fresh] = changedBlocks(teamBlocks(prev), teamBlocks(next));
+  const [gone, come] = changedBlocks(teamBlocks(prev), teamBlocks(next));
+  const { old, fresh, moved } = movedBlocks(gone, come);
   const from = [{ x: -30, y: innerHeight * .3 }, { x: innerWidth + 30, y: innerHeight * .2 }, { x: innerWidth * .3, y: innerHeight + 30 }, { x: innerWidth + 30, y: innerHeight * .8 }, { x: innerWidth * .6, y: -30 }];
-  const tasks = planTeam(old, fresh, from);
+  const tasks = planTeam(old, fresh, from, Math.random, moved);
+  const touched = tasks.flatMap(k => (k.from ? [k.block, k.from] : [k.block])).map(b => b.el as HTMLElement);
   const total = Math.max(0, ...tasks.map(k => k.end)) + TEAM_REST_MS + TEAM_EXIT_MS;
   const font = getComputedStyle(document.body).fontFamily, dpr = devicePixelRatio || 1;
   const canvas = document.createElement('canvas');
@@ -172,10 +209,10 @@ function teamSwap(prev: HTMLElement, next: HTMLElement, done: () => void): { sto
       el.style.opacity = String(s.alpha);
     } else el.style.clipPath = `inset(${s.y - b.y}px ${b.x + b.w - s.x - s.w}px ${b.y + b.h - s.y - s.h}px ${s.x - b.x}px)`;
   };
+  for (const el of touched) el.style.transition = 'none';
   for (const k of tasks) {
-    const el = k.block.el as HTMLElement;
-    el.style.transition = 'none';
-    if (!k.out) el.style.clipPath = 'inset(50%)';
+    if (k.from) { (k.from.el as HTMLElement).style.clipPath = 'inset(50%)'; place(k, 0); }
+    else if (!k.out) (k.block.el as HTMLElement).style.clipPath = 'inset(50%)';
   }
   const t0 = performance.now();
   let frame = 0;
@@ -198,10 +235,7 @@ function teamSwap(prev: HTMLElement, next: HTMLElement, done: () => void): { sto
     stop: () => {
       cancelAnimationFrame(frame);
       canvas.remove();
-      for (const k of tasks) {
-        const el = k.block.el as HTMLElement;
-        el.style.clipPath = el.style.transform = el.style.opacity = el.style.transition = '';
-      }
+      for (const el of touched) el.style.clipPath = el.style.transform = el.style.opacity = el.style.transition = '';
       prev.classList.remove('screen-team');
       next.classList.remove('screen-team');
     },
