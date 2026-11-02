@@ -283,7 +283,7 @@ function settingsBody(tab: SettingsTab): string {
       <h5>Feed</h5>
       <div class="social-grid ${appState.vibeArmed ? '' : 'off'}" id="sFeeds"${appState.vibeArmed ? '' : ' inert'}></div>
       <h5>Code</h5>
-      ${settingRow('Enter code', appState.devMode ? 'Developer is unlocked.' : 'Unlock hidden sections.', '<div class="set-code"><input class="input" id="sCode" aria-label="Code" placeholder="Code" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sCodeGo">Enter</button></div>')}`;
+      ${settingRow('Enter code', appState.devMode ? 'Developer is unlocked.' : 'Unlock hidden sections.', '<div class="set-code"><input class="input" id="sCode" aria-label="Code" placeholder="Code" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sCodeGo" disabled>Enter</button></div>')}`;
     case 'discord': {
       const a = discordActivity();
       const status = { on: 'Connected', off: 'Off', error: 'Not connected' }[discordState.state];
@@ -562,7 +562,10 @@ function bindSettings(m: HTMLElement): void {
     refreshSettings();
   };
   on('sCodeGo', tryCode);
-  if (codeIn) codeIn.onkeydown = e => { if (e.key === 'Enter') tryCode(); };
+  if (codeIn) {
+    codeIn.onkeydown = e => { if (e.key === 'Enter') tryCode(); };
+    codeIn.oninput = () => { $<HTMLButtonElement>('#sCodeGo', pane).disabled = !codeIn.value.trim(); };
+  }
   on('sDevOff', () => { appState.devMode = false; saveApp(); applyDevMode(); settingsTab = 'misc'; refreshSettings(); });
   // Discord
   on('sDiscord', el => {

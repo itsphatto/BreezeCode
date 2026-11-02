@@ -95,11 +95,28 @@ async function boot(): Promise<void> {
   const reveal = (greet: boolean) => {
     document.documentElement.removeAttribute('data-launching');
     welcome.classList.remove('ob-await');
-    if (welcome.getClientRects().length) welcome.classList.add('ob-intro');
+    if (welcome.getClientRects().length) { welcome.classList.add('ob-intro'); armWelcome(); }
     if (!greet) return;
     const home = $('.home-step');
     home.classList.add('home-in');
     setTimeout(() => home.classList.remove('home-in'), 1200);
+  };
+  // The welcome's logo parks exactly where the launch left the swirl (middle of the window, launch.css's size and glow);
+  // play() then morphs it into its place on the page. null when Home is up, or for reduced motion: there's nothing to morph.
+  const parkLogo = (): Animation | null => {
+    if (!welcome.getClientRects().length || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+    const logo = $('.ob-logo', welcome), r = logo.getBoundingClientRect();
+    const morph = logo.animate([
+      {
+        opacity: 1,
+        transform: `translate(${innerWidth / 2 - r.left - r.width / 2}px, ${innerHeight / 2 - r.top - r.height / 2}px) scale(${150 / r.width})`,
+        filter: 'drop-shadow(0 0 22px rgba(255, 255, 255, .45)) drop-shadow(0 6px 24px rgba(10, 30, 120, .35))',
+      },
+      { opacity: 1, transform: 'none', filter: 'none' },
+    ], { duration: 700, easing: 'cubic-bezier(.77, 0, .175, 1)' });
+    morph.pause();
+    welcome.classList.add('ob-morph');
+    return morph;
   };
   // Once the app is up: refresh the tool and agent status in the background (the cached result shows meanwhile).
   const launched = () => {
@@ -125,21 +142,27 @@ async function boot(): Promise<void> {
       const now = ran + performance.now() - since;
       $('.ob-sky').getAnimations({ subtree: true })
         .forEach(a => { if ((a as CSSAnimation).animationName === 'launch-drift') a.currentTime = now; });
-      reveal(true);
+      // The welcome fades in showing only the parked logo, lined up with the splash's; it morphs once the fade is done.
+      const morph = parkLogo();
+      if (!morph) reveal(true);
       // Let the welcome's first frame (its newly shown logo and text) paint before the fade starts, not during it.
       await settleFrames(500);
       // The sky's drift holds still through the fade: under Home's glass cards every moving frame re-blurs them all.
       document.documentElement.setAttribute('data-handoff', '');
       await api.win.launchFade().catch(() => undefined);
       document.documentElement.removeAttribute('data-handoff');
+      if (morph) { reveal(true); morph.play(); }
     })().finally(launched);
   } else {
     // Browser: the whole intro plays in the page. It lifts 1.8s after the swirl has fully appeared; animations only
     // advance while the page draws frames, so a clock-time cap makes sure it never stays up for good.
     const logoIn = $('.launch-logo', launch).getAnimations()[0]?.finished.catch(() => undefined) ?? Promise.resolve();
     void Promise.race([logoIn.then(() => wait(1800)), wait(6000)]).then(() => {
+      const morph = parkLogo();
       reveal(true);
       launched();
+      // The welcome's sky matches the launch's, so the parked logo takes over from it without a seam.
+      if (morph) { morph.play(); launch.remove(); return; }
       launch.classList.add('done');
       launch.addEventListener('animationend', e => { if (e.target === launch) launch.remove(); });
       setTimeout(() => launch.remove(), 1500); // the lift-off never got a frame to play in

@@ -652,7 +652,7 @@ button {
 }
 
 /* Onboarding backdrop: the Chao Phraya, a looping video over its first frame. The welcome sits on the launch sky
-   (.ob-sky, laid over the video); Start breezing fades the sky away so the city eases in, and it stays for setup and Home. */
+   (.ob-sky, laid over the video); moving on fades the sky away so the city eases in, and it stays for setup and Home. */
 .ob-bg {
   position: absolute;
   inset: 0;
@@ -678,7 +678,7 @@ button {
   .ob-video { display: none; }
 }
 
-/* The sky the launch animation opened, kept behind the welcome; it eases away to the city once Start breezing is pressed. */
+/* The sky the launch animation opened, kept behind the welcome; it eases away to the city once the welcome moves on. */
 .ob-sky {
   pointer-events: none;
   transition: opacity 1.4s cubic-bezier(.65, 0, .35, 1);
@@ -727,13 +727,6 @@ button {
   position: fixed;
 }
 
-/* Over the sky the blue button would vanish into the blue, so it turns white until the city comes up. */
-.ob-step[data-step="0"] .btn-primary {
-  background: #f5f5f7;
-  border-color: #f5f5f7;
-  color: #1f4dff;
-}
-
 /* A light dim over the whole photo, darker in an oval behind the text so the skyline doesn't fight the words. */
 .ob-bg::before {
   content: '';
@@ -777,15 +770,6 @@ button {
   background: rgba(50, 50, 52, .35);
 }
 
-.ob-step[data-step="0"] p.lead {
-  color: rgba(255, 255, 255, .86);
-  font-size: 16px;
-}
-
-.ob-step[data-step="0"] .btn-primary {
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
-}
-
 .ob-step {
   width: min(560px, calc(100vw - 32px));
   text-align: center;
@@ -793,23 +777,37 @@ button {
   padding: 40px 0 56px;
 }
 
+/* Onboarding's type shrinks with a small window rather than wrapping big words into it. */
 .ob-step h1 {
   font-family: var(--font-display);
-  font-size: 40px;
-  margin: 22px 0 8px;
+  font-size: clamp(24px, min(7vw, 9vh), 40px);
+  line-height: 1.2;
+  margin: 22px 0 4px;
   letter-spacing: -.02em;
 }
 
 .ob-step h2 {
   font-family: var(--font-display);
-  font-size: 24px;
+  font-size: clamp(18px, 5vw, 24px);
   margin: 0 0 8px;
 }
 
 .ob-step p.lead {
   color: var(--text-2);
-  font-size: 15px;
+  font-size: clamp(13px, 3.4vw, 15px);
   margin: 0 0 28px;
+}
+
+/* Nothing under the tagline any more, so no gap held for it. */
+.ob-step[data-step="0"] p.lead {
+  margin-bottom: 0;
+  color: rgba(255, 255, 255, .86);
+  font-size: clamp(13px, 3.6vw, 16px);
+}
+
+/* Too short for their gutter (fitDots, onboarding.ts). */
+.onboard.no-dots .ob-dots {
+  display: none;
 }
 
 .ob-dots {
@@ -1969,6 +1967,11 @@ body.resizing-h iframe {
   font-weight: 700;
 }
 
+/* Antigravity's mark is a bare shape where the others are full tiles: a white tile keeps it apart in the overlap. */
+.skill-mark.tint-antigravity.has-img {
+  background: #fff !important;
+}
+
 /* A drop-down group: open by default; an empty one is dimmed and stays shut. */
 .skill-group-head {
   display: flex;
@@ -2019,7 +2022,8 @@ body.resizing-h iframe {
   grid-template-rows: 0fr;
   opacity: 0;
   visibility: hidden;
-  transition: grid-template-rows .26s cubic-bezier(.2, .8, .2, 1), opacity .18s ease, visibility 0s .26s;
+  /* Closing is quick: a long list relays out on every frame of it, and nobody watches a list leave. */
+  transition: grid-template-rows .12s cubic-bezier(.2, .8, .2, 1), opacity .08s ease, visibility 0s .12s;
 }
 
 .skill-group.open > .skill-group-body,
@@ -5496,7 +5500,7 @@ body.vibing .ide {
   }
 }
 
-/* The welcome page stays hidden until the script is ready, then its logo, title, tagline and button rise in one after another. */
+/* The welcome page stays hidden until the script is ready, then its logo, title and tagline rise in one after another. */
 .ob-await>* {
   opacity: 0;
 }
@@ -5513,8 +5517,18 @@ body.vibing .ide {
   animation-delay: .24s;
 }
 
-.ob-intro>.btn {
-  animation-delay: .36s;
+/* After the launch morph (init.ts) the logo has no rise of its own (it would override the morph), and the text waits
+   for it to clear the middle of the window. */
+.ob-morph>.ob-logo {
+  animation: none;
+}
+
+.ob-morph>h1 {
+  animation-delay: .34s;
+}
+
+.ob-morph>.lead {
+  animation-delay: .42s;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5686,7 +5700,7 @@ body.vibing .ide {
 }
 
 .ob-step.setup h2 {
-  font-size: 22px;
+  font-size: clamp(17px, 5vw, 22px);
   margin-bottom: 4px;
 }
 
@@ -6973,9 +6987,17 @@ body.vibing .ide {
 /* ================= Home: jump back in, or start a project ================= */
 .ob-step.home-step {
   /* Home runs a size up from the setup steps; the width is divided back so it still fits narrow windows. */
-  zoom: 1.15;
-  width: min(920px, calc((100vw - 48px) / 1.15));
+  --home-zoom: 1.15;
+  zoom: var(--home-zoom);
+  width: min(920px, calc((100vw - 48px) / var(--home-zoom)));
   text-align: left;
+}
+
+/* A small window gets everything on Home back at its plain size. */
+@media (max-width: 760px), (max-height: 640px) {
+  .ob-step.home-step {
+    --home-zoom: 1;
+  }
 }
 
 /* Solid night-blue panels rather than glass: the sky behind them is the brand, the panels are content and stay calm.
@@ -7035,14 +7057,14 @@ body.vibing .ide {
 
 .home-head h2 {
   margin-bottom: 10px;
-  font-size: 40px;
+  font-size: clamp(22px, min(4.6vw, 6.5vh), 40px);
 }
 
 .home-head p.lead {
   /* Tucked closer to the title; the bottom margin gives the pulled-up space back so nothing below shifts. */
   margin: -6px 0 6px;
   color: rgba(255, 255, 255, .92);
-  font-size: 18px;
+  font-size: clamp(14px, 3vw, 18px);
 }
 
 /* Coming off the launch screen (init.ts), the greeting comes into focus as the sky lifts, the line under it a beat
@@ -7590,7 +7612,7 @@ body.vibing .ide {
 /* Exactly what it was in the corner, so nothing changes as it moves: Home's zoom divided back out, and the UI face
    rather than the heading's. */
 .home-head h2 > .home-profile {
-  zoom: calc(1 / 1.15);
+  zoom: calc(1 / var(--home-zoom));
   flex: none;
   margin-left: auto;
   font-family: var(--font-ui);
