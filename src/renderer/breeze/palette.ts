@@ -1,13 +1,17 @@
 /* ================= Command Palette (Ctrl+Shift+P) ================= */
 const PALETTE_RECENT_KEY = 'breeze.palette.recent';
 const PALETTE_RECENT_MAX = 8;
-// Every runnable menu command as "Menu: Item", one per command, with the key it has now.
+// Every runnable menu command as "Menu: Item", one per command, with the key it has now. On the debug page the
+// commands that edit the code at the caret are left out (there is no caret there, only the hidden editor's), and so
+// is Open Debug View.
 function paletteEntries(): { label: string; key: string; item: MenuItem }[] {
   const seen = new Set<string>();
   const out: { label: string; key: string; item: MenuItem }[] = [];
+  const onDebugPage = debugPageShowing();
   for (const menu of MENUS) {
     for (const item of menu.items) {
       if (!item.act || !item.label || item.enabled?.() === false || seen.has(item.act)) continue;
+      if (onDebugPage && (item.act === 'debug.open' || (EDITOR_ONLY.has(item.act) && !DEBUG_PAGE_ACTS.has(item.act)))) continue;
       seen.add(item.act);
       out.push({ label: `${menu.name}: ${item.label}`, key: keyBinds[item.act] ?? item.key ?? '', item });
     }
@@ -39,6 +43,8 @@ function openPalette(query = ''): void {
       if (!e?.item.act) return;
       closeModal();
       store.set(PALETTE_RECENT_KEY, [e.item.act, ...recent.filter(a => a !== e.item.act)].slice(0, PALETTE_RECENT_MAX));
+      // A command the debug page doesn't answer would act on the hidden editor: go back to it first, so it shows.
+      if (debugPageShowing() && !DEBUG_PAGE_ACTS.has(e.item.act)) leaveDebugView();
       activateMenuItem(e.item);
     };
     const render = () => {
