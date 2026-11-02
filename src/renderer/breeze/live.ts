@@ -6,6 +6,7 @@ const LIVE_MAX_LINES = 5000; // past this only the start is drawn; a huge file w
 const liveSeen = new Map<string, string>();
 let livePath: string | null = null;
 let liveReads = 0; // a later read wins over an earlier one still in flight
+let liveHand: CrewHand | null = null; // the drafting agent's cursor, moved to the end of each redraw
 
 function liveEmpty(): void {
   livePath = null;
@@ -35,7 +36,7 @@ function liveHead(path: string, status: string): void {
     ${rootInfo ? `<button class="icon-btn" type="button" id="boxLiveOpen" title="Open in Breeze Code">${svgIcon('external', 14)}</button>` : ''}`;
 }
 
-function liveRender(path: string, text: string, prev: string | undefined, writing: boolean): void {
+function liveRender(path: string, text: string, prev: string | undefined, writing: boolean, phase = 'assistant'): void {
   const switched = livePath !== path;
   livePath = path;
   $('#boxLive').classList.toggle('writing', writing);
@@ -52,6 +53,19 @@ function liveRender(path: string, text: string, prev: string | undefined, writin
   if (d.lines.length > count) rows += `<div class="box-live-more">${(d.lines.length - count).toLocaleString()} more lines</div>`;
   const body = $('#boxLiveBody');
   body.innerHTML = `<div class="box-live-code">${rows}</div>`;
+  // A draft is written top to bottom, so the agent's caret and cursor sit after its last character.
+  const end = writing && d.lines.length <= count ? body.querySelector<HTMLElement>('.ln:last-child .tx') : null;
+  if (end) {
+    if (end.textContent === ' ') end.textContent = ''; // the space only keeps an empty line's height
+    const at = document.createElement('span');
+    at.className = 'box-live-at';
+    at.innerHTML = '<span class="type-caret"></span>';
+    liveHand ??= crewHand();
+    dressCrewHand(liveHand, phase);
+    liveHand.el.style.transform = 'translate(3px, 13px)';
+    at.append(liveHand.el);
+    end.append(at);
+  }
   // Follow the agent: the end of a file being drafted, otherwise the first changed line.
   const target = writing ? body.querySelector<HTMLElement>('.ln:last-child') : body.querySelector<HTMLElement>('.ln.changed');
   if (target) target.scrollIntoView({ block: writing ? 'end' : 'center', behavior: switched || reduceMotion.matches ? 'auto' : 'smooth' });
@@ -59,9 +73,9 @@ function liveRender(path: string, text: string, prev: string | undefined, writin
 }
 
 // The agent's text for a file it is creating, as it writes it.
-function liveDraft(path: string, text: string): void {
+function liveDraft(path: string, text: string, phase?: string): void {
   if (baseName(path).startsWith('.env')) return;
-  liveRender(path, text, undefined, true);
+  liveRender(path, text, undefined, true, phase);
   liveSeen.set(path, text);
 }
 

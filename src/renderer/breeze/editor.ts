@@ -150,6 +150,7 @@ function renderEditor(): void {
       empty.addEventListener('animationend', () => empty.classList.remove('enter'), { once: true });
     }
     hlLines.replaceChildren(); hlBoxes.replaceChildren(); gutLines.replaceChildren();
+    if (typeHand) typeHand.el.hidden = true;
     updateSliders();
     closeFind();
     updateStatus();
@@ -594,6 +595,7 @@ function renderCode(): void {
   patchRows(gutLines, nums);
   gutLines.style.top = `${winFirst * LINE_H}px`;
   hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
+  placeTypeHand(b, cw);
   tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
   $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 48}px`; // +8 each for the mark dot and the breakpoint dot
   // The surface painted before these lines were drawn; repaint so carets on measured (non-ASCII) lines match them.

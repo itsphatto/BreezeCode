@@ -579,6 +579,24 @@ function typingCaretBox(b: EditorBuffer, cw: number): HTMLElement[] {
   const ls = lineStart(b.text, off);
   return [box('type-caret', lineAt(b.text, off) * LINE_H, visualCol(b.text.slice(ls, lineEnd(b.text, ls)), off - ls) * cw)];
 }
+// The agent's mouse cursor, drawn like the crew that rebuilds the window for the debugger, riding just behind its caret.
+// One element kept outside the boxes that are redrawn every frame, so its arrow is only painted when the agent changes.
+let typeHand: CrewHand | null = null;
+function placeTypeHand(b: EditorBuffer, cw: number): void {
+  const off = typingCaret.get(b.path);
+  if (off == null) { if (typeHand) typeHand.el.hidden = true; return; }
+  if (!typeHand) {
+    typeHand = crewHand();
+    hlBoxes.after(typeHand.el);
+  }
+  const hand = typeHand;
+  dressCrewHand(hand, locks[b.path]?.phase ?? 'assistant');
+  const ls = lineStart(b.text, off);
+  const x = visualCol(b.text.slice(ls, lineEnd(b.text, ls)), off - ls) * cw, y = lineAt(b.text, off) * LINE_H;
+  hand.el.hidden = false;
+  // Its tip rests just after the caret, near the bottom of the line, so the letters being typed stay in view.
+  hand.el.style.transform = `translate(${x + 3}px, ${y + 13}px)`;
+}
 
 api.fs.onChange(paths => background((async () => {
   queueGitRefresh();
