@@ -156,7 +156,7 @@
   --code-text: #26231e;
 }
 
-/* Onboarding and Home sit over the river photo, so they keep the dark glass in every theme. */
+/* Onboarding and Home sit over the launch sky, so they keep the dark glass in every theme. */
 :root[data-theme="light"] .onboard {
   color-scheme: dark;
   --text: #f5f5f7;
@@ -651,56 +651,16 @@ button {
   -webkit-app-region: drag;
 }
 
-/* Onboarding backdrop: the Chao Phraya, a looping video over its first frame. The welcome sits on the launch sky
-   (.ob-sky, laid over the video); moving on fades the sky away so the city eases in, and it stays for setup and Home. */
-.ob-bg {
-  position: absolute;
-  inset: 0;
-  isolation: isolate; /* keeps the video under the dim layers below, also once the mask is gone */
-  background: url('../../assets/screens/chaophraya-loop.jpg') center / cover no-repeat;
-  /* The whole layer fades (video and its still together, so they never show through each other) into the dark
-     page behind: a busy aerial shot stays a backdrop instead of competing with the cards. */
-  opacity: .55;
-  pointer-events: none;
-}
-
-/* Muted and autoplaying, so Chromium pauses it on its own whenever Home is off screen. */
-.ob-video {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ob-video { display: none; }
-}
-
-/* The sky the launch animation opened, kept behind the welcome; it eases away to the city once the welcome moves on. */
+/* Onboarding backdrop: the sky the launch animation opened (launch.css), behind every step. The welcome shows it
+   at full strength; past it (sign-in, preferences, Home) it is turned down, so the glassy cards and white text stay
+   calm on it. */
 .ob-sky {
   pointer-events: none;
-  transition: opacity 1.4s cubic-bezier(.65, 0, .35, 1);
+  transition: filter .8s cubic-bezier(.65, 0, .35, 1);
 }
 
-/* Hidden only once the fade has finished. The delay lives here, not on .ob-sky: there it would also hold the sky back
-   for 1.4s when the page comes out from under the launch light, flashing the city before the sky. */
-.ob-bg.revealed ~ .ob-sky {
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 1.4s cubic-bezier(.65, 0, .35, 1), visibility 0s 1.4s;
-}
-
-/* Home sits on the launch sky again rather than the city, turned down so the glassy cards and white text stay calm on it. */
-.onboard:has(.home-step:not(.hidden)) .ob-bg {
-  visibility: hidden;
-}
-.onboard:has(.home-step:not(.hidden)) .ob-sky {
-  opacity: 1;
-  visibility: visible;
+.onboard:not(:has(.ob-step[data-step="0"]:not(.hidden))) .ob-sky {
   filter: brightness(.5) saturate(1);
-  transition: opacity .6s ease;
 }
 
 /* April Fools: everything on Home shows in inverted colours (the launch does too, launch.css). */
@@ -723,38 +683,28 @@ button {
 
 /* The backdrop stays put when a short window scrolls the step over it; absolute, it scrolled away and left a bare strip.
    shortcut: April Fools' filter on .onboard makes it their containing block again, so they still scroll that day. */
-.onboard > :is(.ob-bg, .ob-sky, .home-fireworks) {
+.onboard > :is(.ob-sky, .home-fireworks) {
   position: fixed;
 }
 
-/* A light dim over the whole photo, darker in an oval behind the text so the skyline doesn't fight the words. */
-.ob-bg::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 42% 34% at 50% 50%, rgba(0, 0, 0, .32), rgba(0, 0, 0, .14) 60%, transparent 100%),
-    rgba(0, 0, 0, .2);
-}
-
-/* Light theme: the photo keeps the dark theme's dim over the same dark page (a lit-up photo left the white text
-   at 1:1 on its bright patches); Home's sky and panels are where light mode shows. */
+/* Light theme: setup keeps the dark theme's dimmed sky over the same dark page (the white text needs it); Home's
+   sky and panels are where light mode shows. */
 :root[data-theme="light"] .onboard { background: #1d1d1f; }
 :root[data-theme="light"] .onboard:has(.home-step:not(.hidden)) .ob-sky { filter: brightness(.92) saturate(1.05); }
 
-/* Every step sits above the photo and its ripple. */
+/* Every step sits above the sky. */
 .ob-step {
   position: relative;
 }
 
-/* Over the photo the dark surfaces turn glassy: mostly opaque, with the river showing faintly through a blur.
+/* Over the sky the dark surfaces turn glassy: mostly opaque, with the sky showing faintly through a blur.
    Only the onboarding steps get these; the app keeps its solid colours. */
 .onboard .ob-step {
   --bg: rgba(29, 29, 31, .72);
   --bg-1: rgba(35, 35, 37, .76);
   --bg-2: rgba(42, 42, 44, .78);
   --bg-3: rgba(50, 50, 52, .8);
-  /* Greys and links a step lighter than the app's, so they hold 4.5:1 over the photo's bright patches too. */
+  /* Greys and links a step lighter than the app's, so they hold 4.5:1 over the sky's bright patches too. */
   --text-2: #e4e4e8;
   --text-3: #bdbdc2;
   --blue-text: #c2d7ff;
@@ -765,7 +715,7 @@ button {
   backdrop-filter: blur(36px) saturate(1.3);
 }
 
-/* The GitHub and Google buttons are see-through so the photo shows behind them. */
+/* The GitHub and Google buttons are see-through so the sky shows behind them. */
 .onboard .signin-btns .btn:not(.btn-ghost) {
   background: rgba(50, 50, 52, .35);
 }
@@ -798,11 +748,38 @@ button {
   margin: 0 0 28px;
 }
 
-/* Nothing under the tagline any more, so no gap held for it. */
+/* Get started sits under the tagline. */
 .ob-step[data-step="0"] p.lead {
-  margin-bottom: 0;
+  margin-bottom: 32px;
   color: rgba(255, 255, 255, .86);
   font-size: clamp(13px, 3.6vw, 16px);
+}
+
+/* Get started: white on the sky (the blue primary button would sink into it). Blue text #1f4dff on white is 5.9:1. */
+.ob-start {
+  padding: 11px 30px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f4dff;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
+  transition: background-color .15s ease, box-shadow .18s ease, transform .12s cubic-bezier(.2, .8, .2, 1);
+}
+
+.ob-start:hover {
+  background: #eef3ff;
+  box-shadow: 0 8px 28px rgba(10, 30, 120, .36);
+}
+
+.ob-start:active {
+  transform: scale(.97);
+}
+
+.ob-start:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
 }
 
 /* Too short for their gutter (fitDots, onboarding.ts). */
@@ -5553,6 +5530,10 @@ body.vibing .ide {
   animation-delay: .24s;
 }
 
+.ob-intro>.ob-start {
+  animation-delay: .36s;
+}
+
 /* After the launch morph (init.ts) the logo has no rise of its own (it would override the morph), and the text waits
    for it to clear the middle of the window. */
 .ob-morph>.ob-logo {
@@ -5565,6 +5546,10 @@ body.vibing .ide {
 
 .ob-morph>.lead {
   animation-delay: .42s;
+}
+
+.ob-morph>.ob-start {
+  animation-delay: .54s;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5754,6 +5739,34 @@ body.vibing .ide {
 .setup-col {
   display: grid;
   gap: 12px;
+}
+
+/* Preferences: one column, read top to bottom, Continue at the end. */
+.ob-step.setup.prefs {
+  width: min(620px, calc(100vw - 48px));
+}
+
+.prefs .setup-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.prefs .set-themes {
+  margin-bottom: 0;
+}
+
+.prefs .ob-motion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.prefs .ob-motion .muted {
+  margin: 4px 0 0;
+}
+
+.prefs .ob-motion .set-ctl {
+  flex: none;
 }
 
 .setup .setup-card {
@@ -12936,7 +12949,7 @@ body.layout-animating #previewPane {
   box-shadow: var(--paper-shadow);
 }
 
-/* The wordmarks and the swirl are white images: drawn dark here, except over the photo. */
+/* The wordmarks and the swirl are white images: drawn dark here, except over the onboarding sky. */
 :root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *) {
   filter: invert(.88);
 }

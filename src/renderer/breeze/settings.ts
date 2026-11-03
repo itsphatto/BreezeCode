@@ -258,7 +258,7 @@ function settingsBody(tab: SettingsTab): string {
       <h5>Text</h5>
       ${settingRow('Font size', 'Code in the editor and the debugger.', `<div class="set-volume set-font-size"><input type="range" id="sCodeSize" min="${CODE_SIZE_MIN}" max="${CODE_SIZE_MAX}" step="1" value="${codeSize}" aria-label="Code font size"><span class="set-volume-val" id="sCodeSizeVal">${codeSize}px</span></div>`)}
       <h5>Motion</h5>
-      ${settingRow('Exaggerated animation', 'Fly between Breeze Code and Breeze Space, and bring the debugger in panel by panel.', switchHtml('sBigAnim', bigAnim, 'Exaggerated animation'))}`;
+      ${settingRow('Extra animation', 'Fly between Breeze Code and Breeze Space, and bring the debugger in panel by panel.', switchHtml('sBigAnim', bigAnim, 'Extra animation'))}`;
     case 'controls': return `<h4>Controls</h4>
       <h5>Keybinds</h5>
       <p class="set-sub">Click a shortcut, then press the new keys. Backspace removes it, Escape cancels.</p>
@@ -332,6 +332,38 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Reload window', esc(keyOf('win.reload')), '<button class="btn btn-sm" data-set-cmd="win.reload">Reload</button>')}
       ${settingRow('Turn off Developer', 'Hide this section again.', '<button class="btn btn-sm" id="sDevOff">Turn off</button>')}`;
   }
+}
+
+function setBigAnim(on: boolean): void {
+  bigAnim = on;
+  store.set('breeze.bigAnim', on);
+}
+
+/* ----- Onboarding → Preferences: the same theme cards and Extra animation switch as Settings → Appearance ----- */
+function renderObPrefs(): void {
+  const themes = $('#obThemes');
+  themes.innerHTML = THEMES.map(themeCardHtml).join('');
+  // As in Settings, Light's joke stays on one line: one that would wrap is swapped for another that fits.
+  const joke = themes.querySelector<HTMLElement>('[data-theme-pick="light"] .set-sub');
+  for (let i = 0; joke && joke.scrollWidth > joke.clientWidth && i < 40; i++) joke.textContent = lightJoke = pickOther(LIGHT_JOKES, lightJoke);
+  $$<HTMLElement>('[data-theme-pick]', themes).forEach(b => b.onclick = () => {
+    const pick = b.dataset.themePick as Theme;
+    if (pick === theme) return;
+    const from = themes.querySelector('.set-theme.on')?.getBoundingClientRect();
+    setTheme(pick);
+    renderObPrefs();
+    slideSelected(themes.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
+  });
+  const ctl = $('#obMotionCtl');
+  if (!ctl.firstElementChild) ctl.innerHTML = switchHtml('obBigAnim', bigAnim, 'Extra animation');
+  const sw = $<HTMLButtonElement>('#obBigAnim', ctl);
+  sw.setAttribute('aria-describedby', 'obMotionHeading');
+  // Flipped in place, not redrawn, so the knob slides across.
+  sw.onclick = () => {
+    setBigAnim(!bigAnim);
+    sw.classList.toggle('on', bigAnim);
+    sw.setAttribute('aria-checked', String(bigAnim));
+  };
 }
 
 /* ----- Controls: key binds ----- */
@@ -491,7 +523,7 @@ function bindSettings(m: HTMLElement): void {
     refreshSettings();
     slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
   });
-  on('sBigAnim', () => { bigAnim = !bigAnim; store.set('breeze.bigAnim', bigAnim); refreshSettings(); });
+  on('sBigAnim', () => { setBigAnim(!bigAnim); refreshSettings(); });
   // Font size: the code redraws as the knob moves; the arrow keys and the wheel step one pixel.
   const sizeEl = $<HTMLInputElement>('#sCodeSize', pane);
   if (sizeEl) {

@@ -14,7 +14,7 @@ const saveApp = () => store.set('breeze.app', appState);
 // The blue app icon, or in developer mode the flipped one (white tile, blue wind).
 const appIcon = () => `../../assets/brand/${appState.devMode ? 'IconDev' : 'Icon'}.png`;
 
-/* ================= Onboarding: welcome → login → agent → home ================= */
+/* ================= Onboarding: welcome → login → preferences (and agent) → home ================= */
 // Home is also where every later launch lands (see init.ts).
 const STEP = { welcome: 0, signIn: 1, agent: 2, home: 3 };
 let step = Math.min(appState.step, STEP.home);
@@ -23,22 +23,15 @@ function goStep(n: number): void {
   step = n; appState.step = n; saveApp();
   $$('.ob-step').forEach(s => s.classList.toggle('hidden', Number(s.dataset.step) !== n));
   $$('.ob-dots span').forEach((d, i) => { d.classList.toggle('on', i === n); d.classList.toggle('back', i < n); });
-  if (n === STEP.agent) detectTools().catch(() => { /* the agent card shows the error */ });
+  if (n === STEP.agent) {
+    renderObPrefs(); // settings.ts
+    detectTools().catch(() => { /* the agent card shows the error */ });
+  }
   if (n === STEP.home) renderHome();
   // Once set up, Home is a screen of its own rather than a setup step, so the progress dots go.
   $('#onboard').classList.toggle('settled', appState.onboarded);
   $('#homeProfile').classList.toggle('hidden', n !== STEP.home);
   placeSignIn(false); // opening Home on a short window: already in place, no flight
-  // Past the welcome the photo stays up for the rest of setup (also after a restart mid-setup).
-  if (n > STEP.welcome) revealBackdrop();
-  // During the launch the welcome isn't on screen yet: init.ts starts its clock when it shows.
-  if (n === STEP.welcome && !launching) armWelcome();
-}
-// The welcome has no button: it moves on to signing in by itself, 3s after it shows.
-let welcomeTimer = 0;
-function armWelcome(): void {
-  clearTimeout(welcomeTimer);
-  welcomeTimer = window.setTimeout(() => { if (step === STEP.welcome) goStep(STEP.signIn); }, 3000);
 }
 $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
 // While the onboarding screen (and so Home) is up, the window buttons sit straight on its backdrop and draw light.
@@ -50,13 +43,6 @@ function syncTitleBar(): void {
 new MutationObserver(syncTitleBar).observe($('#onboard'), { attributes: true, attributeFilter: ['class'] });
 syncTitleBar();
 
-/* Welcome: it sits on the launch sky; moving on eases the sky away to the city video (the fade is in breeze.css). */
-const obBg = $('#obBg');
-// The video only plays once the sky lifts off it: decoding it unseen under the sky stutters the launch fade.
-const revealBackdrop = () => {
-  obBg.classList.add('revealed');
-  $<HTMLVideoElement>('.ob-video', obBg).play().catch(() => undefined);
-};
 // The dots before the current one take you back to that step.
 $$('.ob-dots span').forEach((d, i) => {
   d.onclick = () => { if (i < step) goStep(i); };

@@ -107,7 +107,6 @@ let detecting: Promise<Detection> | null = null;
 function detectTools(force = false): Promise<Detection> {
   if (detecting !== null) return detecting;
   $('#aiPill').className = 'pill'; swapText($('#aiPill'), 'Scanning');
-  $('#toolsPill').className = 'pill'; swapText($('#toolsPill'), 'Scanning');
   if (!appState.detect) $('#agentList').innerHTML = '<div class="row text-3"><div class="spinner sm"></div>Checking this computer</div>';
   detecting = api.sys.detect(force).then(d => {
     appState.detect = d;
@@ -288,17 +287,7 @@ function toolInstall(t: DetectedTool): { attrs: string; does: string } {
   if (t.url) return { attrs: `data-get="${escAttr(t.url)}"`, does: `Opens the ${t.name} download page: ${t.url}` };
   return { attrs: '', does: t.hint ?? '' };
 }
-function toolHtml(t: DetectedTool): string {
-  if (!t.found) {
-    const label = t.optional ? `${t.name} not found` : `${t.name} missing`;
-    const cls = `pill pill-btn tool-pill-missing ${t.optional ? '' : 'warn'}`.trim();
-    const { attrs, does } = toolInstall(t);
-    return `<button type="button" class="${cls}" data-tool-id="${escAttr(t.id)}" ${attrs} title="${escAttr(does)}" aria-label="${escAttr(`${label}. ${does}`)}">${esc(label)}</button>`;
-  }
-  const version = t.version ? ' ' + esc(t.version) : '';
-  return `<span class="pill ok">${esc(t.name)}${version} ready</span>`;
-}
-// The install buttons, here and in Settings → Help & About. An install finishes in its own terminal, so for a while
+// The install buttons in Settings → Help & About. An install finishes in its own terminal, so for a while
 // after one starts Breeze looks again every time it comes back into focus (see autoRescan).
 let installStarted = 0;
 function bindToolButtons(root: HTMLElement): void {
@@ -337,11 +326,7 @@ function renderDetection(): void {
     : 'No coding agent found. Install one and rescan, or connect a local LLM server.';
   if (d.demo) $('#aiHint').textContent += ' (Browser preview.)';
 
-  $('#toolList').innerHTML = d.tools.map(toolHtml).join('');
-  bindToolButtons($('#toolList'));
   const missing = d.tools.filter(t => !t.found && !t.optional).map(t => t.name);
-  $('#toolsPill').className = missing.length ? 'pill warn' : 'pill ok';
-  swapText($('#toolsPill'), missing.length ? `${missing.join(' & ')} missing` : 'Ready');
 
   const summary = d.tools.filter(t => t.found || !t.optional).map(t => `${t.name.replace('.js', '').replace('C/C++', 'C')} ${t.found ? 'ready' : 'missing'}`).join(' · ');
   $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;

@@ -172,7 +172,6 @@
   <!-- ================= ONBOARDING ================= -->
   <div class="onboard" id="onboard">
     <div class="drag-strip"></div>
-    <div class="ob-bg" id="obBg" aria-hidden="true"><video class="ob-video" src="../../assets/screens/chaophraya-loop.mp4" muted loop playsinline preload="auto" tabindex="-1"></video></div>
     <div class="ob-sky" aria-hidden="true"></div>
     <canvas class="home-fireworks hidden" id="homeFireworks" aria-hidden="true"></canvas>
     <!-- Welcome -->
@@ -180,6 +179,7 @@
       <img class="ob-logo" src="../../assets/brand/Agent.png" width="72" height="72" alt="Breeze Code Logo">
       <h1>Breeze Code</h1>
       <p class="lead">Imagination to Reality.</p>
+      <button class="btn ob-start" type="button" data-next>Get started</button>
     </section>
 
     <!-- 1 · Login -->
@@ -209,10 +209,24 @@
       </div>
     </section>
 
-    <!-- 2 · Agent -->
-    <section class="ob-step setup hidden" data-step="2">
-      <h2 id="ChooseYourAgentHeading">Pick your AI agent</h2>
+    <!-- 2 · Preferences: theme, motion, then the agent -->
+    <section class="ob-step setup prefs hidden" data-step="2" aria-labelledby="prefsHeading">
+      <h2 id="prefsHeading">Preferences</h2>
+      <p class="lead">Make Breeze yours. You can change any of this later in Settings.</p>
       <div class="setup-grid">
+        <div class="setup-card">
+          <header>
+            <h3 id="obThemeHeading">Theme</h3>
+          </header>
+          <div class="set-themes" id="obThemes" role="group" aria-labelledby="obThemeHeading"></div>
+        </div>
+        <div class="setup-card ob-motion">
+          <div class="set-text">
+            <h3 id="obMotionHeading">Extra animation</h3>
+            <p class="muted">Fly between Breeze Code and Breeze Space, and bring the debugger in panel by panel.</p>
+          </div>
+          <div class="set-ctl" id="obMotionCtl"></div>
+        </div>
         <div class="setup-card">
           <header>
             <h3>AI agents</h3><span class="row gap-6"><span class="pill" id="aiPill">Scanning</span><button
@@ -223,17 +237,7 @@
           <p class="muted" id="aiHint">Looking for coding agents installed on this computer</p>
           <div class="agent-list" id="agentList"></div>
         </div>
-        <div class="setup-col">
-          <div class="setup-card">
-            <header>
-              <h3>Git and Node</h3><span class="pill" id="toolsPill">Scanning</span>
-            </header>
-            <p class="muted">Agents use these to save checkpoints and run your project. Click on each compiler not
-              installed yet to run an installer.</p>
-            <div class="row" id="toolList"></div>
-          </div>
-          <button class="btn btn-primary btn-lg w-full" data-next>Continue</button>
-        </div>
+        <button class="btn btn-primary btn-lg w-full" data-next>Continue</button>
       </div>
     </section>
 

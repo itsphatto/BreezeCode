@@ -53,17 +53,9 @@ async function boot(): Promise<void> {
     seen = startupWaits.length;
     await Promise.all(batch);
   }
-  // And the backdrop video's first frame, so its 9MB load and decoder start-up don't land in the fade (3s at most).
-  const video = $<HTMLVideoElement>('.ob-video');
-  await Promise.all([
-    ...[...document.querySelectorAll<HTMLImageElement>('#ide:not(.hidden) img, #box:not(.hidden) img, #onboard:not(.hidden) img')]
-      .map(img => img.decode().catch(() => undefined)),
-    video.readyState >= 2 || new Promise(done => {
-      video.addEventListener('loadeddata', done, { once: true });
-      video.addEventListener('error', done, { once: true });
-      setTimeout(done, 3000);
-    }),
-  ]);
+  // And the pictures on the screen that's showing, decoded so they don't land in the fade.
+  await Promise.all([...document.querySelectorAll<HTMLImageElement>('#ide:not(.hidden) img, #box:not(.hidden) img, #onboard:not(.hidden) img')]
+    .map(img => img.decode().catch(() => undefined)));
   startupWaits = null;
   // One frame so the last renders are painted before start-up counts as done.
   await new Promise(r => { requestAnimationFrame(() => r(undefined)); setTimeout(r, 100); }); // a hidden window has no frames
@@ -95,7 +87,7 @@ async function boot(): Promise<void> {
   const reveal = (greet: boolean) => {
     document.documentElement.removeAttribute('data-launching');
     welcome.classList.remove('ob-await');
-    if (welcome.getClientRects().length) { welcome.classList.add('ob-intro'); armWelcome(); }
+    if (welcome.getClientRects().length) welcome.classList.add('ob-intro');
     if (!greet) return;
     const home = $('.home-step');
     home.classList.add('home-in');
