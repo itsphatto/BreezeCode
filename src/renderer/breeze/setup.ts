@@ -1009,6 +1009,9 @@ function swapScreen(to: string): void {
     const fall = bigAnim && !still && prev?.id === 'box' && next.id === 'ide';
     next.classList.remove('screen-prep');
     if (climb || fall) flyBetween(next, fall); // space.ts
+    // The terminal goes back to the IDE, on the way down once Space's contents have faded, so the conversation doesn't jump.
+    if (fall) setTimeout(() => { if (appState.mode === 'ide') terminalBack(); }, 450);
+    else if (next.id === 'ide') terminalBack();
     else if (!team) {
       const cls = soft ? 'screen-soft-in' : 'screen-in';
       next.classList.add(cls);
