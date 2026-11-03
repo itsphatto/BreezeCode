@@ -151,7 +151,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
   // The constructor paints before `ta` is assigned, hence the empty text then.
   let self: CodeSurface | null = null;
   const ta = self = new CodeSurface($('#editor .code'), {
-    lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: `Editing ${b.untitled ? baseName(b.path) : b.path}`,
+    get lineHeight() { return LINE_H; }, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: `Editing ${b.untitled ? baseName(b.path) : b.path}`,
     ...lineMeasurer(hlLines, () => winFirst, () => self?.value ?? ''),
   });
   ta.classList.add('hidden');

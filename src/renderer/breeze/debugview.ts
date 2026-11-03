@@ -131,7 +131,7 @@ let dbgWin = { first: 0, last: 0, total: 1 };
 let dbgShown: string | null = null; // the file in the middle
 let dbgSelf: CodeSurface | null = null;
 const dbgTa: CodeSurface = dbgSelf = new CodeSurface($('#dbgEditor .code'), {
-  lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: 'Code being debugged (read only)',
+  get lineHeight() { return LINE_H; }, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: 'Code being debugged (read only)',
   ...lineMeasurer(dbgLines, () => dbgWin.first, () => dbgSelf?.value ?? ''),
 });
 // Read-only: the hidden input takes no typing, and every edit the surface would make (Enter, Delete, paste, cut) is

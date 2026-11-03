@@ -2967,7 +2967,7 @@ svg.ico-svg:active {
   min-height: 0;
   position: relative;
   overflow: hidden;
-  font: 13px/21px var(--font-code);
+  font: var(--code-size, 13px)/var(--code-line, 21px) var(--font-code);
 }
 
 .gutter {
@@ -3121,7 +3121,7 @@ svg.ico-svg:active {
 }
 
 .ln {
-  min-height: 21px;
+  min-height: var(--code-line, 21px);
   position: relative;
 }
 
@@ -3204,14 +3204,14 @@ svg.ico-svg:active {
 
 .hit {
   position: absolute;
-  height: 21px;
+  height: var(--code-line, 21px);
   background: rgba(245, 158, 11, .22);
   border-radius: 2px;
 }
 
 .tagpair {
   position: absolute;
-  height: 21px;
+  height: var(--code-line, 21px);
   border-radius: 3px;
   pointer-events: none;
   background: rgba(122, 169, 255, .2);
@@ -3223,7 +3223,7 @@ svg.ico-svg:active {
 .type-caret {
   position: absolute;
   width: 2px;
-  height: 19px;
+  height: calc(var(--code-line, 21px) - 2px);
   margin-top: 1px;
   border-radius: 1px;
   background: var(--blue-text);
@@ -3304,7 +3304,7 @@ svg.ico-svg:active {
 
 .code-sel {
   position: absolute;
-  height: 21px;
+  height: var(--code-line, 21px);
   background: rgba(0, 122, 255, .4);
   pointer-events: none;
 }
@@ -3312,7 +3312,7 @@ svg.ico-svg:active {
 .code-caret {
   position: absolute;
   width: 2px;
-  height: 19px;
+  height: calc(var(--code-line, 21px) - 2px);
   margin-top: 1px;
   background: var(--text);
   pointer-events: none;
@@ -3334,7 +3334,7 @@ svg.ico-svg:active {
   position: absolute;
   inset: auto;
   width: 1px;
-  height: 21px;
+  height: var(--code-line, 21px);
   padding: 0;
   border: 0;
   outline: 0;
@@ -8158,6 +8158,13 @@ body.vibing .box {
   transform: rotate(-90deg);
 }
 
+/* A little air between chats, so neighbouring highlights don't run into each other. */
+.box-side-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .box-side-group.folded .box-side-chats {
   display: none;
 }
@@ -8541,7 +8548,7 @@ body.vibing .box {
   pointer-events: none;
   white-space: pre;
   color: var(--text-3);
-  font: 13px/21px var(--font-code);
+  font: var(--code-size, 13px)/var(--code-line, 21px) var(--font-code);
 }
 
 .editor-ghost:empty {
@@ -9333,6 +9340,39 @@ body.vibing .box {
   to {
     opacity: 0;
     transform: scale(1.02);
+  }
+}
+
+/* Into and out of the debugger without Exaggerated animation: the pages share their title and activity bars, so a
+   plain cross-fade leaves those still and only the work area changes. The new page's content settles in a few pixels;
+   nothing scales or rises, which read as another window opening. */
+.screen-soft-in {
+  animation: screenSoftIn .3s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.screen-soft-in > :is(.main, .dbg-main) {
+  animation: screenSoftShift .3s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.screen-out.screen-soft {
+  animation: screenSoftOut .2s ease forwards;
+}
+
+@keyframes screenSoftIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes screenSoftShift {
+  from {
+    transform: translateY(6px);
+  }
+}
+
+@keyframes screenSoftOut {
+  to {
+    opacity: 0;
   }
 }
 

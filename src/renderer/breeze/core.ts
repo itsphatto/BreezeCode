@@ -255,6 +255,7 @@ interface BreezeApi {
   };
   win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>; devIcon(on: boolean): Promise<void>;
     minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>;
+    newTerminal(): Promise<void>;
     onMaximized(cb: (maximized: boolean) => void): () => void;
     launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
 }
@@ -338,6 +339,12 @@ const THEME_IDS: Theme[] = ['dark', 'contrast', 'light'];
 const savedTheme = store.get<string>('breeze.theme', 'dark');
 let theme: Theme = THEME_IDS.find(t => t === savedTheme) ?? 'dark';
 document.documentElement.dataset.theme = theme;
+// The big screen changes (the flight to and from Breeze Space, the debugger taking over panel by panel) are opt-in;
+// without them screens cross-fade in place.
+let bigAnim = store.get<boolean>('breeze.bigAnim', false) === true;
+// The code font size in px (editors, the debugger's source). The line height follows it.
+const CODE_SIZE_MIN = 10, CODE_SIZE_MAX = 24, CODE_SIZE_DEFAULT = 13;
+let codeSize = clamp(Math.round(Number(store.get<number>('breeze.codeSize', CODE_SIZE_DEFAULT)) || CODE_SIZE_DEFAULT), CODE_SIZE_MIN, CODE_SIZE_MAX);
 
 /* ----- Redrawing lists: only the rows that changed ----- */
 // Replacing a whole list (the code window per keystroke, the file tree per file change) makes the browser style

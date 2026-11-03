@@ -159,6 +159,7 @@ const commands: Record<string, () => unknown> = {
     createTermSession();
     termInput.focus();
   },
+  'term.newWindow': () => background(api.win.newTerminal()),
   'term.clear': () => {
     if (activeTermSession?.paneEl) {
       activeTermSession.paneEl.innerHTML = '';
@@ -411,6 +412,7 @@ const MENUS: Menu[] = [
   {
     name: 'Terminal', items: [
       { label: 'New Terminal', act: 'term.new', key: 'Ctrl+Shift+`' },
+      { label: 'New Terminal Window', act: 'term.newWindow' },
       { label: 'Toggle Terminal', act: 'term.toggle', key: 'Ctrl+`' },
       { sep: true },
       { label: 'Clear Terminal', act: 'term.clear' },

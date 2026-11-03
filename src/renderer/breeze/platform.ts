@@ -529,6 +529,7 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async toggleMaximize() { /* */ },
       async close() { window.close(); },
       async isMaximized() { return false; },
+      async newTerminal() { toast('Terminal windows are available in the desktop app'); },
       onMaximized() { return () => { /* */ }; },
       // No splash window in the browser: the page plays the whole launch itself (init.ts).
       async launchWait() { return null; },
