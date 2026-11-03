@@ -43,9 +43,10 @@ These four points are equally weighted and should not be traded against each oth
 
 ## Capabilities and Constraints
 
-- Editor: reorderable tabs, go to file or line, find, and JS/TS syntax checking.
+- Editor: reorderable tabs, go to file or line, find, and JS/TS syntax checking. Errors and warnings from the file's language server are underlined as you type (red and amber).
+- Jupyter notebooks: a `.ipynb` file opens as cells. Code cells run in a Python kernel Breeze ships (standard library only, so no Jupyter install), with text, tables, images and matplotlib plots as outputs; Markdown cells show formatted. View → Notebook View switches to the JSON.
 - Run with F5: C, C++, C# (.NET SDK), Python, Java (JDK 11+) and Rust (rustc, or cargo inside a Cargo project), using compilers Breeze finds on the machine. It explains how to install anything that's missing. JavaScript runs on Node in the terminal, and HTML/CSS get a live preview.
-- Debugger: step through Python, JavaScript and TypeScript in a full-page view with breakpoints, a call stack, variables, a watch list and your program's output. Python needs the free `debugpy` helper (Breeze offers to install it) and TypeScript needs Node 22.18 or newer. One debug session runs at a time, and it stops when you close the folder.
+- Debugger: step through Python, JavaScript, TypeScript, C, C++, C#, Rust and Java in a full-page view with breakpoints, a call stack, variables, a watch list and your program's output (and input). Python needs the free `debugpy` helper (Breeze offers to install it) and TypeScript needs Node 22.18 or newer. C, C++ and Rust need GCC and GDB 14+ (MinGW-w64 from MSYS2 or WinLibs). C# needs the .NET SDK (10+ for a lone .cs file) and netcoredbg, which Breeze downloads on request (a pinned release, checked by hash) into its data folder. Java needs a JDK; its console and watch list read variables and fields (`p.x`, `items[0]`) but can't evaluate other expressions, and its breakpoints can't have conditions. One debug session runs at a time, and it stops when you close the folder.
 - Command Palette (Ctrl+Shift+P or F1): type a few letters to find any menu command.
 - Multi-cursor editing (Alt+Click, Ctrl+D, Ctrl+Shift+L) and Emmet shortcuts (press Tab on something like `ul>li*3` in HTML, JSX or CSS). Emmet is off while several cursors are active.
 - Git: stage, discard, commit and push, with a graph of checkpoints and branches. Files an agent is editing are marked in the explorer and tabs.

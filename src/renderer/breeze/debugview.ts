@@ -189,7 +189,7 @@ function renderDbgSource(): void {
   const path = dbgShown;
   const b = path ? dbgBuf(path) : undefined;
   if (path && !b) void loadDbgFile(path);
-  const why = !path ? (debugTarget() ? '' : 'Open a Python, JavaScript or TypeScript file in the editor to debug it here.')
+  const why = !path ? (debugTarget() ? '' : `Open a ${DEBUG_LANGS} file in the editor to debug it here.`)
     : b ? '' : (dbgFiles.get(path) as string | undefined) ?? 'Loading…';
   $('#dbgSrcHead').innerHTML = path
     ? `<span class="dbg-src-ico">${fileIcon(path)}</span><span class="dbg-src-name">${esc(baseName(path))}</span><span class="dbg-src-dir">${esc(dirName(path))}</span><span class="dbg-src-ro">Read only</span>`
@@ -295,6 +295,18 @@ function renderDbgTools(): void {
 }
 
 /* ----- The note above the source: how to start, what went wrong, an exception ----- */
+// C#: netcoredbg downloads in main (pinned and checked there), then debugging starts again.
+let dbgNcdBusy = false;
+async function installNetcoredbg(): Promise<void> {
+  if (dbgNcdBusy) return;
+  dbgNcdBusy = true;
+  renderDbgNote();
+  try { await api.debug.installNetcoredbg(); }
+  catch (e) { toast(`netcoredbg didn't download: ${errMsg(e)}`); return; }
+  finally { dbgNcdBusy = false; renderDbgNote(); }
+  toast('netcoredbg is ready');
+  if (debugFile) void startDebugFile(debugFile);
+}
 let dbgInstall: 'idle' | 'running' | 'failed' = 'idle';
 let dbgInstallProc: number | null = null;
 let dbgInstallCmd = '';
@@ -313,20 +325,26 @@ function dbgNoteHtml(): { cls: string; html: string } | null {
       : { cls: 'err', html: `<b>debugpy didn't install</b><span>The terminal shows what went wrong.</span><div class="dbg-note-acts"><button class="btn btn-sm" data-dbg="terminal">Show terminal</button><button class="btn btn-sm" data-dbg="retry">Try again</button></div>` };
   }
   if (s === 'stopped' && debugError) {
-    const e = debugError, py = debugKind(debugFile) === 'python';
+    const e = debugError, kind = debugKind(debugFile), py = kind === 'python';
     let fix = '', foot = '';
     if (e.hint === 'install-debugpy') {
       fix = '<button class="btn btn-sm btn-primary" data-dbg="install">Install debugpy</button>';
       foot = `<small class="dbg-note-foot">Install runs <code>${esc(installDebugpyCmd())}</code> in the terminal.</small>`;
     }
-    else if (e.hint === 'node-too-old' || (e.hint === 'not-found' && !py)) fix = `<button class="btn btn-sm btn-primary" data-dbg="node">Get Node.js ${svgIcon('external', 12)}</button>`;
+    else if (e.hint === 'install-netcoredbg') {
+      fix = `<button class="btn btn-sm btn-primary" data-dbg="netcoredbg"${dbgNcdBusy ? ' disabled' : ''}>${dbgNcdBusy ? 'Downloading…' : 'Download netcoredbg'}</button>`;
+      foot = '<small class="dbg-note-foot">netcoredbg is Samsung’s free, open-source .NET debugger (about 4 MB). Breeze keeps it in its own folder.</small>';
+    }
+    else if (e.hint === 'install-gdb') fix = `<button class="btn btn-sm btn-primary" data-dbg="gdb">Get GCC and GDB ${svgIcon('external', 12)}</button>`;
+    else if (e.hint === 'install-jdk' || (e.hint === 'not-found' && kind === 'java')) fix = `<button class="btn btn-sm btn-primary" data-dbg="jdk">Get a JDK ${svgIcon('external', 12)}</button>`;
+    else if (e.hint === 'node-too-old' || (e.hint === 'not-found' && kind === 'node')) fix = `<button class="btn btn-sm btn-primary" data-dbg="node">Get Node.js ${svgIcon('external', 12)}</button>`;
     else if (e.hint === 'not-found') fix = `<button class="btn btn-sm btn-primary" data-dbg="python">Get Python ${svgIcon('external', 12)}</button>`;
     const intro = e.hint === 'install-debugpy' ? 'Debugging Python needs debugpy, a free helper you install once.' : '';
     return { cls: 'err', html: `<b>Couldn't start debugging</b><span>${esc(intro || e.message)}</span><div class="dbg-note-acts">${fix}<button class="btn btn-sm" data-dbg="retry">Try again</button></div>${foot}` };
   }
   if (s === 'stopped') {
     const go = keyOf('run.start') || 'F5';
-    if (!target) return { cls: 'info', html: `<b>Not running</b><span>Open a Python, JavaScript or TypeScript file in the editor, then start debugging it here.</span>` };
+    if (!target) return { cls: 'info', html: `<b>Not running</b><span>Open a ${DEBUG_LANGS} file in the editor, then start debugging it here.</span>` };
     const finished = debugExit !== undefined && target === debugFile;
     const head = !finished ? `Not running — press ${esc(go)} to start`
       : debugStopped ? `${esc(baseName(target))} stopped`
@@ -362,6 +380,9 @@ $('#dbgNote').addEventListener('click', e => {
   else if (what === 'install') installDebugpy();
   else if (what === 'node') background(api.sys.openExternal('https://nodejs.org/en/download'));
   else if (what === 'python') background(api.sys.openExternal('https://www.python.org/downloads/'));
+  else if (what === 'netcoredbg') void installNetcoredbg();
+  else if (what === 'gdb') background(api.sys.openExternal('https://winlibs.com/'));
+  else if (what === 'jdk') background(api.sys.openExternal('https://adoptium.net/'));
   else if (what === 'terminal') { leaveDebugView(); run('term.focus'); }
 });
 // Runs pip in the IDE's terminal (it shows there) and starts again once it ends well.

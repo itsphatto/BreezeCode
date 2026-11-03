@@ -404,6 +404,7 @@ function dropTab(path: string): void {
   buffers.get(path)?.ta?.remove();
   buffers.delete(path);
   lspClosed(path);
+  nbClosed(path);
   if (active === path) active = openTabs[Math.min(i, openTabs.length - 1)] ?? null;
 }
 function closeTab(path: string): void {
@@ -459,6 +460,7 @@ function closeTab(path: string): void {
 async function saveFile(path: string | null = active): Promise<boolean> {
   const b = path ? buffers.get(path) : undefined;
   if (b?.kind !== 'text') return false;
+  nbFlush(b);
   if (b.untitled) return saveUntitled(b);
   if (b.disk != null) {
     const choice = await askDiskConflict(b);

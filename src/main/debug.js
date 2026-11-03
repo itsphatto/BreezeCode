@@ -1,12 +1,16 @@
-// DebugManager: runs the user's Python or JS/TS file under a debugger and turns either backend into one session API.
+// DebugManager: runs the user's file under a debugger and turns each backend into one session API.
 // Breeze launches the program itself, so it owns stdin/stdout/stderr; the backend (debugPython.js → debugpy over DAP,
-// debugNode.js → node --inspect-brk over CDP) only speaks the protocol. One session at a time.
+// debugNode.js → node --inspect-brk over CDP, debugGdb.js → GDB over DAP for C, C++ and Rust) only speaks the
+// protocol. One session at a time.
 // Emits 'event' with a DebugEvent ({ type: 'state' | 'paused' | 'output' | 'breakpoints' | 'exited' | 'error', … }).
 const { EventEmitter } = require('node:events');
 const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
 const { PythonBackend, debugpyArgs } = require('./debugPython');
 const { NodeBackend, nodeSupportsTs } = require('./debugNode');
+const { GdbBackend } = require('./debugGdb');
+const { JavaBackend } = require('./debugJava');
+const { DotnetBackend } = require('./debugDotnet');
 
 const REQUEST_MS = 10000; // an adapter call that takes longer is a hung adapter: reject that call, keep the session
 const CONNECT_MS = 15000; // finding, connecting to and configuring the adapter
@@ -20,15 +24,22 @@ function killTree(child) {
 }
 
 const NODE_EXTS = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts']);
+const NATIVE_EXTS = new Set(['.c', '.cpp', '.cc', '.cxx', '.rs']);
 function debugKind(file) {
   const ext = path.extname(String(file || '')).toLowerCase();
   if (ext === '.py') return 'python';
+  if (NATIVE_EXTS.has(ext)) return 'native';
+  if (ext === '.java') return 'java';
+  if (ext === '.cs') return 'dotnet';
   return NODE_EXTS.has(ext) ? 'node' : null;
 }
+const UNSUPPORTED = 'Breeze can debug Python, JavaScript, TypeScript, C, C++, C#, Rust and Java files';
 const isTs = file => /\.m?ts$/i.test(file);
 
-function launchArgs(kind, file, { port, ts } = {}) {
+function launchArgs(kind, file, { port, ts, args } = {}) {
   if (kind === 'python') return { args: debugpyArgs(['--listen', `127.0.0.1:${port}`, '--wait-for-client', file]) };
+  if (kind === 'native') return { args: [] }; // the built program, which waits for GDB itself
+  if (kind === 'java' || kind === 'dotnet') return { args: args ?? [] };
   return { args: ['--inspect-brk=127.0.0.1:0', ...(ts ? ['--experimental-strip-types'] : []), file] };
 }
 
@@ -86,9 +97,13 @@ class DebugManager extends EventEmitter {
     if (opts.exceptions) this.exceptions = opts.exceptions;
     this.setState(s, 'starting');
     const kind = debugKind(file);
-    if (!kind) { this.fail(s, hinted('Breeze can debug Python, JavaScript and TypeScript files')); return; }
+    if (!kind) { this.fail(s, hinted(UNSUPPORTED)); return; }
+    if (kind === 'native' && !opts.build) { this.fail(s, hinted(opts.buildError || UNSUPPORTED, 'build-failed')); return; }
     const host = this.hostFor(s, root, file);
     s.backend = kind === 'python' ? new PythonBackend(host, { python: opts.python || 'python', env: opts.env })
+      : kind === 'native' ? new GdbBackend(host, { gdb: opts.gdb || 'gdb', env: opts.env, build: opts.build })
+      : kind === 'java' ? new JavaBackend(host, { java: opts.java || 'java', javac: opts.javac || 'javac', env: opts.env })
+      : kind === 'dotnet' ? new DotnetBackend(host, { dotnet: opts.dotnet || 'dotnet', netcoredbg: opts.netcoredbg, env: opts.env, hookSrc: opts.hookSrc, hookDir: opts.hookDir, project: opts.project ?? null })
       : new NodeBackend(host, { node: opts.node || 'node', env: opts.env, ts: isTs(file) });
     try {
       const launch = await within(s.backend.prepare(), CONNECT_MS, 'checking the debugger');
@@ -119,8 +134,8 @@ class DebugManager extends EventEmitter {
     child.on('error', e => {
       if (s.exitCode !== undefined || s.finished) return;
       s.spawnFailed = true;
-      const what = kind === 'python' ? "Python wasn't found" : "Node.js wasn't found";
-      this.emitFor(s, { type: 'error', message: e.code === 'ENOENT' ? `${what} (${s.backend.cmd})` : e.message, hint: e.code === 'ENOENT' ? 'not-found' : undefined });
+      const what = { python: "Python wasn't found", native: "The program wasn't found", java: "Java wasn't found", dotnet: "The .NET SDK wasn't found" }[kind] ?? "Node.js wasn't found";
+      this.emitFor(s, { type: 'error', message: e.code === 'ENOENT' ? `${what} (${s.backend.cmd})` : e.message, hint: e.code === 'ENOENT' && kind !== 'native' ? 'not-found' : undefined });
       this.finish(s, null);
     });
     child.on('exit', code => {
@@ -137,6 +152,7 @@ class DebugManager extends EventEmitter {
     return {
       root, file,
       stopOnEntry: !!s.opts.stopOnEntry,
+      pid: () => s.child?.pid ?? null,
       bps: () => this.bps,
       exceptions: () => this.exceptions,
       emit: ev => this.emitFor(s, ev),

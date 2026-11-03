@@ -138,10 +138,21 @@ async function lintBuffer(b: EditorBuffer): Promise<void> {
       diags = mergeSyntax(diags, r);
     }
   }
+  b.lint = { diags, lines: text.split('\n').length };
+  b.runDiags = undefined;
+  setDiags(b);
+}
+// What the editor shows: its own findings plus the language server's, each only while it matches the line count
+// of the text on screen. The editor's own messages win on shared lines (they're written for beginners).
+function setDiags(b: EditorBuffer): void {
+  const lines = b.text.split('\n').length;
+  const own = b.lint?.lines === lines ? b.lint.diags : [];
+  const lsp = b.lspDiags?.lines === lines ? b.lspDiags.diags.filter(d => !own.some(o => o.line === d.line)) : [];
+  const diags = lsp.length ? [...own, ...lsp].sort((x, y) => x.line - y.line || x.col - y.col) : own;
   const had = !!b.diags?.length;
-  b.diags = diags; b.runDiags = undefined;
-  b.diagLines = text.split('\n').length;
-  if (had !== !!diags.length) renderTabs();
+  b.diags = b.runDiags ? [...diags, ...b.runDiags.filter(r => !diags.some(d => d.line === r.line))].sort((x, y) => x.line - y.line) : diags;
+  b.diagLines = lines;
+  if (had !== !!b.diags.length) renderTabs();
   if (b.path === active) renderCode();
 }
 

@@ -1,4 +1,4 @@
-// Language servers (LSP): completions, hover, go to definition, references and rename for the editor.
+// Language servers (LSP): completions, hover, go to definition, references, rename and problems for the editor.
 // One server per kind of file and open folder, started the first time such a file opens. TypeScript 7's own
 // compiler is the JavaScript and TypeScript server, shipped with Breeze; the others are used when found on the PATH.
 const fs = require('node:fs');
@@ -65,8 +65,9 @@ class Reader {
 
 /* ----- One running server ----- */
 class Client {
-  constructor({ cmd, args, shell, cwd, env, init, settings }) {
+  constructor({ cmd, args, shell, cwd, env, init, settings, onNotify }) {
     this.spec = { cmd, args, shell, cwd, env, init, settings };
+    this.onNotify = onNotify ?? (() => undefined);
     this.nextId = 1;
     this.pending = new Map();
     this.caps = {};
@@ -99,6 +100,8 @@ class Client {
           definition: { linkSupport: true },
           references: {},
           rename: { prepareSupport: false },
+          publishDiagnostics: { versionSupport: true },
+          diagnostic: { dynamicRegistration: false },
         },
         workspace: { workspaceFolders: true, configuration: true, workspaceEdit: { documentChanges: true } },
       },
@@ -119,7 +122,7 @@ class Client {
   receive(m) {
     if (m.id != null && m.method) { this.answer(m); return; } // the server asks us something
     const p = m.id != null && this.pending.get(m.id);
-    if (!p) return; // a notification (diagnostics, progress): not used yet
+    if (!p) { if (m.method) this.onNotify(m.method, m.params); return; } // a notification (diagnostics, progress)
     this.pending.delete(m.id);
     if (m.error) p.reject(new Error(m.error.message || 'Language server error')); else p.resolve(m.result);
   }
@@ -139,9 +142,11 @@ class Client {
 /* ----- All servers for the open folder ----- */
 // `findServer(kind)` returns how to start a server ({ cmd, args, shell?, init? }) or null when none is installed.
 class LspManager {
-  constructor({ findServer, env }) {
+  // `onDiagnostics(rel, diags, lines)` hears each open file's problems; `lines` is the line count they're for.
+  constructor({ findServer, env, onDiagnostics }) {
     this.findServer = findServer;
     this.env = env;
+    this.onDiagnostics = onDiagnostics ?? (() => undefined);
     this.root = null;
     this.clients = new Map(); // kind → Promise<Client | null>
     this.docs = new Map();    // rel → { kind, lang, version }
@@ -161,7 +166,7 @@ class LspManager {
       const started = (async () => {
         const spec = await this.findServer(kind);
         if (!spec) return null;
-        const c = new Client({ ...spec, cwd: this.root, env: await this.env() });
+        const c = new Client({ ...spec, cwd: this.root, env: await this.env(), onNotify: (method, params) => this.notified(method, params) });
         await c.start(this.root);
         if (this.clients.get(kind) !== started) { c.stop(); return null; } // another folder opened while it started
         return c;
@@ -186,6 +191,7 @@ class LspManager {
     if (!c) { this.docs.delete(rel); return { available: false, install: INSTALL[kind] ?? null }; }
     if (this.docs.get(rel) !== doc) return { available: false }; // closed, or another folder opened, meanwhile
     c.notify('textDocument/didOpen', { textDocument: { uri: this.uri(rel), languageId: lang, version: 1, text } });
+    void this.pull(rel, c);
     return { available: true };
   }
   // `change` is the whole new text, or one edit { start, end, text } in offsets of the text before it. A server
@@ -203,6 +209,7 @@ class LspManager {
       ? [{ range: { start: lspPos(before, edit.start), end: lspPos(before, edit.end) }, text: edit.text }]
       : [{ text: doc.text }];
     c?.notify('textDocument/didChange', { textDocument: { uri: this.uri(rel), version: doc.version }, contentChanges });
+    if (c) void this.pull(rel, c);
   }
   async close(rel) {
     const doc = this.docs.get(rel);
@@ -210,6 +217,25 @@ class LspManager {
     this.docs.delete(rel);
     const c = await this.client(doc.kind).catch(() => null);
     c?.notify('textDocument/didClose', { textDocument: { uri: this.uri(rel) } });
+  }
+  /* ----- Problems: pushed by the server, or asked for after each change when it works that way ----- */
+  notified(method, params) {
+    if (method !== 'textDocument/publishDiagnostics') return;
+    const rel = this.relOf(params?.uri ?? '');
+    const doc = rel && this.docs.get(rel);
+    if (!doc || (params.version != null && params.version !== doc.version)) return; // closed, or for older text
+    this.report(rel, doc, params.diagnostics);
+  }
+  async pull(rel, c) {
+    if (!c.caps?.diagnosticProvider) return;
+    const doc = this.docs.get(rel), version = doc?.version;
+    let r;
+    try { r = await c.request('textDocument/diagnostic', { textDocument: { uri: this.uri(rel) } }, 30000); } catch { return; }
+    if (this.docs.get(rel) !== doc || doc.version !== version) return; // the text changed meanwhile: its own pull follows
+    if (r?.kind === 'full') this.report(rel, doc, r.items);
+  }
+  report(rel, doc, diagnostics) {
+    this.onDiagnostics(rel, toDiags(diagnostics), doc.text.split('\n').length);
   }
   async ask(rel, method, extra = {}, pos) {
     const doc = this.docs.get(rel);
@@ -280,6 +306,18 @@ class LspManager {
   }
 }
 
+// Errors and warnings as the editor draws them: line, column, length on that line, message and severity (1 error,
+// 2 warning). Hints and info (unused names, style notes) are left out.
+function toDiags(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(d => d?.range && (d.severity ?? 1) <= 2)
+    .map(d => {
+      const { start, end } = d.range;
+      const len = end.line === start.line ? Math.max(1, end.character - start.character) : 1;
+      return { line: start.line, col: start.character, len, msg: String(d.message ?? '').split('\n')[0], sev: d.severity ?? 1 };
+    })
+    .sort((a, b) => a.line - b.line || a.col - b.col);
+}
 // A snippet's text without its tab stops: "log(${1:msg})$0" → "log(msg)".
 // An offset as an LSP position: line, and UTF-16 column (what JavaScript strings count).
 function lspPos(text, off) {
@@ -314,4 +352,4 @@ function findOnPath(names, pathValue, platform = process.platform) {
   return null;
 }
 
-module.exports = { LANGS, SERVERS, langOf, frame, Reader, Client, LspManager, lspPos, plainSnippet, hoverText, findOnPath };
+module.exports = { LANGS, SERVERS, langOf, frame, Reader, Client, LspManager, lspPos, plainSnippet, hoverText, findOnPath, toDiags };

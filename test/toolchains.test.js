@@ -161,8 +161,11 @@ test('findTools leaves cxx null without a twin, and everything null when nothing
   const r = await findTools(machine('win32', { 'C:\\bin\\gcc.exe': 'gcc 1' }));
   assert.equal(r.cc.name, 'gcc');
   assert.equal(r.cxx, null);
+  assert.equal(r.gdb, null);
+  const withGdb = await findTools(machine('win32', { 'C:\\bin\\gcc.exe': 'gcc 1', 'C:\\bin\\gdb.exe': 'GNU gdb (GDB) 15.2' }));
+  assert.equal(withGdb.gdb.path, 'C:\\bin\\gdb.exe');
   const none = await findTools(machine('win32', {}));
-  assert.deepEqual(none, { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null, binDirs: [] });
+  assert.deepEqual(none, { cc: null, cxx: null, gdb: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null, binDirs: [] });
 });
 
 test('findTools rejects the Store python shortcut', async () => {

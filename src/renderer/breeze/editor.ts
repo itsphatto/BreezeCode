@@ -153,6 +153,15 @@ function renderEditor(): void {
   const b = activeBuf();
   for (const x of buffers.values()) x.ta?.classList.toggle('hidden', x !== b);
   const empty = $('#editorEmpty');
+  // A notebook shows as cells (notebook.ts), over the editor, which keeps its JSON.
+  if (renderNotebook(b)) {
+    b?.ta?.classList.add('hidden');
+    empty.classList.add('hidden');
+    hlLines.replaceChildren(); hlBoxes.replaceChildren(); gutLines.replaceChildren();
+    closeFind();
+    updateStatus();
+    return;
+  }
   if (b?.kind !== 'text') {
     const wasHidden = empty.classList.contains('hidden');
     empty.classList.remove('hidden');
@@ -279,7 +288,8 @@ function visibleDiags(b: EditorBuffer, lineCount: number): Map<number, Diag> {
   if (!b.diags?.length || b.diagLines !== lineCount) return errAt;
   for (const d of b.diags) {
     const ln = Math.min(d.line, lineCount - 1);
-    if (!errAt.has(ln)) errAt.set(ln, d);
+    const cur = errAt.get(ln);
+    if (!cur || (cur.sev === 2 && d.sev !== 2)) errAt.set(ln, d); // an error outranks a warning on its line
   }
   return errAt;
 }
@@ -290,7 +300,7 @@ function squiggles(b: EditorBuffer, lineCount: number, cw: number): HTMLElement[
     const ln = Math.min(d.line, starts.length - 1), lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
     const from = Math.min(d.col, lt.length), to = Math.min(lt.length, d.col + d.len);
     const x = visualCol(lt, from) * cw;
-    return box('squig', ln * LINE_H + LINE_H - 6, x, Math.max(visualCol(lt, to) * cw - x, cw));
+    return box(d.sev === 2 ? 'squig warn' : 'squig', ln * LINE_H + LINE_H - 6, x, Math.max(visualCol(lt, to) * cw - x, cw));
   });
 }
 /* ----- Matching tags: with the caret in an opening or closing tag, both halves light up ----- */
@@ -437,12 +447,12 @@ function guideBoxes(b: EditorBuffer, caret: number, cw: number, first = winFirst
 }
 let tagKey = '';
 function lineHtml(h: string, i: number, add: Set<number> | undefined, d: Diag | undefined): string {
-  const cls = ['ln', add?.has(i) ? 'added' : '', d ? 'err' : '', i === curLine ? 'cur-line' : ''].filter(Boolean).join(' ');
+  const cls = ['ln', add?.has(i) ? 'added' : '', d ? (d.sev === 2 ? 'warn' : 'err') : '', i === curLine ? 'cur-line' : ''].filter(Boolean).join(' ');
   const msg = d ? `<span class="diag-msg">${esc(d.msg)}</span>` : '';
   return `<div class="${cls}">${h}${msg}</div>`;
 }
 function gutterHtml(path: string, i: number, d: Diag | undefined, mark?: ChangeMark, marked = false): string {
-  const cls = [i === curLine ? 'cur' : '', d ? 'err' : '', mark ? `git-${mark}` : ''].filter(Boolean).join(' ');
+  const cls = [i === curLine ? 'cur' : '', d ? (d.sev === 2 ? 'warn' : 'err') : '', mark ? `git-${mark}` : ''].filter(Boolean).join(' ');
   const attrs = (cls ? ` class="${cls}"` : '') + (d ? ` title="${escAttr(d.msg)}"` : '');
   return `<div${attrs}>${markDot(i, marked)}${lineNoHtml(path, i)}</div>`;
 }
@@ -594,6 +604,7 @@ for (const [area, bufOf] of [[$('#editor .code'), activeBuf], [$('.split-editor 
 function renderCode(): void {
   const b = activeText();
   if (!b) return;
+  if (nbShown(b)) { renderNotebook(b); return; }
   applyPendingScroll(b);
   const doc = highlighted(b);
   const count = doc.lines.length;

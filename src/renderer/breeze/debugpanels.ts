@@ -277,7 +277,8 @@ function dbgWatches(): string[] {
   return dbgWatchList;
 }
 const saveDbgWatches = () => store.set(dbgWatchKey(), dbgWatchList);
-const dbgExample = () => (debugKind(debugFile ?? debugTarget()) === 'python' ? 'len(items)' : 'items.length');
+const DBG_EXAMPLES: Record<DebugKind, string> = { python: 'len(items)', node: 'items.length', native: 'items[0]', java: 'items[0]', dotnet: 'items.Count' };
+const dbgExample = () => DBG_EXAMPLES[debugKind(debugFile ?? debugTarget()) ?? 'node'];
 const dbgWatchTree = dbgTree($('#dbgWatch'), () => `Add an expression to see its value each time the program pauses, like <code>${dbgExample()}</code>.`, true);
 // Rows for every expression, keeping the values already shown until the new ones arrive.
 function dbgWatchRows(): DbgNode[] {

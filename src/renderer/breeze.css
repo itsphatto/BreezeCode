@@ -3179,6 +3179,24 @@ svg.ico-svg:active {
   color: #fca5a5;
 }
 
+/* Warnings from a language server: the same marks in amber. */
+.ln.warn {
+  background: rgba(245, 158, 11, .07);
+  box-shadow: inset 2px 0 var(--warn);
+}
+
+.squig.warn {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 1.5 1 3 3 4.5 1 6 3' fill='none' stroke='%23f59e0b' stroke-width='1.1'/%3E%3C/svg%3E");
+}
+
+.ln.warn .diag-msg {
+  color: #fbbf24;
+}
+
+.gutter .warn {
+  color: var(--warn);
+}
+
 .hit {
   position: absolute;
   height: var(--code-line, 21px);
@@ -12902,6 +12920,7 @@ body.layout-animating #previewPane {
 :root[data-theme="light"] .tk-num { color: #a8380a; }
 :root[data-theme="light"] :is(.diag-msg, .tab.has-err, #sbProblems) { color: #b91c1c; }
 :root[data-theme="light"] .gutter .err.cur { color: #b91c1c; }
+:root[data-theme="light"] .ln.warn .diag-msg { color: #b45309; }
 
 /* Git status, refs and diffs */
 :root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m :is(.gst, .nm), .scm-row.git-m :is(.st, .nm)) { color: #8a5800; }
@@ -14038,4 +14057,335 @@ input.dbg-edit.bad:focus-visible {
 
 :root[data-theme="light"] .dbg-var.changed .dbg-val {
   color: #a8380a;
+}
+
+/* ================= Jupyter notebooks (notebook.ts) ================= */
+.nb-view {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: auto;
+  padding: 0 0 48px;
+  background: var(--bg);
+  font: 13px/1.5 var(--font-ui);
+}
+
+.nb-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.nb-bar {
+  flex-wrap: wrap;
+}
+
+.nb-bar .btn {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.nb-bar-end {
+  margin-left: auto;
+}
+
+.nb-kernel {
+  white-space: nowrap;
+  margin-left: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.nb-kernel[data-kernel="busy"] {
+  color: var(--blue-text);
+}
+
+.nb-kernel[data-kernel="dead"] {
+  color: var(--err);
+}
+
+.nb-cells {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px 0;
+}
+
+.nb-cell {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px 6px 0;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+}
+
+.nb-cell:hover {
+  border-color: var(--line);
+}
+
+.nb-cell.selected {
+  border-color: var(--line-strong);
+  box-shadow: inset 2px 0 var(--blue);
+}
+
+.nb-gutter {
+  flex: 0 0 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+.nb-count {
+  color: var(--text-3);
+  font: 11px var(--font-code);
+}
+
+.nb-run.busy {
+  color: var(--blue-text);
+}
+
+.nb-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.nb-code {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--r) - 2px);
+  background: var(--bg-1);
+  font: var(--code-size, 13px)/var(--code-line, 21px) var(--font-code);
+}
+
+.nb-hl,
+.nb-src {
+  margin: 0;
+  padding: 8px 10px;
+  font: inherit;
+  tab-size: 4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nb-hl {
+  min-height: 37px;
+  pointer-events: none;
+  color: var(--code-text);
+}
+
+/* The coloured copy sets the cell's height; the textarea lies over it, its own text invisible. */
+.nb-src {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+}
+
+.nb-src::selection {
+  background: color-mix(in srgb, var(--blue) 35%, transparent);
+  color: transparent;
+}
+
+.nb-cell.markdown .nb-code,
+.nb-cell.raw .nb-code {
+  background: transparent;
+}
+
+.nb-cell-tools {
+  position: absolute;
+  top: -11px;
+  right: 8px;
+  z-index: 1;
+  display: none;
+  gap: 2px;
+  padding: 1px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-2);
+  font: 600 10px var(--font-code);
+}
+
+.nb-cell:hover .nb-cell-tools,
+.nb-cell.selected .nb-cell-tools {
+  display: flex;
+}
+
+.nb-outputs:empty {
+  display: none;
+}
+
+.nb-outputs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 2px 0;
+}
+
+.nb-out {
+  margin: 0;
+  max-height: 480px;
+  overflow: auto;
+  font: 12.5px/1.5 var(--font-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nb-out.err {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, .08);
+  color: #f87171;
+}
+
+.nb-out.img img {
+  max-width: 100%;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.nb-out.html {
+  white-space: normal;
+}
+
+.nb-out table,
+.nb-md table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.nb-out th,
+.nb-out td,
+.nb-md th,
+.nb-md td {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+
+.nb-out th,
+.nb-md th {
+  color: var(--text-2);
+}
+
+.nb-md {
+  padding: 4px 10px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.nb-cell.md .nb-md {
+  margin-left: 60px;
+}
+
+.nb-md h1,
+.nb-md h2,
+.nb-md h3,
+.nb-md h4 {
+  margin: 8px 0 4px;
+  font-family: var(--font-ui);
+  font-weight: 650;
+}
+
+.nb-md h1 {
+  font-size: 22px;
+}
+
+.nb-md h2 {
+  font-size: 18px;
+}
+
+.nb-md h3,
+.nb-md h4 {
+  font-size: 15px;
+}
+
+.nb-md p {
+  margin: 4px 0;
+}
+
+.nb-md code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-2);
+  font: 12px var(--font-code);
+}
+
+.nb-md-code {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-1);
+  font: 12.5px/1.5 var(--font-code);
+  white-space: pre-wrap;
+}
+
+.nb-md blockquote {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--line-strong);
+  color: var(--text-2);
+}
+
+.nb-md a {
+  color: var(--blue-text);
+}
+
+.nb-empty {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.nb-add {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+}
+
+.nb-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font: 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.nb-add-btn:hover {
+  border-color: var(--blue);
+  color: var(--text);
+}
+
+.nb-broken {
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  height: 100%;
+  text-align: center;
+}
+
+:root[data-theme="light"] .nb-out.err {
+  color: #b91c1c;
 }
