@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'">
+  <title>Terminal - Breeze Code</title>
+  <link rel="stylesheet" href="termwin.css">
+</head>
+
+<body>
+  <header class="tw-bar">
+    <img class="tw-icon" src="../../assets/brand/Icon.png" alt="" draggable="false">
+    <span class="tw-title" id="twTitle">Terminal - Breeze Code</span>
+    <div class="tw-actions">
+      <button class="tw-act" id="twNew" type="button" title="New Terminal Window" aria-label="New Terminal Window">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v11M2.5 8h11" /></svg>
+      </button>
+      <span class="tw-sep" aria-hidden="true"></span>
+      <button class="tw-act" id="twClear" type="button" title="Clear (Ctrl+L)" aria-label="Clear terminal">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></svg>
+      </button>
+      <button class="tw-act" id="twKill" type="button" title="Stop (Ctrl+C)" aria-label="Stop the running command" disabled>
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.2" /></svg>
+      </button>
+    </div>
+    <div class="tw-win" id="twWin">
+      <button class="tw-wb" id="twMin" type="button" title="Minimize" aria-label="Minimize">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" /></svg>
+      </button>
+      <button class="tw-wb" id="twMax" type="button" title="Maximize" aria-label="Maximize">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x=".5" y=".5" width="9" height="9" /></svg>
+      </button>
+      <button class="tw-wb tw-close" id="twClose" type="button" title="Close" aria-label="Close">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" /></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="tw-body" id="twBody" aria-label="Terminal">
+    <div class="tw-out" id="twOut" role="log" aria-live="polite"></div>
+    <div class="tw-line" id="twLine"><span class="tw-mark" aria-hidden="true"></span><span class="tw-ps" id="twPs"></span><span class="tw-typed" id="twBefore"></span><span class="tw-caret" id="twCaret"> </span><span class="tw-typed" id="twAfter"></span></div>
+    <textarea class="tw-input" id="twInput" aria-label="Terminal input" spellcheck="false" autocomplete="off" autocapitalize="off" rows="1"></textarea>
+  </main>
+
+  <script src="termwin.js"></script>
+</body>
+
+</html>

@@ -12,6 +12,7 @@ dist/
 src/renderer/breeze/*.js
 src/renderer/editcore.js
 src/renderer/codeview.js
+src/renderer/termwin.js
 *.tsbuildinfo
 
 # Logs

@@ -384,7 +384,8 @@ function createWindow() {
   // A reload or crash drops the renderer's terminal state, so nothing may keep running for it.
   win.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => { if (isMainFrame) killAllTerms(); });
   win.webContents.on('render-process-gone', killAllTerms);
-  win.on('closed', () => { win = null; vibeView = null; splash?.destroy(); stopWatching(); stopLiveServer(); killAllTerms(); });
+  // Terminal windows belong to this one: they close with it.
+  win.on('closed', () => { win = null; vibeView = null; splash?.destroy(); stopWatching(); stopLiveServer(); killAllTerms(); for (const t of termWins.values()) t.win.close(); });
 }
 
 // Windows draws the taskbar button from the app's user model id, which in development is electron.exe, so the
@@ -929,41 +930,114 @@ let nextTermId = 1;
 handle('term:cwd', () => termCwd);
 
 const unquote = s => (s.length > 1 && (s[0] === '"' || s[0] === "'") && s.at(-1) === s[0] ? s.slice(1, -1) : s);
-// "cd somewhere" changes the terminal's folder instead of running in a shell that exits right away.
-function changeDir(command) {
+// "cd somewhere" changes the terminal's folder instead of running in a shell that exits right away. Returns null for
+// any other command, { error } for a folder that isn't there, or { cwd } with the new folder.
+function changeDir(command, from) {
   const t = command.trim();
   if (!/^cd(?:\s|$)/i.test(t)) return null;
   const arg = unquote(t.slice(2).trim());
-  const target = arg ? path.resolve(termCwd, arg) : os.homedir();
+  const target = arg ? path.resolve(from, arg) : os.homedir();
   if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) return { error: `The system cannot find the path specified: ${target}` };
-  termCwd = target;
-  return { cwd: termCwd };
+  return { cwd: target };
 }
-handle('term:run', async (_e, command) => {
-  const cd = changeDir(command);
-  if (cd) return cd;
+// Runs one command line in a shell, streaming its output to `send` and its exit code to `onExit`.
+async function spawnCommand(command, cwd, send, onExit) {
   const { tools, pathValue } = await getTools();
-  const id = nextTermId++;
   const env = toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
   env.FORCE_COLOR = '1';
   env.NPM_CONFIG_COLOR = 'always';
-  const child = spawn(command, { shell: true, cwd: termCwd, env, windowsHide: true });
-  terms.set(id, child);
+  const child = spawn(command, { shell: true, cwd, env, windowsHide: true });
   child.stdin.on('error', ignoreEpipe);
   // Decoded as a stream, so a character split across two chunks stays whole.
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
-  const send = chunk => win?.webContents.send('term:data', id, chunk);
   child.stdout.on('data', send);
   child.stderr.on('data', send);
   child.on('error', err => send(`${err.message}\n`));
-  child.on('close', code => { terms.delete(id); win?.webContents.send('term:exit', id, code); });
+  child.on('close', onExit);
+  return child;
+}
+handle('term:run', async (_e, command) => {
+  const cd = changeDir(command, termCwd);
+  if (cd) { if (cd.cwd) termCwd = cd.cwd; return cd; }
+  const id = nextTermId++;
+  const child = await spawnCommand(command, termCwd,
+    chunk => win?.webContents.send('term:data', id, chunk),
+    code => { terms.delete(id); win?.webContents.send('term:exit', id, code); });
+  terms.set(id, child);
   return { id };
 });
 handle('term:write', (_e, id, text) => {
   const stdin = terms.get(id)?.stdin;
   if (stdin?.writable) stdin.write(String(text));
 });
+
+/* ----- Terminal windows ----- */
+// Terminal → New Terminal Window: a window of its own with only a terminal in it (termwin.html). Each one keeps its
+// own folder (starting in the open project) and its own commands, which stop when it closes. Its page gets a
+// narrower bridge (termPreload.js) and may only use the tw: channels.
+const TERM_PAGE = path.join(ROOT, 'src', 'renderer', 'termwin.html');
+const termWins = new Map(); // webContents id -> { win, cwd, procs: Map<id, child> }
+function openTermWindow() {
+  const w = new BrowserWindow({
+    width: 980,
+    height: 640,
+    minWidth: 420,
+    minHeight: 240,
+    show: false,
+    title: 'Terminal - Breeze Code',
+    icon: APP_ICON,
+    backgroundColor: '#0c0c0c',
+    titleBarStyle: 'hidden', // the page draws its own window buttons; macOS keeps its traffic lights
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'termPreload.js') },
+  });
+  const wcId = w.webContents.id;
+  const st = { win: w, cwd: root || termCwd, procs: new Map() };
+  termWins.set(wcId, st);
+  showTaskbarIcon(w);
+  const stopAll = () => { for (const c of st.procs.values()) killTree(c); st.procs.clear(); };
+  w.once('ready-to-show', () => w.show());
+  w.loadFile(TERM_PAGE).catch(logError('terminal window'));
+  for (const ev of ['maximize', 'unmaximize']) w.on(ev, () => { if (!w.isDestroyed()) w.webContents.send('tw:maximized', w.isMaximized()); });
+  w.webContents.setWindowOpenHandler(({ url }) => { openInBrowser(url); return { action: 'deny' }; });
+  w.webContents.on('will-navigate', (e, url) => { if (!isFileUrl(url, TERM_PAGE)) e.preventDefault(); });
+  w.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => { if (isMainFrame) stopAll(); });
+  w.webContents.on('render-process-gone', stopAll);
+  w.on('closed', () => { stopAll(); termWins.delete(wcId); });
+}
+// Only a terminal window's own page may use these, and each call acts on that window's terminal.
+function handleTerm(channel, fn) {
+  ipcMain.handle(channel, (e, ...args) => {
+    const frame = e.senderFrame, st = termWins.get(e.sender.id);
+    if (!st || !frame || frame.parent || !isFileUrl(frame.url, TERM_PAGE)) throw new Error('Breeze only answers its own window');
+    return fn(st, ...args);
+  });
+}
+handle('win:newTerminal', () => openTermWindow());
+handleTerm('tw:new', () => openTermWindow());
+handleTerm('tw:info', st => ({ cwd: st.cwd, platform: process.platform }));
+handleTerm('tw:run', async (st, command) => {
+  const cmd = String(command ?? '');
+  const cd = changeDir(cmd, st.cwd);
+  if (cd) { if (cd.cwd) st.cwd = cd.cwd; return cd; }
+  const id = nextTermId++;
+  const wc = st.win.webContents;
+  const child = await spawnCommand(cmd, st.cwd,
+    chunk => { if (!wc.isDestroyed()) wc.send('tw:data', id, chunk); },
+    code => { st.procs.delete(id); if (!wc.isDestroyed()) wc.send('tw:exit', id, code); });
+  if (st.win.isDestroyed()) { killTree(child); return { error: 'Closed' }; }
+  st.procs.set(id, child);
+  return { id };
+});
+handleTerm('tw:write', (st, id, text) => {
+  const stdin = st.procs.get(id)?.stdin;
+  if (stdin?.writable) stdin.write(String(text));
+});
+handleTerm('tw:kill', (st, id) => { const c = st.procs.get(id); if (c) killTree(c); });
+handleTerm('tw:minimize', st => st.win.minimize());
+handleTerm('tw:toggleMaximize', st => { st.win.isMaximized() ? st.win.unmaximize() : st.win.maximize(); });
+handleTerm('tw:close', st => st.win.close());
+handleTerm('tw:isMaximized', st => st.win.isMaximized());
 
 // Compilers and Python found on this PC (memoised; `force` looks again, e.g. after the user installs one).
 const ignoreEpipe = () => { /* the program exited before reading its input */ };

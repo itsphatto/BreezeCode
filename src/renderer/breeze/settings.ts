@@ -254,7 +254,11 @@ function settingsBody(tab: SettingsTab): string {
     case 'appearance': return `<h4>Appearance</h4>
       <h5>Theme</h5>
       <div class="set-themes">${THEMES.map(themeCardHtml).join('')}</div>
-      <p class="set-sub"></p>`;
+      <p class="set-sub"></p>
+      <h5>Text</h5>
+      ${settingRow('Font size', 'Code in the editor and the debugger.', `<div class="set-volume set-font-size"><input type="range" id="sCodeSize" min="${CODE_SIZE_MIN}" max="${CODE_SIZE_MAX}" step="1" value="${codeSize}" aria-label="Code font size"><span class="set-volume-val" id="sCodeSizeVal">${codeSize}px</span></div>`)}
+      <h5>Motion</h5>
+      ${settingRow('Exaggerated animation', 'Fly between Breeze Code and Breeze Space, and bring the debugger in panel by panel.', switchHtml('sBigAnim', bigAnim, 'Exaggerated animation'))}`;
     case 'controls': return `<h4>Controls</h4>
       <h5>Keybinds</h5>
       <p class="set-sub">Click a shortcut, then press the new keys. Backspace removes it, Escape cancels.</p>
@@ -487,6 +491,25 @@ function bindSettings(m: HTMLElement): void {
     refreshSettings();
     slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
   });
+  on('sBigAnim', () => { bigAnim = !bigAnim; store.set('breeze.bigAnim', bigAnim); refreshSettings(); });
+  // Font size: the code redraws as the knob moves; the arrow keys and the wheel step one pixel.
+  const sizeEl = $<HTMLInputElement>('#sCodeSize', pane);
+  if (sizeEl) {
+    const showSize = (v: number) => {
+      setCodeSize(v);
+      sizeEl.value = String(codeSize);
+      sizeEl.style.setProperty('--fill', `${(codeSize - CODE_SIZE_MIN) / (CODE_SIZE_MAX - CODE_SIZE_MIN) * 100}%`);
+      $('#sCodeSizeVal', pane).textContent = `${codeSize}px`;
+    };
+    showSize(codeSize);
+    sizeEl.oninput = () => showSize(+sizeEl.value);
+    sizeEl.addEventListener('wheel', e => {
+      e.preventDefault();
+      const was = codeSize;
+      showSize(codeSize + (e.deltaY < 0 || e.deltaX > 0 ? 1 : -1));
+      if (codeSize !== was) sfx.play('slide');
+    }, { passive: false });
+  }
   // Controls
   const kbList = $('#kbList', pane), kbSearch = $<HTMLInputElement>('#kbSearch', pane);
   if (kbList && kbSearch) {

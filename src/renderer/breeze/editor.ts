@@ -1,5 +1,26 @@
 /* ================= Code editor ================= */
-const LINE_H = 21;
+// 21px at the default 13px font: the line height keeps that ratio as Settings → Appearance changes the size.
+const lineHeightFor = (size: number) => Math.round(size * 21 / 13);
+let LINE_H = lineHeightFor(codeSize);
+function showCodeSize(): void {
+  const root = document.documentElement.style;
+  root.setProperty('--code-size', `${codeSize}px`);
+  root.setProperty('--code-line', `${LINE_H}px`);
+}
+showCodeSize();
+function setCodeSize(size: number): void {
+  const next = clamp(Math.round(size), CODE_SIZE_MIN, CODE_SIZE_MAX);
+  if (next === codeSize) return;
+  codeSize = next;
+  LINE_H = lineHeightFor(next);
+  store.set('breeze.codeSize', next);
+  showCodeSize();
+  charW = 0; // measured again in the new size
+  for (const b of buffers.values()) if (b.kind === 'text') b.ta?.refresh();
+  splitTa.refresh();
+  dbgTa.refresh();
+  renderCode();
+}
 const INDENT = '  ';
 
 const hlInner = document.createElement('div');
@@ -269,7 +290,7 @@ function squiggles(b: EditorBuffer, lineCount: number, cw: number): HTMLElement[
     const ln = Math.min(d.line, starts.length - 1), lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
     const from = Math.min(d.col, lt.length), to = Math.min(lt.length, d.col + d.len);
     const x = visualCol(lt, from) * cw;
-    return box('squig', ln * LINE_H + 15, x, Math.max(visualCol(lt, to) * cw - x, cw));
+    return box('squig', ln * LINE_H + LINE_H - 6, x, Math.max(visualCol(lt, to) * cw - x, cw));
   });
 }
 /* ----- Matching tags: with the caret in an opening or closing tag, both halves light up ----- */
@@ -707,7 +728,7 @@ const splitBuf = () => { const b = splitPath ? buffers.get(splitPath) : undefine
 // Measures against the surface's own text; the constructor paints before `splitTa` is assigned, hence the empty text then.
 let splitSelf: CodeSurface | null = null;
 const splitTa: CodeSurface = splitSelf = new CodeSurface($('.split-editor .code'), {
-  lineHeight: LINE_H, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: 'Right split editor',
+  get lineHeight() { return LINE_H; }, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: 'Right split editor',
   ...lineMeasurer(splitLines, () => splitWin.first, () => splitSelf?.value ?? ''),
 });
 const textTabs = () => openTabs.filter(p => buffers.get(p)?.kind === 'text');

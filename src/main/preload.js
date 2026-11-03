@@ -198,6 +198,7 @@ contextBridge.exposeInMainWorld('breeze', {
     devIcon: on => invoke('win:devIcon', on),
     minimize: () => invoke('win:minimize'),
     toggleMaximize: () => invoke('win:toggleMaximize'),
+    newTerminal: () => invoke('win:newTerminal'),
     close: () => invoke('win:close'),
     isMaximized: () => invoke('win:isMaximized'),
     onMaximized: cb => listen('win:maximized', cb),
