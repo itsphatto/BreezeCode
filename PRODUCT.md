@@ -36,7 +36,7 @@ These four points are equally weighted and should not be traded against each oth
 - First-run setup scans for coding agents, Git and Node.js, and offers to use a local LLM with an API key.
 - Main surfaces:
   - **Breeze IDE:** explorer, tabbed editor, terminal, live preview, Source Control, and an agents panel with agent cards.
-  - **Breeze Box:** prompt and chat only, with no editor. Code in a reply becomes an artifact card you can copy or download.
+  - **Breeze Space:** prompt and chat only, with no editor. Code in a reply becomes an artifact card you can copy or download.
   - **Vibe Mode:** the IDE fades and an Instagram or Facebook feed plays while the agents work, and a card announces when the code is ready.
   - **Settings**, plus sign-in with GitHub or Google (more than one account is supported).
 - Agents run for minutes at a time, so waiting, progress and "it's done" moments are core states.
@@ -56,8 +56,8 @@ These four points are equally weighted and should not be traded against each oth
 
 ## Brand Commitments
 
-- Name: **Breeze Code**. Sub-surface names in use: Breeze IDE, Breeze Box, Vibe Mode, Planner, Builder.
-- Brand assets: `assets/brand/` (Icon, BreezeCode wordmark, BreezeIDE, BreezeBox, Agent).
+- Name: **Breeze Code**. Sub-surface names in use: Breeze IDE, Breeze Space, Vibe Mode, Planner, Builder.
+- Brand assets: `assets/brand/` (Icon, BreezeCode wordmark, BreezeSpace, Agent).
 - Voice (inferred from the README and in-app copy, not confirmed by the owner): plain words, short sentences, friendly but not cute, with no jargon a beginner would trip on.
 - Open source under the MIT license, © Sataphat Phanichawong (@itsphatto).
 

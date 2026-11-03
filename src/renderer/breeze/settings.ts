@@ -1,5 +1,5 @@
 /* ================= Settings ================= */
-// One pop-up for everything: the gear opens it (in the IDE and in Breeze Box) and turns while it is open.
+// One pop-up for everything: the gear opens it (in the IDE and in Breeze Space) and turns while it is open.
 type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
 // The controller Discord puts beside a game's elapsed time (Lucide's gamepad-2), for the Discord tab's preview.
 // The same language art main.js hands Discord, so the preview shows what friends see.
@@ -243,7 +243,7 @@ function settingsBody(tab: SettingsTab): string {
     case 'general': return `<h4>General</h4>
       ${accountHtml()}
       <h5>Preferences</h5>
-      ${settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Box']], appState.mode))}
+      ${settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode))}
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
       <h5>Layout</h5>
       ${settingRow('Side bar', esc(keyOf('view.toggleSide')), switchHtml('sSide', layout.sideOpen, 'Side bar'))}

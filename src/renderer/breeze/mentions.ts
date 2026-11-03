@@ -369,7 +369,7 @@ function syncPromptHl(): void {
 SURFACES.ide.prompt.addEventListener('scroll', () => { promptHl.scrollTop = SURFACES.ide.prompt.scrollTop; });
 new ResizeObserver(syncPromptHl).observe(SURFACES.ide.prompt);
 
-// Breeze Box's prompt has the same layer behind it, for its "/skill"s (Box doesn't @mention agents).
+// Breeze Space's prompt has the same layer behind it, for its "/skill"s (Box doesn't @mention agents).
 const boxPromptHl = $('#boxPromptHl');
 function syncBoxPromptHl(): void {
   const ta = SURFACES.box.prompt;
@@ -428,7 +428,7 @@ for (const s of Object.values(SURFACES)) {
   }
 }
 
-// Copy-paste image into agent tab (IDE aside/composer) or Breeze Box
+// Copy-paste image into agent tab (IDE aside/composer) or Breeze Space
 document.addEventListener('paste', async (e: ClipboardEvent) => {
   const items = e.clipboardData?.items;
   const filesList = e.clipboardData?.files;
@@ -518,7 +518,7 @@ async function sendPrompt(): Promise<void> {
   if (!agent) { openAgentPicker(); return; }
   if (s.name === 'ide' && !rootInfo) { toast('Open a folder first, so the agent knows what to work on'); return; }
 
-  // @mentions split an IDE prompt between agents. Breeze Box sends "@Codex" as plain text to its agent.
+  // @mentions split an IDE prompt between agents. Breeze Space sends "@Codex" as plain text to its agent.
   let parsed: TeamParse | null = null;
   if (s.name === 'ide' && text.includes('@')) {
     tab.parsing = true;

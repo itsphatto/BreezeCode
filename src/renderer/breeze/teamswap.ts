@@ -4,7 +4,7 @@
 // ones in. A panel in the same place with the same content on both screens is never touched, and one that has only
 // changed place is just dragged over. The panels are the real elements, clipped and moved without any layout; the
 // cursors and selection boxes are drawn on one canvas above them.
-const TEAM_BLOCKS = '#logoHome, #menubar, #projectName, #updateBtn, .layout-btns, #avatars, #sidebar, #editorPane, #previewPane, #terminal, #agents, .statusbar, #settingsBtn, [data-rail="settingsBtn"], #dbgTools, #dbgWhat, #dbgBack, #dbgStackPanel, #dbgBpPanel, #dbgCenter, #dbgBottom, #dbgVarsPanel, #dbgWatchPanel';
+const TEAM_BLOCKS = '#logoHome, #menubar, #projectName, #updateBtn, .space-btn, .layout-btns, #avatars, #sidebar, #editorPane, #previewPane, #terminal, #agents, .statusbar, #settingsBtn, [data-rail="settingsBtn"], #dbgTools, #dbgWhat, #dbgBack, #dbgStackPanel, #dbgBpPanel, #dbgCenter, #dbgBottom, #dbgVarsPanel, #dbgWatchPanel';
 const TEAM_CREW = [
   { name: 'Planner', colour: '#c084fc', to: '#6366f1' }, { name: 'Builder', colour: '#38bdf8', to: '#2563eb' }, { name: 'Assistant', colour: '#34d399', to: '#0891b2' },
   { name: 'Reviewer', colour: '#fbbf24', to: '#f97316' }, { name: 'Tester', colour: '#f472b6', to: '#e11d48' },

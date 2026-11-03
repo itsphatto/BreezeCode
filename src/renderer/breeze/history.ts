@@ -1,6 +1,6 @@
 /* ----- Chat history: "New chat" files the current conversation away; the clock button brings one back ----- */
 // `sessions` is the current shape; an older entry has `session` (+ `agent`) instead, and openChat turns that into `sessions`.
-// `folder`: the project open when a Breeze Box chat began, so its side bar can group chats by folder.
+// `folder`: the project open when a Breeze Space chat began, so its side bar can group chats by folder.
 interface ChatEntry { id: string; title: string; at: number; html: string; agent: string | null; session: string | null; sessions?: Record<string, string>; folder?: string | null; }
 const historyKey = (s: Surface) => `breeze.history:${chatScope(s)}`;
 const chatIdKey = (s: Surface) => `breeze.chatId:${chatScope(s)}`;
@@ -126,7 +126,7 @@ commands['chat.history'] = () => {
   if (surface.name === 'box') { setBoxSide(true); openBoxSearch(); } else showHistory(surface, $('#chatHistory'));
 };
 
-/* ----- Breeze Box side bar: New chat, Search, then the chats grouped by folder ----- */
+/* ----- Breeze Space side bar: New chat, Search, then the chats grouped by folder ----- */
 // Box switches chats here instead of with tabs: a chat that is not running and not on screen is filed away,
 // so only the open chat and any still working stay loaded.
 const boxSideFolded = new Set(store.get<string[]>('breeze.boxSideFolded', []));
@@ -188,7 +188,7 @@ function renderBoxSide(): void {
   const entries = chatHistory(SURFACES.box).filter(e => !q || matches(e));
   const activeId = surfaceTabs.box.find(t => t.id === activeTabId.box)?.historyId;
   const busy = new Set(surfaceTabs.box.filter(t => tabBusy(t) && t.historyId).map(t => t.historyId));
-  // Groups keep the order of their newest chat; chats from before folders were kept go under "Breeze Box".
+  // Groups keep the order of their newest chat; chats from before folders were kept go under "Breeze Space".
   const groups = new Map<string, ChatEntry[]>();
   for (const e of entries) {
     const k = e.folder ?? '';
@@ -200,7 +200,7 @@ function renderBoxSide(): void {
   }
   list.innerHTML = [...groups].map(([folder, chats]) => {
     const folded = !q && boxSideFolded.has(folder);
-    const name = folderName(folder) || 'Breeze Box';
+    const name = folderName(folder) || 'Breeze Space';
     const rows = chats.map(e => `<button class="box-side-chat${e.id === activeId ? ' on' : ''}" type="button" data-chat="${escAttr(e.id)}" title="${escAttr(e.title)}">
         <span class="nm">${esc(e.title)}</span>${busy.has(e.id) ? '<span class="box-side-busy" aria-label="Working"></span>' : `<span class="ago">${esc(timeAgo(e.at))}</span>`}</button>`).join('');
     return `<div class="box-side-group${folded ? ' folded' : ''}">

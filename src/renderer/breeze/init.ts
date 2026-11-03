@@ -1,5 +1,5 @@
 /* ================= Init ================= */
-// Ctrl+R reloads the window: the screen it was on (the editor or Breeze Box) comes back instead of Home. The screen
+// Ctrl+R reloads the window: the screen it was on (the editor or Breeze Space) comes back instead of Home. The screen
 // is kept for this window's session only (swapScreen), so a fresh launch still opens on Home.
 const reloadedMode: WorkMode | null = (() => {
   if (!appState.onboarded) return null;

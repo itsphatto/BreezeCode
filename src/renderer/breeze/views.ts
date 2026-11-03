@@ -67,7 +67,7 @@ $$('.act-btn[data-view]').forEach(b => b.onclick = () => {
   if (v === layout.view && layout.sideOpen) { layout.sideOpen = false; applyLayout(); } else showView(v, true, true);
 });
 
-/* ================= Breeze Box (chat only) ================= */
+/* ================= Breeze Space (chat only) ================= */
 // The same agents and conversation as the IDE's agent panel, with nothing else on screen.
 function enterMode(mode: WorkMode): void {
   appState.mode = mode;
@@ -86,9 +86,9 @@ function enterMode(mode: WorkMode): void {
 }
 function renderBoxFolder(): void {
   const chip = $('#boxFolder');
-  const name = rootInfo ? rootInfo.name : 'Breeze Box folder';
+  const name = rootInfo ? rootInfo.name : 'Breeze Space folder';
   chip.innerHTML = `${svgIcon('folder', 13)}<span>${esc(name)}</span>`;
-  chip.title = rootInfo ? `Agents work in ${rootInfo.root}` : 'No project open: agents work in Documents/Breeze Box';
+  chip.title = rootInfo ? `Agents work in ${rootInfo.root}` : 'No project open: agents work in Documents/Breeze Space';
 }
 function boxAgentItems(): MenuItem[] {
   const a = selectedAgent();
@@ -107,7 +107,7 @@ function boxAgentItems(): MenuItem[] {
         saveApp();
         renderAgentBar();
         updateBoxEmptyWho();
-        toast(`Breeze Box now uses ${ag.name}`);
+        toast(`Breeze Space now uses ${ag.name}`);
       },
     });
   }

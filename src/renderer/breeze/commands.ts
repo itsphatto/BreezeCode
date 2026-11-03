@@ -428,7 +428,7 @@ const MENUS: Menu[] = [
       { sep: true },
       { label: 'Home', act: 'app.home' },
       { label: 'Breeze Code', act: 'mode.ide', checked: () => appState.mode === 'ide' },
-      { label: 'Breeze Box', act: 'mode.box', checked: () => appState.mode === 'box' },
+      { label: 'Breeze Space', act: 'mode.box', checked: () => appState.mode === 'box' },
       { sep: true },
       { label: 'Sync Workspace', act: 'sync.run', enabled: () => !!user && !!rootInfo },
       { label: 'Open Cloud Workspace', act: 'sync.open', enabled: () => !!user },

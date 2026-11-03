@@ -406,7 +406,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
 }
 
 // "Switch Model": the agent's models in a flat list, then a slider for its effort (a local server has none).
-// Every surface that picks a model uses this, so Breeze Box and the agents panel behave the same.
+// Every surface that picks a model uses this, so Breeze Space and the agents panel behave the same.
 // makeDefault (an agent's own chip): setting its model or effort also makes it the default agent.
 function modelPickerItems(a: DetectedAgent, makeDefault = false): MenuItem[] {
   const current = () => a.version || a.models?.[0] || '';
@@ -457,7 +457,7 @@ function makeDefaultAgent(ag: DetectedAgent): void {
   updateScmGenBtn();
 }
 function agentChipMenuItems(ag: DetectedAgent): MenuItem[] {
-  // The agent's chip is where its model and effort are picked, as in Breeze Box's agent menu.
+  // The agent's chip is where its model and effort are picked, as in Breeze Space's agent menu.
   const models: MenuItem[] = ag.models?.length ? [...modelPickerItems(ag, true), { sep: true }] : [];
   return [
     ...models,
@@ -946,10 +946,11 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
   background(run());
 });
-// Switching between the onboarding, the IDE and Breeze Box: the old screen fades back, the new one rises in.
+// Switching between the onboarding, the IDE and Breeze Space: the old screen fades back, the new one rises in.
 let swapTimer: TimeoutId | undefined;
 let swapSeq = 0;
 let stopTeam: (() => void) | null = null;
+let stopFlight: (() => void) | null = null; // a flight to or from Breeze Space under way (space.ts)
 let booted = false;
 // Startup work that fills the screen (git status, fonts, pictures) is collected here, so start-up only counts as
 // finished (and sounds come on) once the app looks finished.
@@ -980,13 +981,14 @@ function swapScreen(to: string): void {
 
   for (const el of screens) {
     if (el !== next && el !== prev) {
-      el.classList.remove('screen-out', 'screen-prep');
+      el.classList.remove('screen-out', 'screen-prep', 'screen-lift', 'screen-drop');
       el.classList.add('hidden');
     }
   }
 
   if (!next.classList.contains('hidden') && !next.classList.contains('screen-out') && !next.classList.contains('screen-prep')) return; // already showing
-  next.classList.remove('hidden', 'screen-out', 'screen-in');
+  stopFlight?.();
+  next.classList.remove('hidden', 'screen-out', 'screen-in', 'screen-lift', 'screen-drop');
   queueDiscord();
   // The new screen is laid out and painted unseen first (the caller fills it in right after this), and the swap only
   // plays once frames come steadily, so a slow machine doesn't stutter through it.
@@ -998,13 +1000,19 @@ function swapScreen(to: string): void {
       prev.classList.add('screen-team');
       next.classList.add('screen-team');
     }
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const climb = !still && prev?.id === 'ide' && next.id === 'box';
+    const fall = !still && prev?.id === 'box' && next.id === 'ide';
     next.classList.remove('screen-prep');
-    if (!team) {
+    if (climb || fall) flyBetween(next, fall); // space.ts
+    else if (!team) {
       next.classList.add('screen-in');
       next.addEventListener('animationend', () => next.classList.remove('screen-in'), { once: true });
     }
     if (!prev) return;
     prev.classList.add('screen-out');
+    if (climb) prev.classList.add('screen-lift');
+    if (fall) prev.classList.add('screen-drop');
     // Hidden once its fade has actually finished, not after a fixed 260 ms: opening a project keeps the page busy
     // just then, the fade starts late, and the timer cut it off still 40% visible (Home's bright profile picture
     // vanished in a flash). The timer stays as a fallback for a fade that never gets to run.
@@ -1013,12 +1021,12 @@ function swapScreen(to: string): void {
       stopTeam?.();
       stopTeam = null;
       if (!prev.classList.contains('screen-out')) return; // switched back to it meanwhile
-      prev.classList.remove('screen-out');
+      prev.classList.remove('screen-out', 'screen-lift', 'screen-drop');
       prev.classList.add('hidden');
     };
-    const onEnd = (e: AnimationEvent) => { if (e.target === prev && e.animationName === 'screenOut') done(); };
+    const onEnd = (e: AnimationEvent) => { if (e.target === prev && !e.pseudoElement && (e.animationName === 'screenOut' || e.animationName === 'screenLift')) done(); };
     prev.addEventListener('animationend', onEnd);
-    swapTimer = setTimeout(done, 900);
+    swapTimer = setTimeout(done, climb || fall ? LIFT_MS : 900);
     if (team) {
       const play = teamSwap(prev, next, done);
       stopTeam = play.stop;

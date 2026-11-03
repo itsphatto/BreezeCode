@@ -1,5 +1,5 @@
 /* ================= Debugger: the full page ================= */
-// A screen of its own (swapScreen), like Breeze Box: the controls in the title bar, the call stack and breakpoints on
+// A screen of its own (swapScreen), like Breeze Space: the controls in the title bar, the call stack and breakpoints on
 // the left, the file being debugged in the middle, read-only. Leaving it keeps the session running, and the IDE's
 // status bar shows "Debugging app.py — paused · Open" to come back. The session itself lives in debug.ts.
 

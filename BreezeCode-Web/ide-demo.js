@@ -1955,7 +1955,7 @@ h1 {
       { label: 'Keyboard Shortcuts', run: () => modal(`<h4>Keyboard shortcuts</h4><div class="bz-keys">${SHORTCUTS.map(([a, k]) => `<span>${a}</span><kbd>${k}</kbd>`).join('')}</div>`) },
       { sep: true },
       { label: 'Breeze Code', checked: true },
-      { label: 'Breeze Box', run: () => desktopOnly('Breeze Box, the chat-only mode,') },
+      { label: 'Breeze Space', run: () => desktopOnly('Breeze Space, the chat-only mode,') },
       { sep: true },
       { label: 'Download Breeze Code', href: DOWNLOAD },
     ], $('.bz-act-btn.gear'), 'up'),

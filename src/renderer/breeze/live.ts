@@ -1,4 +1,4 @@
-/* ================= Breeze Box: the file an agent is editing, live ================= */
+/* ================= Breeze Space: the file an agent is editing, live ================= */
 // The right-hand panel shows one file at a time: the last one a Box agent touched. A new file types in as the agent
 // drafts it; an edited one is read back after each write, with the lines that changed marked and scrolled into view.
 // What was last shown (or, the first time, the committed version) is what "changed" is measured against.
@@ -8,11 +8,14 @@ let livePath: string | null = null;
 let liveReads = 0; // a later read wins over an earlier one still in flight
 let liveHand: CrewHand | null = null; // the drafting agent's cursor, moved to the end of each redraw
 
+// Nothing written: the panel closes, and the conversation takes its room. liveHead opens it again.
 function liveEmpty(): void {
   livePath = null;
+  liveReads++; // a read still in flight must not reopen it
   $('#boxLive').classList.remove('writing');
+  $('#boxLive').classList.add('closed');
   $('#boxLiveHead').innerHTML = '';
-  $('#boxLiveBody').innerHTML = `<div class="box-live-empty">${svgIcon('code', 22)}<div>When an agent edits a file, it shows here as it's written.</div></div>`;
+  $('#boxLiveBody').innerHTML = '';
 }
 
 // The first and last line (0-based, inclusive) where `next` differs from `prev`; null when they match.
@@ -30,6 +33,7 @@ function changedLines(prev: string, next: string): [number, number] | null {
 function liveHead(path: string, status: string): void {
   const p = path.replaceAll('\\', '/');
   const dir = dirName(p);
+  $('#boxLive').classList.remove('closed');
   $('#boxLiveHead').innerHTML = `<span class="ico">${fileIcon(baseName(p))}</span>
     <span class="box-live-name" title="${escAttr(p)}"><b>${esc(baseName(p))}</b>${dir ? `<small>${esc(dir)}</small>` : ''}</span>
     <span class="box-live-status">${esc(status)}</span>

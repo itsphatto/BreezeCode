@@ -13,7 +13,7 @@ function discordActivity(): DiscordActivity {
     else if (inBox) details = 'Chatting with an agent';
     return { details, state: 'Breeze Code', start: discordSince, dev: appState.devMode };
   }
-  let details = inBox ? 'Chatting in Breeze Box' : 'Idle';
+  let details = inBox ? 'Chatting in Breeze Space' : 'Idle';
   if (working) details = `${working.name}: ${working.task}`;
   else if (!inBox && file) details = `Editing ${file}`;
   const lang = !inBox && active ? langOf(active)[1] : '';
