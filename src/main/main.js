@@ -443,9 +443,12 @@ function resolveIn(rel = '') {
 }
 const relTo = (base, abs) => path.relative(base, abs).split(path.sep).join('/');
 const toRel = abs => relTo(root, abs);
-// Breeze Box chats work here when no project folder is open.
+// Breeze Space chats work here when no project folder is open.
 function boxDir() {
-  const dir = path.join(app.getPath('documents'), 'Breeze Box');
+  const dir = path.join(app.getPath('documents'), 'Breeze Space');
+  // The folder used to be called Breeze Box: chats started there keep their files.
+  const old = path.join(app.getPath('documents'), 'Breeze Box');
+  if (fs.existsSync(old) && !fs.existsSync(dir)) { try { fs.renameSync(old, dir); } catch { /* in use: start a new folder, the old one stays */ } }
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -2078,7 +2081,7 @@ function codexFallback(errText) {
   return codexModels().find(m => m !== bad && m !== loadState().codexModel) || null;
 }
 
-// Agents work in the open project; Breeze Box chats may also run without one, in the Breeze Box folder.
+// Agents work in the open project; Breeze Space chats may also run without one, in the Breeze Space folder.
 async function startRun(runId, { agent, mode, prompt, session, box, team }) {
   const base = root || (box ? boxDir() : null);
   if (!base) throw new Error('Open a folder first');
@@ -2255,7 +2258,7 @@ const LIST_MAX = 200;
 const COMMAND_MS = 2 * 60 * 1000;
 const COMMAND_OUT_MAX = 8000; // characters of output the model gets back; the end is kept, where errors show
 
-// Each tool works inside ctx.base: the open project, or the Breeze Box folder. Secrets (.env…) and the .git
+// Each tool works inside ctx.base: the open project, or the Breeze Space folder. Secrets (.env…) and the .git
 // folder are off limits: what the model reads goes to the LLM server, and git's config and hooks run commands.
 // With full access none of that applies: any path on the computer is fair.
 function agentPath(ctx, rel) {

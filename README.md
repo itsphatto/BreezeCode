@@ -129,10 +129,10 @@ Stage, discard, commit and push from Source Control, with a graph of every check
 <td width="50%"><img src="docs/screenshots/ide-git.jpg" alt="Source Control with staged and changed files and a graph of checkpoints"></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/screenshots/box.jpg" alt="Breeze Box with a reply containing a code artifact card"></td>
+<td width="50%"><img src="docs/screenshots/box.jpg" alt="Breeze Space with a reply containing a code artifact card"></td>
 <td width="50%" valign="top">
 
-### Breeze Box
+### Breeze Space
 
 Just a prompt and a chat. No editor, no fuss. Code in a reply turns into a card you can copy or download in one click.
 

@@ -298,6 +298,7 @@
       <span class="project" id="projectName">No folder</span>
       <span class="spacer"></span>
       <button class="update-btn" id="updateBtn" hidden>Update</button>
+      <button class="btn btn-sm space-btn" data-act="mode.box">Go to Breeze Space</button>
       <div class="layout-btns">
         <button class="icon-btn" id="tglSide" title="Toggle Primary Side Bar (Ctrl+B)"><svg width="16" height="16">
             <use href="#i-left-on" />
@@ -536,13 +537,14 @@
     </footer>
   </div>
 
-  <!-- ================= BREEZE BOX (chat only) ================= -->
+  <!-- ================= BREEZE SPACE (chat only) ================= -->
   <div class="box hidden" id="box">
+    <canvas class="space-sky" id="spaceSky" aria-hidden="true" tabindex="-1"></canvas>
     <div class="agent-fluid-blur" aria-hidden="true"></div>
     <canvas class="agent-fluid-canvas" aria-hidden="true" tabindex="-1"></canvas>
     <header class="titlebar box-bar">
       <button class="icon-btn box-side-show" id="boxSideShow" type="button" title="Show chats" aria-controls="boxSide"><svg data-i="panelLeft" data-size="16"></svg></button>
-      <span class="logo"><img src="../../assets/brand/BreezeBox.png" alt="Breeze Box"></span>
+      <span class="logo"><img src="../../assets/brand/BreezeSpace.png" alt="Breeze Space"></span>
       <span class="spacer"></span>
       <button class="btn btn-sm" data-act="mode.ide">Open Breeze Code</button>
       <button class="icon-btn box-gear" id="boxSettings" title="Settings" aria-haspopup="dialog"><svg width="18"
@@ -566,7 +568,7 @@
       <button class="icon-btn term-new-btn agent-tab-new" id="boxNewTab" type="button" title="New chat" aria-label="New chat"><svg data-i="plus" data-size="13"></svg></button>
     </div>
     <!-- The file a Box agent is editing, one at a time, as it is written (live.ts). -->
-    <aside class="box-live" id="boxLive" aria-label="File the agent is editing">
+    <aside class="box-live closed" id="boxLive" aria-label="File the agent is editing">
       <div class="box-live-head" id="boxLiveHead"></div>
       <div class="box-live-body" id="boxLiveBody"></div>
     </aside>
@@ -597,7 +599,7 @@
   </div>
 
   <!-- ================= DEBUGGER (full page; debugview.ts) ================= -->
-  <!-- Shown with swapScreen like Breeze Box; leaving it keeps the session running. -->
+  <!-- Shown with swapScreen like Breeze Space; leaving it keeps the session running. -->
   <div class="debug hidden" id="debug">
     <header class="titlebar dbg-bar">
       <div class="dbg-tools" id="dbgTools" role="toolbar" aria-label="Debug controls">
@@ -738,6 +740,7 @@
   <script src="breeze/mentions.js" defer></script>
   <script src="breeze/teams.js" defer></script>
   <script src="breeze/live.js" defer></script>
+  <script src="breeze/space.js" defer></script>
   <script src="breeze/dropdowns.js" defer></script>
   <script src="breeze/git.js" defer></script>
   <script src="breeze/skills.js" defer></script>

@@ -372,6 +372,7 @@ function switchAgentTab(s: Surface, tid: string): void {
     current.uiMode = s.mode.value;
     current.attachments = [...(attachmentsMap[s.name] || [])];
     current.panel.classList.remove('active');
+    if (s.name === 'box' && typeof liveEmpty === 'function') liveEmpty(); // that chat's file isn't this one's
   }
   const next = surfaceTabs[s.name].find(t => t.id === tid);
   if (!next) return;
@@ -630,7 +631,7 @@ function hideThinking(tab?: AgentTabState): void {
 }
 
 /* ----- Rotating prompts: a composer's placeholder changes when you point at it (and every 5 s while you do);
-   Breeze Box's greeting changes every 5 s ----- */
+   Breeze Space's greeting changes every 5 s ----- */
 // Built from parts, so each list holds about a thousand lines without writing them out one by one. Each verb only meets
 // the things it makes sense for ("Add types to" meets code, "Restyle" meets screens), so no line reads as nonsense.
 const combine = (templates: string[], parts: string[]) => templates.flatMap(t => parts.map(p => t.replace('{x}', p)));
@@ -756,7 +757,7 @@ setInterval(() => {
 
 function boxEmptyWho(): string {
   const agent = selectedAgent();
-  return agent ? `Breeze Box talks to ${agent.name}. Pick another agent below.` : 'Pick an agent below to start.';
+  return agent ? `Breeze Space talks to ${agent.name}. Pick another agent below.` : 'Pick an agent below to start.';
 }
 // The greeting is BOX_HEADINGS[0], written out: a tab can be made before that list exists.
 function boxEmptyHtml(): string {
@@ -833,7 +834,7 @@ function toolLine(kind: string, label: string, tab?: AgentTabState): void {
   addMsg(`<div class="tool-line ${kind}"><span class="ti">${svgIcon(TOOL_ICON[kind] ?? 'dot', 14)}</span><span class="tl">${esc(label)}</span></div>`, tab);
 }
 
-// The open chat is kept per project folder (and once for Breeze Box) so a reload brings it back.
+// The open chat is kept per project folder (and once for Breeze Space) so a reload brings it back.
 const chatScope = (s: Surface) => (s.name === 'box' ? 'box' : rootInfo?.root ?? '');
 const chatKey = (s: Surface = msgSurface) => `breeze.chat:${chatScope(s)}`;
 const agentSessionKey = (s: Surface = msgSurface, agent: string | null = appState.agent) => `breeze.agentSession:${chatScope(s)}:${agent ?? ''}`;
