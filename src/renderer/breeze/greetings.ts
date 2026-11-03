@@ -791,9 +791,10 @@ const GREET_DATES: Record<string, string[]> = {
   '12-24': ['Christmas Eve coding? Santa’s checking your commits twice.'],
   '12-25': ['Merry Christmas! A gift for your project?'],
   '12-31': ['Last commit of the year?', 'Closing out the year with code.'],
-  '10-15': ['Fun fact: Did you know BreezeCode was built on this day?','Fun Fact: Did you know BreezeCode was built during a Hackathon!'],
+  '10-15': ['Fun fact: Did you know BreezeCode was built on this day?','Fun Fact: Did you know BreezeCode Foundation was built during a Hackathon!'],
   '05-19': ['Happy Birthday to @itsphatto'],
   '01-15': ['Happy Birthday to @Sapfire151'],
+  '11-13':['Happy Birthday to @LangZab','Happy Birthday to Porsche!'],
   
 };
 

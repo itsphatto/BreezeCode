@@ -787,8 +787,8 @@ async function runCommand(cmd: string): Promise<void> {
     renderTermTabs();
   }
 }
-// C, C++, C#, Java, Python and Rust files run in the terminal; their input comes from the terminal's input line.
-function runnable(path: string | null): boolean { return !!path && /\.(?:c|cpp|cc|cxx|cs|java|py|rs)$/i.test(path); }
+// C, C++, C#, Java, JavaScript, Python, Rust and TypeScript files run in the terminal; their input comes from the terminal's input line.
+function runnable(path: string | null): boolean { return !!path && /\.(?:c|cpp|cc|cxx|cs|java|py|rs|[cm]?js|[cm]?ts)$/i.test(path); }
 async function runFile(): Promise<void> {
   const b = activeBuf();
   if (!active || b?.kind !== 'text') { toast('Save the file first'); return; }

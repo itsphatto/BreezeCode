@@ -69,7 +69,7 @@ test('runPlan on linux has no .exe', () => {
 });
 
 test('runPlan rejects other files', () => {
-  assert.deepEqual(runPlan('C:\\p\\a.js', tools, 'win32', H), { error: 'Breeze can run .c, .cpp, .cs, .java, .py and .rs files' });
+  assert.deepEqual(runPlan('C:\\p\\a.go', tools, 'win32', H), { error: 'Breeze can run .c, .cpp, .cs, .java, .js, .py, .rs and .ts files' });
 });
 
 const WIN_C = 'No C/C++ compiler found. Install one with:\nwinget install BrechtSanders.WinLibs.POSIX.UCRT';
@@ -162,7 +162,7 @@ test('findTools leaves cxx null without a twin, and everything null when nothing
   assert.equal(r.cc.name, 'gcc');
   assert.equal(r.cxx, null);
   const none = await findTools(machine('win32', {}));
-  assert.deepEqual(none, { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, binDirs: [] });
+  assert.deepEqual(none, { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, binDirs: [] });
 });
 
 test('findTools rejects the Store python shortcut', async () => {
@@ -450,7 +450,7 @@ test('runPlan says a JDK older than 11 cannot run a .java file directly', () => 
 });
 
 test('runPlan without a JDK says how to get one', () => {
-  const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, binDirs: [] };
+  const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, binDirs: [] };
   assert.equal(runPlan('C:\\p\\Main.java', none, 'win32', H).error,
     'No Java JDK found. Install one with:\nwinget install Microsoft.OpenJDK.21\nOr download it from https://adoptium.net');
   assert.equal(runPlan('/p/Main.java', none, 'darwin', H).error,
@@ -507,7 +507,7 @@ test('runPlan runs the nearest Cargo project with cargo run', () => {
 });
 
 test('runPlan without Rust says how to get it', () => {
-  const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, binDirs: [] };
+  const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, binDirs: [] };
   assert.equal(runPlan('C:\\p\\a.rs', none, 'win32', H).error,
     'No Rust compiler found. Install Rust with:\nwinget install Rustlang.Rustup\nOr download it from https://rustup.rs');
   assert.equal(runPlan('/p/a.rs', none, 'darwin', H).error, 'No Rust compiler found. Install Rust with rustup\nDownload it from https://rustup.rs');
@@ -538,4 +538,22 @@ test('findTools on linux looks in CARGO_HOME first', async () => {
   const r = await findTools(m);
   assert.equal(r.rustc.version, 'rustc 1.80.0');
   assert.equal(r.cargo, null);
+});
+
+test('runPlan runs JavaScript and TypeScript with node', () => {
+  const t = { ...tools, node: T('C:\\nodejs\\node.exe', 'node', 'v24.1.0') };
+  for (const f of ['app.js', 'app.mjs', 'app.cjs', 'app.ts', 'app.mts', 'app.cts']) {
+    const r = runPlan(`C:\\p\\${f}`, t, 'win32', H);
+    assert.deepEqual(r.steps, [{ display: `node "${f}"`, file: 'C:\\nodejs\\node.exe', args: [`C:\\p\\${f}`], cwd: 'C:\\p' }]);
+  }
+});
+
+test('runPlan for JavaScript without node says how to install it', () => {
+  assert.match(runPlan('C:\\p\\app.js', tools, 'win32', H).error, /Node\.js wasn't found/);
+});
+
+test('runPlan for TypeScript needs Node 22.18 or newer', () => {
+  const old = { ...tools, node: T('C:\\nodejs\\node.exe', 'node', 'v20.11.0') };
+  assert.match(runPlan('C:\\p\\app.ts', old, 'win32', H).error, /needs Node 22\.18 or newer\.\nUpdate with:\nwinget install OpenJS\.NodeJS\.LTS/);
+  assert.ok(runPlan('C:\\p\\app.js', old, 'win32', H).steps);
 });

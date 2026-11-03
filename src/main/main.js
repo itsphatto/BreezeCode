@@ -1044,9 +1044,9 @@ handle('lsp:references', (_e, rel, line, ch) => lsp.references(rel, lspPos(line,
 handle('lsp:rename', (_e, rel, line, ch, name) => lsp.rename(rel, lspPos(line, ch), String(name)));
 app.on('will-quit', () => lsp.stopAll());
 
-// Runs a .c, .cpp, .cs, .java, .py or .rs file in the open folder, streaming into the terminal under one id.
+// Runs a .c, .cpp, .cs, .java, .js, .py, .rs or .ts file in the open folder, streaming into the terminal under one id.
 let activeRun = null; // { id, cancel }
-const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs)$/i;
+const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts)$/i;
 // The nearest project file (a .csproj, a Cargo.toml) in the file's folder or a folder above it, without leaving the open project.
 function nearestProject(abs, isProject) {
   for (let dir = path.dirname(abs); ; dir = path.dirname(dir)) {

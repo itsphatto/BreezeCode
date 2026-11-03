@@ -33,6 +33,16 @@ const CARGO_DIRS = (platform, env) => {
   const home = platform === 'win32' ? env.USERPROFILE : env.HOME;
   return [env.CARGO_HOME && P.join(env.CARGO_HOME, 'bin'), home && P.join(home, '.cargo', 'bin')].filter(Boolean);
 };
+// Node strips TypeScript types without moving positions from 22.18 (23.6 on the 23 line).
+function nodeSupportsTs(version) {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(version || ''));
+  if (!m) return false;
+  const [major, minor] = [Number(m[1]), Number(m[2])];
+  if (major >= 24) return true;
+  if (major === 23) return minor >= 6;
+  if (major === 22) return minor >= 18;
+  return false;
+}
 // Newest version first when a wildcard matches several (jdk-21 before jdk-17).
 const newestFirst = (a, b) => b.localeCompare(a, undefined, { numeric: true });
 
@@ -141,13 +151,16 @@ async function findTools(o) {
   const rustc = tool(await probe(rustDirs, 'rustc'));
   const cargo = tool(await probe(rustDirs, 'cargo'));
 
+  // JavaScript and TypeScript: Node runs both (TypeScript by stripping its types).
+  const node = tool(await probe(pathDirs, 'node'));
+
   const binDirs = [];
-  for (const t of [cc, cxx, python, dotnet, java, rustc, cargo]) {
+  for (const t of [cc, cxx, python, dotnet, java, rustc, cargo, node]) {
     if (!t) continue;
     const d = P.dirname(t.path);
     if (!pathDirs.some((x) => same(x, d)) && !binDirs.some((x) => same(x, d))) binDirs.push(d);
   }
-  return { cc, cxx, python, dotnet, java, rustc, cargo, binDirs };
+  return { cc, cxx, python, dotnet, java, rustc, cargo, node, binDirs };
 }
 
 async function freshPath(platform, run) {
@@ -281,6 +294,16 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
     };
   }
 
+  if (/^\.[cm]?[jt]s$/.test(e)) {
+    const node = tools.node;
+    if (!node) return { error: missing('node', platform) };
+    if (e.endsWith('ts') && !nodeSupportsTs(node.version)) {
+      const m = entry('node', platform);
+      return { error: `Node ${node.version} can't run a TypeScript file; that needs Node 22.18 or newer.` + (m.cmd ? `\nUpdate with:\n${m.cmd}` : '') + download(m) };
+    }
+    return { steps: [{ display: `node "${base}"`, file: node.path, args: [absFile], cwd }] };
+  }
+
   const out = P.join('build', name + (platform === 'win32' ? '.exe' : ''));
   const runOut = { display: platform === 'win32' ? out : './' + out, file: P.join(cwd, out), args: [], cwd };
 
@@ -317,7 +340,7 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
   }
 
   const cpp = ['.cpp', '.cc', '.cxx'].includes(e);
-  if (e !== '.c' && !cpp) return { error: 'Breeze can run .c, .cpp, .cs, .java, .py and .rs files' };
+  if (e !== '.c' && !cpp) return { error: 'Breeze can run .c, .cpp, .cs, .java, .js, .py, .rs and .ts files' };
   const compiler = cpp ? tools.cxx : tools.cc;
   if (!compiler) return { error: missing('c', platform) };
 
@@ -400,4 +423,4 @@ function ensureBuildIgnored(rootDir) {
   fs.appendFileSync(file, (text === '' || text.endsWith('\n') ? '' : '\n') + 'build/\n');
 }
 
-module.exports = { findTools, freshPath, toolEnv, runPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };
+module.exports = { nodeSupportsTs, findTools, freshPath, toolEnv, runPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };

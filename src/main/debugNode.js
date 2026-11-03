@@ -2,21 +2,12 @@
 // The manager spawns the process and owns its stdio; this reads the inspector's URL from stderr, hides the
 // inspector's own lines from the Output, and maps CDP to the session API.
 const { execFile } = require('node:child_process');
+const { nodeSupportsTs } = require('./toolchains');
 const { CdpClient, urlRegexFor, cdpCondition, checkBp, valueOf, framesOf } = require('./cdp');
 
 const CONNECT_MS = 15000;
 const DIAL_TRIES = 5;
 
-// Node strips TypeScript types without moving positions from 22.18 (23.6 on the 23 line).
-function nodeSupportsTs(version) {
-  const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(version || ''));
-  if (!m) return false;
-  const [major, minor] = [Number(m[1]), Number(m[2])];
-  if (major >= 24) return true;
-  if (major === 23) return minor >= 6;
-  if (major === 22) return minor >= 18;
-  return false;
-}
 
 // Lines the inspector writes to the program's stderr: not the program's output.
 const BANNER = [/^Debugger listening on ws:\/\//, /^For help, see: /, /^Debugger attached\.$/, /^Waiting for the debugger to disconnect\.\.\.$/, /^Debugger ending on ws:\/\//];
