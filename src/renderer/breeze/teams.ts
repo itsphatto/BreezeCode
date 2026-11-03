@@ -434,7 +434,7 @@ async function openAgentFile(path: string, created = false): Promise<void> {
 }
 // The agent's text for a file it is creating, as it writes it.
 function onAgentDraft(r: Run, path: string, text: string): void {
-  if (r.surfaceName === 'box') { liveDraft(path, text); return; }
+  if (r.surfaceName === 'box') { liveDraft(path, text, r.phase); return; }
   if (!typeAgentDraft(path, text)) return;
   (r.drafts ??= new Set()).add(path);
 }

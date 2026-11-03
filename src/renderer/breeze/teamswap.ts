@@ -25,6 +25,35 @@ function teamArrow(): Path2D {
   return path;
 }
 
+// The same cursor as an element, for an agent typing somewhere: its arrow and name tag in the crew member's colours.
+// `who` is the crew member it is dressed as; the arrow is only repainted when that changes.
+interface CrewHand { el: HTMLElement; arrow: HTMLCanvasElement; tag: HTMLElement; who: string; }
+function crewHand(): CrewHand {
+  const el = document.createElement('div'), arrow = document.createElement('canvas'), tag = document.createElement('span');
+  el.className = 'type-hand';
+  el.setAttribute('aria-hidden', 'true');
+  tag.className = 'type-hand-tag';
+  el.append(arrow, tag);
+  return { el, arrow, tag, who: '' };
+}
+function dressCrewHand(hand: CrewHand, phase: string): void {
+  const crew = TEAM_CREW.find(c => c.name.toLowerCase() === phase) ?? TEAM_CREW[2];
+  if (hand.who === crew.name) return;
+  hand.who = crew.name;
+  hand.tag.textContent = crew.name;
+  hand.tag.style.background = `linear-gradient(90deg, ${crew.colour}, ${crew.to})`;
+  const dpr = devicePixelRatio || 1, g = hand.arrow.getContext('2d') as CanvasRenderingContext2D;
+  hand.arrow.width = 20 * dpr; // also clears it
+  hand.arrow.height = 24 * dpr;
+  g.scale(dpr, dpr);
+  g.translate(3, 3); // the hot spot: the arrow reaches up and left of it
+  const paint = g.createLinearGradient(-2, -2.5, 15, 18.5);
+  paint.addColorStop(0, crew.colour);
+  paint.addColorStop(1, crew.to);
+  g.fillStyle = paint;
+  g.fill(teamArrow());
+}
+
 // look: what it shows and its size, so the same thing can be recognised in a new place. Empty when it shows nothing.
 interface TeamBlock { el?: HTMLElement; x: number; y: number; w: number; h: number; key: string; look?: string; }
 // ax/ay: the side of the block that stays put while it's cropped (0 left or top, 1 right or bottom, -1 that axis isn't
