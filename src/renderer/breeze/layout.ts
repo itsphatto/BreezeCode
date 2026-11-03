@@ -3,8 +3,27 @@ interface Layout { side: number; agents: number; term: number; preview: number; 
 type SashKind = 'side' | 'agents' | 'preview' | 'term';
 const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, preview: 460, sideOpen: true, agentsOpen: true, termOpen: false, previewOpen: true, view: 'files' };
 const layout: Layout = { ...DEFAULT_LAYOUT, ...store.get<Partial<Layout>>('breeze.layout', {}) };
+// One terminal panel, shown in the IDE or in Breeze Space. Moving it keeps its sessions and what they've printed.
+const termHome = $('#terminal').parentElement as HTMLElement;
+function terminalTo(parent: HTMLElement): void {
+  const t = $('#terminal');
+  if (t.parentElement === parent) return;
+  parent.append(t);
+  // It arrives closed and laid out, so opening slides it in even if it was open where it came from.
+  t.classList.remove('open');
+  void t.offsetWidth;
+}
+function terminalBack(): void {
+  if ($('#terminal').parentElement === termHome) return;
+  terminalTo(termHome);
+  applyLayout();
+}
+const terminalHere = () => terminalTo(appState.mode === 'box' ? $('#box') : termHome);
 function applyLayout(): void {
   const main = $('#main'), work = $('#work'), t = $('#terminal');
+  const inSpace = layout.termOpen && t.parentElement === $('#box');
+  $('#boxTerm').classList.toggle('on', inSpace);
+  $('#boxTerm').setAttribute('aria-pressed', String(inSpace));
   main.style.setProperty('--side-w', layout.sideOpen ? `${layout.side}px` : '0px');
   main.style.setProperty('--agents-w', layout.agentsOpen ? `${layout.agents}px` : '0px');
   main.classList.toggle('no-side', !layout.sideOpen);
@@ -56,7 +75,7 @@ function sashGap(sash: HTMLElement): [number, number, number, number] | null {
   const cardEl = sashCards.get(sash);
   if (!cardEl?.offsetParent) return null;
   const kind = sash.dataset.sash;
-  if (kind === 'term' && !cardEl.classList.contains('open')) return null;
+  if (kind === 'term' && (!cardEl.classList.contains('open') || cardEl.parentElement?.id === 'box')) return null; // it sets the height, which Breeze Space's side bar doesn't use
   // A closed preview keeps its (zero-width) card in the layout; its sash would sit on the editor's edge and resize
   // nothing useful, since the editor and agents already share the sash beside the agents panel.
   if (kind === 'preview' && !layout.previewOpen) return null;

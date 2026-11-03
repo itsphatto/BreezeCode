@@ -7748,8 +7748,8 @@ body.vibing .ide {
   display: grid;
   /* title bar · chat tabs (hidden: the side bar switches chats) · conversation (takes the rest) · composer */
   grid-template-rows: 45px auto minmax(0, 1fr) auto;
-  /* chats side bar · conversation · the file the agent is editing */
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* chats side bar · conversation · the file the agent is editing · terminal */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   height: 100vh;
   transition: filter .6s ease, opacity .6s ease, transform .6s cubic-bezier(.2, .8, .2, 1);
   background: radial-gradient(900px 420px at 50% -12%, rgba(0, 122, 255, .16), transparent 70%), var(--bg);
@@ -7805,6 +7805,71 @@ body.vibing .box {
 
 .box > .box-composer {
   grid-row: 4;
+}
+
+/* The IDE's terminal panel, brought over by the title bar's button (terminalTo, layout.ts) as a side bar at the right. It
+   opens and closes on its width (the same animated layout change as the IDE's panels, body.layout-animating), with its
+   contents keeping theirs so the lines don't rewrap on the way. */
+.box > .terminal {
+  --term-w: clamp(320px, 34vw, 560px);
+  grid-column: 4;
+  grid-row: 2 / -1;
+  width: var(--term-w);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 12px 22px 0; /* the bottom lines up with the prompt's (.box-composer's padding) */
+  /* Frosted glass, like the prompt beside it: the stars pass behind it, softened. */
+  border: 1px solid var(--glass-line);
+  border-radius: 16px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  overflow: clip;
+}
+
+.box > .terminal > * {
+  flex: none;
+  width: calc(var(--term-w) - 2px);
+}
+
+.box > .terminal:not(.open) {
+  width: 0;
+  margin-right: 0;
+  opacity: 0;
+  visibility: hidden;
+  border-color: transparent;
+}
+
+/* Fills the side bar, open or closing, instead of taking the height the IDE's panel uses. */
+#box > .terminal .term-body {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  padding-block: 6px;
+  border-top-color: var(--glass-line);
+  transition: none; /* or the IDE's "animate everything" keeps it hidden a moment longer than the panel, and the input can't take the cursor */
+}
+
+/* No room for both beside a usable conversation: the terminal wins, and the file panel comes back when it closes. */
+@media (max-width: 1800px) {
+  .box:has(> .terminal.open) .box-live {
+    width: 0;
+    opacity: 0;
+    visibility: hidden;
+    border-left-color: transparent;
+  }
+}
+
+/* Visible from the first frame of opening (only closing waits to hide), so its input can take the cursor straight away. */
+body.layout-animating .box > .terminal.open {
+  transition: width .28s cubic-bezier(.16, 1, .3, 1), margin .28s cubic-bezier(.16, 1, .3, 1), opacity .28s cubic-bezier(.16, 1, .3, 1), border-color .28s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.layout-animating .box > .terminal,
+  body.layout-animating .box > .terminal.open {
+    transition: opacity .18s ease;
+  }
 }
 
 /* ----- Breeze Space live file: the one file an agent is editing, as it's written ----- */
@@ -8022,7 +8087,6 @@ body.vibing .box {
   flex-direction: column;
   gap: 1px;
   padding: 4px 8px 12px;
-  border-right: 1px solid var(--line);
   position: relative;
   z-index: 1;
 }
@@ -8085,7 +8149,6 @@ body.vibing .box {
 
 /* Search turns into a field the same size as the row it replaces: the same icon, no box of its own. */
 .box-side-search {
-  background: var(--bg-3);
   cursor: text;
 }
 
@@ -8187,8 +8250,15 @@ body.vibing .box {
   opacity: 1;
 }
 
-.box-side-chat.on {
-  background: var(--bg-3);
+/* The highlight stops short of each row's edges, so neighbouring rows lit at once keep a gap between them. The open chat
+   and the search field wear the same one, held on. */
+.box-side :is(.box-side-row, .box-side-chat)::before {
+  inset: 2px 0;
+}
+
+.box-side :is(.box-side-chat.on, .box-side-search)::before {
+  opacity: 1;
+  transform: none;
 }
 
 /* A chat whose agent is still working. */
@@ -9414,7 +9484,7 @@ body.vibing .box {
   animation: none;
 }
 
-.box.screen-drop > :is(.box-bar, .box-side, .box-live, .box-main, .box-composer) {
+.box.screen-drop > :is(.box-bar, .box-side, .box-live, .box-main, .box-composer, .terminal) {
   animation: fadeOut .45s ease forwards;
 }
 
@@ -9495,14 +9565,14 @@ body.vibing .box {
 }
 
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
-  .box :is(.btn, .icon-btn, .pill-btn, .avatars, .switch, .chat-file-chip, .chat-img-wrap, #boxSend),
+  .box :is(.btn, .icon-btn, .pill-btn, .avatars, .chat-file-chip, .chat-img-wrap, #boxSend),
   .space-btn,
   .box-bar .logo img {
     transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .18s ease, opacity .2s ease,
       transform .12s cubic-bezier(.16, 1, .3, 1), scale .18s cubic-bezier(.23, 1, .32, 1), translate .18s cubic-bezier(.23, 1, .32, 1);
   }
 
-  .box :is(.btn, .pill-btn, .switch, .chat-file-chip):hover:not(:disabled),
+  .box :is(.btn, .pill-btn, .chat-file-chip):hover:not(:disabled),
   .space-btn:hover {
     scale: 1.03;
   }
@@ -9542,7 +9612,7 @@ body.vibing .box {
     transition: color .15s ease;
   }
 
-  .composer-access:hover .ca-label,
+  .composer-access:not(.on):hover .ca-label,
   .box-chat .msg:hover .meta,
   .box-chat .tool-line:hover .tl,
   .box-side-empty:hover,

@@ -146,14 +146,19 @@ const commands: Record<string, () => unknown> = {
   })()),
   'term.toggle': () => {
     const prev = { ...layout };
-    layout.termOpen = !layout.termOpen;
+    // Open back in the IDE but not brought over yet, Breeze Space's button shows it rather than closing it unseen.
+    const showing = layout.termOpen && (appState.mode !== 'box' || $('#terminal').parentElement === $('#box'));
+    terminalHere();
+    layout.termOpen = !showing;
     sfx.play('whoosh');
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
     applyLayoutAnimated();
     if (layout.termOpen) termInput.focus();
+    else if (appState.mode === 'box') SURFACES.box.prompt.focus();
   },
-  'term.focus': () => { layout.termOpen = true; applyLayoutAnimated(); termInput.focus(); },
+  'term.focus': () => { terminalHere(); layout.termOpen = true; applyLayoutAnimated(); termInput.focus(); },
   'term.new': () => {
+    terminalHere();
     layout.termOpen = true;
     applyLayoutAnimated();
     createTermSession();
