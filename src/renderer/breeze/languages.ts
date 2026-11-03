@@ -12,6 +12,7 @@ const LANGS: Record<string, [lexer: string, name: string]> = {
   c: ['cpp', 'C'], h: ['cpp', 'C/C++ Header'],
   cpp: ['cpp', 'C++'], cc: ['cpp', 'C++'], cxx: ['cpp', 'C++'], hpp: ['cpp', 'C++ Header'], hh: ['cpp', 'C++ Header'], hxx: ['cpp', 'C++ Header'],
   cs: ['cs', 'C#'], csx: ['cs', 'C# Script'], csproj: ['html', 'C# Project'],
+  lua: ['lua', 'Lua'], php: ['php', 'PHP'], phtml: ['php', 'PHP'], sql: ['sql', 'SQL'],
   yml: ['yaml', 'YAML'], yaml: ['yaml', 'YAML'], toml: ['toml', 'TOML'],
   sh: ['sh', 'Shell Script'], bash: ['sh', 'Bash'], zsh: ['sh', 'Zsh'], ksh: ['sh', 'Shell Script'],
   bashrc: ['sh', 'Bash'], bash_profile: ['sh', 'Bash'], bash_aliases: ['sh', 'Bash'], zshrc: ['sh', 'Zsh'], zprofile: ['sh', 'Zsh'],
@@ -46,6 +47,9 @@ const SH_KW = 'if then else elif fi case esac for select while until do done in 
 const PS_KW = 'begin break catch class continue data do dynamicparam else elseif end enum exit filter finally for foreach function hidden if in param process return static switch throw trap try until using while workflow';
 const PS_OP = 'eq ne gt ge lt le like notlike match notmatch contains notcontains in notin replace split join and or not xor is isnot as band bor bxor f ieq ine ceq cne ilike clike imatch cmatch ireplace creplace';
 const BAT_KW = 'echo set if else goto call exit for in do not exist defined errorlevel equ neq lss leq gtr geq setlocal endlocal enabledelayedexpansion enableextensions shift pause cd chdir pushd popd start title cls copy del move mkdir md rmdir rd type nul off on';
+const LUA_KW = 'and break do else elseif end false for function goto if in local nil not or repeat return then true until while self';
+const PHP_KW = 'abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile enum extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield true false null self parent int float bool string void mixed never object iterable';
+const SQL_KW = 'add all alter and any as asc autoincrement begin between by case cascade check column commit constraint create cross database default delete desc distinct drop else end except exists foreign from full group having if in index inner insert intersect into is join key left like limit not null offset on or order outer primary references replace returning right rollback select set table then transaction trigger union unique update using values view when where with without integer int text real blob varchar char boolean date datetime timestamp numeric decimal float double count sum avg min max coalesce true false';
 const DOCKER_KW = 'FROM RUN CMD LABEL MAINTAINER EXPOSE ENV ADD COPY ENTRYPOINT VOLUME USER WORKDIR ARG ONBUILD STOPSIGNAL HEALTHCHECK SHELL';
 // A shell word that isn't part of a longer name, variable or flag (do-thing, $done, --exit-code).
 const shellWords = (list: string) => new RegExp(String.raw`(?<![\w$-])(?:${list.replaceAll(' ', '|')})(?![\w-])`);
@@ -152,6 +156,24 @@ const LEXERS: Record<string, RegExp> = {
     ['prop', /(?<=(?:^|\n)[ \t]*(?:export[ \t]+)?)[A-Za-z_][\w.-]*(?=[ \t]*=)/],
     ['str', QUOTED], ['attr', /\$\{[^}\n]*\}?|\$[A-Za-z_]\w*/],
   ]),
+  // Lua: -- comments, --[[ long ]] comments and [[ long ]] / [==[ ]==] strings. Back-references are named: lexer()
+  // puts every rule in a group of its own, so numbered ones would point at the wrong group.
+  lua: lexer([
+    ['com', either(/--\[(?<luaCom>=*)\[[\s\S]*?(?:\]\k<luaCom>\]|$)/, /--[^\n]*/)],
+    ['str', either(/\[(?<luaStr>=*)\[[\s\S]*?(?:\]\k<luaStr>\]|$)/, QUOTED)],
+    ['num', NUMBER], ['kw', keywords(LUA_KW)], ['prop', /\b[A-Za-z_]\w*(?=\s*[({"'])/],
+  ]),
+  // PHP code (the part between <?php and ?>): $variables, # // /* */ comments, <<<HEREDOC strings and #[Attributes].
+  php: lexer([
+    ['tag', /<\?(?:php\b|=)?|\?>/], ['kw', /#\[[^\]\n]*\]?/], ['com', either(LINE_COMMENT, BLOCK_COMMENT, /#[^\n]*/)],
+    ['str', either(/<<<[ \t]*(?<phpQ>["']?)(?<phpDoc>[A-Za-z_]\w*)\k<phpQ>\n[\s\S]*?(?:\n[ \t]*\k<phpDoc>\b|$)/, QUOTED, BACKTICKED)],
+    ['attr', /\$[A-Za-z_]\w*/], ['num', NUMBER], ['kw', keywords(PHP_KW)], ['prop', CALL],
+  ]),
+  // SQL (case-insensitive): -- and /* */ comments, 'strings', "quoted" `quoted` [quoted] names, :params and @variables.
+  sql: lexer([
+    ['com', either(/--[^\n]*/, BLOCK_COMMENT)], ['str', /'(?:''|[^'])*'?/], ['prop', /"(?:""|[^"\n])*"?|`[^`\n]*`?|\[[^\]\n]*\]/],
+    ['attr', /(?<![\w:]):[A-Za-z_]\w*|[@$?]\w*/], ['num', NUMBER], ['kw', keywords(SQL_KW)],
+  ], 'gi'),
   // .gitignore and friends: # comments (only at the start of a line), ! negations and * / ** globs.
   ignore: lexer([['com', /(?<=^|\n)[ \t]*#[^\n]*/], ['kw', /(?<=^|\n)!/], ['attr', /\*\*?|\?/]]),
 };
@@ -213,6 +235,20 @@ function htmlToks(text: string): Tok[] {
   out.push(...lex(text.slice(last), LEXERS.html));
   return out;
 }
+// PHP: the parts between <?php and ?> as PHP code, everything around them as HTML.
+const PHP_BLOCK = /<\?(?:php\b|=)?[\s\S]*?(?:\?>|$)/gi;
+function phpToks(text: string): Tok[] {
+  const out: Tok[] = [];
+  let last = 0;
+  for (const m of text.matchAll(PHP_BLOCK)) {
+    const at = m.index ?? 0;
+    if (at > last) out.push(...htmlToks(text.slice(last, at)));
+    out.push(...lex(m[0], LEXERS.php));
+    last = at + m[0].length;
+  }
+  if (last < text.length) out.push(...htmlToks(text.slice(last)));
+  return out;
+}
 // A highlighted document is a flat token stream: token k runs from starts[k] to starts[k + 1] (or the end).
 // Lines are turned into HTML only when they are drawn, so a 10,000-line file costs the same as the lines in view.
 interface HlDoc { text: string; lexer: string; starts: number[]; kinds: (string | null)[]; lines: number[]; html: (string | undefined)[]; }
@@ -224,7 +260,7 @@ const HL_EXACT_MAX = 400000;
 function fullToks(text: string, lexerName: string): HlToks {
   const starts: number[] = [], kinds: (string | null)[] = [];
   if (LEXERS[lexerName] && text.length <= HL_MAX) {
-    const toks = lexerName === 'html' ? htmlToks(text) : lex(text, LEXERS[lexerName]);
+    const toks = lexerName === 'html' ? htmlToks(text) : lexerName === 'php' ? phpToks(text) : lex(text, LEXERS[lexerName]);
     let at = 0;
     for (const [cls, t] of lexerName === 'css' ? markSelectors(toks) : toks) {
       if (t) { starts.push(at); kinds.push(cls); at += t.length; }
@@ -235,7 +271,7 @@ function fullToks(text: string, lexerName: string): HlToks {
 }
 // Lexers whose tokens depend only on the text around them (not HTML's embedded blocks or CSS's selector depth),
 // so an edit is re-lexed from just above it until the tokens fall back in step with the old ones.
-const INCREMENTAL = new Set(['js', 'json', 'cs', 'py', 'java', 'rs', 'cpp', 'md', 'ignore', 'yaml', 'toml', 'sh', 'ps', 'bat', 'docker', 'env']);
+const INCREMENTAL = new Set(['js', 'json', 'cs', 'py', 'java', 'rs', 'cpp', 'md', 'ignore', 'yaml', 'toml', 'sh', 'ps', 'bat', 'docker', 'env', 'lua', 'sql']);
 // The lengths of the unchanged head and tail of an edit, compared a chunk at a time first (string === is a native compare).
 function editSpan(old: string, text: string): [head: number, tail: number] {
   const min = Math.min(old.length, text.length);
@@ -320,7 +356,7 @@ function lineHtmlOf(d: HlDoc, i: number, shown = LONG_LINE): string {
   if (cached) d.html[i] = h;
   return h;
 }
-const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], yaml: ['# ', ''], toml: ['# ', ''], sh: ['# ', ''], ps: ['# ', ''], docker: ['# ', ''], env: ['# ', ''], bat: ['REM ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
+const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], yaml: ['# ', ''], toml: ['# ', ''], sh: ['# ', ''], ps: ['# ', ''], docker: ['# ', ''], env: ['# ', ''], bat: ['REM ', ''], lua: ['-- ', ''], sql: ['-- ', ''], php: ['// ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
 
 /* ================= Syntax checks (red error lines) ================= */
 // Quick structural checks that work everywhere: brackets, strings, comments, tags, JSON, Python blocks.

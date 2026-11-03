@@ -69,7 +69,7 @@ test('runPlan on linux has no .exe', () => {
 });
 
 test('runPlan rejects other files', () => {
-  assert.deepEqual(runPlan('C:\\p\\a.go', tools, 'win32', H), { error: 'Breeze can run .c, .cpp, .cs, .java, .js, .py, .rs and .ts files' });
+  assert.deepEqual(runPlan('C:\\p\\a.go', tools, 'win32', H), { error: 'Breeze can run .c, .cpp, .cs, .java, .js, .lua, .php, .py, .rs, .sql and .ts files' });
 });
 
 const WIN_C = 'No C/C++ compiler found. Install one with:\nwinget install BrechtSanders.WinLibs.POSIX.UCRT';
@@ -162,7 +162,7 @@ test('findTools leaves cxx null without a twin, and everything null when nothing
   assert.equal(r.cc.name, 'gcc');
   assert.equal(r.cxx, null);
   const none = await findTools(machine('win32', {}));
-  assert.deepEqual(none, { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, binDirs: [] });
+  assert.deepEqual(none, { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null, binDirs: [] });
 });
 
 test('findTools rejects the Store python shortcut', async () => {
@@ -450,7 +450,7 @@ test('runPlan says a JDK older than 11 cannot run a .java file directly', () => 
 });
 
 test('runPlan without a JDK says how to get one', () => {
-  const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, binDirs: [] };
+  const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null, binDirs: [] };
   assert.equal(runPlan('C:\\p\\Main.java', none, 'win32', H).error,
     'No Java JDK found. Install one with:\nwinget install Microsoft.OpenJDK.21\nOr download it from https://adoptium.net');
   assert.equal(runPlan('/p/Main.java', none, 'darwin', H).error,
@@ -507,7 +507,7 @@ test('runPlan runs the nearest Cargo project with cargo run', () => {
 });
 
 test('runPlan without Rust says how to get it', () => {
-  const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, binDirs: [] };
+  const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null, binDirs: [] };
   assert.equal(runPlan('C:\\p\\a.rs', none, 'win32', H).error,
     'No Rust compiler found. Install Rust with:\nwinget install Rustlang.Rustup\nOr download it from https://rustup.rs');
   assert.equal(runPlan('/p/a.rs', none, 'darwin', H).error, 'No Rust compiler found. Install Rust with rustup\nDownload it from https://rustup.rs');
@@ -556,4 +556,17 @@ test('runPlan for TypeScript needs Node 22.18 or newer', () => {
   const old = { ...tools, node: T('C:\\nodejs\\node.exe', 'node', 'v20.11.0') };
   assert.match(runPlan('C:\\p\\app.ts', old, 'win32', H).error, /needs Node 22\.18 or newer\.\nUpdate with:\nwinget install OpenJS\.NodeJS\.LTS/);
   assert.ok(runPlan('C:\\p\\app.js', old, 'win32', H).steps);
+});
+
+test('runPlan runs Lua, PHP and SQL in one step each', () => {
+  const t = { ...tools, lua: T('C:\\lua\\lua54.exe', 'lua54', 'Lua 5.4.6'), php: T('C:\\php\\php.exe', 'php'), sqlite: T('C:\\sq\\sqlite3.exe', 'sqlite3') };
+  assert.deepEqual(runPlan('C:\\p\\game.lua', t, 'win32', H).steps, [{ display: 'lua54 "game.lua"', file: 'C:\\lua\\lua54.exe', args: ['C:\\p\\game.lua'], cwd: 'C:\\p' }]);
+  assert.deepEqual(runPlan('C:\\p\\index.php', t, 'win32', H).steps, [{ display: 'php "index.php"', file: 'C:\\php\\php.exe', args: ['C:\\p\\index.php'], cwd: 'C:\\p' }]);
+  assert.deepEqual(runPlan('C:\\p\\my data.sql', t, 'win32', H).steps, [{ display: `sqlite3 -bail -box :memory: '.read "my data.sql"'`, file: 'C:\\sq\\sqlite3.exe', args: ['-bail', '-box', ':memory:', '.read "my data.sql"'], cwd: 'C:\\p' }]);
+});
+
+test('runPlan for Lua, PHP and SQL without the tool says how to install it', () => {
+  assert.match(runPlan('C:\\p\\a.lua', tools, 'win32', H).error, /^Lua wasn't found\. Install it with:\nwinget install DEVCOM\.Lua/);
+  assert.match(runPlan('C:\\p\\a.php', tools, 'win32', H).error, /^PHP wasn't found\. Install it with:\nwinget install PHP\.PHP\.8\.5/);
+  assert.match(runPlan('C:\\p\\a.sql', tools, 'win32', H).error, /^SQLite wasn't found\. Install it with:\nwinget install SQLite\.SQLite/);
 });

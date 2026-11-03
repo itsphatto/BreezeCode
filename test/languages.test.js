@@ -116,3 +116,33 @@ test('re-lexing after an edit matches a full lex', () => {
     }
   }
 });
+
+test('Lua, PHP and SQL pick their lexer', () => {
+  assert.deepEqual(['game.lua', 'index.php', 'view.phtml', 'schema.SQL'].map(p => langOf(p)[0]), ['lua', 'php', 'php', 'sql']);
+});
+
+test('Lua: long comments and strings, keywords and calls', () => {
+  const text = '--[==[ a ]] still comment ]==]\nlocal s = [[x\ny]] -- note\nprint(s, nil)';
+  assert.deepEqual(plain(ofKind(text, 'lua', 'com')), ['--[==[ a ]] still comment ]==]', '-- note']);
+  assert.deepEqual(plain(ofKind(text, 'lua', 'str')), ['[[x\ny]]']);
+  assert.deepEqual(plain(ofKind(text, 'lua', 'kw')), ['local', 'nil']);
+  assert.deepEqual(plain(ofKind(text, 'lua', 'prop')), ['print']);
+});
+
+test('PHP: code between the tags, HTML around them', () => {
+  const text = '<h1><?= $title ?></h1>\n<?php\n# note\necho <<<EOT\nhi $name\nEOT;\n$n = count($xs);';
+  assert.deepEqual(plain(ofKind(text, 'php', 'tag')), ['<h1', '>', '<?=', '?>', '</h1', '>', '<?php']);
+  assert.deepEqual(plain(ofKind(text, 'php', 'attr')), ['$title', '$n', '$xs']);
+  assert.deepEqual(plain(ofKind(text, 'php', 'com')), ['# note']);
+  assert.deepEqual(plain(ofKind(text, 'php', 'str')), ['<<<EOT\nhi $name\nEOT']);
+  assert.deepEqual(plain(ofKind(text, 'php', 'kw')), ['echo']);
+});
+
+test('SQL: keywords in any case, quoted names, doubled quotes and parameters', () => {
+  const text = "select \"Name\" FROM users -- all\nWHERE note = 'it''s' AND id = :id;";
+  assert.deepEqual(plain(ofKind(text, 'sql', 'kw')), ['select', 'FROM', 'WHERE', 'AND']);
+  assert.deepEqual(plain(ofKind(text, 'sql', 'prop')), ['"Name"']);
+  assert.deepEqual(plain(ofKind(text, 'sql', 'str')), ["'it''s'"]);
+  assert.deepEqual(plain(ofKind(text, 'sql', 'attr')), [':id']);
+  assert.deepEqual(plain(ofKind(text, 'sql', 'com')), ['-- all']);
+});

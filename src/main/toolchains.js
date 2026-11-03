@@ -70,11 +70,12 @@ async function findTools(o) {
 
   const file = (dir, name) => P.join(dir, win ? name + '.exe' : name);
   // First candidate that exists and passes `--version` (the Store python shortcut exits non-zero).
-  const probe = async (candDirs, name, pre = []) => {
+  // Lua has no --version; it takes -v.
+  const probe = async (candDirs, name, pre = [], flag = '--version') => {
     for (const dir of candDirs) {
       const p = file(dir, name);
       if (!exists(p)) continue;
-      const r = await run(p, [...pre, '--version']).catch(() => null);
+      const r = await run(p, [...pre, flag]).catch(() => null);
       if (r && r.code === 0) return { dir, path: p, name, version: String(r.stdout || '').split(/\r?\n/)[0].trim() };
     }
     return null;
@@ -154,13 +155,20 @@ async function findTools(o) {
   // JavaScript and TypeScript: Node runs both (TypeScript by stripping its types).
   const node = tool(await probe(pathDirs, 'node'));
 
+  // Lua goes by several names (lua5.4 on Linux, lua54 in some Windows builds), with LuaJIT as a fallback.
+  let lua = null;
+  for (const n of ['lua', 'lua5.4', 'lua54', 'lua5.3', 'luajit']) if ((lua = tool(await probe(pathDirs, n, [], '-v')))) break;
+  const php = tool(await probe(pathDirs, 'php'));
+  // SQL runs in SQLite's shell, against an in-memory database.
+  const sqlite = tool(await probe(pathDirs, 'sqlite3'));
+
   const binDirs = [];
-  for (const t of [cc, cxx, python, dotnet, java, rustc, cargo, node]) {
+  for (const t of [cc, cxx, python, dotnet, java, rustc, cargo, node, lua, php, sqlite]) {
     if (!t) continue;
     const d = P.dirname(t.path);
     if (!pathDirs.some((x) => same(x, d)) && !binDirs.some((x) => same(x, d))) binDirs.push(d);
   }
-  return { cc, cxx, python, dotnet, java, rustc, cargo, node, binDirs };
+  return { cc, cxx, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, binDirs };
 }
 
 async function freshPath(platform, run) {
@@ -195,6 +203,9 @@ const JDK_URL = 'https://adoptium.net';
 const RUST_URL = 'https://rustup.rs';
 const GIT_URL = 'https://git-scm.com/downloads';
 const NODE_URL = 'https://nodejs.org/en/download';
+const LUA_URL = 'https://www.lua.org/download.html';
+const PHP_URL = 'https://www.php.net/downloads';
+const SQLITE_URL = 'https://sqlite.org/download.html';
 const MISSING = {
   git: {
     win32: { lead: "Git wasn't found. Install it with:", cmd: 'winget install Git.Git', url: GIT_URL },
@@ -230,6 +241,21 @@ const MISSING = {
     win32: { lead: 'No Rust compiler found. Install Rust with:', cmd: 'winget install Rustlang.Rustup', url: RUST_URL },
     darwin: { lead: 'No Rust compiler found. Install Rust with rustup', url: RUST_URL },
     other: { lead: 'No Rust compiler found. Install Rust with rustup', url: RUST_URL },
+  },
+  lua: {
+    win32: { lead: "Lua wasn't found. Install it with:", cmd: 'winget install DEVCOM.Lua', url: LUA_URL },
+    darwin: { lead: "Lua wasn't found. Install it with:", cmd: 'brew install lua', url: LUA_URL },
+    other: { lead: 'Install Lua with your package manager (e.g. sudo apt install lua5.4)', url: LUA_URL },
+  },
+  php: {
+    win32: { lead: "PHP wasn't found. Install it with:", cmd: 'winget install PHP.PHP.8.5', url: PHP_URL },
+    darwin: { lead: "PHP wasn't found. Install it with:", cmd: 'brew install php', url: PHP_URL },
+    other: { lead: 'Install PHP with your package manager (e.g. sudo apt install php-cli)', url: PHP_URL },
+  },
+  sql: {
+    win32: { lead: "SQLite wasn't found. Install it with:", cmd: 'winget install SQLite.SQLite', url: SQLITE_URL },
+    darwin: { lead: "SQLite wasn't found. Install it with:", cmd: 'brew install sqlite', url: SQLITE_URL },
+    other: { lead: 'Install SQLite with your package manager (e.g. sudo apt install sqlite3)', url: SQLITE_URL },
   },
 };
 const entry = (kind, platform) => MISSING[kind][platform] || MISSING[kind].other;
@@ -304,6 +330,25 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
     return { steps: [{ display: `node "${base}"`, file: node.path, args: [absFile], cwd }] };
   }
 
+  if (e === '.lua') {
+    if (!tools.lua) return { error: missing('lua', platform) };
+    return { steps: [{ display: `${tools.lua.name} "${base}"`, file: tools.lua.path, args: [absFile], cwd }] };
+  }
+
+  if (e === '.php') {
+    if (!tools.php) return { error: missing('php', platform) };
+    return { steps: [{ display: `php "${base}"`, file: tools.php.path, args: [absFile], cwd }] };
+  }
+
+  // A fresh in-memory database each run: CREATE TABLE, INSERT and SELECT in one file just work. Results print as
+  // boxed tables, and -bail stops at the first error rather than running the rest against a half-built database.
+  if (e === '.sql') {
+    if (!tools.sqlite) return { error: missing('sql', platform) };
+    // Just the file name (it runs from its folder), so there are no folder backslashes for the shell to unescape.
+    const read = `.read "${base}"`;
+    return { steps: [{ display: `sqlite3 -bail -box :memory: '${read}'`, file: tools.sqlite.path, args: ['-bail', '-box', ':memory:', read], cwd }] };
+  }
+
   const out = P.join('build', name + (platform === 'win32' ? '.exe' : ''));
   const runOut = { display: platform === 'win32' ? out : './' + out, file: P.join(cwd, out), args: [], cwd };
 
@@ -340,7 +385,7 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
   }
 
   const cpp = ['.cpp', '.cc', '.cxx'].includes(e);
-  if (e !== '.c' && !cpp) return { error: 'Breeze can run .c, .cpp, .cs, .java, .js, .py, .rs and .ts files' };
+  if (e !== '.c' && !cpp) return { error: 'Breeze can run .c, .cpp, .cs, .java, .js, .lua, .php, .py, .rs, .sql and .ts files' };
   const compiler = cpp ? tools.cxx : tools.cc;
   if (!compiler) return { error: missing('c', platform) };
 
