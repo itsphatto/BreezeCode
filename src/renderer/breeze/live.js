@@ -1,0 +1,131 @@
+"use strict";
+/* ================= Breeze Space: the file an agent is editing, live ================= */
+// The right-hand panel shows one file at a time: the last one a Box agent touched. A new file types in as the agent
+// drafts it; an edited one is read back after each write, with the lines that changed marked and scrolled into view.
+// What was last shown (or, the first time, the committed version) is what "changed" is measured against.
+const LIVE_MAX_LINES = 5000; // past this only the start is drawn; a huge file would take too long to lay out
+const liveSeen = new Map();
+let livePath = null;
+let liveReads = 0; // a later read wins over an earlier one still in flight
+let liveHand = null; // the drafting agent's cursor, moved to the end of each redraw
+// Nothing written: the panel closes, and the conversation takes its room. liveHead opens it again.
+function liveEmpty() {
+    livePath = null;
+    liveReads++; // a read still in flight must not reopen it
+    $('#boxLive').classList.remove('writing');
+    $('#boxLive').classList.add('closed');
+    $('#boxLiveHead').innerHTML = '';
+    $('#boxLiveBody').innerHTML = '';
+}
+// The first and last line (0-based, inclusive) where `next` differs from `prev`; null when they match.
+function changedLines(prev, next) {
+    if (prev === next)
+        return null;
+    const a = prev.split('\n'), b = next.split('\n');
+    let top = 0;
+    while (top < a.length && top < b.length && a[top] === b[top])
+        top++;
+    let ea = a.length - 1, eb = b.length - 1;
+    while (ea >= top && eb >= top && a[ea] === b[eb]) {
+        ea--;
+        eb--;
+    }
+    // Lines only removed: mark the line where they were.
+    return [Math.min(top, b.length - 1), Math.max(top, Math.min(eb, b.length - 1))];
+}
+function liveHead(path, status) {
+    const p = path.replaceAll('\\', '/');
+    const dir = dirName(p);
+    $('#boxLive').classList.remove('closed');
+    $('#boxLiveHead').innerHTML = `<span class="ico">${fileIcon(baseName(p))}</span>
+    <span class="box-live-name" title="${escAttr(p)}"><b>${esc(baseName(p))}</b>${dir ? `<small>${esc(dir)}</small>` : ''}</span>
+    <span class="box-live-status">${esc(status)}</span>
+    ${rootInfo ? `<button class="icon-btn" type="button" id="boxLiveOpen" title="Open in Breeze Code">${svgIcon('external', 14)}</button>` : ''}`;
+}
+function liveRender(path, text, prev, writing, phase = 'assistant') {
+    const switched = livePath !== path;
+    livePath = path;
+    $('#boxLive').classList.toggle('writing', writing);
+    liveHead(path, writing ? 'Writing' : 'Edited');
+    const lexer = langOf(path)[0];
+    const d = { text, lexer, ...fullToks(text, lexer), lines: lineStartsOf(text), html: [] };
+    const count = Math.min(d.lines.length, LIVE_MAX_LINES);
+    const changed = prev === undefined ? null : changedLines(prev, text);
+    let rows = '';
+    for (let i = 0; i < count; i++) {
+        const on = changed && i >= changed[0] && i <= changed[1] ? ' changed' : '';
+        rows += `<div class="ln${on}"><span class="no">${i + 1}</span><span class="tx">${lineHtmlOf(d, i) || ' '}</span></div>`;
+    }
+    if (d.lines.length > count)
+        rows += `<div class="box-live-more">${(d.lines.length - count).toLocaleString()} more lines</div>`;
+    const body = $('#boxLiveBody');
+    body.innerHTML = `<div class="box-live-code">${rows}</div>`;
+    // A draft is written top to bottom, so the agent's caret and cursor sit after its last character.
+    const end = writing && d.lines.length <= count ? body.querySelector('.ln:last-child .tx') : null;
+    if (end) {
+        if (end.textContent === ' ')
+            end.textContent = ''; // the space only keeps an empty line's height
+        const at = document.createElement('span');
+        at.className = 'box-live-at';
+        at.innerHTML = '<span class="type-caret"></span>';
+        liveHand ??= crewHand();
+        dressCrewHand(liveHand, phase);
+        liveHand.el.style.transform = 'translate(3px, 13px)';
+        at.append(liveHand.el);
+        end.append(at);
+    }
+    // Follow the agent: the end of a file being drafted, otherwise the first changed line.
+    const target = writing ? body.querySelector('.ln:last-child') : body.querySelector('.ln.changed');
+    if (target)
+        target.scrollIntoView({ block: writing ? 'end' : 'center', behavior: switched || reduceMotion.matches ? 'auto' : 'smooth' });
+    else if (switched)
+        body.scrollTop = 0;
+}
+// The agent's text for a file it is creating, as it writes it.
+function liveDraft(path, text, phase) {
+    if (baseName(path).startsWith('.env'))
+        return;
+    liveRender(path, text, undefined, true, phase);
+    liveSeen.set(path, text);
+}
+// The agent wrote `path`: read it back and show it. Some agents report a file just before writing it, so it is
+// read again shortly after, and redrawn only if it changed.
+function liveFile(path) {
+    if (baseName(path).startsWith('.env')) {
+        liveHead(path, 'Edited');
+        $('#boxLiveBody').innerHTML = '<div class="box-live-empty"><div>.env files stay private, so this one isn\'t shown.</div></div>';
+        livePath = path;
+        return;
+    }
+    const read = ++liveReads;
+    const show = async () => {
+        const r = await api.fs.readFile(path).catch(() => null);
+        if (read !== liveReads)
+            return;
+        if (r?.text == null || kindOf(r) !== 'text') {
+            liveHead(path, 'Edited');
+            $('#boxLiveBody').innerHTML = '<div class="box-live-empty"><div>This file can\'t be shown here (binary, too large or removed).</div></div>';
+            livePath = path;
+            return;
+        }
+        let prev = liveSeen.get(path);
+        if (prev === r.text && livePath === path && !$('#boxLive').classList.contains('writing'))
+            return;
+        if (prev === undefined)
+            prev = await api.git.headText(path).catch(() => null) ?? undefined;
+        if (read !== liveReads)
+            return;
+        liveRender(path, r.text, prev, false);
+        liveSeen.set(path, r.text);
+    };
+    for (const ms of [0, 400, 1500])
+        setTimeout(() => background(show()), ms);
+}
+$('#boxLiveHead').addEventListener('click', e => {
+    if (!e.target.closest('#boxLiveOpen') || !livePath)
+        return;
+    const path = livePath;
+    enterMode('ide');
+    openFile(path);
+});
+liveEmpty();

@@ -1,0 +1,306 @@
+"use strict";
+const appState = {
+    onboarded: false, step: 0, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
+    discord: false, discordDetails: true, devMode: false,
+    ...store.get('breeze.app', {}),
+};
+const saveApp = () => store.set('breeze.app', appState);
+// The blue app icon, or in developer mode the flipped one (white tile, blue wind).
+const appIcon = () => `../../assets/brand/${appState.devMode ? 'IconDev' : 'Icon'}.png`;
+/* ================= Onboarding: welcome → login → preferences (and agent) → home ================= */
+// Home is also where every later launch lands (see init.ts).
+const STEP = { welcome: 0, signIn: 1, agent: 2, home: 3 };
+let step = Math.min(appState.step, STEP.home);
+let user = appState.user;
+function goStep(n) {
+    step = n;
+    appState.step = n;
+    saveApp();
+    $$('.ob-step').forEach(s => s.classList.toggle('hidden', Number(s.dataset.step) !== n));
+    $$('.ob-dots span').forEach((d, i) => { d.classList.toggle('on', i === n); d.classList.toggle('back', i < n); });
+    if (n === STEP.agent) {
+        renderObPrefs(); // settings.ts
+        detectTools().catch(() => { });
+    }
+    if (n === STEP.home)
+        renderHome();
+    // Once set up, Home is a screen of its own rather than a setup step, so the progress dots go.
+    $('#onboard').classList.toggle('settled', appState.onboarded);
+    $('#homeProfile').classList.toggle('hidden', n !== STEP.home);
+    placeSignIn(false); // opening Home on a short window: already in place, no flight
+}
+$$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
+// While the onboarding screen (and so Home) is up, the window buttons sit straight on its backdrop and draw light.
+function syncTitleBar() {
+    const ob = $('#onboard');
+    const on = !ob.classList.contains('hidden') && !ob.classList.contains('screen-out') && !ob.classList.contains('screen-prep');
+    document.documentElement.classList.toggle('clear-bar', on);
+}
+new MutationObserver(syncTitleBar).observe($('#onboard'), { attributes: true, attributeFilter: ['class'] });
+syncTitleBar();
+// The dots before the current one take you back to that step.
+$$('.ob-dots span').forEach((d, i) => {
+    d.onclick = () => { if (i < step)
+        goStep(i); };
+    d.setAttribute('aria-label', `Step ${i + 1}`);
+});
+/* ----- Accounts ----- */
+function setUser(u) {
+    user = u;
+    appState.user = u;
+    saveApp();
+    renderUser();
+}
+const initialsOf = (name) => name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+function avatarHtml(u, title) {
+    const name = u?.name ?? 'You';
+    if (u?.avatar)
+        return `<img class="avatar" src="${escAttr(u.avatar)}" alt="" title="${escAttr(title)}">`;
+    return `<span class="avatar tint-host" title="${escAttr(title)}">${esc(initialsOf(name))}</span>`;
+}
+function renderUser() {
+    const title = user ? `${user.name} · ${user.provider}` : 'Not signed in';
+    $('#avatars').innerHTML = avatarHtml(user, title);
+    $('#boxAvatar').innerHTML = avatarHtml(user, title);
+    $('#userChip').textContent = user ? `● ${user.name} · ${user.provider}` : 'Not signed in';
+    renderHomeProfile();
+}
+// Home's account button (picture, name and provider, or an invitation to sign in) and its greeting.
+function renderHomeProfile() {
+    const first = user?.name.split(/\s+/)[0];
+    // "Welcome back, (picture) name": the picture is the account button, sitting inside the heading.
+    // Signed out there is no one to welcome back, so it invites them in instead.
+    $('#homeGreet').textContent = (!appState.onboarded ? 'Ready when you are' : first ? 'Welcome Back' : 'Welcome to Breeze') + (first ? ',' : '');
+    $('#homeLead').textContent = !appState.onboarded ? 'Open a project to start building.'
+        : first ? timeGreeting()
+            : 'Sign in to bring your name and picture along, or just open a project.';
+    $('#homeName').textContent = first ?? '';
+    const btn = $('#homeProfile'), name = $('#homeName');
+    // Signed in it sits in the heading beside the name; signed out the Sign in button goes back to the bottom left.
+    // Moved only when it isn't there already: re-inserting it restarts its fade-in from nothing, and opening a project
+    // redraws the user, so the picture flashed out and back the moment Continue was clicked.
+    if (user && btn.nextSibling !== name)
+        name.before(btn); // with the name, in one piece that wraps together
+    if (user)
+        btn.classList.remove('corner');
+    else
+        placeSignIn(false);
+    btn.innerHTML = user
+        ? avatarHtml(user, '')
+        : `<span class="hp-ico">${svgIcon('user', 15)}</span><span class="hp-txt"><span class="nm">Sign in</span></span>`;
+    // No hover tooltip; the label is kept for screen readers.
+    btn.removeAttribute('title');
+    btn.setAttribute('aria-label', user ? `${user.name} · ${user.provider}` : 'Sign in with GitHub or Google');
+    // Signed in it opens the account menu; signed out it goes straight to signing in.
+    btn.setAttribute('aria-haspopup', user ? 'menu' : 'dialog');
+}
+// The Sign in button's corner is the gutter Home leaves under its cards. Once the window is too short for that gutter
+// Home scrolls and the button would sit on the cards, so it glides up to the heading's line, looking the same all the
+// way (and back when there's room). Hidden, nothing can be measured: it stays where it is.
+function placeSignIn(morph = true) {
+    if (user)
+        return;
+    const btn = $('#homeProfile'), ob = $('#onboard'), title = $('#homeTitle');
+    const shown = btn.getClientRects().length > 0;
+    const spot = (shown ? ob.scrollHeight > ob.clientHeight : btn.parentElement === title) ? title : ob;
+    if (btn.parentElement === spot)
+        return;
+    const from = btn.getBoundingClientRect();
+    btn.getAnimations().forEach(a => a.cancel()); // from wherever a flight still running has it
+    spot.moveBefore(btn, null); // unlike appendChild, keeps its focus and doesn't restart its fade-in
+    btn.classList.toggle('corner', spot === ob);
+    if (!morph || !shown || document.documentElement.classList.contains('win-jump') || matchMedia('(prefers-reduced-motion: reduce)').matches)
+        return;
+    const to = btn.getBoundingClientRect();
+    btn.animate([
+        { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)` },
+        { transform: 'none' },
+    ], { duration: 480, easing: 'cubic-bezier(.4, 0, .2, 1)' });
+}
+new ResizeObserver(() => placeSignIn()).observe($('#onboard'));
+new ResizeObserver(() => placeSignIn()).observe($('.home-step'));
+// The progress dots sit in the gutter under a step. Once the window is too short for that gutter the step scrolls
+// under them, so they go. Every step is watched: each has its own height, and showing one resizes it from nothing.
+const fitDots = new ResizeObserver(() => { const ob = $('#onboard'); ob.classList.toggle('no-dots', ob.scrollHeight > ob.clientHeight); });
+[$('#onboard'), ...$$('.ob-step')].forEach(el => fitDots.observe(el));
+let accounts = { accounts: [], active: null };
+const accountKey = (u) => `${u.provider}:${u.login ?? ''}`;
+async function refreshAccounts() {
+    accounts = await api.auth.accounts().catch(() => accounts);
+    void refreshPrs(); // signing in or out, or switching account, changes what the pull request list can show
+}
+async function switchAccount(a) {
+    if (accountKey(a) === accounts.active)
+        return;
+    setUser(await api.auth.switchTo(accountKey(a)));
+    await refreshAccounts();
+    toast(`Switched to ${a.name}`);
+}
+async function signOut() {
+    const next = await api.auth.signOut();
+    setUser(next);
+    await refreshAccounts();
+    toast(next ? `Signed out — now using ${next.name}` : 'Signed out');
+}
+// Forgets a remembered account; forgetting the active one moves to the next.
+async function removeAccount(a) {
+    const wasActive = accountKey(a) === accounts.active;
+    const next = await api.auth.remove(accountKey(a));
+    if (wasActive)
+        setUser(next);
+    await refreshAccounts();
+    toast(`Removed ${a.email ?? a.name}`);
+}
+// The hold-to-delete button (same as the branch picker's), used for anything that's hard to undo.
+const holdDelHtml = (label, attrs = '', tag = 'button', icon = 'trash') => `<${tag} class="br-del" ${tag === 'span' ? 'role="button" tabindex="0" ' : ''}${attrs} title="Hold for 5 seconds to remove" aria-label="Hold for 5 seconds to remove ${escAttr(label)}">${svgIcon(icon, 14)}</${tag}>`;
+function accountItems() {
+    const list = accounts.accounts.map(a => ({
+        label: a.name, key: a.provider, checked: () => accountKey(a) === accounts.active, run: () => background(switchAccount(a)),
+        remove: () => background(removeAccount(a)),
+    }));
+    return [...list, ...(list.length ? [{ sep: true }] : []), { label: 'Add account', run: addAccount }];
+}
+// Clicking your picture: who you are, your other accounts (in a submenu) and signing out.
+function openAccountMenu(anchor) {
+    if (anchor.classList.contains('open') || (justClosedTrigger === anchor && Date.now() - justClosedAt < 350)) {
+        closeMenu();
+        return;
+    }
+    closeMenu();
+    anchor.classList.add('open');
+    const r = anchor.getBoundingClientRect();
+    const items = user
+        ? [{ header: user }, { label: 'Accounts', sub: accountItems }, { sep: true }, ...syncMenuItems(), { sep: true }, { label: 'Sign Out', run: () => background(signOut()) }]
+        : [{ label: 'Sign in', run: addAccount }, ...(accounts.accounts.length ? [{ label: 'Accounts', sub: accountItems }] : [])];
+    popupMenu(r.right, r.bottom + 6, items, () => anchor.classList.remove('open'), anchor);
+    const m = $('#menuRoot .menu');
+    if (m) {
+        m.classList.add('account-menu');
+        if (anchor.id === 'homeProfile') {
+            // Home's button sits in the heading, so the menu drops down from its left edge.
+            m.style.left = `${Math.max(8, r.left)}px`;
+        }
+        else {
+            m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
+        }
+    }
+}
+for (const id of ['#avatars', '#boxAvatar', '#homeProfile']) {
+    $(id).onclick = e => {
+        const anchor = e.currentTarget;
+        if (anchor.id === 'homeProfile' && !user) {
+            closeMenu();
+            addAccount();
+            return;
+        }
+        if (anchor.classList.contains('open') || (justClosedTrigger === anchor && Date.now() - justClosedAt < 350)) {
+            closeMenu();
+            return;
+        }
+        background(refreshAccounts().then(() => openAccountMenu(anchor)));
+    };
+}
+/* ----- Sign in (GitHub device flow / Google loopback, handled in main.js) ----- */
+// The onboarding step and the "Add account" dialog share this panel; signinRoot is the one in use.
+const SIGNIN_PANEL = `<div class="signin-btns" data-si="choices">
+    <button class="btn" data-signin="GitHub"><svg width="18" height="18"><use href="#i-gh"/></svg>Continue with GitHub</button>
+    <button class="btn" data-signin="Google"><img src="../../assets/icons/google.png" width="18" height="18" alt="Google">Continue with Google</button>
+    <p class="signin-error hidden" data-si="error" role="alert"></p>
+  </div>
+  <div class="waiting hidden" data-si="wait">
+    <div class="spinner"></div><div data-si="msg">Waiting for your browser</div>
+    <div class="device-code hidden" data-si="code"><span data-si="codeText"></span><button class="btn btn-sm" data-si="copy">Copy</button><button class="btn btn-sm" data-si="openPage">Open page ${svgIcon('external', 12)}</button></div>
+    <button class="btn btn-sm" data-si="cancel">Cancel</button>
+  </div>`;
+const onboardSignin = $('#obSignin');
+let signinRoot = onboardSignin;
+const si = (part) => $(`[data-si="${part}"]`, signinRoot);
+function signinView(waiting) {
+    si('choices').classList.toggle('hidden', waiting);
+    si('wait').classList.toggle('hidden', !waiting);
+    if (waiting) {
+        si('error').classList.add('hidden');
+        si('code').classList.add('hidden');
+    }
+}
+function signinError(text) {
+    signinView(false);
+    si('error').textContent = text;
+    si('error').classList.remove('hidden');
+}
+async function startSignIn(provider) {
+    signinView(true);
+    si('msg').textContent = `Opening ${provider} in your browser`;
+    const r = await api.auth.start(provider).catch((e) => ({ error: errMsg(e) }));
+    if (r.error === 'not-configured') {
+        signinError(`Looks like ${provider} login isn't hooked up yet! Grab a Client ID, add it to .env (or breeze.config.json — there's an example config to help), and give Breeze a restart. Or, skip it for now and jump right in.`);
+    }
+    else if (r.error)
+        signinError(r.error);
+}
+function bindSignin(root) {
+    $$('[data-signin]', root).forEach(b => b.onclick = () => void startSignIn(b.dataset.signin ?? 'GitHub'));
+    $('[data-si="cancel"]', root).onclick = () => { background(api.auth.cancel()); signinView(false); };
+    $('[data-si="copy"]', root).onclick = () => background(navigator.clipboard.writeText(si('codeText').textContent ?? '').then(() => toast('Code copied')));
+}
+bindSignin(onboardSignin);
+$('#signinSkip').onclick = () => goStep(STEP.agent);
+function addAccount() {
+    const intro = user
+        ? '<h3>Add an account</h3><p class="sub">Sign in with another GitHub or Google account. Switch between accounts from your picture in the title bar.</p>'
+        : `<h3>Sign in to Breeze</h3><p class="sub">Your browser opens to finish signing in, then you're back here.</p>`;
+    openModal(`${intro}<div class="signin-modal">${SIGNIN_PANEL}</div>`, m => {
+        signinRoot = $('.signin-modal', m);
+        bindSignin(signinRoot);
+    }, () => {
+        if (!si('wait').classList.contains('hidden'))
+            background(api.auth.cancel());
+        signinRoot = onboardSignin;
+    });
+}
+api.auth.onEvent(ev => {
+    if (ev.t === 'code') {
+        si('msg').textContent = 'Enter this code on the GitHub page that just opened:';
+        si('codeText').textContent = ev.code ?? '';
+        si('code').classList.remove('hidden');
+        si('openPage').onclick = () => background(api.sys.openExternal(ev.uri ?? 'https://github.com/login/device'));
+    }
+    else if (ev.t === 'waiting') {
+        si('msg').textContent = `Finish signing in with ${ev.provider} in your browser`;
+    }
+    else if (ev.t === 'done' && ev.user) {
+        setUser(ev.user);
+        signinView(false);
+        background(refreshAccounts());
+        toast(`Signed in as ${ev.user.name}`);
+        background(afterSignIn());
+        if (signinRoot === onboardSignin) {
+            if (!appState.onboarded && step === STEP.signIn)
+                goStep(STEP.agent);
+        }
+        else
+            closeModal();
+    }
+    else if (ev.t === 'error')
+        signinError(ev.text ?? 'Sign-in failed');
+});
+// Hover icons (breeze.css, .icon-live): the loop runs while the pointer is on the button; leaving eases the icon back
+// from its current pose, since dropping a CSS animation snaps it home.
+const ICON_HOVER = '#onboard .recent-forget, #onboard .recent-open, #onboard .btn, #homeProfile, #rescan';
+document.addEventListener('pointerover', e => e.target.closest?.(ICON_HOVER)?.classList.add('icon-live'));
+document.addEventListener('pointerout', e => {
+    const b = e.target.closest?.(ICON_HOVER);
+    if (!b?.classList.contains('icon-live') || b.contains(e.relatedTarget))
+        return;
+    const svg = b.querySelector('svg');
+    const pose = svg ? getComputedStyle(svg).transform : 'none';
+    b.classList.remove('icon-live');
+    // The ✕ looks the same every quarter turn, so it turns on to the next one and overshoots a little as it lands.
+    if (svg && b.matches('.recent-forget')) {
+        const m = new DOMMatrix(pose === 'none' ? undefined : pose);
+        const from = (Math.atan2(m.b, m.a) * 180 / Math.PI + 360) % 360;
+        svg.animate([{ transform: `rotate(${from}deg)` }, { transform: `rotate(${Math.ceil((from + 30) / 90) * 90}deg)` }], { duration: 280, easing: 'cubic-bezier(.34, 1.56, .64, 1)' });
+    }
+    else if (svg && pose !== 'none')
+        svg.animate([{ transform: pose }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+});

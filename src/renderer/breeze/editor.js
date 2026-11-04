@@ -1,0 +1,1974 @@
+"use strict";
+/* ================= Code editor ================= */
+// 21px at the default 13px font: the line height keeps that ratio as Settings → Appearance changes the size.
+const lineHeightFor = (size) => Math.round(size * 21 / 13);
+let LINE_H = lineHeightFor(codeSize);
+function showCodeSize() {
+    const root = document.documentElement.style;
+    root.setProperty('--code-size', `${codeSize}px`);
+    root.setProperty('--code-line', `${LINE_H}px`);
+}
+showCodeSize();
+function setCodeSize(size) {
+    const next = clamp(Math.round(size), CODE_SIZE_MIN, CODE_SIZE_MAX);
+    if (next === codeSize)
+        return;
+    codeSize = next;
+    LINE_H = lineHeightFor(next);
+    store.set('breeze.codeSize', next);
+    showCodeSize();
+    charW = 0; // measured again in the new size
+    for (const b of buffers.values())
+        if (b.kind === 'text')
+            b.ta?.refresh();
+    splitTa.refresh();
+    dbgTa.refresh();
+    renderCode();
+}
+const INDENT = '  ';
+const hlInner = document.createElement('div');
+$('#hl').appendChild(hlInner);
+hlInner.style.position = 'relative';
+const hlLines = document.createElement('div'); // the rendered window of lines
+hlLines.style.position = 'relative';
+const hlBoxes = document.createElement('div'); // find hits, squiggles, tag pairs
+hlInner.append(hlLines, hlBoxes);
+const gutInner = document.createElement('div');
+$('#gutter').appendChild(gutInner);
+const gutLines = document.createElement('div');
+gutLines.style.position = 'relative';
+gutInner.append(gutLines);
+let charW = 0; //variable
+let curLine = -1; //variable
+let renderQueued = false; //variable
+const activeBuf = () => (active ? buffers.get(active) : undefined);
+function activeText() {
+    const b = activeBuf();
+    return b?.kind === 'text' && b.ta ? b : undefined;
+}
+function measureChar() {
+    if (charW)
+        return charW;
+    const s = document.createElement('span');
+    s.textContent = 'x'.repeat(1000);
+    s.style.visibility = 'hidden';
+    hlInner.appendChild(s);
+    // offsetWidth is the laid-out width: a scale animation around the editor (the IDE zooming in as a folder opens)
+    // would shrink getBoundingClientRect's, and that wrong width would stay cached. 1000 chars keep its whole-pixel
+    // rounding under 0.001px a char.
+    const w = s.offsetWidth / 1000;
+    s.remove();
+    // Hidden (#ide not shown yet) measures 0, and before the code font loads it measures the fallback font:
+    // use either for now, but measure again next time.
+    if (w > 0 && (!document.fonts || document.fonts.check('12px "Google Sans Code"') || document.fonts.status === 'loaded'))
+        charW = w;
+    return w || 7.8;
+}
+void document.fonts?.ready.then(() => { charW = 0; renderCode(); activeText()?.ta.refresh(); splitTa.refresh(); });
+// The caret stops of a line: 0, each grapheme's end. Remembered for the last line asked about (clicks and drags repeat it).
+const graphemeSeg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+let graphemeMemo = { text: '', cuts: [0] };
+function graphemeCuts(text) {
+    if (graphemeMemo.text !== text) {
+        const cuts = [0];
+        for (const g of graphemeSeg.segment(text))
+            cuts.push(g.index + g.segment.length);
+        graphemeMemo = { text, cuts };
+    }
+    return graphemeMemo.cuts;
+}
+// Where the caret goes on lines the char grid can't place (Thai marks, CJK, emoji): measured on the drawn
+// line itself. Pure-ASCII lines, and lines not drawn or drawn from other text, return null (the grid is exact there).
+function lineMeasurer(lines, first, text) {
+    const lineText = (line) => {
+        const t = text(), starts = lineStartsOf(t); // memoized, and shared with the rest of the editor
+        return line < starts.length ? t.slice(starts[line], lineEnd(t, starts[line])) : null;
+    };
+    // The drawn line's text nodes, without the error message drawn after it; null unless it shows exactly `want`.
+    const nodesOf = (line, want) => {
+        const el = lines.children[line - first()];
+        if (!el)
+            return null;
+        const out = [], walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let drawn = '';
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+            if (n.parentElement?.closest('.diag-msg'))
+                continue;
+            out.push(n);
+            drawn += n.data;
+        }
+        return drawn === want ? out : null;
+    };
+    const measure = (nodes, col) => {
+        let n = 0;
+        while (n < nodes.length - 1 && col > nodes[n].length)
+            col -= nodes[n++].length;
+        const r = document.createRange();
+        r.setStart(nodes[n], Math.min(col, nodes[n].length));
+        return r.getBoundingClientRect().left - lines.getBoundingClientRect().left + 4; // 4 = pad.left
+    };
+    const measured = (line) => {
+        const t = lineText(line);
+        return t != null && /[^\x00-\x7f]/.test(t) ? nodesOf(line, t) : null;
+    };
+    return {
+        xAt(line, col) {
+            const nodes = measured(line);
+            return nodes ? measure(nodes, col) : null;
+        },
+        colAt(line, x) {
+            const nodes = measured(line);
+            if (!nodes)
+                return null;
+            // Only grapheme boundaries: a caret inside an emoji's surrogate pair or a Thai mark's cluster would split it.
+            const cuts = graphemeCuts(lineText(line));
+            let lo = 0, hi = cuts.length - 1;
+            while (lo < hi) { // the first boundary at or right of x
+                const mid = (lo + hi) >> 1;
+                if (measure(nodes, cuts[mid]) < x)
+                    lo = mid + 1;
+                else
+                    hi = mid;
+            }
+            return lo > 0 && x - measure(nodes, cuts[lo - 1]) < measure(nodes, cuts[lo]) - x ? cuts[lo - 1] : cuts[lo];
+        },
+    };
+}
+function lineAt(v, pos) {
+    if (v.length > 20000)
+        return lineOfOffset(lineStartsOf(v), pos);
+    let n = 0;
+    for (let i = v.indexOf('\n'); i !== -1 && i < pos; i = v.indexOf('\n', i + 1))
+        n++;
+    return n;
+}
+function offsetOf(v, line, col) {
+    let off = 0;
+    for (let i = 0; i < line; i++) {
+        const nl = v.indexOf('\n', off);
+        if (nl === -1)
+            return v.length;
+        off = nl + 1;
+    }
+    return Math.min(off + col, lineEnd(v, off));
+}
+function editorNote(b) {
+    if (b.kind === 'binary')
+        return 'This file is binary, so Breeze can\'t show it as text.';
+    if (b.kind === 'image')
+        return 'Breeze couldn\'t load this image.';
+    if (b.kind === 'video')
+        return 'Breeze couldn\'t play this video.';
+    if (b.kind === 'pdf')
+        return 'Breeze couldn\'t show this PDF.';
+    return `This file is too large to open (${(b.size / 1048576).toFixed(1)} MB).`;
+}
+function renderEditor() {
+    hideSuggest();
+    const b = activeBuf();
+    for (const x of buffers.values())
+        x.ta?.classList.toggle('hidden', x !== b);
+    const empty = $('#editorEmpty');
+    // A notebook shows as cells (notebook.ts), over the editor, which keeps its JSON.
+    if (renderNotebook(b)) {
+        b?.ta?.classList.add('hidden');
+        empty.classList.add('hidden');
+        hlLines.replaceChildren();
+        hlBoxes.replaceChildren();
+        gutLines.replaceChildren();
+        closeFind();
+        queueMinimap();
+        updateStatus();
+        return;
+    }
+    if (b?.kind !== 'text') {
+        const wasHidden = empty.classList.contains('hidden');
+        empty.classList.remove('hidden');
+        if (b?.kind === 'image' && b.url)
+            showImage(empty, b);
+        else if (b?.kind === 'video' && b.url)
+            showVideo(empty, b);
+        else if (b?.kind === 'pdf' && b.url)
+            showPdf(empty, b);
+        else {
+            empty.classList.remove('img-mode');
+            delete empty.dataset.img;
+            empty.innerHTML = b ? fileNoteHtml(b.path, editorNote(b)) : welcomeHtml();
+        }
+        if (wasHidden || !b) {
+            empty.classList.remove('enter');
+            const _reflow = empty.offsetWidth;
+            empty.classList.add('enter');
+            empty.addEventListener('animationend', () => empty.classList.remove('enter'), { once: true });
+        }
+        hlLines.replaceChildren();
+        hlBoxes.replaceChildren();
+        gutLines.replaceChildren();
+        if (typeHand)
+            typeHand.el.hidden = true;
+        updateSliders();
+        closeFind();
+        updateStatus();
+        return;
+    }
+    empty.classList.add('hidden');
+    empty.classList.remove('enter');
+    if (findOpen)
+        runFind(false);
+    renderCode();
+    if (document.activeElement === document.body || (document.activeElement?.classList.contains('ta') && document.activeElement !== splitTa.input))
+        b.ta?.focus({ preventScroll: true });
+}
+const fileNoteHtml = (path, note) => `<div><h4>${esc(baseName(path))}</h4><div>${esc(note)}</div></div>`;
+function fmtSize(n) {
+    if (n < 1024)
+        return `${n} B`;
+    return n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+}
+// Videos open in a player fitted to the editor; Chromium streams the file, so size doesn't matter.
+function showVideo(el, b) {
+    el.classList.add('img-mode');
+    if (el.dataset.img === b.url)
+        return; // already showing it: keep its place
+    el.dataset.img = b.url;
+    el.innerHTML = `<div class="img-stage fit"><video src="${escAttr(b.url ?? '')}" controls preload="metadata"></video></div>
+    <div class="img-meta"><span class="img-dims">Loading</span><span>${fmtSize(b.size)}</span></div>`;
+    const v = $('video', el);
+    v.onloadedmetadata = () => { $('.img-dims', el).textContent = `${v.videoWidth} × ${v.videoHeight}`; };
+    v.onerror = () => { el.classList.remove('img-mode'); delete el.dataset.img; el.innerHTML = fileNoteHtml(b.path, editorNote(b)); };
+}
+// PDFs open in Chromium's own viewer (pages, zoom, search, print), filling the editor.
+function showPdf(el, b) {
+    el.classList.add('img-mode');
+    if (el.dataset.img === b.url)
+        return; // already showing it: keep its page
+    el.dataset.img = b.url;
+    el.innerHTML = `<iframe class="pdf-frame" src="${escAttr(b.url ?? '')}" title="${escAttr(baseName(b.path))}"></iframe>`;
+}
+// Images open in a viewer: fitted to the editor, click to see them at actual size.
+function showImage(el, b) {
+    el.classList.add('img-mode');
+    if (el.dataset.img === b.url)
+        return; // already showing it: keep its zoom and scroll
+    el.dataset.img = b.url;
+    el.innerHTML = `<div class="img-stage fit"><img src="${escAttr(b.url ?? '')}" alt="${escAttr(baseName(b.path))}" draggable="false"></div>
+    <div class="img-meta"><span class="img-dims">Loading</span><span>${fmtSize(b.size)}</span><span class="img-zoom hidden"></span></div>`;
+    const stage = $('.img-stage', el), img = $('img', el), zoom = $('.img-zoom', el);
+    const shrunk = () => img.naturalWidth > img.clientWidth + 1 || img.naturalHeight > img.clientHeight + 1;
+    const hint = () => {
+        const fit = stage.classList.contains('fit');
+        zoom.textContent = fit ? 'Fit to window · click to zoom' : 'Actual size · click to fit';
+        zoom.classList.toggle('hidden', fit && !shrunk());
+        stage.classList.toggle('zoomable', !fit || shrunk());
+    };
+    img.onload = () => { $('.img-dims', el).textContent = `${img.naturalWidth} × ${img.naturalHeight}`; hint(); };
+    img.onmouseenter = hint; // panels may have been resized since it loaded
+    img.onerror = () => { el.classList.remove('img-mode'); el.innerHTML = fileNoteHtml(b.path, 'Breeze couldn\'t load this image.'); };
+    img.onclick = e => {
+        const fit = stage.classList.contains('fit');
+        if (fit && !shrunk())
+            return;
+        // Zoom in around the clicked point.
+        const r = img.getBoundingClientRect(), s = stage.getBoundingClientRect();
+        const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+        stage.classList.toggle('fit');
+        if (fit) {
+            stage.scrollLeft = img.offsetLeft + fx * img.naturalWidth - (e.clientX - s.left);
+            stage.scrollTop = img.offsetTop + fy * img.naturalHeight - (e.clientY - s.top);
+        }
+        hint();
+    };
+}
+function welcomeHtml() {
+    const k = (keys, what) => `<span>${what}</span><kbd>${keys}</kbd>`;
+    const keys = rootInfo
+        ? k('Ctrl+P', 'Go to file') + k('Ctrl+N', 'New file') + k('Ctrl+Shift+F', 'Search files') + k('Ctrl+`', 'Terminal')
+        : k('Ctrl+O', 'Open folder') + k('Ctrl+B', 'Toggle side bar') + k('Ctrl+Alt+B', 'Toggle agents');
+    return `<div><img src="../../assets/brand/Agent.png" alt="" draggable="false"><h4>${rootInfo ? 'No file open' : 'Open a folder to start'}</h4><div class="keys">${keys}</div></div>`;
+}
+function queueRender() {
+    if (renderQueued)
+        return;
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; renderCode(); });
+}
+// Overlay boxes (find hits, squiggles) are placed through the DOM, not style attributes.
+function box(cls, top, left, width) {
+    const d = document.createElement('div');
+    d.className = cls;
+    d.style.top = `${top}px`;
+    d.style.left = `${left}px`;
+    if (width != null)
+        d.style.width = `${width}px`;
+    return d;
+}
+function findBoxes(b, cw) {
+    if (!findOpen || !findLen)
+        return [];
+    const vis = findHits.length > 3000 ? findHits.slice(Math.max(0, findIdx - 1500), findIdx + 1500) : findHits;
+    // Only the hits in the drawn window get a box.
+    const starts = lineStartsOf(b.text);
+    return vis.filter(off => { const ln = lineOfOffset(starts, off); return ln >= winFirst && ln < winLast; }).map(off => {
+        const ln = lineOfOffset(starts, off), ls = starts[ln];
+        const lt = b.text.slice(ls, lineEnd(b.text, ls));
+        const x = visualCol(lt, off - ls) * cw, w = (visualCol(lt, off - ls + findLen) * cw) - x;
+        return box(off === findHits[findIdx] ? 'hit cur' : 'hit', ln * LINE_H, x, Math.max(w, 2));
+    });
+}
+// Syntax errors: a red line, a squiggle under the mistake and the message after the code.
+// While an edit has added or removed lines they wait for the next check instead of drifting.
+function visibleDiags(b, lineCount) {
+    const errAt = new Map();
+    if (!b.diags?.length || b.diagLines !== lineCount)
+        return errAt;
+    for (const d of b.diags) {
+        const ln = Math.min(d.line, lineCount - 1);
+        const cur = errAt.get(ln);
+        if (!cur || (cur.sev === 2 && d.sev !== 2))
+            errAt.set(ln, d); // an error outranks a warning on its line
+    }
+    return errAt;
+}
+function squiggles(b, lineCount, cw) {
+    if (!b.diags?.length || b.diagLines !== lineCount)
+        return [];
+    const text = b.text, starts = lineStartsOf(text);
+    return b.diags.map(d => {
+        const ln = Math.min(d.line, starts.length - 1), lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
+        const from = Math.min(d.col, lt.length), to = Math.min(lt.length, d.col + d.len);
+        const x = visualCol(lt, from) * cw;
+        return box(d.sev === 2 ? 'squig warn' : 'squig', ln * LINE_H + LINE_H - 6, x, Math.max(visualCol(lt, to) * cw - x, cw));
+    });
+}
+// Pairs every opening tag with its closing tag (void and self-closing tags have no partner; stray closers are ignored).
+function tagPairs(text, xml) {
+    const re = /<!--[\s\S]*?(?:-->|$)|<(\/?)([A-Za-z][\w:.-]*)([^>]*)>/g;
+    const stack = [];
+    const pairs = [];
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+        if (m[0].startsWith('<!--'))
+            continue;
+        const name = xml ? m[2] : m[2].toLowerCase();
+        const nameStart = m.index + 1 + m[1].length;
+        const span = { start: m.index, end: m.index + m[0].length, nameStart, nameEnd: nameStart + m[2].length };
+        if (m[1]) {
+            const at = stack.map(s => s.name).lastIndexOf(name);
+            if (at === -1)
+                continue;
+            pairs.push([stack[at].span, span]);
+            stack.length = at; // anything opened after it was left open
+        }
+        else if (!m[3].endsWith('/') && (xml || !VOID_HTML.has(name)))
+            stack.push({ name, span });
+    }
+    return pairs;
+}
+// The buffer's tag pairs, found again only when its text changes (the caret moving doesn't rescan the file).
+const tagCache = new WeakMap();
+function tagPairsOf(b) {
+    const c = tagCache.get(b);
+    if (c?.text === b.text)
+        return c.pairs;
+    const pairs = tagPairs(b.text, ['xml', 'svg', 'jsx', 'tsx'].includes(extOf(b.path)));
+    tagCache.set(b, { text: b.text, pairs });
+    return pairs;
+}
+// The two tags around the caret as offset ranges to mark: exactly the tag names, so the boxes hug the letters.
+function tagMarks(b) {
+    const lexer = langOf(b.path)[0], ext = extOf(b.path);
+    if ((lexer !== 'html' && ext !== 'jsx' && ext !== 'tsx') || b.text.length > 200000)
+        return [];
+    if (!b.ta)
+        return [];
+    const caret = b.ta.selectionStart;
+    const hit = (t, strict) => (strict ? t.start < caret && caret < t.end : t.start <= caret && caret <= t.end);
+    const pairs = tagPairsOf(b);
+    const pair = pairs.find(p => p.some(t => hit(t, true))) ?? pairs.find(p => p.some(t => hit(t, false)));
+    return pair ? pair.map(t => [t.nameStart, t.nameEnd]) : [];
+}
+function tagBoxes(b, cw) {
+    return tagMarks(b).map(([from, to]) => {
+        const ln = lineAt(b.text, from), ls = lineStart(b.text, from);
+        const lt = b.text.slice(ls, lineEnd(b.text, ls));
+        const x = visualCol(lt, from - ls) * cw;
+        return box('tagpair', ln * LINE_H, x, Math.max(visualCol(lt, to - ls) * cw - x, 2));
+    });
+}
+const blockCache = new WeakMap();
+// Every {} [] () pair as [open, close] offsets, skipping strings and comments.
+const OPENER = { '}': '{', ']': '[', ')': '(' };
+function bracketPairs(text) {
+    const pairs = [], stack = [];
+    let i = 0;
+    while (i < text.length) {
+        const c = text[i];
+        if (c === '/' && text[i + 1] === '/') {
+            const nl = text.indexOf('\n', i);
+            if (nl === -1) {
+                break;
+            }
+            i = nl + 1;
+            continue;
+        }
+        if (c === '/' && text[i + 1] === '*') {
+            const e = text.indexOf('*/', i + 2);
+            if (e === -1) {
+                break;
+            }
+            i = e + 2;
+            continue;
+        }
+        if (c === '"' || c === "'" || c === '`') {
+            let j = i + 1;
+            while (j < text.length && text[j] !== c && (c === '`' || text[j] !== '\n'))
+                j += text[j] === '\\' ? 2 : 1;
+            i = j + 1;
+            continue;
+        }
+        if (c === '{' || c === '[' || c === '(') {
+            stack.push(i);
+        }
+        else if (OPENER[c]) {
+            let at = stack.length - 1;
+            while (at >= 0 && text[stack[at]] !== OPENER[c])
+                at--;
+            if (at !== -1) {
+                pairs.push([stack[at], i]);
+                stack.length = at;
+            }
+        }
+        i++;
+    }
+    return pairs;
+}
+function blocksOf(b) {
+    const c = blockCache.get(b);
+    if (c?.text === b.text)
+        return c.blocks;
+    const text = b.text, lexer = langOf(b.path)[0], ext = extOf(b.path);
+    const blocks = [];
+    if (text.length <= 200000) {
+        const starts = lineStartsOf(text);
+        const indentOf = (ln) => {
+            const lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
+            return visualCol(lt, lt.length - lt.trimStart().length);
+        };
+        const add = (open, close) => {
+            const from = lineOfOffset(starts, open), to = lineOfOffset(starts, close);
+            if (to - from < 2)
+                return;
+            const col = Math.min(indentOf(from), indentOf(to)), gaps = [];
+            for (let j = from + 1; j < to; j++) {
+                if (!text.slice(starts[j], lineEnd(text, starts[j])).trim() || indentOf(j) > col)
+                    continue;
+                const g = gaps[gaps.length - 1];
+                if (g && g[1] === j)
+                    g[1] = j + 1;
+                else
+                    gaps.push([j, j + 1]);
+            }
+            blocks.push({ from, to, start: open, end: close + 1, col, gaps: gaps.length ? gaps : undefined });
+        };
+        if (lexer === 'html' || ext === 'jsx' || ext === 'tsx') {
+            for (const [o, cl] of tagPairsOf(b))
+                add(o.start, cl.start);
+        }
+        if (['js', 'css', 'json', 'java', 'rs', 'cs'].includes(lexer))
+            for (const [o, cl] of bracketPairs(text))
+                add(o, cl);
+        if (lexer === 'py') {
+            // Python blocks are the lines indented under a line that ends with ':'.
+            const raw = text.split('\n');
+            raw.forEach((lt, i) => {
+                if (!/:\s*(?:#.*)?$/.test(lt) || !lt.trim())
+                    return;
+                const ind = indentOf(i);
+                let last = i;
+                for (let j = i + 1; j < raw.length; j++) {
+                    if (!raw[j].trim())
+                        continue;
+                    if (indentOf(j) <= ind)
+                        break;
+                    last = j;
+                }
+                if (last > i)
+                    blocks.push({ from: i, to: last + 1, start: starts[i], end: starts[last] + raw[last].length, col: ind });
+            });
+        }
+    }
+    blockCache.set(b, { text, blocks });
+    return blocks;
+}
+// Guides for the blocks in view; the innermost one around the caret is brighter.
+function guideBoxes(b, caret, cw, first = winFirst, last = winLast) {
+    const blocks = blocksOf(b);
+    let on;
+    for (const k of blocks)
+        if (k.start <= caret && caret <= k.end && (!on || k.end - k.start < on.end - on.start))
+            on = k;
+    return blocks.filter(k => k.to > first && k.from < last).map(k => {
+        const d = box(k === on ? 'guide on' : 'guide', (k.from + 1) * LINE_H, k.col * cw);
+        d.style.height = `${(k.to - k.from - 1) * LINE_H}px`;
+        if (k.gaps) {
+            // Soft cut: the line fades out a few px before the text and back in after it.
+            const F = 4, stops = ['#000 0'];
+            for (const [a, z] of k.gaps) {
+                const y0 = (a - k.from - 1) * LINE_H, y1 = (z - k.from - 1) * LINE_H;
+                stops.push(`#000 ${y0 - F}px`, `transparent ${y0 + 2}px`, `transparent ${y1 - 2}px`, `#000 ${y1 + F}px`);
+            }
+            d.style.maskImage = `linear-gradient(${stops.join(', ')})`;
+        }
+        return d;
+    });
+}
+let tagKey = '';
+function lineHtml(h, i, add, d) {
+    const cls = ['ln', add?.has(i) ? 'added' : '', d ? (d.sev === 2 ? 'warn' : 'err') : '', i === curLine ? 'cur-line' : ''].filter(Boolean).join(' ');
+    const msg = d ? `<span class="diag-msg">${esc(d.msg)}</span>` : '';
+    return `<div class="${cls}">${h}${msg}</div>`;
+}
+function gutterHtml(path, i, d, mark, marked = false) {
+    const cls = [i === curLine ? 'cur' : '', d ? (d.sev === 2 ? 'warn' : 'err') : '', mark ? `git-${mark}` : ''].filter(Boolean).join(' ');
+    const attrs = (cls ? ` class="${cls}"` : '') + (d ? ` title="${escAttr(d.msg)}"` : '');
+    return `<div${attrs}>${markDot(i, marked)}${lineNoHtml(path, i)}</div>`;
+}
+/* ----- Line marks ----- */
+// A dot before a line number: grey while the pointer is on the line, red once clicked, for marking lines to come
+// back to. Kept per file in each folder, and moved with their lines as the file is edited.
+const lineMarks = new Map(); // path → 0-based lines
+const marksKey = () => `breeze.marks:${rootInfo?.root ?? ''}`;
+const markDot = (i, on) => `<span class="mark-dot${on ? ' on' : ''}" data-mark="${i}" title="${on ? 'Remove mark' : 'Mark this line'}"></span>`;
+function loadMarks() {
+    lineMarks.clear();
+    for (const [p, lines] of Object.entries(store.get(marksKey(), {})))
+        lineMarks.set(p, new Set(lines));
+}
+function saveMarks() {
+    const saved = [...lineMarks].filter(([, s]) => s.size).map(([p, s]) => [p, [...s].sort((a, c) => a - c)]);
+    store.set(marksKey(), Object.fromEntries(saved));
+}
+function repaintMarks(path) {
+    if (path === active)
+        queueRender();
+    if (path === splitPath)
+        paintSplit();
+}
+function toggleMark(path, line) {
+    if (!path)
+        return;
+    const s = lineMarks.get(path) ?? new Set();
+    if (!s.delete(line))
+        s.add(line);
+    lineMarks.set(path, s);
+    saveMarks();
+    repaintMarks(path);
+}
+// The edits that turn `before` into `after`, for moving marks and breakpoints (see shiftLinesByEdits). The surface's
+// own edits, one per cursor, are used when they describe this change; otherwise the change is diffed into one edit.
+function editsFor(before, after, edits) {
+    const fits = !!edits?.length && edits.reduce((n, e) => n + e.text.length - (e.end - e.start), before.length) === after.length;
+    return fits ? edits : [markEdit(before, after)];
+}
+function shiftMarks(path, before, after, edits = null) {
+    const s = lineMarks.get(path);
+    if (!s?.size || before === after)
+        return;
+    const moved = shiftLinesByEdits([...s], before, editsFor(before, after, edits));
+    if (moved.length === s.size && moved.every(m => s.has(m)))
+        return;
+    lineMarks.set(path, new Set(moved));
+    saveMarks();
+}
+// One edit from `before` to `after`, its start found after the shared end (not textEdit's start-first), so a line
+// added or removed that begins like the next one ("const a…", "const b…") counts as that line, not the text after it.
+function markEdit(before, after) {
+    let suf = 0;
+    while (suf < before.length && suf < after.length && before[before.length - 1 - suf] === after[after.length - 1 - suf])
+        suf++;
+    const most = Math.min(before.length, after.length) - suf;
+    let p = 0;
+    while (p < most && before[p] === after[p])
+        p++;
+    return { start: p, end: before.length - suf, text: after.slice(p, after.length - suf) };
+}
+// Next or previous mark from the caret, through every marked file in path order, round to the start again.
+function jumpMark(dir) {
+    const before = (a, b) => (a.path === b.path ? a.line - b.line : a.path < b.path ? -1 : 1);
+    const all = [...lineMarks].flatMap(([path, s]) => [...s].map(line => ({ path, line }))).sort(before);
+    if (!all.length) {
+        toast('No marks yet. Click the dot before a line number to add one.');
+        return;
+    }
+    const b = activeText();
+    const here = { path: active ?? '', line: b ? lineAt(b.text, b.ta.selectionStart) : -1 };
+    const to = dir > 0 ? all.find(m => before(m, here) > 0) ?? all[0] : [...all].reverse().find(m => before(m, here) < 0) ?? all[all.length - 1];
+    openFile(to.path, { line: to.line, col: 0 });
+}
+// A file or folder was moved: `move` maps each old path to its new one.
+function renameMarks(move) {
+    const moved = [...lineMarks].map(([p, s]) => [move(p), s]);
+    lineMarks.clear();
+    for (const [p, s] of moved)
+        lineMarks.set(p, s);
+    saveMarks();
+}
+for (const [gutter, path] of [['#gutter', () => active], ['#splitGutter', () => splitPath]]) {
+    $(gutter).addEventListener('click', e => {
+        const dot = e.target.closest('[data-mark]');
+        if (dot) {
+            toggleMark(path(), Number(dot.dataset.mark));
+            return;
+        }
+        const no = e.target.closest('[data-bp]');
+        if (no)
+            toggleBreakpoint(path(), Number(no.dataset.bp));
+    });
+}
+const OVERSCAN = 40;
+let winFirst = 0, winLast = 0, winTotal = 1;
+const hlCache = new WeakMap();
+// Re-lexes only when the text changed (and then only around the edit), so scrolling never re-highlights.
+function highlighted(b) {
+    const lexer = langOf(b.path)[0];
+    const c = hlCache.get(b);
+    if (c?.text === b.text && c.lexer === lexer)
+        return c;
+    const text = b.text;
+    const prev = c && c.lexer === lexer && LEXERS[lexer] && text.length <= HL_MAX && c.text.length <= HL_MAX ? c : undefined;
+    let toks;
+    if (prev && INCREMENTAL.has(lexer))
+        toks = relex(prev, text);
+    else if (prev && text.length > HL_EXACT_MAX) {
+        toks = shiftToks(prev, text);
+        exactLater(b);
+    }
+    else
+        toks = fullToks(text, lexer);
+    const d = { text, lexer, ...toks, lines: lineStartsOf(text), html: [] };
+    hlCache.set(b, d);
+    return d;
+}
+// After a pause in typing, a big HTML or CSS file gets its exact colours back.
+const exactTimers = new WeakMap();
+function exactLater(b) {
+    clearTimeout(exactTimers.get(b));
+    exactTimers.set(b, setTimeout(() => {
+        const c = hlCache.get(b);
+        if (!c || c.text !== b.text)
+            return; // highlighted() runs again on the next draw
+        hlCache.set(b, { ...c, ...fullToks(c.text, c.lexer), html: [] });
+        if (b.path === active)
+            queueRender();
+        if (b.path === splitPath)
+            paintSplit();
+    }, 400));
+}
+function visibleLines(ta, total) {
+    const first = clamp(Math.floor((ta.scrollTop - 10) / LINE_H), 0, total - 1);
+    const last = clamp(Math.ceil((ta.scrollTop + (ta.clientHeight || 800)) / LINE_H), 0, total);
+    return [first, last];
+}
+/* ----- Very long lines: "Show more" ----- */
+// How much of each long line the user has asked to see, per file (lineHtmlOf draws the rest as a chip).
+const longShown = new WeakMap();
+const shownOf = (b, line) => longShown.get(b)?.get(line) ?? LONG_LINE;
+// The chip sits in the drawn lines, under the editing surface that takes the pointer, so it is found by position.
+const chipAt = (e) => document.elementsFromPoint(e.clientX, e.clientY).find(el => el.classList.contains('show-more'));
+for (const [area, bufOf] of [[$('#editor .code'), activeBuf], [$('.split-editor .code'), () => splitBuf()]]) {
+    let hot;
+    area.addEventListener('mousemove', e => {
+        const chip = chipAt(e);
+        if (chip === hot)
+            return;
+        hot?.classList.remove('hot');
+        hot = chip;
+        hot?.classList.add('hot');
+        area.classList.toggle('over-more', !!hot);
+    });
+    area.addEventListener('mouseleave', () => { hot?.classList.remove('hot'); hot = undefined; area.classList.remove('over-more'); });
+    // Capture: the chip's press must not also place the caret.
+    area.addEventListener('pointerdown', e => {
+        const chip = chipAt(e), b = bufOf();
+        if (!chip || !b || e.button !== 0)
+            return;
+        e.preventDefault();
+        e.stopPropagation();
+        const line = Number(chip.dataset.more), m = longShown.get(b) ?? new Map();
+        m.set(line, shownOf(b, line) + LONG_LINE_STEP);
+        longShown.set(b, m);
+        hot = undefined;
+        area.classList.remove('over-more');
+        if (b.path === active)
+            renderCode();
+        if (b.path === splitPath)
+            paintSplit();
+    }, true);
+}
+function renderCode() {
+    const b = activeText();
+    if (!b)
+        return;
+    if (nbShown(b)) {
+        renderNotebook(b);
+        return;
+    }
+    applyPendingScroll(b);
+    const doc = highlighted(b);
+    const count = doc.lines.length;
+    winTotal = count;
+    curLine = lineOfOffset(doc.lines, b.ta.selectionStart);
+    const cw = measureChar();
+    const errAt = visibleDiags(b, count);
+    const add = added[b.path];
+    const marks = changeMarks(b), marked = lineMarks.get(b.path);
+    const [vf, vl] = visibleLines(b.ta, count);
+    winFirst = Math.max(0, vf - OVERSCAN);
+    winLast = Math.min(count, vl + OVERSCAN);
+    const rows = [], nums = [];
+    for (let i = winFirst; i < winLast; i++) {
+        rows.push(lineHtml(lineHtmlOf(doc, i, shownOf(b, i)), i, add, errAt.get(i)));
+        nums.push(gutterHtml(b.path, i, errAt.get(i), marks?.get(i), !!marked?.has(i)));
+    }
+    patchRows(hlLines, rows);
+    hlLines.style.top = `${winFirst * LINE_H}px`;
+    patchRows(gutLines, nums);
+    gutLines.style.top = `${winFirst * LINE_H}px`;
+    hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
+    placeTypeHand(b, cw);
+    tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
+    $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 48}px`; // +8 each for the mark dot and the breakpoint dot
+    // The surface painted before these lines were drawn; repaint so carets on measured (non-ASCII) lines match them.
+    b.ta.refresh();
+    syncScroll();
+    updateStatus();
+}
+function syncScroll() {
+    const b = activeText();
+    if (!b)
+        return;
+    // Scrolled past the rendered window: draw the new one (cheap, the highlighting is cached).
+    const [vf, vl] = visibleLines(b.ta, winTotal);
+    if (vf < winFirst || vl > winLast) {
+        renderCode();
+        return;
+    }
+    hlInner.style.transform = `translate(${-b.ta.scrollLeft}px, ${-b.ta.scrollTop}px)`;
+    gutInner.style.transform = `translateY(${-b.ta.scrollTop}px)`;
+    updateSliders(b.ta);
+}
+/* ----- Scroll sliders on an editor's right and bottom edges (native scrollbars are hidden) ----- */
+// Returns the function that brings the slider up to date with its surface. The track runs the host's length on its
+// axis less an inset at each end (SLIDER_INSET, as in .v-slider and .h-slider), so the thumb never touches the tab bar
+// or the edges; its room is worked out from the host because the track itself measures 0 while it is hidden. The
+// thumb is a quarter of the room at most, so it reads as a handle rather than a bar. The horizontal track also stops
+// short of the right edge (H_SLIDER_END) so it never runs under the vertical one.
+const SLIDER_INSET = 6, H_SLIDER_END = 18;
+function scrollSlider(host, surface, axis) {
+    const v = axis === 'v';
+    const track = document.createElement('div');
+    track.className = `${axis}-slider`;
+    const thumb = document.createElement('div');
+    thumb.className = `${axis}-slider-thumb`;
+    track.append(thumb);
+    host.append(track);
+    const room = () => v ? host.clientHeight - 2 * SLIDER_INSET : host.clientWidth - SLIDER_INSET - H_SLIDER_END;
+    const size = (ta) => v ? ta.scrollHeight : ta.scrollWidth;
+    const view = (ta) => v ? ta.clientHeight : ta.clientWidth;
+    const pos = (ta) => v ? ta.scrollTop : ta.scrollLeft;
+    const setPos = (ta, n) => { if (v)
+        ta.scrollTop = n;
+    else
+        ta.scrollLeft = n; };
+    const update = (ta = surface()) => {
+        const r = room();
+        const overflow = ta ? size(ta) - view(ta) : 0;
+        track.classList.toggle('on', !!ta && overflow > 0 && r > 0);
+        if (!ta || overflow <= 0 || r <= 0)
+            return;
+        const len = Math.max(24, Math.min(r / 4, r * view(ta) / size(ta)));
+        const at = (r - len) * pos(ta) / overflow;
+        if (v) {
+            thumb.style.height = `${len}px`;
+            thumb.style.transform = `translateY(${at}px)`;
+        }
+        else {
+            thumb.style.width = `${len}px`;
+            thumb.style.transform = `translateX(${at}px)`;
+        }
+    };
+    thumb.addEventListener('pointerdown', e => {
+        const ta = surface();
+        if (!ta || e.button !== 0)
+            return;
+        const start = v ? e.clientY : e.clientX, startPos = pos(ta);
+        try {
+            thumb.setPointerCapture(e.pointerId);
+        }
+        catch { /* pointer already gone: the drag still follows moves over the thumb */ }
+        track.classList.add('drag');
+        const move = (ev) => {
+            const travel = room() - (v ? thumb.offsetHeight : thumb.offsetWidth);
+            if (travel > 0)
+                setPos(ta, startPos + ((v ? ev.clientY : ev.clientX) - start) * (size(ta) - view(ta)) / travel);
+        };
+        const up = () => {
+            track.classList.remove('drag');
+            thumb.removeEventListener('pointermove', move);
+            thumb.removeEventListener('pointerup', up);
+            thumb.removeEventListener('pointercancel', up);
+        };
+        thumb.addEventListener('pointermove', move);
+        thumb.addEventListener('pointerup', up);
+        thumb.addEventListener('pointercancel', up);
+        e.preventDefault();
+    });
+    // Clicking the track jumps there, centred on the click.
+    track.addEventListener('pointerdown', e => {
+        const ta = surface();
+        if (e.target !== track || !ta || e.button !== 0)
+            return;
+        const r = track.getBoundingClientRect();
+        const frac = v ? (e.clientY - r.top) / r.height : (e.clientX - r.left) / r.width;
+        setPos(ta, frac * size(ta) - view(ta) / 2);
+        e.preventDefault();
+    });
+    // A panel resize changes the room without a scroll.
+    new ResizeObserver(() => update()).observe(host);
+    return update;
+}
+// Both sliders of one editor, updated together: typing a long line changes the width without a scroll.
+function editorSliders(editor, surface) {
+    const vert = scrollSlider(editor, surface, 'v');
+    const horiz = scrollSlider(editor.querySelector('.code') ?? editor, surface, 'h');
+    return ta => { vert(ta); horiz(ta); };
+}
+const editorSlidersOnly = editorSliders($('#editor'), () => activeText()?.ta);
+// The sliders and the minimap follow the same scrolls and file switches.
+const updateSliders = (ta) => { editorSlidersOnly(ta); queueMinimap(); };
+/* ----- Minimap: the whole file zoomed out beside the right slider (Settings → General → Editor) ----- */
+// Each line is MM_LINE px tall and each character MM_CHAR px wide, drawn as a tiny glyph in its syntax colour. A
+// file taller than the map scrolls along with the editor, as the editor's scroll fraction. The shaded box is the
+// part on screen: drag it to scroll, or click anywhere on the map to jump there (and keep dragging).
+const MM_LINE = 3, MM_CHAR = 1, MM_COLS = 120, MM_SLIDER_LANE = 16, MM_FONT = 3;
+let minimapOn = store.get('breeze.minimap', true) !== false;
+const mmEl = document.createElement('div');
+mmEl.className = 'minimap';
+mmEl.setAttribute('aria-hidden', 'true');
+const mmCanvas = document.createElement('canvas');
+const mmView = document.createElement('div');
+mmView.className = 'minimap-view';
+mmEl.append(mmCanvas, mmView);
+$('#editor').append(mmEl);
+let mmQueued = false;
+function setMinimap(on) {
+    minimapOn = on;
+    store.set('breeze.minimap', on);
+    queueMinimap();
+}
+function queueMinimap() {
+    if (mmQueued)
+        return;
+    mmQueued = true;
+    requestAnimationFrame(() => { mmQueued = false; drawMinimap(); });
+}
+// Token colours come from the editor's own CSS (tk-* classes), read once per theme.
+const mmColors = new Map();
+new MutationObserver(() => { mmColors.clear(); queueMinimap(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+function mmColor(kind) {
+    const key = kind ?? '';
+    let c = mmColors.get(key);
+    if (c)
+        return c;
+    const probe = document.createElement('span');
+    if (kind)
+        probe.className = `tk-${kind}`;
+    $('#hl').append(probe);
+    c = getComputedStyle(probe).color;
+    probe.remove();
+    mmColors.set(key, c);
+    return c;
+}
+// Where the map's first drawn pixel row sits in the file's full map (0 unless the map is taller than its box).
+function mmGeometry(ta, lines) {
+    const h = mmEl.clientHeight;
+    const full = lines * MM_LINE;
+    const overflow = Math.max(0, ta.scrollHeight - ta.clientHeight);
+    const offset = full > h && overflow > 0 ? (full - h) * ta.scrollTop / overflow : 0;
+    const viewTop = ta.scrollTop / LINE_H * MM_LINE - offset;
+    const viewH = Math.max(8, ta.clientHeight / LINE_H * MM_LINE);
+    return { h, full, offset, viewTop, viewH, overflow };
+}
+function drawMinimap() {
+    if (!booted) {
+        queueMinimap();
+        return;
+    } // notebook.ts (nbShown) and the first file aren't in yet
+    const b = activeText();
+    const show = minimapOn && !!b && !nbShown(b);
+    $('#editor').classList.toggle('minimap-on', show);
+    if (!show || !b)
+        return;
+    const ta = b.ta, doc = highlighted(b), lines = doc.lines.length;
+    const w = mmEl.clientWidth - MM_SLIDER_LANE, dpr = devicePixelRatio || 1;
+    const g = mmGeometry(ta, lines);
+    if (!w || !g.h)
+        return;
+    if (mmCanvas.width !== Math.round(w * dpr) || mmCanvas.height !== Math.round(g.h * dpr)) {
+        mmCanvas.width = Math.round(w * dpr);
+        mmCanvas.height = Math.round(g.h * dpr);
+        mmCanvas.style.width = `${w}px`;
+        mmCanvas.style.height = `${g.h}px`;
+    }
+    const ctx = mmCanvas.getContext('2d');
+    if (!ctx)
+        return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, g.h);
+    ctx.globalAlpha = .85;
+    // Glyphs are squeezed sideways so each one fills exactly MM_CHAR px, like a monospace grid.
+    ctx.font = `${MM_FONT}px ${getComputedStyle($('#hl')).fontFamily || 'monospace'}`;
+    ctx.textBaseline = 'top';
+    const sx = MM_CHAR / (ctx.measureText('M').width || MM_CHAR);
+    ctx.setTransform(dpr * sx, 0, 0, dpr, 0, 0);
+    const cols = Math.min(MM_COLS, Math.floor(w / MM_CHAR));
+    const first = Math.floor(g.offset / MM_LINE), last = Math.min(lines, Math.ceil((g.offset + g.h) / MM_LINE));
+    const text = doc.text, starts = doc.starts, kinds = doc.kinds;
+    const plain = mmColor(null);
+    for (let i = first; i < last; i++) {
+        const from = doc.lines[i], to = Math.min(i + 1 < lines ? doc.lines[i + 1] - 1 : text.length, from + cols * 2);
+        const y = i * MM_LINE - g.offset;
+        let k = starts.length ? lineOfOffset(starts, from) : -1;
+        let col = 0, runStart = -1, runColor = '', run = '';
+        const flush = () => { if (runStart >= 0) {
+            ctx.fillStyle = runColor;
+            ctx.fillText(run, runStart * MM_CHAR / sx, y);
+            runStart = -1;
+            run = '';
+        } };
+        for (let at = from; at < to && col < cols; at++) {
+            while (k >= 0 && k + 1 < starts.length && starts[k + 1] <= at)
+                k++;
+            const ch = text.charCodeAt(at);
+            if (ch === 32 || ch === 9) {
+                flush();
+                col += ch === 9 ? 4 - (col % 4) : 1;
+                continue;
+            } // tabs stop every 4 columns, as .hl draws them
+            const color = k >= 0 && starts[k] <= at ? (kinds[k] ? mmColor(kinds[k]) : plain) : plain;
+            if (runStart >= 0 && color !== runColor)
+                flush();
+            if (runStart < 0) {
+                runStart = col;
+                runColor = color;
+            }
+            run += text[at];
+            col++;
+        }
+        flush();
+    }
+    mmView.style.transform = `translateY(${g.viewTop}px)`;
+    mmView.style.height = `${g.viewH}px`;
+}
+mmEl.addEventListener('pointerdown', e => {
+    const b = activeText();
+    if (!b || e.button !== 0)
+        return;
+    e.preventDefault();
+    const ta = b.ta, lines = highlighted(b).lines.length;
+    const r = mmEl.getBoundingClientRect();
+    let g = mmGeometry(ta, lines);
+    // Off the box: centre the view on the clicked line first.
+    if (e.target !== mmView) {
+        const line = (e.clientY - r.top + g.offset) / MM_LINE;
+        ta.scrollTop = clamp(line * LINE_H - ta.clientHeight / 2, 0, g.overflow);
+        g = mmGeometry(ta, lines);
+    }
+    // Then drag the box: its travel across the map maps onto the whole scroll.
+    const travel = Math.min(g.full, g.h) - g.viewH;
+    const startY = e.clientY, startTop = ta.scrollTop;
+    mmEl.classList.add('drag');
+    try {
+        mmEl.setPointerCapture(e.pointerId);
+    }
+    catch { /* pointer already gone */ }
+    const move = (ev) => { if (travel > 0)
+        ta.scrollTop = clamp(startTop + (ev.clientY - startY) * g.overflow / travel, 0, g.overflow); };
+    const up = () => {
+        mmEl.classList.remove('drag');
+        mmEl.removeEventListener('pointermove', move);
+        mmEl.removeEventListener('pointerup', up);
+        mmEl.removeEventListener('pointercancel', up);
+        ta.focus({ preventScroll: true });
+    };
+    mmEl.addEventListener('pointermove', move);
+    mmEl.addEventListener('pointerup', up);
+    mmEl.addEventListener('pointercancel', up);
+});
+mmEl.addEventListener('wheel', e => { const ta = activeText()?.ta; if (ta) {
+    e.preventDefault();
+    ta.scrollTop += e.deltaY;
+} }, { passive: false });
+new ResizeObserver(queueMinimap).observe($('#editor'));
+/* ----- Split editor: a second text file on the right, editing the same buffer as its tab ----- */
+let splitPath = null;
+const splitLines = document.createElement('div');
+splitLines.style.position = 'relative';
+const splitInner = document.createElement('div');
+splitInner.style.position = 'relative';
+splitInner.append(splitLines);
+$('#splitHl').appendChild(splitInner);
+const splitGutInner = document.createElement('div');
+const splitGutLines = document.createElement('div');
+splitGutLines.style.position = 'relative';
+splitGutInner.append(splitGutLines);
+$('#splitGutter').appendChild(splitGutInner);
+let splitWin = { first: 0, last: 0, total: 1 };
+const splitBuf = () => { const b = splitPath ? buffers.get(splitPath) : undefined; return b?.kind === 'text' ? b : undefined; };
+// Measures against the surface's own text; the constructor paints before `splitTa` is assigned, hence the empty text then.
+let splitSelf = null;
+const splitTa = splitSelf = new CodeSurface($('.split-editor .code'), {
+    get lineHeight() { return LINE_H; }, charWidth: measureChar, pad: { top: 10, left: 4, right: 24, bottom: 10 }, label: 'Right split editor',
+    ...lineMeasurer(splitLines, () => splitWin.first, () => splitSelf?.value ?? ''),
+});
+const textTabs = () => openTabs.filter(p => buffers.get(p)?.kind === 'text');
+function openSplit(path = active, exact = false) {
+    // Split the file next to the open one when possible, so the two sides start out different.
+    const other = textTabs().find(p => p !== active);
+    const target = exact || (path && path !== active) ? path : other ?? path;
+    if (!target || buffers.get(target)?.kind !== 'text') {
+        toast('Open a text file to split the editor');
+        return;
+    }
+    splitPath = target;
+    const split = $('#split');
+    // Slides in from the right edge (only when it wasn't already showing).
+    if (split.classList.contains('hidden') || split.classList.contains('closing')) {
+        split.classList.remove('hidden', 'closing');
+        split.classList.add('opening');
+        const end = (e) => { if (!e || e.target === split) {
+            split.classList.remove('opening');
+            split.removeEventListener('animationend', end);
+        } };
+        split.addEventListener('animationend', end);
+        setTimeout(end, 450); // the animation didn't run (hidden window, reduced motion): settle anyway
+    }
+    $('#editorRow').classList.add('is-split');
+    splitTa.value = '';
+    renderSplit();
+    splitTa.scrollTop = 0;
+    splitTa.focus({ preventScroll: true });
+    syncScroll();
+}
+function closeSplit() {
+    splitPath = null;
+    const split = $('#split');
+    if (split.classList.contains('hidden'))
+        return;
+    // Slides back out to the right, then hides.
+    split.classList.remove('opening');
+    split.classList.add('closing');
+    const done = () => {
+        if (splitPath || !split.classList.contains('closing'))
+            return; // reopened meanwhile
+        split.classList.remove('closing');
+        split.classList.add('hidden');
+        $('#editorRow').classList.remove('is-split');
+        splitLines.replaceChildren();
+        splitGutLines.replaceChildren();
+        queueRender();
+    };
+    const end = (e) => { if (e.target === split) {
+        split.removeEventListener('animationend', end);
+        done();
+    } };
+    split.addEventListener('animationend', end);
+    setTimeout(done, 400); // no animation (reduced motion): hide anyway
+}
+// Brings the right side up to date with its buffer (after edits on the left, a save, or an agent's change).
+function renderSplit() {
+    if (!splitPath)
+        return;
+    const b = splitBuf();
+    if (!b) {
+        closeSplit();
+        return;
+    }
+    const sel = $('#splitFile');
+    const opts = textTabs();
+    const html = opts.map(p => `<option value="${escAttr(p)}"${p === splitPath ? ' selected' : ''}>${esc(baseName(p))}${dirName(p) ? ` — ${esc(dirName(p))}` : ''}</option>`).join('');
+    if (sel.innerHTML !== html)
+        sel.innerHTML = html;
+    sel.value = splitPath;
+    $('#splitIco').innerHTML = fileIcon(splitPath);
+    $('#splitDirty').classList.toggle('hidden', !isDirty(b));
+    if (splitTa.value !== b.text) {
+        const { selectionStart: s, selectionEnd: e, scrollTop } = splitTa;
+        splitTa.value = b.text;
+        splitTa.setSelectionRange(Math.min(s, b.text.length), Math.min(e, b.text.length));
+        splitTa.scrollTop = scrollTop;
+    }
+    paintSplit();
+}
+function paintSplit() {
+    const b = splitBuf();
+    if (!b)
+        return;
+    const doc = highlighted(b);
+    const count = doc.lines.length;
+    const cur = lineOfOffset(doc.lines, splitTa.selectionStart);
+    const [vf, vl] = visibleLines(splitTa, count);
+    splitWin = { first: Math.max(0, vf - OVERSCAN), last: Math.min(count, vl + OVERSCAN), total: count };
+    const marks = changeMarks(b);
+    const rows = [], nums = [];
+    for (let i = splitWin.first; i < splitWin.last; i++) {
+        rows.push(`<div class="ln${i === cur ? ' cur-line' : ''}">${lineHtmlOf(doc, i, shownOf(b, i))}</div>`);
+        const cls = [i === cur ? 'cur' : '', marks?.has(i) ? `git-${marks.get(i)}` : ''].filter(Boolean).join(' ');
+        nums.push(`<div${cls ? ` class="${cls}"` : ''}>${markDot(i, !!lineMarks.get(b.path)?.has(i))}${lineNoHtml(b.path, i)}</div>`);
+    }
+    patchRows(splitLines, rows);
+    splitLines.style.top = splitGutLines.style.top = `${splitWin.first * LINE_H}px`;
+    patchRows(splitGutLines, nums);
+    $('#splitGutter').style.width = `${Math.max(3, String(count).length) * 8 + 48}px`; // +8 each for the mark dot and the breakpoint dot
+    splitInner.querySelectorAll('.guide').forEach(g => g.remove());
+    splitInner.append(...guideBoxes(b, splitTa.selectionStart, measureChar(), splitWin.first, splitWin.last));
+    syncSplitScroll();
+    splitTa.refresh(); // the caret was placed against the lines drawn before; measure it against these
+}
+function syncSplitScroll() {
+    const [vf, vl] = visibleLines(splitTa, splitWin.total);
+    if (vf < splitWin.first || vl > splitWin.last) {
+        paintSplit();
+        return;
+    }
+    splitInner.style.transform = `translate(${-splitTa.scrollLeft}px, ${-splitTa.scrollTop}px)`;
+    splitGutInner.style.transform = `translateY(${-splitTa.scrollTop}px)`;
+    updateSplitSlider();
+}
+const updateSplitSlider = editorSliders($('.split-editor'), () => (splitBuf() ? splitTa : undefined));
+splitTa.addEventListener('scroll', syncSplitScroll);
+splitTa.addEventListener('input', () => {
+    const b = splitBuf();
+    if (!b)
+        return;
+    const wasDirty = isDirty(b);
+    shiftMarks(b.path, b.text, splitTa.value, splitTa.lastEdits);
+    shiftBreakpoints(b.path, b.text, splitTa.value, splitTa.lastEdits);
+    b.text = splitTa.value;
+    // The same file open on the left follows along, keeping its own caret.
+    if (b.ta && b.ta.value !== b.text) {
+        const { selectionStart: s, selectionEnd: e } = b.ta;
+        b.ta.value = b.text;
+        b.ta.setSelectionRange(Math.min(s, b.text.length), Math.min(e, b.text.length));
+    }
+    if (wasDirty !== isDirty(b)) {
+        renderTabs();
+        renderTree();
+    }
+    if (b.path === active)
+        queueRender();
+    paintSplit();
+    saveSession();
+    scheduleLint(b);
+    autoSaveSoon();
+    $('#splitDirty').classList.toggle('hidden', !isDirty(b));
+});
+splitTa.addEventListener('beforeinput', e => { const b = splitBuf(); if (b)
+    beforeEdit(b, e, splitTa); });
+splitTa.addEventListener('selectionchange', paintSplit);
+splitTa.addEventListener('keydown', (e) => {
+    const k = e;
+    if (k.isComposing)
+        return;
+    const b = splitBuf();
+    if (!b)
+        return;
+    if (k.key === 'Escape')
+        wordRun = null; // ends a whole-word Ctrl+D run, even with one selection left
+    if (k.key === 'Escape' && splitTa.multi) {
+        k.preventDefault();
+        splitTa.clearExtras();
+        return;
+    } // back to one cursor
+    // Ctrl+S goes through file.save, which saves this side's file while it has focus.
+    if (k.key === 'Tab' && !k.ctrlKey && !k.altKey) {
+        k.preventDefault();
+        splitTa.insertText(INDENT);
+    }
+});
+$('#splitFile').onchange = e => { splitPath = e.target.value; splitTa.value = ''; renderSplit(); splitTa.scrollTop = 0; };
+$('#splitClose').onclick = closeSplit;
+$('#splitSwap').onclick = () => {
+    if (!splitPath)
+        return;
+    const left = active, right = splitPath;
+    setActive(right);
+    if (left && left !== right) {
+        splitPath = left;
+        splitTa.value = '';
+        renderSplit();
+    }
+};
+// Drag the split's left edge to share the width between the two sides.
+$('#splitSash').addEventListener('pointerdown', e => {
+    if (e.button !== 0)
+        return;
+    e.preventDefault();
+    const row = $('#editorRow'), split = $('#split');
+    const sx = e.clientX, startW = split.getBoundingClientRect().width;
+    document.body.classList.add('resizing');
+    const move = (ev) => {
+        const w = clamp(startW - (ev.clientX - sx), 200, row.clientWidth - 200);
+        split.style.flexBasis = `${w}px`;
+        paintSplit();
+        syncScroll();
+    };
+    const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); document.body.classList.remove('resizing'); };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+});
+function updateCaret() {
+    const b = activeText();
+    if (!b)
+        return;
+    const i = lineAt(b.text, b.ta.selectionStart);
+    if (i !== curLine) {
+        for (const l of [curLine, i]) {
+            forgetRow(hlLines.children[l - winFirst]);
+            forgetRow(gutLines.children[l - winFirst]);
+        }
+        hlLines.children[curLine - winFirst]?.classList.remove('cur-line');
+        gutLines.children[curLine - winFirst]?.classList.remove('cur');
+        hlLines.children[i - winFirst]?.classList.add('cur-line');
+        gutLines.children[i - winFirst]?.classList.add('cur');
+        curLine = i;
+    }
+    // Clicking (or arrowing) into a tag marks it and its partner; the boxes are swapped without redrawing the code.
+    const key = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
+    if (key !== tagKey) {
+        tagKey = key;
+        $$('.tagpair, .guide', hlBoxes).forEach(x => x.remove());
+        hlBoxes.prepend(...guideBoxes(b, b.ta.selectionStart, measureChar()));
+        hlBoxes.append(...tagBoxes(b, measureChar()));
+    }
+    updateStatus();
+} //end of update caret
+function updateStatus() {
+    const b = activeBuf();
+    const tb = activeText();
+    $('#sbPos').classList.toggle('hidden', !tb);
+    $('#sbLang').textContent = b ? langOf(b.path)[1] : '';
+    $('#sbLang').classList.toggle('hidden', !b);
+    const eol = b?.eol === '\r\n' ? 'CRLF' : 'LF';
+    $('#sbEol').textContent = b?.kind === 'text' ? `${eol} · UTF-8` : '';
+    $('#sbEol').classList.toggle('hidden', b?.kind !== 'text');
+    const problems = tb?.diags?.length ?? 0;
+    const problemsHtml = `${svgIcon('circleX', 12)}<span>${plural(problems, 'problem')}</span>`;
+    if ($('#sbProblems').dataset.html !== problemsHtml) {
+        $('#sbProblems').innerHTML = problemsHtml;
+        $('#sbProblems').dataset.html = problemsHtml;
+    }
+    $('#sbProblems').classList.toggle('hidden', !problems);
+    if (!tb)
+        return;
+    if (tb.ta.multi) {
+        $('#sbPos').textContent = plural(tb.ta.selections.length, 'selection');
+        return;
+    }
+    const { selectionStart: s, selectionEnd: e } = tb.ta;
+    const ls = lineStart(tb.text, s);
+    const selected = e > s ? ` (${e - s} selected)` : '';
+    $('#sbPos').textContent = `Ln ${lineAt(tb.text, s) + 1}, Col ${s - ls + 1}${selected}`;
+}
+// F8: move the caret to the next syntax error after it, wrapping around.
+function nextProblem() {
+    const b = activeText();
+    if (!b?.diags?.length) {
+        toast('No problems in this file');
+        return;
+    }
+    const offs = b.diags.map(d => offsetOf(b.text, d.line, d.col));
+    const off = offs.find(o => o > b.ta.selectionStart) ?? offs[0];
+    b.ta.focus();
+    b.ta.setSelectionRange(off, off);
+    revealOffset(b, off);
+}
+function revealOffset(b, off, ta = b.ta) {
+    if (!ta)
+        return;
+    const top = lineAt(b.text, off) * LINE_H;
+    if (top < ta.scrollTop || top > ta.scrollTop + ta.clientHeight - LINE_H * 3)
+        ta.scrollTop = Math.max(0, top - ta.clientHeight / 3);
+    const ls = lineStart(b.text, off);
+    const x = visualCol(b.text.slice(ls, lineEnd(b.text, ls)), off - ls) * measureChar();
+    if (x < ta.scrollLeft || x > ta.scrollLeft + ta.clientWidth - 80)
+        ta.scrollLeft = Math.max(0, x - ta.clientWidth / 2);
+    if (ta === splitTa) {
+        syncSplitScroll();
+        return;
+    }
+    syncScroll();
+    updateCaret();
+}
+// Replaces a range as one undoable step.
+function replaceRange(ta, start, end, text, selStart, selEnd) {
+    const b = ta === splitTa ? splitBuf() : textareaOwner.get(ta.input);
+    if (b)
+        remember(b, 'command', ta);
+    ta.focus();
+    ta.setRangeText(text, start, end, 'end');
+    if (selStart != null)
+        ta.setSelectionRange(selStart, selEnd ?? selStart);
+    ta.dispatchEvent(new Event('input'));
+}
+function selectedLines(ta) {
+    const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+    return [lineStart(v, s), lineEnd(v, e > s && v[e - 1] === '\n' ? e - 1 : e)];
+}
+function indentKey(ta, outdent) {
+    const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
+    if (!outdent && !v.slice(s, en).includes('\n')) {
+        replaceRange(ta, s, en, INDENT);
+        return;
+    }
+    const [ls, le] = selectedLines(ta);
+    const block = v.slice(ls, le);
+    const lines = block.split('\n');
+    const out = lines.map(l => (outdent ? l.replace(/^(?: {1,2}|\t)/, '') : INDENT + l)).join('\n');
+    const firstDelta = out.split('\n')[0].length - lines[0].length;
+    replaceRange(ta, ls, le, out, Math.max(ls, s + firstDelta), en + out.length - block.length);
+}
+// True when `before` ends with an opening tag such as <div class="x">.
+function endsWithOpenTag(before) {
+    const lt = before.lastIndexOf('<');
+    if (lt === -1 || !before.endsWith('>'))
+        return false;
+    const tag = before.slice(lt);
+    return /^<[A-Za-z]/.test(tag) && !tag.endsWith('/>');
+}
+function enterKey(ta) {
+    const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
+    const before = v.slice(lineStart(v, s), s);
+    const indent = /^[ \t]*/.exec(before)?.[0] ?? '';
+    const isPy = langOf(active ?? '')[0] === 'py';
+    const opens = /[{[(]\s*$/.test(before) || (isPy && /:\s*$/.test(before)) || (endsWithOpenTag(before) && v.slice(en).startsWith('</'));
+    const extra = opens ? INDENT : '';
+    // Between a pair like {|} the closing half moves to its own line.
+    if (opens && /^\s*[}\])<]/.test(v.slice(en, lineEnd(v, en))))
+        replaceRange(ta, s, en, `\n${indent}${extra}\n${indent}`, s + 1 + indent.length + extra.length);
+    else
+        replaceRange(ta, s, en, `\n${indent}${extra}`);
+}
+const plainKey = (e) => !e.ctrlKey && !e.altKey && !e.metaKey;
+// Auto-closing pairs: typing an opener adds its closer, typing the closer steps over it,
+// Backspace inside an empty pair removes both, and a selection gets wrapped.
+const AUTO_PAIRS = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'", '`': '`' };
+const AUTO_CLOSERS = new Set(Object.values(AUTO_PAIRS));
+function pairKey(e, ta) {
+    if (!plainKey(e) || e.isComposing)
+        return false;
+    const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd, ch = e.key;
+    if (ch === 'Backspace') {
+        if (s !== en || s === 0 || AUTO_PAIRS[v[s - 1]] !== v[s])
+            return false;
+        replaceRange(ta, s - 1, s + 1, '', s - 1);
+        return true;
+    }
+    if (ch.length !== 1)
+        return false;
+    if (s === en && AUTO_CLOSERS.has(ch) && v[s] === ch) {
+        ta.setSelectionRange(s + 1, s + 1);
+        updateCaret();
+        return true;
+    }
+    const close = AUTO_PAIRS[ch];
+    if (!close)
+        return false;
+    if (s !== en) {
+        replaceRange(ta, s, en, ch + v.slice(s, en) + close, s + 1, en + 1);
+        return true;
+    }
+    const prev = v[s - 1] ?? '', next = v[s] ?? '';
+    // Quotes after a letter are apostrophes (don't), and a pair only opens before a space, a closer or punctuation.
+    if (ch === close && (/[\w\\]/.test(prev) || prev === ch))
+        return false;
+    if (next && !/[\s)\]};,:.>]/.test(next))
+        return false;
+    replaceRange(ta, s, en, ch + close, s + 1);
+    return true;
+}
+// Typing '/' just after '<' finishes the closing tag of the innermost open element: <test>…</ becomes <test>…</test>.
+function closeTagKey(e, ta, b) {
+    if (e.key !== '/' || !plainKey(e))
+        return false;
+    const v = ta.value, s = ta.selectionStart, ext = extOf(b.path);
+    if (s !== ta.selectionEnd || v[s - 1] !== '<' || v.length > 200000)
+        return false;
+    if (langOf(b.path)[0] !== 'html' && ext !== 'jsx' && ext !== 'tsx')
+        return false;
+    const name = openTagAt(v, s - 1, ['xml', 'svg', 'jsx', 'tsx'].includes(ext));
+    if (!name)
+        return false;
+    const tail = `/${name}>`;
+    replaceRange(ta, s, s, tail, s + tail.length);
+    return true;
+}
+function editorKeys(e) {
+    // Mid-composition keys belong to the IME; no shortcut may act on them.
+    if (e.isComposing || e.keyCode === 229)
+        return;
+    const ta = surfaceOf(e.target);
+    if (!ta)
+        return;
+    const b = textareaOwner.get(ta.input);
+    const k = e.key.toLowerCase();
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter')) {
+        lastUserTypeAt = Date.now(); // the tick itself comes from sfx's typing listener
+    }
+    // With several cursors keys do the plain thing at each one: no autofill, pairs, closing tags, Emmet or smart indent.
+    const multi = ta.multi;
+    if (multi) {
+        if (suggest?.owner === ta.input)
+            hideSuggest();
+    }
+    else if (suggestKeys(e, ta.input))
+        return;
+    if (e.key === 'F2' && !e.ctrlKey && !e.shiftKey && !e.altKey && ta !== splitTa) {
+        e.preventDefault();
+        renameSymbol();
+        return;
+    }
+    if (e.key === 'Escape') {
+        wordRun = null; // ends a whole-word Ctrl+D run, even with one selection left
+        hideSuggest(); // with no list showing yet, an Emmet preview still on its way must not open one
+    }
+    if (multi && e.key === 'Escape' && plainKey(e) && !e.shiftKey) {
+        e.preventDefault();
+        ta.clearExtras();
+        return;
+    }
+    if (multi && e.key === 'Tab' && plainKey(e)) {
+        e.preventDefault();
+        if (!e.shiftKey)
+            ta.insertText(INDENT);
+        return;
+    }
+    if (b && !multi && closeTagKey(e, ta, b)) {
+        e.preventDefault();
+        return;
+    }
+    if (b && !multi && pairKey(e, ta)) {
+        e.preventDefault();
+        return;
+    }
+    if (b && e.ctrlKey && e.key === ' ') {
+        e.preventDefault();
+        editorSuggest(b, true);
+        return;
+    } // none with several cursors
+    if (b && (e.ctrlKey || e.metaKey) && !e.altKey && (k === 'z' || k === 'y')) {
+        const isUndo = k === 'z' && !e.shiftKey;
+        if (isUndo) {
+            const topAction = actionUndoStack.at(-1);
+            const isRecentTreeAction = topAction && topAction.type.startsWith('tree-') &&
+                (topAction.timestamp ?? 0) > (lastUserTypeAt || 0);
+            if (isRecentTreeAction) {
+                e.preventDefault();
+                void undoAppAction();
+                return;
+            }
+            if (b.undo.length > 0) {
+                e.preventDefault();
+                stepHistory(b, true);
+                return;
+            }
+            if (actionUndoStack.length > 0) {
+                e.preventDefault();
+                void undoAppAction();
+                return;
+            }
+            e.preventDefault();
+            return;
+        }
+        else {
+            const topRedo = actionRedoStack.at(-1);
+            const isRecentTreeRedo = topRedo?.type.startsWith('tree-');
+            if (isRecentTreeRedo) {
+                e.preventDefault();
+                void redoAppAction();
+                return;
+            }
+            if (b.redo.length > 0) {
+                e.preventDefault();
+                stepHistory(b, false);
+                return;
+            }
+            if (actionRedoStack.length > 0) {
+                e.preventDefault();
+                void redoAppAction();
+                return;
+            }
+            e.preventDefault();
+            return;
+        }
+    }
+    else if (e.key === 'Tab' && plainKey(e)) {
+        e.preventDefault();
+        if (!e.shiftKey && b && emmetCandidate(b, ta)) {
+            const value = ta.value, caret = ta.selectionStart;
+            // No expansion means a plain Tab, unless the user has typed on since: then the key press is spent.
+            void tryEmmet(b, ta).then(ok => { if (!ok && ta.value === value && ta.selectionStart === caret)
+                indentKey(ta, false); });
+        }
+        else
+            indentKey(ta, e.shiftKey);
+    }
+    else if (e.key === 'Enter' && plainKey(e) && !e.shiftKey && !multi) { // several cursors: the surface's plain newline
+        e.preventDefault();
+        enterKey(ta);
+    }
+}
+// Removes one comment marker pair from a line, keeping its indentation.
+function uncommentLine(l, open, close) {
+    const indent = l.length - l.trimStart().length;
+    let body = l.slice(indent);
+    if (body.startsWith(open))
+        body = body.slice(open.length).replace(/^ /, '');
+    const trimmed = body.trimEnd();
+    if (close && trimmed.endsWith(close))
+        body = trimmed.slice(0, -close.length).replace(/ $/, '');
+    return l.slice(0, indent) + body;
+}
+function toggleComment() {
+    const fe = focusedEditor();
+    if (!fe)
+        return;
+    const { b, ta } = fe;
+    const c = COMMENT[langOf(b.path)[0]];
+    if (!c) {
+        toast('No comment syntax for this file type');
+        return;
+    }
+    const [ls, le] = selectedLines(ta);
+    const lines = ta.value.slice(ls, le).split('\n');
+    const [open, close] = c;
+    const [o, cl] = [open.trim(), close.trim()];
+    const isCommented = (l) => !l.trim() || (l.trimStart().startsWith(o) && (!cl || l.trimEnd().endsWith(cl)));
+    const uncomment = lines.every(isCommented) && lines.some(l => l.trim());
+    const minIndent = Math.min(...lines.filter(l => l.trim()).map(l => l.length - l.trimStart().length));
+    const out = lines.map(l => {
+        if (!l.trim())
+            return l;
+        return uncomment ? uncommentLine(l, o, cl) : l.slice(0, minIndent) + open + l.slice(minIndent) + close;
+    }).join('\n');
+    replaceRange(ta, ls, le, out, ls, ls + out.length);
+}
+function moveLines(dir) {
+    const ta = focusedEditor()?.ta;
+    if (!ta)
+        return;
+    const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
+    const [ls, le] = selectedLines(ta);
+    const block = v.slice(ls, le);
+    if (dir < 0) {
+        if (ls === 0)
+            return;
+        const pls = lineStart(v, ls - 1);
+        const prev = v.slice(pls, ls - 1);
+        replaceRange(ta, pls, le, `${block}\n${prev}`, s - prev.length - 1, en - prev.length - 1);
+    }
+    else {
+        if (le >= v.length)
+            return;
+        const nle = lineEnd(v, le + 1);
+        const next = v.slice(le + 1, nle);
+        replaceRange(ta, ls, nle, `${next}\n${block}`, s + next.length + 1, en + next.length + 1);
+    }
+}
+function duplicateLines() {
+    const ta = focusedEditor()?.ta;
+    if (!ta)
+        return;
+    const s = ta.selectionStart, en = ta.selectionEnd;
+    const [ls, le] = selectedLines(ta);
+    const block = ta.value.slice(ls, le);
+    replaceRange(ta, le, le, `\n${block}`, s + block.length + 1, en + block.length + 1);
+}
+function selectLine() {
+    const ta = focusedEditor()?.ta;
+    if (!ta)
+        return;
+    const [ls, le] = selectedLines(ta);
+    ta.focus();
+    ta.setSelectionRange(ls, Math.min(le + 1, ta.value.length));
+    if (ta !== splitTa)
+        updateCaret();
+}
+/* ----- Several cursors (Alt+Click and Shift+Alt+drag are the surface's own) ----- */
+function revealPrimary(b, ta) {
+    revealOffset(b, ta.selectionDirection === 'backward' ? ta.selectionStart : ta.selectionEnd, ta);
+}
+// The editor whose Ctrl+D run began on an empty caret: that run matches whole words only. Any selection change but
+// the run's own presses (a click, typing, arrows), or Esc, ends it.
+let wordRun = null;
+// Ctrl+D: an empty caret selects the word it touches; a selection gains the next copy of the newest one's text.
+function addNextOccurrence() {
+    const fe = focusedEditor();
+    if (!fe)
+        return;
+    const { ta } = fe, sels = ta.selections, p = ta.primaryIndex, newest = sels[p], fromCaret = newest.anchor === newest.head;
+    const whole = fromCaret || wordRun === ta;
+    const next = nextOccurrence(ta.value, [...sels.filter((_, i) => i !== p), newest], whole);
+    if (!next)
+        return;
+    if (fromCaret)
+        ta.setSelections(sels.map((s, i) => (i === p ? next : s)), p);
+    else
+        ta.addSelection(next);
+    wordRun = whole ? ta : null;
+    // Registered after this press's own change, so the next change is someone else's.
+    if (whole)
+        ta.addEventListener('selectionchange', () => { if (wordRun === ta)
+            wordRun = null; }, { once: true });
+    revealPrimary(fe.b, ta);
+}
+// Ctrl+Shift+L: every copy of the primary's text, the primary staying where it was. From an empty caret (or during a
+// Ctrl+D run that began on one) it is the word at the caret, matched as a whole word.
+function selectAllOccurrences() {
+    const ta = focusedEditor()?.ta;
+    if (!ta)
+        return;
+    const v = ta.value, prim = ta.selections[ta.primaryIndex], fromCaret = prim.anchor === prim.head;
+    const r = fromCaret ? nextOccurrence(v, [prim]) : prim;
+    if (!r)
+        return;
+    const lo = Math.min(r.anchor, r.head), hi = Math.max(r.anchor, r.head);
+    const all = allOccurrences(v, v.slice(lo, hi), fromCaret || wordRun === ta);
+    ta.setSelections(all, selIndexOf(all, { anchor: lo, head: hi }));
+}
+// Ctrl+Alt+Up/Down: a caret on the line above the top-most selection (below the bottom-most) at its visual column.
+// Pressed again straight after, it keeps the first column, so passing a short or blank line doesn't pull it left.
+let cursorGoal = null;
+function addCursorVertical(dir) {
+    const fe = focusedEditor();
+    if (!fe)
+        return;
+    const { ta } = fe, v = ta.value, sels = ta.selections, key = () => ta.selections.map(s => `${s.anchor},${s.head}`).join(';');
+    const edge = dir < 0 ? sels[0] : sels[sels.length - 1];
+    const at = dir < 0 ? Math.min(edge.anchor, edge.head) : Math.max(edge.anchor, edge.head), ls = lineStart(v, at);
+    if (dir < 0 ? ls === 0 : lineEnd(v, at) === v.length)
+        return;
+    const vcol = cursorGoal?.ta === ta && cursorGoal.sels === key() ? cursorGoal.vcol : visualCol(v.slice(ls, at), at - ls);
+    const ts = dir < 0 ? lineStart(v, ls - 1) : lineEnd(v, at) + 1, off = ts + colAtVisual(v.slice(ts, lineEnd(v, ts)), vcol);
+    ta.addSelection({ anchor: off, head: off });
+    cursorGoal = { ta, sels: key(), vcol };
+    revealPrimary(fe.b, ta);
+}
+/* ----- Find in file ----- */
+let findOpen = false;
+let findHits = [];
+let findIdx = -1;
+let findLen = 0;
+let findCase = false;
+const findInput = $('#findInput');
+const replaceInput = $('#replaceInput');
+function openFind(replace = false) {
+    const b = activeText();
+    if (!b)
+        return;
+    const sel = b.ta.value.slice(b.ta.selectionStart, b.ta.selectionEnd);
+    if (sel && !sel.includes('\n'))
+        findInput.value = sel;
+    findOpen = true;
+    $('#findbar').classList.remove('hidden');
+    showReplace(replace);
+    // Ctrl+H with a search already typed goes straight to the replacement.
+    const field = replace && findInput.value ? replaceInput : findInput;
+    field.focus();
+    field.select();
+    runFind(true);
+}
+function showReplace(on) {
+    $('#replaceRow').classList.toggle('hidden', !on);
+    $('#findToggle').setAttribute('aria-expanded', String(on));
+}
+function closeFind() {
+    if (!findOpen)
+        return;
+    findOpen = false;
+    findHits = [];
+    findLen = 0;
+    $('#findbar').classList.add('hidden');
+    renderCode();
+}
+function runFind(jump) {
+    const b = activeText();
+    const q = findInput.value;
+    findHits = [];
+    findLen = q.length;
+    if (b && q) {
+        const hay = findCase ? b.text : b.text.toLowerCase(), n = findCase ? q : q.toLowerCase();
+        for (let i = hay.indexOf(n); i !== -1 && findHits.length < 20000; i = hay.indexOf(n, i + n.length))
+            findHits.push(i);
+    }
+    const from = b ? b.ta.selectionStart : 0;
+    findIdx = findHits.length ? Math.max(0, findHits.findIndex(h => h >= from)) : -1;
+    if (findIdx === -1 && findHits.length)
+        findIdx = 0;
+    if (jump)
+        selectHit();
+    else {
+        renderFindCount();
+        queueRender();
+    }
+}
+function renderFindCount() {
+    let text = '';
+    if (findInput.value)
+        text = findHits.length ? `${findIdx + 1} of ${findHits.length}` : 'No results';
+    $('#findCount').textContent = text;
+}
+function stepFind(d) {
+    if (!findHits.length)
+        return;
+    findIdx = (findIdx + d + findHits.length) % findHits.length;
+    selectHit();
+}
+function selectHit() {
+    const b = activeText();
+    renderFindCount();
+    if (b && findIdx >= 0) {
+        const off = findHits[findIdx];
+        b.ta.setSelectionRange(off, off + findLen);
+        revealOffset(b, off);
+    }
+    renderCode();
+}
+findInput.addEventListener('input', () => runFind(true));
+findInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        sfx.play('tick');
+        stepFind(e.shiftKey ? -1 : 1);
+    }
+    if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeFind();
+        activeText()?.ta.focus();
+    }
+});
+$('#findNext').onclick = () => { sfx.play('tick'); stepFind(1); };
+$('#findPrev').onclick = () => { sfx.play('tick'); stepFind(-1); };
+$('#findClose').onclick = () => { closeFind(); activeText()?.ta.focus(); };
+$('#findCase').onclick = () => { findCase = !findCase; $('#findCase').classList.toggle('on', findCase); runFind(false); };
+$('#findToggle').onclick = () => {
+    const on = $('#replaceRow').classList.contains('hidden');
+    showReplace(on);
+    (on ? replaceInput : findInput).focus();
+};
+// The match under the selection is replaced; otherwise the first press only selects the next one, like VS Code.
+function replaceOne() {
+    const b = activeText();
+    if (!b || findIdx < 0)
+        return;
+    const off = findHits[findIdx];
+    if (b.ta.selectionStart !== off || b.ta.selectionEnd !== off + findLen) {
+        selectHit();
+        return;
+    }
+    const rep = replaceInput.value;
+    replaceRange(b.ta, off, off + findLen, rep, off + rep.length);
+    runFind(false); // picks up the edit; the next match is the one after the replacement
+    findIdx = findHits.findIndex(h => h >= off + rep.length);
+    if (findIdx === -1 && findHits.length)
+        findIdx = 0;
+    selectHit();
+    replaceInput.focus();
+}
+function replaceAll() {
+    const b = activeText();
+    if (!b || !findHits.length)
+        return;
+    const rep = replaceInput.value, n = findHits.length;
+    let out = '', at = 0;
+    for (const h of findHits) {
+        out += b.text.slice(at, h) + rep;
+        at = h + findLen;
+    }
+    out += b.text.slice(at);
+    replaceRange(b.ta, 0, b.text.length, out, Math.min(b.ta.selectionStart, out.length)); // one undo step for all of them
+    replaceInput.focus();
+    toast(`Replaced ${n} ${n === 1 ? 'match' : 'matches'}`);
+}
+replaceInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.altKey) {
+        e.preventDefault();
+        replaceAll();
+        return;
+    }
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        sfx.play('tick');
+        replaceOne();
+    }
+    if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeFind();
+        activeText()?.ta.focus();
+    }
+});
+$('#replaceOne').onclick = () => { sfx.play('tick'); replaceOne(); };
+$('#replaceAll').onclick = replaceAll;
+/* ----- Go to line / file ----- */
+function goToLine() {
+    const b = activeText();
+    if (!b) {
+        toast('Open a file first');
+        return;
+    }
+    const total = b.text.split('\n').length;
+    openModal(`<input class="input w-full" id="lineIn" aria-label="Line number" placeholder="Go to line (1 – ${total})" inputmode="numeric">`, m => {
+        const input = $('#lineIn', m);
+        input.focus();
+        input.onkeydown = e => {
+            if (e.key !== 'Enter')
+                return;
+            const n = clamp(Number.parseInt(input.value, 10) || 1, 1, total);
+            closeModal();
+            const off = offsetOf(b.text, n - 1, 0);
+            b.ta.focus();
+            b.ta.setSelectionRange(off, off);
+            revealOffset(b, off);
+        };
+    }, undefined, 'top');
+}
+// How well a path matches a quick-open query: name prefix > name > path > letters in order.
+function fileScore(p, q) {
+    const name = baseName(p).toLowerCase(), full = p.toLowerCase();
+    if (!q)
+        return 1;
+    if (name.startsWith(q))
+        return 4;
+    if (name.includes(q))
+        return 3;
+    if (full.includes(q))
+        return 2;
+    let i = 0;
+    for (const ch of full)
+        if (ch === q[i])
+            i++;
+    return i === q.length ? 1 : 0;
+}
+function quickOpen() {
+    if (!rootInfo) {
+        toast('Open a folder first');
+        return;
+    }
+    let all = [];
+    let sel = 0;
+    let shown = [];
+    openModal(`<input class="input w-full" id="qoIn" aria-label="Search files by name" placeholder="Search files by name" spellcheck="false"><div class="qo-list" id="qoList"><div class="side-note shimmer-text">Loading</div></div>`, m => {
+        const input = $('#qoIn', m);
+        input.focus();
+        const render = () => {
+            const q = input.value.trim().toLowerCase();
+            shown = all.map(p => [p, fileScore(p, q)]).filter(x => x[1] > 0)
+                .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length).slice(0, 60).map(x => x[0]);
+            sel = clamp(sel, 0, Math.max(0, shown.length - 1));
+            const rows = shown.map((p, i) => `<div class="qo-item ${i === sel ? 'on' : ''}" data-i="${i}"><span>${fileIcon(p)}&nbsp; ${esc(baseName(p))}</span><small>${esc(dirName(p))}</small></div>`);
+            $('#qoList', m).innerHTML = rows.join('') || '<div class="side-note">No matching files.</div>';
+            $$('[data-i]', m).forEach(el => el.onclick = () => { closeModal(); openFile(shown[Number(el.dataset.i)]); });
+        };
+        // A leading ">" turns Go to File into the Command Palette.
+        input.oninput = () => {
+            if (input.value.startsWith('>')) {
+                closeModal();
+                openPalette(input.value.slice(1));
+                return;
+            }
+            sel = 0;
+            render();
+        };
+        input.onkeydown = e => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                sel += e.key === 'ArrowDown' ? 1 : -1;
+                render();
+                $('.qo-item.on', m)?.scrollIntoView({ block: 'nearest' });
+            }
+            if (e.key === 'Enter' && shown[sel]) {
+                closeModal();
+                openFile(shown[sel]);
+            }
+        };
+        api.fs.listFiles().then(list => { all = list; render(); }, (err) => { $('#qoList', m).innerHTML = `<div class="side-note">${esc(errMsg(err))}</div>`; });
+    }, undefined, 'top');
+}
+/* ================= Search across files ================= */
+let searchCase = false;
+$('#searchCase').onclick = () => { searchCase = !searchCase; $('#searchCase').classList.toggle('on', searchCase); void runSearch(); };
+$('#searchInput').addEventListener('keydown', e => { if (e.key === 'Enter')
+    void runSearch(); });
+function hitLineHtml(h, i, qLen) {
+    const start = Math.max(0, h.col - 30);
+    const pre = h.text.slice(start, h.col).trimStart(), hit = h.text.slice(h.col, h.col + qLen), post = h.text.slice(h.col + qLen, h.col + qLen + 80);
+    return `<div class="result-line" data-p="${escAttr(h.path)}" data-i="${i}">${esc(pre)}<mark>${esc(hit)}</mark>${esc(post)}</div>`;
+}
+// The search the results show, so they can be run again when files change.
+let searched = null;
+let searchSeq = 0;
+// `again` re-runs the shown search after a file change: no "Searching" flash, and the list keeps its scroll.
+async function runSearch(again = false) {
+    const q = again && searched ? searched.q : $('#searchInput').value;
+    const matchCase = again && searched ? searched.matchCase : searchCase;
+    const out = $('#searchResults');
+    searched = null;
+    if (!rootInfo) {
+        out.innerHTML = '<p class="side-note">Open a folder to search it.</p>';
+        return;
+    }
+    if (!q) {
+        out.innerHTML = '<p class="side-note">Type and press Enter to search across files.</p>';
+        return;
+    }
+    searched = { q, matchCase, root: rootInfo.root };
+    const seq = ++searchSeq, scroll = out.scrollTop;
+    if (!again)
+        out.innerHTML = '<p class="side-note">Searching</p>';
+    let hits;
+    try {
+        hits = await api.fs.search(q, matchCase);
+    }
+    catch (e) {
+        if (seq === searchSeq)
+            out.innerHTML = `<p class="side-note">${esc(errMsg(e))}</p>`;
+        return;
+    }
+    if (seq !== searchSeq)
+        return; // a newer search started meanwhile
+    if (again)
+        requestAnimationFrame(() => { out.scrollTop = scroll; });
+    if (!hits.length) {
+        out.innerHTML = '<p class="side-note">No results.</p>';
+        return;
+    }
+    const byFile = new Map();
+    for (const h of hits)
+        byFile.set(h.path, [...(byFile.get(h.path) ?? []), h]);
+    const more = hits.length >= 500 ? '+' : '';
+    const groups = [...byFile].map(([p, hs]) => `<div class="result-file">${fileIcon(p)} ${esc(baseName(p))} <small>${esc(dirName(p))}</small></div>` + hs.map((h, i) => hitLineHtml(h, i, q.length)).join(''));
+    out.innerHTML = `<p class="side-note pt-0">${hits.length}${more} results in ${plural(byFile.size, 'file')}</p>` + groups.join('');
+    $$('.result-line', out).forEach(el => el.onclick = () => {
+        const h = (byFile.get(el.dataset.p) ?? [])[Number(el.dataset.i)];
+        if (h)
+            openFile(h.path, { line: h.line, col: h.col, len: q.length });
+    });
+}
+// Files saved, created, deleted or changed by an agent: the shown results follow, a moment after the changes stop.
+let searchAgain;
+api.fs.onChange(() => {
+    if (!searched)
+        return;
+    clearTimeout(searchAgain);
+    searchAgain = setTimeout(() => { if (searched && searched.root === rootInfo?.root)
+        void runSearch(true); }, 400);
+});

@@ -1,0 +1,891 @@
+"use strict";
+/* ================= Platform (desktop bridge or in-browser demo) ================= */
+const DEMO_FILES = {
+    'index.html': `<!-- Brewed by Breeze -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Ember &amp; Oak Coffee</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>Ember &amp; Oak</h1>
+    <p>Slow coffee for fast mornings.</p>
+    <a href="#menu" class="cta">See the menu</a>
+  </header>
+  <section id="menu"></section>
+  <script src="script.js"></script>
+</body>
+</html>
+`,
+    'styles.css': `/* Cozy, warm palette */
+:root {
+  --bean: #2b1d12;
+  --cream: #f4ece1;
+  --ember: #c2410c;
+}
+body { margin: 0; font-family: Georgia, serif; background: var(--cream); color: var(--bean); }
+.hero {
+  padding: 96px 24px;
+  text-align: center;
+}
+.cta { background: var(--ember); color: #fff; padding: 10px 18px; border-radius: 999px; }
+`,
+    'script.js': `// Small touch: greet by time of day
+const h = new Date().getHours();
+const hello = h < 12 ? "Good morning" : "Hey there";
+document.querySelector(".hero p").prepend(hello + ". ");
+`,
+    '.env': `# Protected — Breeze's local agent can't read this
+MAPS_KEY=demo-key-not-real
+`,
+    'assets/beans.jpg': '',
+};
+const IMAGE_FILE = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i;
+// Browser preview: a drawn stand-in for the demo project's photo.
+const bean = ([x, y, r]) => `<g transform="translate(${x} ${y}) rotate(${r})"><ellipse rx="54" ry="36" fill="#6b4226"/><path d="M-46 0c24-16 68 16 92 0" fill="none" stroke="#2b1d12" stroke-width="7" stroke-linecap="round"/></g>`;
+const DEMO_BEANS = [[190, 160, -30], [320, 225, 20], [450, 150, -10], [255, 300, 40], [470, 290, -40]].map(bean).join('');
+const DEMO_IMAGE = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400"><rect width="640" height="400" fill="#f4ece1"/>${DEMO_BEANS}</svg>`);
+let demoRun = 0;
+const agentListeners = [];
+const authListeners = [];
+// The file the canned build run creates, so the preview shows a new file typing in.
+const DEMO_NEW_FILE = 'menu.js';
+const DEMO_NEW_TEXT = [
+    '// The menu cards, filled from one list.',
+    'const MENU = [',
+    "  { name: 'Espresso', price: 3.0 },",
+    "  { name: 'Flat white', price: 3.8 },",
+    "  { name: 'Oat latte', price: 4.2 },",
+    '];',
+    "document.querySelector('#menu').innerHTML = MENU",
+    "  .map(item => `<article class=\"card\"><h3>${item.name}</h3><p>$${item.price.toFixed(2)}</p></article>`)",
+    "  .join('');",
+    '',
+].join('\n');
+// Browser preview: replays a short, canned agent run. `save` writes a file into the demo project.
+async function demoReplay(id, mode, save) {
+    const steps = [
+        [{ t: 'session', id: 'demo-session', model: 'demo' }, 100],
+        [{ t: 'tool', kind: 'read', label: 'Read index.html' }, 600],
+        [{ t: 'tool', kind: 'read', label: 'Read styles.css' }, 900],
+    ];
+    if (mode === 'build') {
+        steps.push([{ t: 'tool', kind: 'edit', label: 'Edited styles.css' }, 2500], 
+        // The new file's text arrives a line at a time, as a local model writes it, then lands on disk.
+        ...DEMO_NEW_TEXT.split('\n').map((_, i, lines) => [{ t: 'draft', path: DEMO_NEW_FILE, text: lines.slice(0, i + 1).join('\n') }, i ? 300 : 1200]), [{ t: 'tool', kind: 'edit', label: `Wrote ${DEMO_NEW_FILE}` }, 300, () => save(DEMO_NEW_FILE, DEMO_NEW_TEXT)], [{ t: 'file', path: DEMO_NEW_FILE, created: true }, 0], [{ t: 'tool', kind: 'run', label: '$ npx prettier --check styles.css' }, 3000], [{ t: 'text', text: 'Done — I warmed up the hero colours in styles.css and added menu.js. (Browser preview: no files were really changed.)' }, 2500]);
+    }
+    else if (mode === 'plan') {
+        steps.push([{ t: 'text', text: 'I looked at the page and its styles.' }, 600], [{ t: 'plan', text: '1. Make the hero taller with a warm gradient\n2. Turn the menu into three cards\n3. Add a footer with opening hours' }, 500]);
+    }
+    else {
+        steps.push([{ t: 'text', text: 'The page has a hero section, an empty menu section and a small greeting script. (Browser preview answer.)' }, 600]);
+    }
+    steps.push([{ t: 'done', ok: true, ms: 2400 }, 300]);
+    // Each step waits for the one before it.
+    await steps.reduce(async (prev, [ev, ms, before]) => {
+        await prev;
+        await wait(ms);
+        before?.();
+        agentListeners.forEach(cb => cb(id, ev));
+    }, Promise.resolve());
+}
+// Browser preview: clipboard and selection commands act on the focused field.
+async function demoEdit(role) {
+    const el = document.activeElement;
+    // The code editor's text lives in its surface, not in the hidden input that has focus.
+    const surface = surfaceOf(el);
+    if (surface) {
+        const [s, e] = [surface.selectionStart, surface.selectionEnd];
+        if (role === 'copy' || role === 'cut')
+            await navigator.clipboard.writeText(surface.value.slice(s, e));
+        if (role === 'cut' && e > s)
+            replaceRange(surface, s, e, '');
+        else if (role === 'paste')
+            replaceRange(surface, s, e, (await navigator.clipboard.readText()).replace(/\r\n?/g, '\n'));
+        return;
+    }
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement))
+        return;
+    const [s, e] = [el.selectionStart ?? 0, el.selectionEnd ?? 0];
+    if (role === 'selectAll')
+        el.select();
+    else if (role === 'copy' || role === 'cut') {
+        await navigator.clipboard.writeText(el.value.slice(s, e));
+        if (role === 'cut')
+            el.setRangeText('', s, e, 'end');
+    }
+    else if (role === 'paste')
+        el.setRangeText(await navigator.clipboard.readText(), s, e, 'end');
+    el.dispatchEvent(new Event('input'));
+}
+// Two open pull requests into main for the browser demo: one ready to merge and one with conflicts.
+const demoPull = (number, title, author, ref, sha, conflicts) => ({
+    number, title, author, avatar: '', head: { ref, label: `${author}:${ref}`, sha, repo: `${author}/coffee-shop-landing` },
+    base: 'main', draft: false, mergeable: !conflicts, mergeableState: conflicts ? 'dirty' : 'clean',
+    url: `https://github.com/demo/coffee-shop-landing/pull/${number}`, createdAt: new Date(Date.now() - number * 3600e3).toISOString(),
+});
+const demoPulls = [
+    { ...demoPull(48, 'Sapfire151/dev', 'Sapfire151', 'dev', 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', false), commits: 3 },
+    { ...demoPull(51, 'fix-login', 'maya', 'fix-login', 'f9e8d7c6b5a4039281706f5e4d3c2b1a09876543', true), commits: 2 },
+];
+const demoCommit = (sha, message, author, hoursAgo) => ({ sha, message, author, avatar: null, date: new Date(Date.now() - hoursAgo * 3600e3).toISOString() });
+const demoPrCommits = {
+    48: [
+        demoCommit('1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b', 'Warm up the hero colours', 'Sapfire151', 30),
+        demoCommit('2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c', 'Add opening hours to the footer', 'Sapfire151', 26),
+        demoCommit('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', 'Tidy the menu spacing', 'Sapfire151', 24),
+    ],
+    51: [
+        demoCommit('3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d', 'Stop the login form reloading the page', 'maya', 52),
+        demoCommit('f9e8d7c6b5a4039281706f5e4d3c2b1a09876543', 'Show an error for a wrong password', 'maya', 50),
+    ],
+};
+const demoPrFiles = {
+    48: [
+        { path: 'styles.css', previous: null, status: 'modified', additions: 3, deletions: 2, patch: '@@ -1,5 +1,6 @@\n /* Cozy, warm palette */\n :root {\n-  --bean: #2b1d12;\n-  --cream: #f4ece1;\n+  --bean: #3a2615;\n+  --cream: #f8f0e4;\n+  --hero: #c8793a;\n }' },
+        { path: 'index.html', previous: null, status: 'modified', additions: 2, deletions: 1, patch: '@@ -10,4 +10,5 @@\n <footer>\n-  <p>Open every day</p>\n+  <p>Open every day, 7am to 5pm</p>\n+  <p>Closed on public holidays</p>\n </footer>' },
+    ],
+    51: [
+        { path: 'script.js', previous: null, status: 'modified', additions: 4, deletions: 1, patch: '@@ -3,5 +3,8 @@\n form.addEventListener(\'submit\', e => {\n-  login(form);\n+  e.preventDefault();\n+  login(form).catch(err => {\n+    errorEl.textContent = err.message;\n+  });\n });' },
+        { path: 'login.html', previous: null, status: 'modified', additions: 1, deletions: 1, patch: '@@ -7,3 +7,3 @@\n <form id="login">\n-  <input name="pass">\n+  <input name="pass" type="password">\n </form>' },
+    ],
+};
+let demoConnectDone = null;
+function demoApi() {
+    const files = new Map(Object.entries(DEMO_FILES));
+    const binary = new Set(['assets/beans.jpg']);
+    const dirs = new Set(['assets']);
+    let info = { root: 'demo:/coffee-shop-landing', name: 'coffee-shop-landing' };
+    let accounts = [];
+    let current = null;
+    const accountKey = (u) => u.provider + ':' + (u.login ?? '');
+    const under = (p, rel) => (rel ? p.startsWith(rel + '/') : true);
+    const exists = (p) => files.has(p) || dirs.has(p);
+    const inside = (k, rel) => k === rel || k.startsWith(rel + '/');
+    const needOpen = () => { if (!store.get('breeze.demoOpen', false))
+        throw new Error('No folder is open'); };
+    const feeds = () => store.get('breeze.demoVibe', {});
+    const markOpened = () => store.set('breeze.demoOpenedAt', Date.now());
+    return {
+        fs: {
+            async importFile(dir, name, data) {
+                needOpen();
+                const dot = name.lastIndexOf('.');
+                const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+                let rel = joinPath(dir, name);
+                let n = 1;
+                while (exists(rel)) {
+                    rel = joinPath(dir, `${stem} (${n})${ext}`);
+                    n++;
+                }
+                for (let d = dirName(rel); d; d = dirName(d))
+                    dirs.add(d);
+                files.set(rel, new TextDecoder().decode(data));
+                return rel;
+            },
+            openFolder() { store.set('breeze.demoOpen', true); markOpened(); return Promise.resolve(info); },
+            // Browser preview: a new, empty in-memory project.
+            async createFolder() {
+                files.clear();
+                dirs.clear();
+                binary.clear();
+                files.set('README.md', '# My Breeze project\n');
+                info = { root: 'demo:/my-breeze-project', name: 'my-breeze-project' };
+                store.set('breeze.demoOpen', true);
+                markOpened();
+                return info;
+            },
+            // Browser preview: no file dialog, so "Open file" opens the demo project's README and saving a new file puts it
+            // in the demo project under the name it was given (numbered if that's taken).
+            openFile() { store.set('breeze.demoOpen', true); markOpened(); return Promise.resolve({ ...info, open: 'README.md', launched: true }); },
+            newFile(want, text) {
+                const dot = want.lastIndexOf('.');
+                const [stem, ext] = dot > 0 ? [want.slice(0, dot), want.slice(dot)] : [want, ''];
+                let name = want;
+                for (let i = 2; files.has(name); i++)
+                    name = `${stem}-${i}${ext}`;
+                files.set(name, text);
+                store.set('breeze.demoOpen', true);
+                markOpened();
+                return Promise.resolve({ ...info, open: name, launched: true });
+            },
+            restore() { return Promise.resolve(store.get('breeze.demoOpen', false) ? info : null); },
+            // Explorer can't launch the browser preview.
+            openLaunch() { return Promise.resolve(null); },
+            onLaunchRequest() { return () => { }; },
+            closeFolder() { store.del('breeze.demoOpen'); return Promise.resolve(); },
+            // Empty until a folder has been opened, so a first visit starts with no recent projects.
+            recent() {
+                const at = store.get('breeze.demoOpenedAt', 0);
+                return Promise.resolve(at ? [{ path: info.root, name: info.name, openedAt: at }] : []);
+            },
+            forgetRecent() { store.del('breeze.demoOpenedAt'); return Promise.resolve(); },
+            openRecent() { store.set('breeze.demoOpen', true); markOpened(); return Promise.resolve(info); },
+            async readDir(rel) {
+                needOpen();
+                const seen = new Map();
+                const depth = rel ? rel.split('/').length : 0;
+                for (const d of dirs)
+                    if (under(d, rel) && d.split('/').length === depth + 1)
+                        seen.set(baseName(d), true);
+                for (const f of files.keys())
+                    if (under(f, rel) && f.split('/').length === depth + 1)
+                        seen.set(baseName(f), false);
+                return [...seen].map(([name, dir]) => ({ name, dir })).sort(byDirThenName);
+            },
+            async readFile(rel) {
+                if (!files.has(rel))
+                    throw new Error('File not found');
+                if (binary.has(rel))
+                    return IMAGE_FILE.test(rel) ? { image: true, size: 48213 } : { binary: true, size: 48213 };
+                return { text: files.get(rel), size: (files.get(rel) ?? '').length };
+            },
+            writeFile(rel, text) { files.set(rel, text); return Promise.resolve(); },
+            async createFile(rel) {
+                if (exists(rel))
+                    throw new Error('A file with that name already exists');
+                files.set(rel, '');
+            },
+            async createDir(rel) {
+                if (exists(rel))
+                    throw new Error('A folder with that name already exists');
+                dirs.add(rel);
+            },
+            async rename(from, to) {
+                if (exists(to))
+                    throw new Error('Something with that name already exists');
+                const renamed = (k) => to + k.slice(from.length);
+                // Snapshot the keys first: the maps change while we go.
+                const fileKeys = [...files.keys()].filter(k => inside(k, from));
+                for (const k of fileKeys) {
+                    files.set(renamed(k), files.get(k) ?? '');
+                    files.delete(k);
+                }
+                for (const set of [dirs, binary]) {
+                    const keys = [...set].filter(k => inside(k, from));
+                    for (const k of keys) {
+                        set.delete(k);
+                        set.add(renamed(k));
+                    }
+                }
+            },
+            async copy(from, to) {
+                if (exists(to))
+                    throw new Error('Something with that name already exists');
+                const copied = (k) => to + k.slice(from.length);
+                for (const k of [...files.keys()].filter(k => inside(k, from)))
+                    files.set(copied(k), files.get(k) ?? '');
+                for (const set of [dirs, binary])
+                    for (const k of [...set].filter(k => inside(k, from)))
+                        set.add(copied(k));
+            },
+            async reveal() { toast('Revealing files needs the desktop app'); },
+            async trash(rel) {
+                const gone = [...files.keys(), ...dirs, ...binary].filter(k => inside(k, rel));
+                for (const k of gone) {
+                    files.delete(k);
+                    dirs.delete(k);
+                    binary.delete(k);
+                }
+                return null; // no undo copies in the browser demo
+            },
+            async untrash() { throw new Error('Undo delete needs the desktop app'); },
+            listFiles() { return Promise.resolve([...files.keys()]); },
+            async search(query, matchCase) {
+                const out = [];
+                const needle = matchCase ? query : query.toLowerCase();
+                for (const [path, text] of files) {
+                    if (binary.has(path))
+                        continue;
+                    text.split('\n').forEach((line, i) => {
+                        const col = (matchCase ? line : line.toLowerCase()).indexOf(needle);
+                        if (col !== -1)
+                            out.push({ path, line: i, col, text: line });
+                    });
+                }
+                return out;
+            },
+            // No file URLs in the browser: images get a drawn stand-in, everything else ''.
+            async fileUrl(rel) { return binary.has(rel) && IMAGE_FILE.test(rel) ? DEMO_IMAGE : ''; },
+            async previewUrl() { return ''; },
+            onChange() { return () => { }; },
+            onWatchLost() { return () => { }; },
+        },
+        lint: { check() { return Promise.resolve(null); } },
+        term: {
+            async cwd() { return 'coffee-shop-landing'; },
+            async run() { return { error: 'The terminal runs commands only in the Breeze desktop app (npm start).' }; },
+            async kill() { },
+            async write() { },
+            async complete(word) {
+                const names = [...new Set([...files.keys(), ...dirs].map(p => p.split('/')[0]))];
+                return names.filter(n => n.toLowerCase().startsWith(word.toLowerCase())).sort((a, b) => a.localeCompare(b)).map(n => ({ text: dirs.has(n) ? n + '/' : n, dir: dirs.has(n) }));
+            },
+            onData() { return () => { }; },
+            onExit() { return () => { }; },
+        },
+        run: { file() { return Promise.resolve({ error: 'Programs run only in the Breeze desktop app (npm start).' }); } },
+        update: { get: () => Promise.resolve({ state: 'idle' }), download: () => Promise.resolve(), install: () => Promise.resolve(), onState: () => () => { } },
+        sys: {
+            async detect() {
+                await wait(500);
+                const llm = store.get('breeze.demoLlm', null);
+                return {
+                    demo: true, platform: 'browser',
+                    agents: [
+                        { id: 'antigravity', name: 'Antigravity', vendor: 'Google DeepMind', url: 'https://antigravity.google/', found: false, path: null, version: 'claude-sonnet-4-6', models: ['claude-sonnet-4-6', 'gemini-3.8-flash-high', 'claude-opus-4-6-thinking', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low', 'gpt-oss-120b-medium'] },
+                        { id: 'codex', name: 'Codex', vendor: 'OpenAI', url: 'https://developers.openai.com/codex/cli', found: false, path: null, version: null, install: 'npm install -g @openai/codex' },
+                        { id: 'claude', name: 'Claude', vendor: 'Anthropic', url: 'https://claude.com/claude-code', found: false, path: null, version: 'default', models: ['default', 'opus', 'sonnet', 'haiku'], install: 'npm install -g @anthropic-ai/claude-code' },
+                        { id: 'local', name: 'Ollama', vendor: 'Ollama, LM Studio or any OpenAI-compatible server', url: 'https://ollama.com/download', api: true, found: !!llm, path: llm ? 'http://127.0.0.1:11434/v1' : null, version: llm, models: llm ? ['llama3.1', 'qwen2.5-coder'] : [] },
+                    ],
+                    tools: [{ id: 'git', name: 'Git', found: true, version: null }, { id: 'node', name: 'Node.js', found: true, version: null },
+                        { id: 'dotnet', name: 'C#', found: false, version: null, optional: true, hint: 'winget install Microsoft.DotNet.SDK.10', url: 'https://dotnet.microsoft.com/download' }],
+                };
+            },
+            async openExternal(url) { window.open(url, '_blank', 'noopener'); },
+            async runCommand(cmd) { window.open('https://www.google.com/search?q=' + encodeURIComponent(cmd)); return true; },
+        },
+        live: (() => {
+            let mockLiveRunning = false;
+            return {
+                async status() {
+                    const index = [...files.keys()].find(path => path === 'index.html' || path.endsWith('/index.html'));
+                    return { available: !!index, running: mockLiveRunning, url: `http://127.0.0.1:2026/${index?.replace(/index\.html$/, '') ?? ''}` };
+                },
+                async start() {
+                    const index = [...files.keys()].find(path => path === 'index.html' || path.endsWith('/index.html'));
+                    if (!index)
+                        throw new Error('Live Share needs an index.html file in the project');
+                    const url = `http://127.0.0.1:2026/${index.replace(/index\.html$/, '')}`;
+                    window.open(url, '_blank', 'noopener');
+                    mockLiveRunning = true;
+                    return { available: true, running: true, url };
+                },
+                async stop() {
+                    const index = [...files.keys()].find(path => path === 'index.html' || path.endsWith('/index.html'));
+                    mockLiveRunning = false;
+                    return { available: !!index, running: false, url: `http://127.0.0.1:2026/${index?.replace(/index\.html$/, '') ?? ''}` };
+                },
+            };
+        })(),
+        // Browser preview only: canned answers so every panel can be tried without the desktop app.
+        llm: {
+            async connect(url) {
+                await wait(500);
+                store.set('breeze.demoLlm', 'llama3.1');
+                return { url: url.trim() || 'http://127.0.0.1:11434/v1', model: 'llama3.1', models: ['llama3.1', 'qwen2.5-coder'] };
+            },
+            async setModel(model) { store.set('breeze.demoLlm', model); },
+            async disconnect() { store.del('breeze.demoLlm'); },
+        },
+        agent: {
+            async run({ mode }) {
+                const id = ++demoRun;
+                background(demoReplay(id, mode, (rel, text) => files.set(rel, text)));
+                return id;
+            },
+            async stop() { },
+            async answer() { },
+            async setModel() { return true; },
+            // Canned replies for the conflict Duel: an advocate argues its side; the judge merges the two versions it was shown
+            // (ours, then theirs' lines that ours doesn't have) in a fenced block.
+            async ask({ prompt }) {
+                await wait(700);
+                if (!prompt.includes('You are the judge')) {
+                    const side = prompt.includes('Argue that the "ours"') ? 'ours' : 'theirs';
+                    return `Keep ${side}. It matches how the rest of this file is written, and a reader won't be surprised by it.\nIf the other side wins instead, the <b>layout</b> changes in a way nothing else here expects & the page looks different.`;
+                }
+                const fenced = (name) => (new RegExp(`Version "${name}":\\n\`{4,}\\n([\\s\\S]*?)\`{4,}`).exec(prompt)?.[1] ?? '').split('\n').filter(Boolean);
+                const ours = fenced('ours');
+                const merged = [...ours, ...fenced('theirs').filter(l => !ours.includes(l))];
+                return `Both sides have a point: the merge keeps our lines and adds what only their side has.\n\n\`\`\`css\n${merged.join('\n')}\n\`\`\``;
+            },
+            async fullAccess() { return store.get('breeze.demoFullAccess', false); },
+            async setFullAccess(on) { store.set('breeze.demoFullAccess', on); return on; },
+            // Made-up numbers, so the browser preview shows what Settings → Agents looks like.
+            async usage() {
+                const in2h = Math.floor(Date.now() / 1000) + 7200, in4d = in2h + 4 * 86400;
+                return {
+                    usage: { claude: 182400, codex: 46100 },
+                    limits: { claude: [{ label: '5-hour', used: 14, resetsAt: in2h }, { label: 'Weekly', used: 69, resetsAt: in4d }], codex: [{ label: 'Monthly', used: 11, resetsAt: in4d }] },
+                    notes: {},
+                };
+            },
+            onEvent(cb) { agentListeners.push(cb); return () => { }; },
+        },
+        // MCP servers kept in the browser, so the preview can connect and remove them (nothing is started).
+        mcp: {
+            async list() {
+                return { breeze: store.get('breeze.demoMcp', []), claude: [{ name: 'github', type: 'stdio', detail: 'npx -y @modelcontextprotocol/server-github', scope: 'user' }] };
+            },
+            async add(input) {
+                const list = store.get('breeze.demoMcp', []);
+                if (!/^[A-Za-z0-9_-]{1,64}$/.test(input.name))
+                    throw new Error('Name it with letters, numbers, - or _ (no spaces)');
+                if (list.some(s => s.name === input.name))
+                    throw new Error(`There's already a server called ${input.name}`);
+                const s = { name: input.name, type: input.type, detail: (input.type === 'http' ? input.url : input.command)?.trim() ?? '' };
+                store.set('breeze.demoMcp', [...list, s]);
+                return s;
+            },
+            async remove(name) { store.set('breeze.demoMcp', store.get('breeze.demoMcp', []).filter(s => s.name !== name)); return true; },
+        },
+        // Made-up skills and a plugin, so the browser preview shows the Skills view; removing one only hides it.
+        skills: {
+            async list() {
+                const gone = store.get('breeze.demoSkillsGone', []);
+                const on = store.get('breeze.demoPlugins', {});
+                const sk = (agent, scope, name, description, plugin) => ({ id: `~/.${agent}/skills/${name}`, file: `~/.${agent}/skills/${name}/SKILL.md`, folder: name, name, description, agent, scope, removable: scope === 'user', plugin });
+                const skills = [
+                    sk('claude', 'user', 'code-review', 'Review the current diff for bugs before it ships.'),
+                    sk('claude', 'user', 'release-notes', 'Write release notes from the commits since the last tag.'),
+                    sk('codex', 'user', 'lint-fix', 'Run the linter and fix what it finds.'),
+                ].filter(s => !gone.includes(s.id));
+                const plugins = [{ id: 'design@claude-plugins', name: 'design', marketplace: 'claude-plugins', version: '1.4.0', description: 'Design critique, UX copy and handoff specs.', enabled: on['design@claude-plugins'] !== false, synced: false,
+                        skills: [sk('claude', 'plugin', 'ux-copy', 'Write or review microcopy and error messages.', 'design@claude-plugins'), sk('claude', 'plugin', 'design-critique', 'Structured feedback on a design.', 'design@claude-plugins')] },
+                    { id: 'caveman@anthropic-plugin-directory', name: 'caveman', marketplace: 'anthropic-plugin-directory', version: '1.1.2', description: 'Talk like caveman.', enabled: true, synced: true,
+                        skills: [sk('claude', 'plugin', 'caveman', 'Short words, short sentences, no fluff.', 'caveman@anthropic-plugin-directory')] }];
+                return { skills, plugins };
+            },
+            async read(file) {
+                return `---
+name: ${baseName(dirName(file))}
+---
+
+# ${baseName(dirName(file))}
+
+A skill from the browser preview. In the app this shows the skill's SKILL.md.`;
+            },
+            async remove(dir) { store.set('breeze.demoSkillsGone', [...store.get('breeze.demoSkillsGone', []), dir]); return true; },
+            async setPlugin(id, on) { store.set('breeze.demoPlugins', { ...store.get('breeze.demoPlugins', {}), [id]: on }); return on; },
+        },
+        team: {
+            async parse(text) { return { shared: text, tasks: [], unknown: [] }; },
+            async claim() { throw new Error('Teams need the desktop app'); },
+            async start() { throw new Error('Teams need the desktop app'); },
+            async stop() { throw new Error('Teams need the desktop app'); },
+            async undo() { throw new Error('Teams need the desktop app'); },
+        },
+        lsp: {
+            async open() { return { available: false }; },
+            async change() { },
+            async close() { },
+            async completion() { return []; },
+            async hover() { return null; },
+            async definition() { return []; },
+            async references() { return []; },
+            async rename() { return {}; },
+            onDiagnostics() { return () => { }; },
+        },
+        nb: {
+            async run() { throw new Error('Running notebooks needs the desktop app'); },
+            async stop() { },
+            onMessage() { return () => { }; },
+            onState() { return () => { }; },
+        },
+        // Debugging runs the program on this computer, so the browser preview has nothing to attach to.
+        debug: {
+            async start() { throw new Error('Debugging needs the desktop app'); },
+            async stop() { },
+            async restart() { },
+            async pause() { },
+            async continue() { },
+            async step() { },
+            async runTo() { },
+            async setBreakpoints() { },
+            async exceptions() { },
+            async scopes() { return []; },
+            async children() { return []; },
+            async evaluate() { throw new Error('Debugging needs the desktop app'); },
+            async setValue() { throw new Error('Debugging needs the desktop app'); },
+            async stdin() { return false; },
+            async installNetcoredbg() { throw new Error('Debugging needs the desktop app'); },
+            onEvent() { return () => { }; },
+        },
+        git: {
+            async status() {
+                return {
+                    repo: true, branch: 'main', upstream: 'origin/main', ahead: 1, behind: 1, incoming: ['index.html', 'script.js'], hasCommits: true, hasRemote: true,
+                    files: [{ path: 'styles.css', x: ' ', y: 'M' }, { path: 'index.html', x: 'M', y: ' ' }, { path: 'assets/new-logo.svg', x: '?', y: '?' }], ignored: []
+                };
+            },
+            async log() {
+                const commits = [
+                    { hash: 'd4f0b19aa', parents: ['b72e1d0aa'], author: 'You', when: '3 minutes ago', refs: ['HEAD -> main'], subject: 'Greeting script' },
+                    { hash: 'c3d5a8eaa', parents: ['b72e1d0aa'], author: 'You', when: '6 minutes ago', refs: ['try-dark-menu'], subject: 'Try dark menu' },
+                    { hash: 'b72e1d0aa', parents: ['a91f3c2aa'], author: 'You', when: '9 minutes ago', refs: [], subject: 'Add base styles' },
+                    { hash: 'a91f3c2aa', parents: [], author: 'You', when: '12 minutes ago', refs: ['origin/main'], subject: 'Start project' },
+                ];
+                return {
+                    head: 'd4f0b19aa',
+                    commits,
+                    details: commits.map(c => ({
+                        hash: c.hash, author: c.author, email: 'you@example.com', when: c.when, message: c.subject, files: [{ path: 'styles.css', added: 11, removed: 2 }]
+                    }))
+                };
+            },
+            async show(hash) { return { hash, author: 'You', email: 'you@example.com', when: 'a few minutes ago', message: 'Demo checkpoint', files: [{ path: 'styles.css', added: 11, removed: 2 }] }; },
+            async headText() { return null; },
+            async fileLog() { return [{ hash: 'd4f0b19aa', author: 'You', when: '3 minutes ago', subject: 'Greeting script' }, { hash: 'a91f3c2aa', author: 'You', when: '12 minutes ago', subject: 'Start project' }]; },
+            async fileShow() { return '@@ -1,2 +1,2 @@\n-old line\n+new line\n same line'; },
+            async diff() { return '@@ -1,3 +1,3 @@\n /* Cozy, warm palette */\n-:root {\n+:root { /* demo change */\n   --bean: #2b1d12;'; },
+            async init() { return ''; },
+            async stage() { return ''; },
+            async unstage() { return ''; },
+            async discard() { },
+            async commit() { throw new Error('Checkpoints are saved with git in the desktop app.'); },
+            async branches() { return ['main', 'try-dark-menu']; },
+            async switchTo() { throw new Error('Switching branches works in the desktop app.'); },
+            async deleteBranch() { throw new Error('Deleting branches works in the desktop app.'); },
+            async sync() { throw new Error('Push and pull work in the desktop app.'); },
+            async genCommitMsg() { return 'feat: demo change'; },
+            // Pull request #51's conflicts: one text file with two conflicting blocks, one file the base branch deleted, and an
+            // image both changed. Like main, only the number comes in; the branches are the pull request's own.
+            async prConflictStart(n) {
+                const pr = demoPulls.find(p => p.number === n);
+                if (!pr)
+                    throw new Error('Pull request not found');
+                if (pr.head.repo === null)
+                    throw new Error('The source repository no longer exists');
+                const base = pr.base, headRef = pr.head.ref;
+                const lines = (...l) => l.join('\n') + '\n';
+                const crlf = (s) => s.replaceAll('\n', '\r\n'); // styles.css has Windows line endings, to try the CRLF path
+                const merged = crlf(lines('.hero {', '  padding: 4rem 1rem;', '<<<<<<< HEAD', '  background: #fff7ed;', '  color: #7c2d12;', '=======', '  background: #fef3c7;', '>>>>>>> origin/main', '}', '', '.nav {', '  display: flex;', '<<<<<<< HEAD', '  gap: 1.5rem;', '=======', '  gap: 2rem;', '  align-items: center;', '>>>>>>> origin/main', '}'));
+                const mine = lines('function login() {', "  return fetch('/api/login');", '}');
+                return { id: `demo-${n}`, number: n, base, headRef, clean: false, files: [
+                        { path: 'styles.css', kind: 'text', ours: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fff7ed;', '  color: #7c2d12;', '}')), theirs: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fef3c7;', '}')), merged, hasOurs: true, hasTheirs: true },
+                        { path: 'script.js', kind: 'text', ours: mine, theirs: null, merged: mine, hasOurs: true, hasTheirs: false },
+                        { path: 'assets/beans.jpg', kind: 'binary', ours: null, theirs: null, merged: null, hasOurs: true, hasTheirs: true },
+                    ] };
+            },
+            async prConflictFinish() { return { ok: true }; }, // nothing to push in the demo
+            async prConflictAbort() { },
+        },
+        gh: {
+            async prs(base) {
+                const pulls = base === 'main' ? demoPulls : [];
+                return { ok: true, data: { owner: 'demo', repo: 'coffee-shop-landing', pulls } };
+            },
+            async pr(n) {
+                const p = demoPulls.find(x => x.number === n);
+                return p ? { ok: true, data: p } : { ok: false, error: 'not-found', message: 'Not Found' };
+            },
+            async prCommits(n) { return { ok: true, data: demoPrCommits[n] || [] }; },
+            async prFiles(n) { return { ok: true, data: demoPrFiles[n] || [] }; },
+            async commit(sha) {
+                const n = Object.keys(demoPrCommits).map(Number).find(k => demoPrCommits[k].some(c => c.sha === sha));
+                return { ok: true, data: n ? demoPrFiles[n] : [] };
+            },
+            async repo() { return { ok: true, data: { allowMerge: true, allowSquash: true, allowRebase: true } }; },
+            async merge(n) {
+                const i = demoPulls.findIndex(p => p.number === n);
+                if (i >= 0)
+                    demoPulls.splice(i, 1); // a merged pull request is no longer open
+                return { ok: true, data: { merged: true, message: 'Merged' } };
+            },
+        },
+        auth: {
+            async user() { return current; },
+            async accounts() { return { accounts, active: current ? accountKey(current) : null }; },
+            async switchTo(id) {
+                const u = accounts.find(a => accountKey(a) === id);
+                if (!u)
+                    throw new Error('That account is no longer signed in');
+                current = u;
+                return u;
+            },
+            async start(provider) {
+                const n = accounts.filter(a => a.provider === provider).length + 1;
+                const user = { provider, name: `Demo ${provider} ${n}`, login: 'demo' + n };
+                setTimeout(() => {
+                    accounts = [...accounts, user];
+                    current = user;
+                    authListeners.forEach(cb => cb({ t: 'done', user }));
+                }, 1400);
+                return { started: true };
+            },
+            async cancel() { },
+            async signOut() {
+                accounts = accounts.filter(a => a !== current);
+                current = accounts[0] ?? null;
+                return current;
+            },
+            async remove(id) {
+                accounts = accounts.filter(a => accountKey(a) !== id);
+                if (current && accountKey(current) === id)
+                    current = accounts[0] ?? null;
+                return current;
+            },
+            onEvent(cb) { authListeners.push(cb); return () => { }; },
+        },
+        // Browser preview: "connecting" opens the site in a new tab; the feed itself only plays in the desktop app.
+        vibe: {
+            async status() { return feeds(); },
+            async connect(id) {
+                const site = SOCIAL_SITES.find(s => s.id === id);
+                if (site)
+                    window.open(site.url, '_blank', 'noopener');
+                store.set('breeze.demoVibe', { ...feeds(), [id]: true });
+                // The desktop app resolves when the sign-in view is closed; the preview waits for the close button too.
+                return new Promise(resolve => { demoConnectDone = () => resolve(true); });
+            },
+            async connectBounds() { },
+            async connectClose() { demoConnectDone?.(); demoConnectDone = null; },
+            async disconnect(id) { store.set('breeze.demoVibe', { ...feeds(), [id]: false }); },
+            async show() { },
+            async bounds() { },
+            async mute() { },
+            async hide() { },
+        },
+        // Emmet runs in the desktop app's main process; the browser preview has no engine for it.
+        emmet: {
+            async expand() { return null; },
+        },
+        discord: {
+            async set() { return { user: null }; },
+            async clear() { },
+        },
+        // Sync needs an account's cloud, which only the desktop app reaches.
+        sync: {
+            async status() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
+            async run() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
+            async clone() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
+            async settings() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
+        },
+        win: {
+            async reload() { location.reload(); },
+            async toggleDevTools() { toast('Developer tools are available in the desktop app'); },
+            async quit() { window.close(); },
+            edit: demoEdit,
+            async theme() { },
+            async devIcon() { },
+            // Nor are there window buttons: the page shows none in the browser.
+            async minimize() { },
+            async toggleMaximize() { },
+            async close() { window.close(); },
+            async isMaximized() { return false; },
+            async newTerminal() { toast('Terminal windows are available in the desktop app'); },
+            onMaximized() { return () => { }; },
+            // No splash window in the browser: the page plays the whole launch itself (init.ts).
+            async launchWait() { return null; },
+            async launchShow() { },
+            async launchFade() { },
+        },
+    };
+}
+const SOCIAL_SITES = [
+    { id: 'instagram', name: 'Instagram Reels', mark: '◎', url: 'https://www.instagram.com/reels/' },
+    { id: 'facebook', name: 'Facebook Reels', mark: 'f', url: 'https://www.facebook.com/reel/' },
+];
+// Brand artwork for agents and feeds, keyed by the same id as the tint class. Anything without a file falls back to its letter or symbol.
+const BRAND_ICONS = {
+    codex: 'codex.png',
+    claude: 'claude.svg',
+    antigravity: 'antigravity.png',
+    instagram: 'instagram.png', facebook: 'facebook.png',
+    local: 'ollama.svg',
+    ollama: 'ollama.svg',
+};
+// Logos that are a shape rather than a square tile; they show whole instead of clipped to the tile's corners.
+const BARE_ICONS = new Set(['facebook']);
+function brandMark(cls, id, fallback) {
+    const file = BRAND_ICONS[id];
+    const inner = file ? `<img class="brand-img" src="../../assets/icons/${file}" alt="" draggable="false">` : esc(fallback);
+    return `<span class="${cls} tint-${id}${file ? ' has-img' : ''}${file && BARE_ICONS.has(id) ? ' bare' : ''}">${inner}</span>`;
+}
+const SPEAKER = 'M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z';
+const LINE_ICONS = {
+    plus: [['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]],
+    minus: [['path', { d: 'M5 12h14' }]],
+    x: [['path', { d: 'M18 6 6 18' }], ['path', { d: 'm6 6 12 12' }]],
+    check: [['path', { d: 'M20 6 9 17l-5-5' }]],
+    external: [['path', { d: 'M7 7h10v10' }], ['path', { d: 'M7 17 17 7' }]],
+    rotateCcw: [['path', { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' }], ['path', { d: 'M3 3v5h5' }]],
+    rotateCw: [['path', { d: 'M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8' }], ['path', { d: 'M21 3v5h-5' }]],
+    squareMinus: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M8 12h8' }]],
+    // The window's maximize and restore marks, edge to edge like Minimize and Close beside them; one morphs into the other.
+    winMaximize: [['rect', { x: 1.2, y: 1.2, width: 21.6, height: 21.6, rx: 3.6 }]],
+    winRestore: [['rect', { x: 1.2, y: 6, width: 16.8, height: 16.8, rx: 3.6 }], ['path', { d: 'M6 1.2h13.2a3.6 3.6 0 0 1 3.6 3.6V18' }]],
+    undo: [['path', { d: 'M9 14 4 9l5-5' }], ['path', { d: 'M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11' }]],
+    stop: [['rect', { x: 6, y: 6, width: 12, height: 12, rx: 2, fill: 'currentColor' }]],
+    play: [['path', { d: 'M6 3l14 9-14 9z', fill: 'currentColor' }]],
+    pause: [['rect', { x: 6, y: 4, width: 4, height: 16, rx: 1, fill: 'currentColor' }], ['rect', { x: 14, y: 4, width: 4, height: 16, rx: 1, fill: 'currentColor' }]],
+    // The debugger: the activity-bar bug and the step buttons (an arc over a line, into a line, out of one).
+    bug: [['path', { d: 'm8 2 1.88 1.88' }], ['path', { d: 'M14.12 3.88 16 2' }], ['path', { d: 'M9 7.13v-1a3.003 3.003 0 1 1 6 0v1' }], ['path', { d: 'M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6' }], ['path', { d: 'M12 20v-9' }], ['path', { d: 'M6.53 9C4.6 8.8 3 7.1 3 5' }], ['path', { d: 'M6 13H2' }], ['path', { d: 'M3 21c0-2.1 1.7-3.9 3.8-4' }], ['path', { d: 'M20.97 5c0 2.1-1.6 3.8-3.5 4' }], ['path', { d: 'M22 13h-4' }], ['path', { d: 'M17.2 17c2.1.1 3.8 1.9 3.8 4' }]],
+    stepOver: [['path', { d: 'M21 7v6h-6' }], ['path', { d: 'M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7' }], ['circle', { cx: 12, cy: 19, r: 1.5, fill: 'currentColor' }]],
+    stepInto: [['path', { d: 'M12 2v13' }], ['path', { d: 'm18 9-6 6-6-6' }], ['circle', { cx: 12, cy: 20.5, r: 1.5, fill: 'currentColor' }]],
+    stepOut: [['path', { d: 'M12 15V2' }], ['path', { d: 'm6 8 6-6 6 6' }], ['circle', { cx: 12, cy: 20.5, r: 1.5, fill: 'currentColor' }]],
+    send: [['path', { d: 'M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z' }], ['path', { d: 'M6 12h16' }]],
+    more: [['circle', { cx: 12, cy: 12, r: 1 }], ['circle', { cx: 19, cy: 12, r: 1 }], ['circle', { cx: 5, cy: 12, r: 1 }]],
+    up: [['path', { d: 'm5 12 7-7 7 7' }], ['path', { d: 'M12 19V5' }]],
+    arrowLeftRight: [['path', { d: 'M8 3 4 7l4 4' }], ['path', { d: 'M4 7h16' }], ['path', { d: 'm16 21 4-4-4-4' }], ['path', { d: 'M20 17H4' }]],
+    columns: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M12 3v18' }]],
+    down: [['path', { d: 'M12 5v14' }], ['path', { d: 'm19 12-7 7-7-7' }]],
+    chevronRight: [['path', { d: 'm9 18 6-6-6-6' }]],
+    chevronDown: [['path', { d: 'm6 9 6 6 6-6' }]],
+    chevronLeft: [['path', { d: 'm15 18-6-6 6-6' }]],
+    sparkles: [['path', { d: 'm12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z' }], ['path', { d: 'M5 3v4' }], ['path', { d: 'M19 17v4' }], ['path', { d: 'M3 5h4' }], ['path', { d: 'M17 19h4' }]],
+    backspace: [['path', { d: 'M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z' }], ['path', { d: 'm12 9 6 6' }], ['path', { d: 'm18 9-6 6' }]],
+    volume: [['path', { d: SPEAKER }], ['path', { d: 'M16 9a5 5 0 0 1 0 6' }], ['path', { d: 'M19.364 18.364a9 9 0 0 0 0-12.728' }]],
+    volumeOff: [['path', { d: SPEAKER }], ['path', { d: 'm22 9-6 6' }], ['path', { d: 'm16 9 6 6' }]],
+    volumeMin: [['path', { d: SPEAKER }]],
+    volumeLow: [['path', { d: SPEAKER }], ['path', { d: 'M16 9a5 5 0 0 1 0 6' }]],
+    eye: [['path', { d: 'M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
+    gear: [['path', { d: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
+    user: [['path', { d: 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2' }], ['circle', { cx: 12, cy: 7, r: 4 }]],
+    pencil: [['path', { d: 'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' }], ['path', { d: 'm15 5 4 4' }]],
+    terminal: [['path', { d: 'M4 17l6-6-6-6' }], ['path', { d: 'M12 19h8' }]],
+    code: [['path', { d: 'm16 18 6-6-6-6' }], ['path', { d: 'm8 6-6 6 6 6' }]],
+    search: [['circle', { cx: 11, cy: 11, r: 8 }], ['path', { d: 'm21 21-4.3-4.3' }]],
+    globe: [['circle', { cx: 12, cy: 12, r: 10 }], ['path', { d: 'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20' }], ['path', { d: 'M2 12h20' }]],
+    todo: [['path', { d: 'm3 17 2 2 4-4' }], ['path', { d: 'm3 7 2 2 4-4' }], ['path', { d: 'M13 6h8' }], ['path', { d: 'M13 12h8' }], ['path', { d: 'M13 18h8' }]],
+    diamond: [['path', { d: 'M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z' }]],
+    dot: [['circle', { cx: 12, cy: 12, r: 2 }]],
+    info: [['circle', { cx: 12, cy: 12, r: 10 }], ['path', { d: 'M12 16v-4' }], ['path', { d: 'M12 8h.01' }]],
+    keyboard: [['rect', { x: 2, y: 5, width: 20, height: 14, rx: 2 }], ['path', { d: 'M6 9h.01M10 9h.01M14 9h.01M18 9h.01M8 13h.01M12 13h.01M16 13h.01M7 16h10' }]],
+    palette: [['path', { d: 'M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z' }], ['circle', { cx: 13.5, cy: 6.5, r: .5, fill: 'currentColor' }], ['circle', { cx: 17.5, cy: 10.5, r: .5, fill: 'currentColor' }], ['circle', { cx: 6.5, cy: 12.5, r: .5, fill: 'currentColor' }], ['circle', { cx: 8.5, cy: 7.5, r: .5, fill: 'currentColor' }]],
+    alert: [['path', { d: 'm21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3' }], ['path', { d: 'M12 9v4' }], ['path', { d: 'M12 17h.01' }]],
+    circleX: [['circle', { cx: 12, cy: 12, r: 10 }], ['path', { d: 'm15 9-6 6' }], ['path', { d: 'm9 9 6 6' }]],
+    gitBranch: [['path', { d: 'M6 3v12' }], ['circle', { cx: 18, cy: 6, r: 3 }], ['circle', { cx: 6, cy: 18, r: 3 }], ['path', { d: 'M18 9a9 9 0 0 1-9 9' }]],
+    circle: [['circle', { cx: 12, cy: 12, r: 9 }]],
+    copy: [['rect', { x: 8, y: 8, width: 14, height: 14, rx: 2 }], ['path', { d: 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' }]],
+    download: [['path', { d: 'M12 15V3' }], ['path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }], ['path', { d: 'm7 10 5 5 5-5' }]],
+    circleDot: [['circle', { cx: 12, cy: 12, r: 9 }], ['circle', { cx: 12, cy: 12, r: 3, fill: 'currentColor' }]],
+    phone: [['rect', { x: 5, y: 2, width: 14, height: 20, rx: 2 }], ['path', { d: 'M12 18h.01' }]],
+    trash: [['path', { d: 'M3 6h18' }], ['path', { d: 'M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6' }], ['path', { d: 'M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2' }], ['path', { d: 'M10 11v6' }], ['path', { d: 'M14 11v6' }]],
+    puzzle: [['path', { d: 'M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z' }]],
+    panelLeft: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M9 3v18' }]],
+    folder: [['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }]],
+    folderPlus: [['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }], ['path', { d: 'M12 10v6' }], ['path', { d: 'M9 13h6' }]],
+    file: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }]],
+    filePlus: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }], ['path', { d: 'M12 12v6' }], ['path', { d: 'M9 15h6' }]],
+};
+const formatAttr = ([k, v]) => `${k}="${v}"`;
+const iconBody = (name) => (LINE_ICONS[name] ?? LINE_ICONS.dot)
+    .map(([tag, a]) => {
+    const attrs = Object.entries(a).map(formatAttr).join(' ');
+    return `<${tag} ${attrs}/>`;
+})
+    .join('');
+// The speaker shows the level: muted, then no, one or two waves.
+const volumeIcon = (v) => (v <= 0 ? 'volumeOff' : v < 34 ? 'volumeMin' : v < 67 ? 'volumeLow' : 'volume');
+function svgIcon(name, size = 16) {
+    return `<svg class="ico-svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-icon="${name}" aria-hidden="true">${iconBody(name)}</svg>`;
+}
+// Fills the empty <svg data-i="name"> placeholders written in breeze.html.
+function paintIcons(root = document) {
+    root.querySelectorAll('svg[data-i]').forEach(s => {
+        const name = s.dataset.i ?? 'dot';
+        const size = s.dataset.size ?? '16';
+        s.classList.add('ico-svg');
+        for (const [k, v] of Object.entries({ width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' }))
+            s.setAttribute(k, v);
+        s.dataset.icon = name;
+        s.innerHTML = iconBody(name);
+        delete s.dataset.i;
+    });
+}
+// From the page (src/renderer/breeze.html) up to the app root's node_modules. Resolved against the page: a bare
+// relative import() resolves against this script's own folder.
+const MORPH_URL = new URL('../../node_modules/morphicons/dist/dom.js', document.baseURI).href;
+let morphLib = null;
+const loadMorph = () => (morphLib ??= import(MORPH_URL).catch(() => null));
+const morphs = new WeakMap();
+paintIcons();
+void loadMorph(); // loaded up front, so the first morph starts on the frame its control shows
+// Shows `from` and morphs into the icon the control already has: a view's header taking over from the last one's.
+// Snappy, so it settles in about a fifth of a second. Without the library the icon simply stays.
+async function morphIconFrom(host, from) {
+    const svg = host.querySelector('svg.ico-svg');
+    const name = svg?.dataset.icon;
+    if (!svg || !name || from === name || !LINE_ICONS[from] || !LINE_ICONS[name])
+        return;
+    const lib = await loadMorph();
+    if (!lib)
+        return;
+    let m = morphs.get(svg);
+    if (m)
+        m.set(LINE_ICONS[from]);
+    else {
+        svg.innerHTML = '<path/>';
+        m = lib.createMorph(svg.firstElementChild, LINE_ICONS[from], { strokeWidth: 2 });
+        morphs.set(svg, m);
+    }
+    m.morphTo(LINE_ICONS[name], 'snappy');
+}
+async function setIcon(host, name) {
+    const svg = host.querySelector('svg.ico-svg');
+    if (!svg || svg.dataset.icon === name || !LINE_ICONS[name])
+        return;
+    const from = svg.dataset.icon ?? name;
+    svg.dataset.icon = name;
+    // The speaker gives a little bounce as its waves change: bigger going louder, a dip going quieter or muted.
+    if (name.startsWith('volume') && from.startsWith('volume') && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const rank = (n) => ['volumeOff', 'volumeMin', 'volumeLow', 'volume'].indexOf(n);
+        const up = rank(name) > rank(from);
+        svg.animate([
+            { transform: 'scale(1) rotate(0)' },
+            { transform: up ? 'scale(1.28) rotate(-8deg)' : 'scale(.74) rotate(6deg)', offset: .4 },
+            { transform: 'scale(1) rotate(0)' },
+        ], { duration: 380, easing: 'cubic-bezier(.3, 1.4, .5, 1)' });
+    }
+    const lib = await loadMorph();
+    if (!lib) {
+        svg.innerHTML = iconBody(name);
+        return;
+    }
+    let m = morphs.get(svg);
+    if (!m) {
+        svg.innerHTML = '<path/>';
+        m = lib.createMorph(svg.firstElementChild, LINE_ICONS[from] ?? LINE_ICONS[name], { strokeWidth: 2 });
+        morphs.set(svg, m);
+    }
+    m.morphTo(LINE_ICONS[name]);
+}
+const isDesktop = !!window.breeze;
+const api = window.breeze ?? demoApi();
+/* ----- Window buttons: drawn by the page on Windows and Linux, so they match it; macOS keeps its traffic lights ----- */
+if (isDesktop && api.platform !== 'darwin') {
+    document.documentElement.classList.add('own-win-controls');
+    $('#winControls').classList.remove('hidden');
+    const max = $('#winMax');
+    const showMaximized = (on) => {
+        void setIcon(max, on ? 'winRestore' : 'winMaximize'); // morphs between the square and the two squares
+        max.title = on ? 'Restore' : 'Maximize';
+        max.setAttribute('aria-label', max.title);
+    };
+    $('#winMin').onclick = () => background(api.win.minimize());
+    max.onclick = () => background(api.win.toggleMaximize());
+    $('#winClose').onclick = () => background(api.win.close());
+    api.win.onMaximized(showMaximized);
+    background(api.win.isMaximized().then(showMaximized));
+    // Maximizing, restoring or snapping is instant: nothing on the page animates its way to the new size. The window
+    // itself resizing already makes the panels, text and chips take their new sizes at once (markWinResizing,
+    // layout.ts), and such a jump (one big change after a quiet moment, unlike a drag's run of small steps) is marked
+    // win-jump, so Home's cards don't glide to their new rows either (glideOnReflow, setup.ts). A ResizeObserver hears of
+    // the new size in the same frame it is laid out, before it is painted; the resize event comes a frame later.
+    let seen = { w: innerWidth, h: innerHeight }; // the last size handled, so the observer and the event never both act
+    let lastResize = -Infinity;
+    let jumpTimer;
+    const onSize = () => {
+        const size = { w: innerWidth, h: innerHeight };
+        if (size.w === seen.w && size.h === seen.h)
+            return;
+        const jump = Math.max(Math.abs(size.w - seen.w), Math.abs(size.h - seen.h)) >= 24;
+        seen = size;
+        markWinResizing();
+        const now = performance.now();
+        if (now - lastResize > 250 && jump) {
+            document.documentElement.classList.add('win-jump');
+            clearTimeout(jumpTimer);
+            jumpTimer = setTimeout(() => document.documentElement.classList.remove('win-jump'), 300);
+        }
+        lastResize = now;
+    };
+    new ResizeObserver(onSize).observe(document.documentElement);
+    addEventListener('resize', onSize); // a change the observer didn't see (the page's height didn't follow the window's)
+}
+const appVersion = api.version || '0.5.2';
