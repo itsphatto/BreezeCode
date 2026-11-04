@@ -45,7 +45,9 @@ async function startConflict({ run, repoDir, worktreesDir, number, base, headRef
     try {
       await run(dir, ['merge', '--no-commit', '--no-ff', `origin/${base}`]);
     } catch (e) {
-      if (e && e.code !== 1) throw e; // exit 1 is "conflicts", anything else is a real failure
+      // Exit 1 means "conflicts", but only when a merge is actually in progress; exit 1 also covers
+      // "not something we can merge", and anything else is a real failure.
+      if (!e || e.code !== 1 || !(await run(dir, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).then(() => true, () => false))) throw e;
     }
     const paths = (await run(dir, ['diff', '--name-only', '-z', '--diff-filter=U'])).split('\0').filter(Boolean);
     for (const p of paths) {
@@ -67,25 +69,33 @@ async function startConflict({ run, repoDir, worktreesDir, number, base, headRef
   }
 }
 
-async function finishConflict({ run, session, results }) {
+async function finishConflict({ run, session, results, pushTo = 'origin' }) {
   const { dir, number, headRef, base, repoDir } = session;
+  const message = `Merge ${base} into ${headRef} (resolved in Breeze)`;
   const root = path.resolve(dir);
   const resolved = results.map(r => {
     const abs = path.resolve(root, r.path);
     if (abs !== root && !abs.startsWith(root + path.sep)) throw new Error(`Path is outside the conflict worktree: ${r.path}`);
     return { ...r, abs };
   });
-  for (const r of resolved) {
-    if (r.text === null) {
-      await run(dir, ['rm', '--force', '--quiet', '--', r.path]);
-    } else {
-      fs.mkdirSync(path.dirname(r.abs), { recursive: true });
-      fs.writeFileSync(r.abs, r.text);
-      await run(dir, ['add', '--', r.path]);
+  // A retry after a failed push: the resolution is already committed (the merge is over and HEAD is
+  // our commit), so there is nothing left to write or commit.
+  const inMerge = await run(dir, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).then(() => true, () => false);
+  const committed = !inMerge && (await run(dir, ['log', '-1', '--format=%s']).catch(() => '')).trim() === message;
+  if (!committed) {
+    for (const r of resolved) {
+      if (r.text === null) {
+        await run(dir, ['rm', '--force', '--quiet', '--', r.path]);
+      } else {
+        fs.mkdirSync(path.dirname(r.abs), { recursive: true });
+        fs.writeFileSync(r.abs, r.text);
+        await run(dir, ['add', '--', r.path]);
+      }
     }
+    await run(dir, ['commit', '-m', message]);
   }
-  await run(dir, ['commit', '-m', `Merge ${base} into ${headRef} (resolved in Breeze)`]);
-  await run(dir, ['push', 'origin', `HEAD:refs/heads/${headRef}`]);
+  // pushTo is a remote name or a URL, for a pull request whose branch lives in a fork.
+  await run(dir, ['push', pushTo, `HEAD:refs/heads/${headRef}`]);
   await removeWorktree(run, repoDir, dir, number);
 }
 
@@ -100,7 +110,8 @@ async function pruneConflicts({ run, repoDir, worktreesDir }) {
   let names = [];
   try { names = fs.readdirSync(worktreesDir); } catch { return; }
   for (const name of names) {
-    if (name.startsWith(prefix)) fs.rmSync(path.join(worktreesDir, name), { recursive: true, force: true });
+    if (!name.startsWith(prefix)) continue;
+    try { fs.rmSync(path.join(worktreesDir, name), { recursive: true, force: true }); } catch {} // one locked folder must not stop the rest
   }
   // Those folders may still have been registered with git; now they are gone, drop the registrations.
   await run(repoDir, ['worktree', 'prune']).catch(swallow);

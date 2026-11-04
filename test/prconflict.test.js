@@ -231,3 +231,50 @@ test('pruneConflicts is fine when the worktrees folder does not exist', async ()
   const { repoDir, worktreesDir } = await textScenario();
   await pruneConflicts({ run, repoDir, worktreesDir });
 });
+
+const bareRepo = async name => {
+  const dir = path.join(tmpRoot, name);
+  fs.mkdirSync(dir, { recursive: true });
+  await run(dir, ['init', '--bare']);
+  return dir;
+};
+const resolveBoth = [{ path: 'a.txt', text: 'both\n' }, { path: 'b.txt', text: null }];
+
+test('finishConflict pushes to pushTo (a fork) and not to origin', async () => {
+  const { origin, repoDir, worktreesDir } = await textScenario();
+  const fork = await bareRepo('fork.git');
+  const originTip = (await run(origin, ['rev-parse', 'refs/heads/feature'])).trim();
+  const session = await startConflict({ run, repoDir, worktreesDir, number: 7, base: 'main', headRef: 'feature' });
+  await finishConflict({ run, session, results: resolveBoth, pushTo: fork });
+  assert.equal((await run(fork, ['log', '-1', '--format=%s', 'refs/heads/feature'])).trim(), 'Merge main into feature (resolved in Breeze)');
+  assert.equal(await run(fork, ['show', 'refs/heads/feature:a.txt']), 'both\n');
+  assert.equal((await run(origin, ['rev-parse', 'refs/heads/feature'])).trim(), originTip);
+  assert.equal(fs.existsSync(session.dir), false);
+  assert.equal(await refExists(repoDir, 'refs/breeze/pr-7'), false);
+});
+
+test('finishConflict can be retried after a failed push and then pushes the same commit', async () => {
+  const { origin, repoDir, worktreesDir } = await textScenario();
+  const session = await startConflict({ run, repoDir, worktreesDir, number: 7, base: 'main', headRef: 'feature' });
+  await assert.rejects(finishConflict({ run, session, results: resolveBoth, pushTo: path.join(tmpRoot, 'nowhere.git') }));
+  assert.equal(fs.existsSync(session.dir), true);
+  assert.equal(await refExists(repoDir, 'refs/breeze/pr-7'), true);
+  const committed = (await run(session.dir, ['rev-parse', 'HEAD'])).trim();
+  await finishConflict({ run, session, results: resolveBoth });
+  assert.equal((await run(origin, ['rev-parse', 'refs/heads/feature'])).trim(), committed);
+  assert.equal((await run(origin, ['log', '-1', '--format=%s', 'refs/heads/feature'])).trim(), 'Merge main into feature (resolved in Breeze)');
+  assert.equal(fs.existsSync(session.dir), false);
+  assert.equal(await refExists(repoDir, 'refs/breeze/pr-7'), false);
+});
+
+test('startConflict treats merge exit 1 without a merge in progress as a failure', async () => {
+  const { repoDir, worktreesDir } = await textScenario();
+  const badMerge = (cwd, args, input) =>
+    args[0] === 'merge' ? Promise.reject(Object.assign(new Error('not something we can merge'), { code: 1 })) : run(cwd, args, input);
+  await assert.rejects(
+    startConflict({ run: badMerge, repoDir, worktreesDir, number: 7, base: 'main', headRef: 'feature' }),
+    /not something we can merge/,
+  );
+  assert.equal(await worktreeCount(repoDir), 1);
+  assert.equal(await refExists(repoDir, 'refs/breeze/pr-7'), false);
+});
