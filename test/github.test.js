@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseGithubRemote, githubClient, GithubError } = require('../src/main/github');
+const { parseGithubRemote, githubClient, GithubError, enrichPulls } =require('../src/main/github');
 
 // A fake fetch that records every call and answers from a queue of { status, json }.
 function fakeFetch(...queue) {
@@ -65,6 +65,38 @@ test('listPulls sends the headers and normalizes pull requests', async () => {
     url: 'https://github.com/o/r/pull/7',
     createdAt: '2026-01-02T03:04:05Z',
   }]);
+});
+
+test('enrichPulls takes mergeable and commits from getPull, and keeps the list data when getPull fails', async () => {
+  const listed = [1, 2].map(n => ({ number: n, title: `t${n}`, mergeable: null, mergeableState: 'unknown' }));
+  const client = {
+    async getPull(_o, _r, n) {
+      if (n === 2) throw new GithubError('nope', 'http', 500);
+      return { number: 1, mergeable: false, mergeableState: 'dirty', commits: 3 };
+    },
+  };
+  const out = await enrichPulls(client, 'o', 'r', listed);
+  assert.deepEqual(out[0], { number: 1, title: 't1', mergeable: false, mergeableState: 'dirty', commits: 3 });
+  assert.deepEqual(out[1], listed[1]);
+  assert.equal(out[1].mergeable, null);
+});
+
+test('enrichPulls runs at most 6 getPull calls at once and keeps the list order', async () => {
+  const listed = Array.from({ length: 20 }, (_, i) => ({ number: i + 1, mergeable: null, mergeableState: 'unknown' }));
+  let running = 0, peak = 0;
+  const client = {
+    async getPull(_o, _r, n) {
+      peak = Math.max(peak, ++running);
+      await new Promise(r => setTimeout(r, 5));
+      running--;
+      return { mergeable: true, mergeableState: 'clean', commits: n };
+    },
+  };
+  const out = await enrichPulls(client, 'o', 'r', listed);
+  assert.equal(peak, 6);
+  assert.deepEqual(out.map(p => p.number), listed.map(p => p.number));
+  assert.ok(out.every(p => p.mergeable === true && p.commits === p.number));
+  assert.deepEqual(await enrichPulls(client, 'o', 'r', []), []);
 });
 
 test('listPulls copes with a deleted head repository', async () => {

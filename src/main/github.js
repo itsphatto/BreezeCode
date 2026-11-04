@@ -123,4 +123,23 @@ function githubClient({ token, fetch: f = fetch }) {
   };
 }
 
-module.exports = { parseGithubRemote, githubClient, GithubError };
+// GitHub's list endpoint leaves out `mergeable` and `commits`; only the single-pull endpoint has them. Asks for each listed
+// pull request (at most `limit` requests at once) and takes those fields from the answer. A pull request whose answer fails
+// keeps its list data (so it still reads "checking"); the list itself never fails here.
+async function enrichPulls(client, owner, repo, pulls, limit = 6) {
+  const out = pulls.slice();
+  let next = 0;
+  const worker = async () => {
+    while (next < pulls.length) {
+      const i = next++;
+      try {
+        const full = await client.getPull(owner, repo, pulls[i].number);
+        out[i] = { ...pulls[i], mergeable: full.mergeable, mergeableState: full.mergeableState, ...(full.commits === undefined ? {} : { commits: full.commits }) };
+      } catch { /* keep the list's data for this one */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, pulls.length) }, worker));
+  return out;
+}
+
+module.exports = { parseGithubRemote, githubClient, GithubError, enrichPulls };

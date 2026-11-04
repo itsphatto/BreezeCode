@@ -153,6 +153,8 @@ $('#scm').addEventListener('keydown', e => {
 /* ----- Pull requests: the detail on the right ----- */
 type PrTab = 'commits' | 'files' | 'conflict';
 const GH_ERROR_COPY: Record<string, string> = { reauth: 'Your GitHub sign-in expired', 'signed-out': 'Sign in with GitHub to see pull requests', 'not-github': 'This repository isn\'t on GitHub', 'no-remote': 'No origin remote' };
+// api.gh calls resolve to a GhResult, but a rejection (a broken IPC) must not leave a view on "Loading" for good.
+const ghSafe = <T>(p: Promise<GhResult<T>>): Promise<GhResult<T>> => p.catch((e: unknown) => ({ ok: false, error: 'http', message: errMsg(e) }) as GhResult<T>);
 const prFileSets = new WeakMap<Element, { files: GhFile[]; url: string }>();
 
 // One file's diff: a gutter of old and new line numbers, then the line. A file GitHub sent no patch for (too big, binary)
@@ -196,7 +198,7 @@ function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, fi
   return `<div class="pr-head">
       <div class="pr-title"><h3>${esc(pr.title)}</h3><span class="pr-n">#${pr.number}</span>${pr.draft ? '<span class="pill">Draft</span>' : ''}</div>
       <div class="pr-meta"><span class="pr-st"><span class="pr-dot ${st}"></span>${PR_STATUS_LABEL[st]}</span><span class="pr-br">${esc(pr.head.label)} → ${esc(pr.base)}</span>${prAvatar(pr.author, pr.avatar)}<span>${esc(pr.author)}</span>${when ? `<span>${esc(when)}</span>` : ''}</div>
-      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button><button class="btn btn-primary btn-sm" id="prMerge" disabled>Merge</button></div>
+      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${pr.draft ? '' : '<button class="btn btn-primary btn-sm" id="prMerge" disabled>Merge</button>'}</div>
     </div>
     <div class="pr-tabs" role="tablist">${tabs.map(([k, label, n]) => `<button class="pr-tab ${k === tab ? 'on' : ''}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n === null ? '' : ` <span class="count">${n}</span>`}</button>`).join('')}</div>
     <div class="pr-body" id="prBody"></div>`;
@@ -206,13 +208,13 @@ async function openPr(n: number): Promise<void> {
   const gen = ++prOpenGen;
   const shown = () => gen === prOpenGen && !!document.querySelector(`#scmDetail .pr-view[data-n="${n}"]`);
   showScmDetail(`<div class="pr-view" data-n="${n}"><div class="pr-loading"><div class="spinner sm"></div>Loading pull request #${n}</div></div>`);
-  const [prRes, commits, files] = await Promise.all([api.gh.pr(n), api.gh.prCommits(n), api.gh.prFiles(n)]);
+  const [prRes, commits, files] = await Promise.all([ghSafe(api.gh.pr(n)), ghSafe(api.gh.prCommits(n)), ghSafe(api.gh.prFiles(n))]);
   if (!shown()) return; // another pull request, a file or the empty page took the right side meanwhile
   const view = document.querySelector<HTMLElement>('#scmDetail .pr-view') as HTMLElement;
   if (!prRes.ok) {
     const signIn = prRes.error === 'reauth' || prRes.error === 'signed-out';
     const known = GH_ERROR_COPY[prRes.error];
-    view.innerHTML = `<div class="pr-loading pr-fail"><p>${esc(known ?? 'Couldn\'t load this pull request')}</p>${prRes.message && !known ? `<p class="pr-hint">${esc(prRes.message)}</p>` : ''}<button class="btn btn-sm" data-pr-view="${signIn ? 'signin' : 'retry'}">${signIn ? (prRes.error === 'reauth' ? 'Sign in again' : 'Sign in') : 'Retry'}</button></div>`;
+    view.innerHTML = `<div class="pr-loading pr-fail"><p>${esc(known ?? 'Couldn\'t load pull request')}</p>${prRes.message && !known ? `<p class="pr-hint">${esc(prRes.message)}</p>` : ''}<button class="btn btn-sm" data-pr-view="${signIn ? 'signin' : 'retry'}">${signIn ? (prRes.error === 'reauth' ? 'Sign in again' : 'Sign in') : 'Retry'}</button></div>`;
     view.onclick = e => {
       const a = (e.target as HTMLElement).closest<HTMLElement>('[data-pr-view]')?.dataset.prView;
       if (a === 'signin') addAccount(); else if (a === 'retry') void openPr(n);
@@ -253,15 +255,17 @@ async function openPr(n: number): Promise<void> {
     box.classList.toggle('open', open);
     head.setAttribute('aria-expanded', String(open));
     const sha = box.dataset.sha as string;
-    if (!open || body.firstChild) return;
+    if (!open || box.dataset.loaded) return;
     const cached = commitFiles.get(sha);
-    if (cached) { mountPrFiles(body, cached, `${pr.url}/commits/${sha}`); return; }
+    if (cached) { mountPrFiles(body, cached, `${pr.url}/commits/${sha}`); box.dataset.loaded = '1'; return; }
     body.innerHTML = '<div class="pr-loading"><div class="spinner sm"></div>Loading files</div>';
-    const r = await api.gh.commit(sha);
+    const r = await ghSafe(api.gh.commit(sha));
     if (!shown() || !body.isConnected) return;
-    if (!r.ok) { body.innerHTML = ''; box.classList.remove('open'); toast('Couldn\'t load this commit'); return; }
+    // Closing and opening the commit again asks again.
+    if (!r.ok) { body.innerHTML = '<p class="pr-hint pr-inline">Couldn\'t load this commit\'s files. Close it and open it again to retry</p>'; return; }
     commitFiles.set(sha, r.data);
     mountPrFiles(body, r.data, `${pr.url}/commits/${sha}`);
+    box.dataset.loaded = '1';
   };
 
   view.onclick = e => {
@@ -292,7 +296,7 @@ async function openPr(n: number): Promise<void> {
   if (prStatus(pr) === 'checking') {
     setTimeout(async () => {
       if (!shown()) return;
-      const again = await api.gh.pr(n);
+      const again = await ghSafe(api.gh.pr(n));
       if (!again.ok || !shown() || prStatus(again.data) === 'checking') return;
       pr = again.data;
       if (prData?.res.ok) {

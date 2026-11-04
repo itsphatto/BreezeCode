@@ -14947,10 +14947,6 @@ input.dbg-edit.bad:focus-visible {
   background: var(--err);
 }
 
-.pr-dot.checking {
-  background: var(--warn);
-}
-
 /* ----- Pull requests: the detail ----- */
 .pr-view {
   display: flex;
@@ -15169,6 +15165,10 @@ input.dbg-edit.bad:focus-visible {
 
 .pr-commit-body {
   padding: 0 10px 10px;
+}
+
+.pr-inline {
+  padding: 10px 0 0;
 }
 
 .pr-commit-body .pr-loading {

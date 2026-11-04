@@ -13,7 +13,7 @@ const vm = require('node:vm');
 const { findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
 const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
 const { AntigravityAgentService } = require('./antigravityAgentService.js');
-const { parseGithubRemote, githubClient, GithubError } = require('./github');
+const { parseGithubRemote, githubClient, GithubError, enrichPulls } = require('./github');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
@@ -3017,7 +3017,7 @@ handle('gh:prs', (_e, base, force) => ghCall(async ({ client, owner, repo }) => 
   const key = `${owner}/${repo}/${base}`;
   const hit = prCache.get(key);
   if (!force && hit && Date.now() - hit.at < PR_TTL) return hit.data;
-  const data = { owner, repo, pulls: await client.listPulls(owner, repo, base) };
+  const data = { owner, repo, pulls: await enrichPulls(client, owner, repo, await client.listPulls(owner, repo, base)) };
   prCache.set(key, { at: Date.now(), data });
   return data;
 }));
