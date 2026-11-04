@@ -374,7 +374,7 @@ function demoApi(): BreezeApi {
           const side = prompt.includes('Argue that the "ours"') ? 'ours' : 'theirs';
           return `Keep ${side}. It matches how the rest of this file is written, and a reader won't be surprised by it.\nIf the other side wins instead, the <b>layout</b> changes in a way nothing else here expects & the page looks different.`;
         }
-        const fenced = (name: string): string[] => (new RegExp(`Version "${name}":\\n\`\`\`\\n([\\s\\S]*?)\`\`\``).exec(prompt)?.[1] ?? '').split('\n').filter(Boolean);
+        const fenced = (name: string): string[] => (new RegExp(`Version "${name}":\\n\`{4,}\\n([\\s\\S]*?)\`{4,}`).exec(prompt)?.[1] ?? '').split('\n').filter(Boolean);
         const ours = fenced('ours');
         const merged = [...ours, ...fenced('theirs').filter(l => !ours.includes(l))];
         return `Both sides have a point: the merge keeps our lines and adds what only their side has.\n\n\`\`\`css\n${merged.join('\n')}\n\`\`\``;

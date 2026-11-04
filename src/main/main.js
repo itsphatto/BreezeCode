@@ -2128,6 +2128,8 @@ function cliArgs(agent, mode, prompt, session, team, shell) {
 // changes files is switched off.
 const NO_SESSION = /No conversation found with session ID/i;
 const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'];
+// Also withheld from agent:ask, on top of the write tools: everything that reads local files or reaches the network.
+const CLAUDE_ASK_DENIED = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 // On a team, build mode also denies editing what a teammate owns (rule paths are relative to the project root).
 // Those rules can't pass through a shell (`shell`: an npm .cmd shim), so they come back as `deny` for a settings file.
 function claudeArgs(mode, prompt, session, team, shell) {
@@ -3218,7 +3220,7 @@ function antigravityCommitMsg(base, prompt, model, effort, ask) {
   const service = new AntigravityAgentService({
     executablePath: agentBins.get('antigravity') || undefined,
     cwd: base,
-    mode: 'ask',
+    mode: 'ask', // runs agy with `--mode plan` (read-only, never `--mode auto`): the most restrictive it has, questions included
     model: model || 'gemini-3.8-flash-low',
     effort: undefined, // No forced effort requirement: every model (Claude, Flash, Opus, GPT-OSS) runs without conflict
     prompt,
@@ -3275,6 +3277,8 @@ function codexCommitMsg(base, prompt, model, effort, ask) {
   const offered = codexModels();
   const smallest = offered.find(m => /mini/i.test(m)) || offered.at(-1);
   const targetModel = (offered.length && !offered.includes(model) ? smallest : model) || 'gpt-4o-mini';
+  // `-s read-only` (no writes, no network from commands) is the most restrictive mode `codex exec` has, for questions too: it has no
+  // switch to turn its file-reading tools off.
   const args = ['exec', '--json', '-s', 'read-only', '--skip-git-repo-check', '-m', targetModel];
   if (effortArg(effort) && /^(o1|o3|o4)/i.test(targetModel)) args.push('-c', `model_reasoning_effort=${effortArg(effort)}`);
   let message = '';
@@ -3300,7 +3304,10 @@ function claudeCommitMsg(base, prompt, model, effort, ask) {
   const bin = agentBins.get('claude');
   if (!bin) throw new Error('Claude was not found');
   const targetModel = CLAUDE_MODELS.includes(model) && model !== 'default' ? model : 'haiku';
-  const args = ['-p', '--output-format', 'json', '--model', targetModel, '--disallowedTools', ...CLAUDE_WRITE_TOOLS];
+  // A question (the Duel) can carry code from someone else's fork, so it also gets no tool that reads the project or the web.
+  // The user's pick of "default" means Claude's own default model; a commit message still uses the cheap one for it, a question doesn't.
+  const modelArgs = ask && model === 'default' ? [] : ['--model', targetModel];
+  const args = ['-p', '--output-format', 'json', ...modelArgs, '--disallowedTools', ...CLAUDE_WRITE_TOOLS, ...(ask ? CLAUDE_ASK_DENIED : [])];
   const finish = out => {
     let text;
     try { text = JSON.parse(out).result; } catch { text = out; }

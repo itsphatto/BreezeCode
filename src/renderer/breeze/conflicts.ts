@@ -244,6 +244,7 @@ async function openConflictPage(pr: GhPull): Promise<void> {
     if (duel?.running) return;
     const agent = currentActiveAgent();
     if (!agent) { openAgentPicker(); return; }
+    const model = chosenModelFor(agent); // the user's own model for this agent, as the commit message writer uses
     const f = file();
     const b = parseConflicts(f.text)[f.cur];
     if (!b) return;
@@ -258,7 +259,7 @@ async function openConflictPage(pr: GhPull): Promise<void> {
     const ask = async (card: DuelCard, prompt: string): Promise<string | null> => {
       card.state = 'run'; repaint();
       let reply: string, failed = '';
-      try { reply = await api.agent.ask({ agent: agent.id, prompt }); } catch (e) { reply = ''; failed = errMsg(e) || 'The agent didn\'t answer'; }
+      try { reply = await api.agent.ask({ agent: agent.id, prompt, model }); } catch (e) { reply = ''; failed = errMsg(e) || 'The agent didn\'t answer'; }
       if (!alive()) return null; // the page was left or the session ended
       if (failed) { card.state = 'fail'; card.text = failed; } else { card.state = 'done'; card.text = reply; }
       repaint();
@@ -281,6 +282,8 @@ async function openConflictPage(pr: GhPull): Promise<void> {
     const code = extractCodeBlock(reply);
     if (code === null) { d.note = 'The judge didn\'t propose a merge'; return; }
     d.judge.text = withoutCodeBlock(reply) || 'The judge proposed a merge.';
+    // The resolution is being committed or was already: the result must not change under it.
+    if (busy || pushFailed) { d.note = 'The resolution was committed meanwhile, so the merge wasn\'t applied'; return; }
     const f = d.file;
     const blocks = parseConflicts(f.text).filter(x => x.ours === was.ours && x.theirs === was.theirs);
     const b = blocks.find(x => x.start === was.start) ?? blocks[0];

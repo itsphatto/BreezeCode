@@ -127,6 +127,13 @@ function scmSectionHtml(key: string, title: string, list: GitFile[], inStaged: b
     <div class="scm-head"><span class="chev"><svg width="10" height="10"><use href="#i-chev"/></svg></span><span class="title">${title}</span><span class="acts">${acts}</span><span class="count">${list.length}</span></div>
     <div class="scm-list">${rows}</div></div>`;
 }
+// The model a one-shot call to this agent uses: the one the user picked for it, else the lowest the agent offers. No effort is
+// forced (every model works without one), so callers pass none.
+function chosenModelFor(a: DetectedAgent): string | undefined {
+  const userChosenModel = a.version?.trim() || undefined;
+  const { model: fallbackModel } = lowestModelFor(a);
+  return userChosenModel || fallbackModel || a.models?.[0];
+}
 function lowestModelFor(a: DetectedAgent): { model?: string } {
   if (a.id === 'antigravity') {
     const models = a.models ?? [];
@@ -289,10 +296,7 @@ async function generateCommitMsg(): Promise<void> {
     const fullDiff = (diffText || '').trim() || summary;
     const truncated = fullDiff.length > 5000 ? fullDiff.slice(0, 5000) + '\n...(truncated)' : fullDiff;
 
-    // Use currently selected model if available, otherwise lowest/available model for agent
-    const userChosenModel = activeAg.version?.trim() || undefined;
-    const { model: fallbackModel } = lowestModelFor(activeAg);
-    const chosenModel = userChosenModel || fallbackModel || activeAg.models?.[0];
+    const chosenModel = chosenModelFor(activeAg);
 
     const prevCommit = gitLog.commits?.[0];
     const prevCommitContext = prevCommit

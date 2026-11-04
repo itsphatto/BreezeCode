@@ -58,12 +58,20 @@ function blockContext(text: string, block: ConflictBlock, lines = 40): { before:
   return { before: text.slice(from, block.start), after: text.slice(block.end, to) };
 }
 
-// The Duel: each side's advocate argues for its version, then a judge picks or merges. The agent is the user's own and
-// reads only what is in these prompts (nothing from the open folder), so the file path and the surrounding lines are here.
+// The Duel: each side's advocate argues for its version, then a judge picks or merges. The prompts carry everything the agent
+// needs (the file path and the surrounding lines) and tell it to use no tools. Telling is all this file can do: the code in a
+// conflict can come from someone else's fork, so main also takes tools away from the agents that allow it (see agent:ask).
+// Code sits in fences longer than any backtick run inside it, so it can't close its own fence.
 type DuelInput = { path: string; before: string; ours: string; theirs: string; after: string };
+const NO_TOOLS = 'Do not run commands, read files or use any tools; answer only from the text in this message.';
 function duelPrompts(input: DuelInput): { ours: string; theirs: string; judge: (oursArg: string, theirsArg: string) => string } {
-  const fence = (s: string): string => '```\n' + (s === '' || s.endsWith('\n') ? s : s + '\n') + '```';
-  const setting = `A merge conflict in ${input.path}. The code just before it:
+  const fence = (s: string): string => {
+    const longest = Math.max(0, ...(s.match(/`+/g) ?? []).map(r => r.length));
+    const ticks = '`'.repeat(Math.max(4, longest + 1));
+    return ticks + '\n' + (s === '' || s.endsWith('\n') ? s : s + '\n') + ticks;
+  };
+  const setting = `A merge conflict in ${input.path}. ${NO_TOOLS}
+The code just before it:
 ${fence(input.before)}
 
 Version "ours":
@@ -88,15 +96,17 @@ ${oursArg}
 The advocate for "theirs" says:
 ${theirsArg}
 
-Decide how the conflict should be resolved: one side, or a merge of both. Give a verdict of at most 80 words, then exactly one fenced code block holding only the merged lines that replace the conflict (no conflict markers, no surrounding code, no second code block).`,
+Decide how the conflict should be resolved: one side, or a merge of both. Give a verdict of at most 80 words, then exactly one fenced code block holding only the merged lines that replace the conflict (no conflict markers, no surrounding code, no second code block). Fence it with four backticks (\`\`\`\`) so code that contains three backticks stays inside it.`,
   };
 }
 
 // The first fenced block in an agent's reply, without its fence lines and language tag; null if there is none (or it never closes).
-const CODE_BLOCK = /^[ \t]*```[^\r\n]*\r?\n([\s\S]*?)(?:\r?\n)?[ \t]*```[ \t]*(?:\r?\n|$)/m;
+// A fence is three or more backticks on a line of their own (then an optional language tag); it closes at a line of only
+// backticks at least as long, so a shorter run inside the code stays code.
+const CODE_BLOCK = /^[ \t]*(`{3,})[^\r\n`]*\r?\n(?:([\s\S]*?)\r?\n)??[ \t]*\1`*[ \t]*(?:\r?\n|$)/m;
 function extractCodeBlock(reply: string): string | null {
   const m = CODE_BLOCK.exec(reply);
-  return m ? m[1] : null;
+  return m ? m[2] ?? '' : null;
 }
 
 // The reply without that first fenced block: the judge's verdict, shown next to the proposed merge.

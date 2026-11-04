@@ -120,6 +120,31 @@ test('extractCodeBlock: first fenced block without its fence line or language ta
   assert.equal(extractCodeBlock('x\r\n```js\r\nline\r\n```\r\n'), 'line');
 });
 
+test('extractCodeBlock: a longer fence holds code that has a ``` line itself', () => {
+  assert.equal(extractCodeBlock('Verdict.\n````md\nintro\n```ts\nconst a = 1;\n```\noutro\n````\n'), 'intro\n```ts\nconst a = 1;\n```\noutro');
+  assert.equal(extractCodeBlock('````\na\n```\nb\n````'), 'a\n```\nb');
+  assert.equal(extractCodeBlock('```\nplain\n```'), 'plain'); // three backticks still work
+  assert.equal(extractCodeBlock('~~~\nno\n~~~'), null);
+});
+
+test('extractCodeBlock: the closing fence is a line of its own, at least as long as the opener', () => {
+  assert.equal(extractCodeBlock('```\nabc ```def\nghi\n```'), 'abc ```def\nghi');
+  assert.equal(extractCodeBlock('````\na\n```\n'), null);
+  assert.equal(extractCodeBlock('```\nx\n`````\n'), 'x'); // longer closer is fine
+  assert.equal(extractCodeBlock('```\n```\nfoo\n```\nbar'), '');
+});
+
+test('duelPrompts: code goes in four-backtick fences, the judge is asked for one too, and no tools are allowed', () => {
+  const p = duelPrompts({ ...duelInput, ours: 'a\n```\nb\n' });
+  for (const prompt of [p.ours, p.theirs, p.judge('x', 'y')]) {
+    assert.ok(prompt.includes('````\nconst x = 1;\n````') || prompt.includes('````\na\n```\nb\n````'));
+    assert.ok(prompt.includes('Do not run commands, read files or use any tools; answer only from the text in this message.'));
+  }
+  assert.ok(/four backticks/i.test(p.judge('x', 'y')));
+  const wide = duelPrompts({ ...duelInput, ours: 'a\n````\nb\n' }).ours;
+  assert.ok(wide.includes('`````\na\n````\nb\n`````')); // a fence longer than any run in the code
+});
+
 test('extractCodeBlock: null without a fence, or with one that never closes', () => {
   assert.equal(extractCodeBlock('No code here.'), null);
   assert.equal(extractCodeBlock('```ts\nconst a = 1;\n'), null);
