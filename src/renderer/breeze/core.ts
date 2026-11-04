@@ -47,6 +47,19 @@ interface GitFile { path: string; x: string; y: string; }
 interface GitStatus { repo: boolean; branch?: string; upstream?: string; ahead?: number; behind?: number; incoming?: string[]; hasCommits?: boolean; hasRemote?: boolean; files?: GitFile[]; ignored?: string[]; }
 interface GitCommit { hash: string; parents: string[]; author: string; when: string; refs: string[]; subject: string; }
 interface GitCommitDetail { hash: string; author: string; email: string; when: string; message: string; files: { path: string; added: number; removed: number }[]; }
+// GitHub pull requests (main/github.js). Every call resolves to a GhResult and never rejects; `error` is a GithubError
+// code ('reauth', 'forbidden', 'not-found', 'not-mergeable', 'head-changed', 'http') or why there is no GitHub to ask
+// ('signed-out', 'not-github', 'no-remote').
+interface GhPull {
+  number: number; title: string; author: string; avatar: string;
+  head: { ref: string; label: string; sha: string; repo: string | null };
+  base: string; draft: boolean; commits?: number;
+  mergeable: boolean | null; mergeableState: string; // 'clean', 'dirty' (conflicts), 'blocked', 'unknown'…
+  url: string; createdAt: string;
+}
+interface GhCommit { sha: string; message: string; author: string; avatar: string | null; date: string | null; }
+interface GhFile { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null; }
+type GhResult<T> = { ok: true; data: T } | { ok: false; error: string; message?: string };
 
 interface DirEntry { name: string; dir: boolean; }
 interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; pdf?: boolean; size: number; }
@@ -244,6 +257,15 @@ interface BreezeApi {
     sync(op: 'fetch' | 'pull' | 'push'): Promise<unknown>;
     deleteBranch(name: string): Promise<unknown>;
     genCommitMsg(opts: { agent: string; prompt: string; model?: string; effort?: string }): Promise<string>;
+  };
+  gh: {
+    prs(base: string, force?: boolean): Promise<GhResult<{ owner: string; repo: string; pulls: GhPull[] }>>;
+    pr(n: number): Promise<GhResult<GhPull>>;
+    prCommits(n: number): Promise<GhResult<GhCommit[]>>;
+    prFiles(n: number): Promise<GhResult<GhFile[]>>;
+    commit(sha: string): Promise<GhResult<GhFile[]>>;
+    repo(): Promise<GhResult<{ allowMerge: boolean; allowSquash: boolean; allowRebase: boolean }>>;
+    merge(n: number, method: 'merge' | 'squash' | 'rebase', sha: string): Promise<GhResult<{ merged: boolean; message: string }>>;
   };
   auth: {
     user(): Promise<User | null>;

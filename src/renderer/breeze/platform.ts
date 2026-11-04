@@ -122,6 +122,40 @@ async function demoEdit(role: string): Promise<void> {
   el.dispatchEvent(new Event('input'));
 }
 
+// Two open pull requests into main for the browser demo: one ready to merge and one with conflicts.
+const demoPull = (number: number, title: string, author: string, ref: string, sha: string, conflicts: boolean): GhPull => ({
+  number, title, author, avatar: '', head: { ref, label: `${author}:${ref}`, sha, repo: `${author}/coffee-shop-landing` },
+  base: 'main', draft: false, mergeable: !conflicts, mergeableState: conflicts ? 'dirty' : 'clean',
+  url: `https://github.com/demo/coffee-shop-landing/pull/${number}`, createdAt: new Date(Date.now() - number * 3600e3).toISOString(),
+});
+const demoPulls: GhPull[] = [
+  { ...demoPull(48, 'Sapfire151/dev', 'Sapfire151', 'dev', 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', false), commits: 3 },
+  { ...demoPull(51, 'fix-login', 'maya', 'fix-login', 'f9e8d7c6b5a4039281706f5e4d3c2b1a09876543', true), commits: 2 },
+];
+const demoCommit = (sha: string, message: string, author: string, hoursAgo: number): GhCommit =>
+  ({ sha, message, author, avatar: null, date: new Date(Date.now() - hoursAgo * 3600e3).toISOString() });
+const demoPrCommits: Record<number, GhCommit[]> = {
+  48: [
+    demoCommit('1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b', 'Warm up the hero colours', 'Sapfire151', 30),
+    demoCommit('2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c', 'Add opening hours to the footer', 'Sapfire151', 26),
+    demoCommit('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', 'Tidy the menu spacing', 'Sapfire151', 24),
+  ],
+  51: [
+    demoCommit('3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d', 'Stop the login form reloading the page', 'maya', 52),
+    demoCommit('f9e8d7c6b5a4039281706f5e4d3c2b1a09876543', 'Show an error for a wrong password', 'maya', 50),
+  ],
+};
+const demoPrFiles: Record<number, GhFile[]> = {
+  48: [
+    { path: 'styles.css', previous: null, status: 'modified', additions: 3, deletions: 2, patch: '@@ -1,5 +1,6 @@\n /* Cozy, warm palette */\n :root {\n-  --bean: #2b1d12;\n-  --cream: #f4ece1;\n+  --bean: #3a2615;\n+  --cream: #f8f0e4;\n+  --hero: #c8793a;\n }' },
+    { path: 'index.html', previous: null, status: 'modified', additions: 2, deletions: 1, patch: '@@ -10,4 +10,5 @@\n <footer>\n-  <p>Open every day</p>\n+  <p>Open every day, 7am to 5pm</p>\n+  <p>Closed on public holidays</p>\n </footer>' },
+  ],
+  51: [
+    { path: 'script.js', previous: null, status: 'modified', additions: 4, deletions: 1, patch: '@@ -3,5 +3,8 @@\n form.addEventListener(\'submit\', e => {\n-  login(form);\n+  e.preventDefault();\n+  login(form).catch(err => {\n+    errorEl.textContent = err.message;\n+  });\n });' },
+    { path: 'login.html', previous: null, status: 'modified', additions: 1, deletions: 1, patch: '@@ -7,3 +7,3 @@\n <form id="login">\n-  <input name="pass">\n+  <input name="pass" type="password">\n </form>' },
+  ],
+};
+
 let demoConnectDone: (() => void) | null = null;
 function demoApi(): BreezeApi {
   const files = new Map(Object.entries(DEMO_FILES));
@@ -468,6 +502,24 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async deleteBranch() { throw new Error('Deleting branches works in the desktop app.'); },
       async sync() { throw new Error('Push and pull work in the desktop app.'); },
       async genCommitMsg() { return 'feat: demo change'; },
+    },
+    gh: {
+      async prs(base) {
+        const pulls = base === 'main' ? demoPulls : [];
+        return { ok: true, data: { owner: 'demo', repo: 'coffee-shop-landing', pulls } };
+      },
+      async pr(n) {
+        const p = demoPulls.find(x => x.number === n);
+        return p ? { ok: true, data: p } : { ok: false, error: 'not-found', message: 'Not Found' };
+      },
+      async prCommits(n) { return { ok: true, data: demoPrCommits[n] || [] }; },
+      async prFiles(n) { return { ok: true, data: demoPrFiles[n] || [] }; },
+      async commit(sha) {
+        const n = Object.keys(demoPrCommits).map(Number).find(k => demoPrCommits[k].some(c => c.sha === sha));
+        return { ok: true, data: n ? demoPrFiles[n] : [] };
+      },
+      async repo() { return { ok: true, data: { allowMerge: true, allowSquash: true, allowRebase: true } }; },
+      async merge() { return { ok: true, data: { merged: true, message: 'Merged' } }; },
     },
     auth: {
       async user() { return current; },

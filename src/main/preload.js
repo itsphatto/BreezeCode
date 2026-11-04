@@ -170,6 +170,15 @@ contextBridge.exposeInMainWorld('breeze', {
     deleteBranch: name => invoke('git:deleteBranch', name),
     genCommitMsg: opts => invoke('git:genCommitMsg', opts),
   },
+  gh: {
+    prs: (base, force) => invoke('gh:prs', base, force),
+    pr: n => invoke('gh:pr', n),
+    prCommits: n => invoke('gh:prCommits', n),
+    prFiles: n => invoke('gh:prFiles', n),
+    commit: sha => invoke('gh:commit', sha),
+    repo: () => invoke('gh:repo'),
+    merge: (n, method, sha) => invoke('gh:merge', n, method, sha),
+  },
   auth: {
     user: () => invoke('auth:user'),
     accounts: () => invoke('auth:accounts'),

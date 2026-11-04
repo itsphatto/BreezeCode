@@ -13,6 +13,7 @@ const vm = require('node:vm');
 const { findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
 const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
 const { AntigravityAgentService } = require('./antigravityAgentService.js');
+const { parseGithubRemote, githubClient, GithubError } = require('./github');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
@@ -2984,6 +2985,53 @@ handle('git:fileShow', async (_e, hash, rel) => {
   const out = await git(['show', '--no-color', '--format=', hash, '--', rel]);
   return out.trim() ? out : git(['show', '--no-color', '--format=', hash]);
 });
+
+/* ----- GitHub pull requests ----- */
+// A client for the open folder's GitHub remote, using the signed-in GitHub account (the active one when it is
+// GitHub, else the first GitHub account). Failures come back as { error } so callers can tell the user why.
+async function githubFor() {
+  let url;
+  try { url = (await git(['remote', 'get-url', 'origin'])).trim(); } catch { return { error: 'no-remote' }; }
+  const remote = parseGithubRemote(url);
+  if (!remote) return { error: 'not-github' };
+  const { accounts, active } = accountsState();
+  const acct = accounts.find(a => accountId(a) === active && a.provider === 'GitHub') || accounts.find(a => a.provider === 'GitHub');
+  const token = acct && getSecret(`token:${accountId(acct)}`);
+  if (!token) return { error: 'signed-out' };
+  return { client: githubClient({ token, fetch }), ...remote };
+}
+// Runs fn({ client, owner, repo }) and wraps the outcome as { ok, data } or { ok, error, message }. Never rejects.
+async function ghCall(fn) {
+  try {
+    const gh = await githubFor();
+    if (gh.error) return { ok: false, error: gh.error };
+    return { ok: true, data: await fn(gh) };
+  } catch (e) {
+    if (e instanceof GithubError) return { ok: false, error: e.code, message: e.message };
+    return { ok: false, error: 'http', message: e.message };
+  }
+}
+const PR_TTL = 30000;
+const prCache = new Map(); // `owner/repo/base` -> { at, data }
+handle('gh:prs', (_e, base, force) => ghCall(async ({ client, owner, repo }) => {
+  const key = `${owner}/${repo}/${base}`;
+  const hit = prCache.get(key);
+  if (!force && hit && Date.now() - hit.at < PR_TTL) return hit.data;
+  const data = { owner, repo, pulls: await client.listPulls(owner, repo, base) };
+  prCache.set(key, { at: Date.now(), data });
+  return data;
+}));
+handle('gh:pr', (_e, n) => ghCall(({ client, owner, repo }) => client.getPull(owner, repo, n)));
+handle('gh:prCommits', (_e, n) => ghCall(({ client, owner, repo }) => client.pullCommits(owner, repo, n)));
+handle('gh:prFiles', (_e, n) => ghCall(({ client, owner, repo }) => client.pullFiles(owner, repo, n)));
+handle('gh:commit', (_e, sha) => ghCall(({ client, owner, repo }) => client.getCommit(owner, repo, sha)));
+handle('gh:repo', () => ghCall(({ client, owner, repo }) => client.getRepo(owner, repo)));
+handle('gh:merge', (_e, n, method, sha) => ghCall(async ({ client, owner, repo }) => {
+  const out = await client.mergePull(owner, repo, n, { method, sha });
+  // The merged pull request is gone from its base's list; drop this repository's cached lists (the base is part of the key).
+  if (out.merged) for (const k of prCache.keys()) if (k.startsWith(`${owner}/${repo}/`)) prCache.delete(k);
+  return out;
+}));
 handle('git:diff', (_e, rel, staged) => git(['diff', '--no-color', ...(staged ? ['--cached'] : []), '--', ...checkPaths(rel)]));
 handle('git:init', () => git(['init']));
 // A file as of the last commit, for the editor's change marks. null: nothing to compare with (no repository,
