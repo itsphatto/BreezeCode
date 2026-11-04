@@ -355,7 +355,8 @@ function tagBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
 }
 /* ----- Scope guides: a thin line from a tag's or block's first line down to its end ----- */
 // from/to are lines: the guide runs below line `from` and stops at the top of line `to`.
-interface Block { from: number; to: number; start: number; end: number; col: number; }
+// gaps: runs of inner lines [a, b) whose text starts at or left of the guide, so the guide fades out behind them.
+interface Block { from: number; to: number; start: number; end: number; col: number; gaps?: [number, number][]; }
 const blockCache = new WeakMap<EditorBuffer, { text: string; blocks: Block[] }>();
 // Every {} [] () pair as [open, close] offsets, skipping strings and comments.
 const OPENER: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
@@ -410,7 +411,14 @@ function blocksOf(b: EditorBuffer): Block[] {
     };
     const add = (open: number, close: number) => {
       const from = lineOfOffset(starts, open), to = lineOfOffset(starts, close);
-      if (to - from >= 2) blocks.push({ from, to, start: open, end: close + 1, col: Math.min(indentOf(from), indentOf(to)) });
+      if (to - from < 2) return;
+      const col = Math.min(indentOf(from), indentOf(to)), gaps: [number, number][] = [];
+      for (let j = from + 1; j < to; j++) {
+        if (!text.slice(starts[j], lineEnd(text, starts[j])).trim() || indentOf(j) > col) continue;
+        const g = gaps[gaps.length - 1];
+        if (g && g[1] === j) g[1] = j + 1; else gaps.push([j, j + 1]);
+      }
+      blocks.push({ from, to, start: open, end: close + 1, col, gaps: gaps.length ? gaps : undefined });
     };
     if (lexer === 'html' || ext === 'jsx' || ext === 'tsx') {
       for (const [o, cl] of tagPairsOf(b)) add(o.start, cl.start);
@@ -443,6 +451,15 @@ function guideBoxes(b: EditorBuffer, caret: number, cw: number, first = winFirst
   return blocks.filter(k => k.to > first && k.from < last).map(k => {
     const d = box(k === on ? 'guide on' : 'guide', (k.from + 1) * LINE_H, k.col * cw);
     d.style.height = `${(k.to - k.from - 1) * LINE_H}px`;
+    if (k.gaps) {
+      // Soft cut: the line fades out a few px before the text and back in after it.
+      const F = 4, stops = ['#000 0'];
+      for (const [a, z] of k.gaps) {
+        const y0 = (a - k.from - 1) * LINE_H, y1 = (z - k.from - 1) * LINE_H;
+        stops.push(`#000 ${y0 - F}px`, `transparent ${y0 + 2}px`, `transparent ${y1 - 2}px`, `#000 ${y1 + F}px`);
+      }
+      d.style.maskImage = `linear-gradient(${stops.join(', ')})`;
+    }
     return d;
   });
 }

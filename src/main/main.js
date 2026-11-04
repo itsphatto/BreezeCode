@@ -739,6 +739,15 @@ handle('fs:rename', async (_e, from, to) => {
   if (fs.existsSync(dest) && !(await sameFile(src, dest))) throw new Error('Something with that name already exists');
   await fsp.rename(src, dest);
 });
+// Explorer's Copy then Paste: a file or a whole folder, never over something that's already there.
+handle('fs:copy', async (_e, from, to) => {
+  const src = resolveIn(from), dest = resolveIn(to);
+  if (dest === src || dest.startsWith(src + path.sep)) throw new Error("A folder can't be pasted inside itself");
+  if (fs.existsSync(dest)) throw new Error('Something with that name already exists');
+  await fsp.cp(src, dest, { recursive: true, errorOnExist: true, force: false });
+});
+// Opens the system file manager with the item selected.
+handle('fs:reveal', (_e, rel) => { shell.showItemInFolder(resolveIn(rel)); });
 async function sameFile(a, b) {
   try {
     const [x, y] = await Promise.all([fsp.stat(a, { bigint: true }), fsp.stat(b, { bigint: true })]);
@@ -2958,6 +2967,23 @@ handle('git:show', async (_e, hash) => {
   return { hash: full, author, email, when, message: (body || '').trim(), files };
 });
 
+// One file's commits, newest first, following it across renames.
+handle('git:fileLog', async (_e, rel) => {
+  checkPaths(rel);
+  const out = await git(['log', '--follow', '-n', '200', '--format=%x1e%H%x1f%an%x1f%ar%x1f%s', '--', rel]);
+  return out.split('\x1e').filter(r => r.trim()).map(r => {
+    const [hash, author, when, subject] = r.trim().split('\x1f');
+    return { hash, author, when, subject: subject || '' };
+  });
+});
+// What one commit changed in one file (the path it had then is found by --follow's log, so the whole commit is shown
+// when the file was renamed in it).
+handle('git:fileShow', async (_e, hash, rel) => {
+  if (!HASH.test(hash)) throw new Error('Bad commit id');
+  checkPaths(rel);
+  const out = await git(['show', '--no-color', '--format=', hash, '--', rel]);
+  return out.trim() ? out : git(['show', '--no-color', '--format=', hash]);
+});
 handle('git:diff', (_e, rel, staged) => git(['diff', '--no-color', ...(staged ? ['--cached'] : []), '--', ...checkPaths(rel)]));
 handle('git:init', () => git(['init']));
 // A file as of the last commit, for the editor's change marks. null: nothing to compare with (no repository,

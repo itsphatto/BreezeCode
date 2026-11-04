@@ -225,6 +225,13 @@ function demoApi(): BreezeApi {
           for (const k of keys) { set.delete(k); set.add(renamed(k)); }
         }
       },
+      async copy(from, to) {
+        if (exists(to)) throw new Error('Something with that name already exists');
+        const copied = (k: string) => to + k.slice(from.length);
+        for (const k of [...files.keys()].filter(k => inside(k, from))) files.set(copied(k), files.get(k) ?? '');
+        for (const set of [dirs, binary]) for (const k of [...set].filter(k => inside(k, from))) set.add(copied(k));
+      },
+      async reveal() { toast('Revealing files needs the desktop app'); },
       async trash(rel) {
         const gone = [...files.keys(), ...dirs, ...binary].filter(k => inside(k, rel));
         for (const k of gone) { files.delete(k); dirs.delete(k); binary.delete(k); }
@@ -448,6 +455,8 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       },
       async show(hash) { return { hash, author: 'You', email: 'you@example.com', when: 'a few minutes ago', message: 'Demo checkpoint', files: [{ path: 'styles.css', added: 11, removed: 2 }] }; },
       async headText() { return null; },
+      async fileLog() { return [{ hash: 'd4f0b19aa', author: 'You', when: '3 minutes ago', subject: 'Greeting script' }, { hash: 'a91f3c2aa', author: 'You', when: '12 minutes ago', subject: 'Start project' }]; },
+      async fileShow() { return '@@ -1,2 +1,2 @@\n-old line\n+new line\n same line'; },
       async diff() { return '@@ -1,3 +1,3 @@\n /* Cozy, warm palette */\n-:root {\n+:root { /* demo change */\n   --bean: #2b1d12;'; },
       async init() { return ''; },
       async stage() { return ''; },

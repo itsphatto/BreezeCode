@@ -124,6 +124,8 @@ interface BreezeApi {
     createFile(rel: string): Promise<void>;
     createDir(rel: string): Promise<void>;
     rename(from: string, to: string): Promise<void>;
+    copy(from: string, to: string): Promise<void>;
+    reveal(rel: string): Promise<void>;
     trash(rel: string, keep?: boolean): Promise<string | null>;
     untrash(id: string, rel: string): Promise<void>;
     listFiles(): Promise<string[]>;
@@ -229,6 +231,8 @@ interface BreezeApi {
     log(): Promise<{ head: string | null; commits: GitCommit[]; details?: GitCommitDetail[] }>;
     show(hash: string): Promise<GitCommitDetail>;
     diff(rel: string | string[], staged: boolean): Promise<string>;
+    fileLog(rel: string): Promise<{ hash: string; author: string; when: string; subject: string }[]>;
+    fileShow(hash: string, rel: string): Promise<string>;
     headText(rel: string): Promise<string | null>;
     init(): Promise<unknown>;
     stage(paths: string[]): Promise<unknown>;

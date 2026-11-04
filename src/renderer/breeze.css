@@ -6686,6 +6686,52 @@ body.vibing .ide {
   background: rgba(0, 122, 255, .08);
 }
 
+/* Explorer → Git History: one file's commits. */
+.file-history {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.fh-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fh-row:hover,
+.fh-row:focus-visible {
+  background: var(--bg-2);
+}
+
+.fh-hash {
+  font: 12px var(--font-code);
+  color: var(--blue-text);
+}
+
+.fh-subj {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fh-meta {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
 .git-err {
   max-height: 40vh;
   overflow: auto;

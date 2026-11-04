@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BreezeDebugHook")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b79168329fae30737ef42838760ab72698a7b1ef")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b0a22de2665a970ac7abe89fa2e61e3a6d52e956")]
 [assembly: System.Reflection.AssemblyProductAttribute("BreezeDebugHook")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BreezeDebugHook")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
