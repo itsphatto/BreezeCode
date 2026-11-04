@@ -123,6 +123,7 @@ let accounts: Accounts = { accounts: [], active: null };
 const accountKey = (u: User) => `${u.provider}:${u.login ?? ''}`;
 async function refreshAccounts(): Promise<void> {
   accounts = await api.auth.accounts().catch(() => accounts);
+  void refreshPrs(); // signing in or out, or switching account, changes what the pull request list can show
 }
 async function switchAccount(a: User): Promise<void> {
   if (accountKey(a) === accounts.active) return;

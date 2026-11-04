@@ -131,6 +131,7 @@ contextBridge.exposeInMainWorld('breeze', {
     fullAccess: () => invoke('agent:fullAccess'),
     setFullAccess: on => invoke('agent:setFullAccess', on),
     usage: () => invoke('agent:usage'),
+    ask: opts => invoke('agent:ask', opts),
     onEvent: cb => listen('agent:event', cb),
   },
   skills: {
@@ -169,6 +170,18 @@ contextBridge.exposeInMainWorld('breeze', {
     sync: op => invoke('git:sync', op),
     deleteBranch: name => invoke('git:deleteBranch', name),
     genCommitMsg: opts => invoke('git:genCommitMsg', opts),
+    prConflictStart: n => invoke('git:prConflictStart', n),
+    prConflictFinish: (id, results) => invoke('git:prConflictFinish', id, results),
+    prConflictAbort: id => invoke('git:prConflictAbort', id),
+  },
+  gh: {
+    prs: (base, force) => invoke('gh:prs', base, force),
+    pr: n => invoke('gh:pr', n),
+    prCommits: n => invoke('gh:prCommits', n),
+    prFiles: n => invoke('gh:prFiles', n),
+    commit: sha => invoke('gh:commit', sha),
+    repo: () => invoke('gh:repo'),
+    merge: (n, method, sha) => invoke('gh:merge', n, method, sha),
   },
   auth: {
     user: () => invoke('auth:user'),

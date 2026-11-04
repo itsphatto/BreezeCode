@@ -597,6 +597,7 @@ const holdsUserEdits = (b: EditorBuffer) => isDirty(b) && !(hasAnyActiveRun() &&
 // Follow the agent to the file it edits, unless the person is busy typing somewhere.
 function mayFollowAgent(): boolean {
   if ($('#ide').classList.contains('hidden') || modalOpen()) return false;
+  if (scmPageOpen) return false; // the editor is hidden behind the Source Control page; don't switch files under it, or kick the person out of it
   return Date.now() - lastUserTypeAt > 3000;
 }
 function followAgentTo(path: string): void {

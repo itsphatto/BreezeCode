@@ -11,6 +11,7 @@ function openFile(path: string, at?: Spot): void {
 async function actuallyOpen(path: string, at?: Spot): Promise<void> {
   const b = await loadBuffer(path);
   if (!b) return;
+  closeScmPage(); // the editor is hidden behind the Source Control page; a file opened from anywhere else (chat, Ctrl+P) must show
   if (!openTabs.includes(path)) openTabs.push(path);
   setActive(path);
   if (at && b.ta) {
@@ -26,6 +27,7 @@ async function openFileInSplit(path: string): Promise<void> {
   const b = await loadBuffer(path);
   if (!b) return;
   if (b.kind !== 'text') { toast('Only text files open in the split view'); return; }
+  closeScmPage();
   if (!openTabs.includes(path)) openTabs.push(path);
   if (!active) setActive(path); else renderEditor();
   openSplit(path, true);

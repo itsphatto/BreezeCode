@@ -30,6 +30,9 @@ async function refreshGit(): Promise<void> {
   }
   renderScm(); renderBranch(); renderTree(); renderTabs();
   refreshHeadTexts();
+  // A switched branch has other pull requests; the window focus and every git change come through here too. Only while
+  // Source Control is open, so background git activity doesn't use up GitHub's rate limit; opening it asks afresh.
+  if (scmPageOpen) void refreshPrs();
   if (gitLog.commits.length) {
     for (const c of gitLog.commits) {
       if (!commitDetails.has(c.hash)) {
@@ -125,6 +128,13 @@ function scmSectionHtml(key: string, title: string, list: GitFile[], inStaged: b
   return `<div class="scm-sec ${scmCollapsed.has(key) ? 'closed' : ''}" data-sec="${key}">
     <div class="scm-head"><span class="chev"><svg width="10" height="10"><use href="#i-chev"/></svg></span><span class="title">${title}</span><span class="acts">${acts}</span><span class="count">${list.length}</span></div>
     <div class="scm-list">${rows}</div></div>`;
+}
+// The model a one-shot call to this agent uses: the one the user picked for it, else the lowest the agent offers. No effort is
+// forced (every model works without one), so callers pass none.
+function chosenModelFor(a: DetectedAgent): string | undefined {
+  const userChosenModel = a.version?.trim() || undefined;
+  const { model: fallbackModel } = lowestModelFor(a);
+  return userChosenModel || fallbackModel || a.models?.[0];
 }
 function lowestModelFor(a: DetectedAgent): { model?: string } {
   if (a.id === 'antigravity') {
@@ -288,10 +298,7 @@ async function generateCommitMsg(): Promise<void> {
     const fullDiff = (diffText || '').trim() || summary;
     const truncated = fullDiff.length > 5000 ? fullDiff.slice(0, 5000) + '\n...(truncated)' : fullDiff;
 
-    // Use currently selected model if available, otherwise lowest/available model for agent
-    const userChosenModel = activeAg.version?.trim() || undefined;
-    const { model: fallbackModel } = lowestModelFor(activeAg);
-    const chosenModel = userChosenModel || fallbackModel || activeAg.models?.[0];
+    const chosenModel = chosenModelFor(activeAg);
 
     const prevCommit = gitLog.commits?.[0];
     const prevCommitContext = prevCommit
@@ -368,6 +375,7 @@ function renderScm(): void {
     ${scmSectionHtml('changes', 'Changes', changes, false, `<button class="icon-btn" data-scm-all="discard" title="Discard All Changes">${svgIcon('undo')}</button><button class="icon-btn" data-scm-all="stage" title="Stage All Changes">${svgIcon('plus')}</button>`)}
     ${incomingSectionHtml()}
     ${empty}
+    ${prSectionHtml()}
     <div class="scm-sec graph ${scmCollapsed.has('graph') ? 'closed' : ''}" data-sec="graph">
       <div class="scm-head"><span class="chev"><svg width="10" height="10"><use href="#i-chev"/></svg></span><span class="title">Checkpoints</span><span class="count">${gitLog.commits.length}</span></div>
       <div class="scm-list">${renderGraphRows()}</div>
@@ -545,11 +553,22 @@ async function showDiff(f: GitFile, staged: boolean): Promise<void> {
   } catch (e) { toast(errMsg(e)); return; }
   const lines = text.split('\n').filter(l => !/^(?:diff --git|index |--- |\+\+\+ )/.test(l));
   const body = lines.map(l => `<div class="dl ${diffLineClass(l)}">${esc(l) || ' '}</div>`).join('') || '<div class="dl">No textual changes.</div>';
-  openModal(`<div class="diff-head"><span class="ico">${fileIcon(f.path)}</span><b>${esc(f.path)}</b><span class="pill">${staged ? 'Staged' : statusOf(f).title}</span></div>
+  const html = `<div class="diff-head"><span class="ico">${fileIcon(f.path)}</span><b>${esc(f.path)}</b><span class="pill">${staged ? 'Staged' : statusOf(f).title}</span></div>
     <div class="diff">${body}</div>
-    <div class="row end mt-12"><button class="btn" id="diffOpen">Open File</button><button class="btn btn-primary" id="diffStage">${staged ? 'Unstage' : 'Stage'}</button></div>`, m => {
+    <div class="row end mt-12"><button class="btn" id="diffOpen">Open File</button><button class="btn btn-primary" id="diffStage">${staged ? 'Unstage' : 'Stage'}</button></div>`;
+  const toggleStage = () => void gitOp(() => (staged ? api.git.unstage([f.path], !!gitState.hasCommits) : api.git.stage([f.path])));
+  // On the Source Control page the diff sits beside the changes; anywhere else it's a modal.
+  if (scmPageOpen) {
+    showScmDetail(`<div class="scm-diff-view">${html}</div>`, el => {
+      $('#diffOpen', el).onclick = () => { closeScmPage(); openFile(f.path); };
+      // The file moves to the other list once staged or unstaged, so what's shown no longer matches it.
+      $('#diffStage', el).onclick = () => { scmEmptyDetail(); toggleStage(); };
+    });
+    return;
+  }
+  openModal(html, m => {
     $('#diffOpen', m).onclick = () => { closeModal(); openFile(f.path); };
-    $('#diffStage', m).onclick = () => { closeModal(); void gitOp(() => (staged ? api.git.unstage([f.path], !!gitState.hasCommits) : api.git.stage([f.path]))); };
+    $('#diffStage', m).onclick = () => { closeModal(); toggleStage(); };
   }, undefined, 'top');
 }
 

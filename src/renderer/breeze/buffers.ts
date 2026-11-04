@@ -56,6 +56,7 @@ function resetWorkspace(): void {
   document.title = 'Breeze Code';
   gitState = { repo: false }; gitLog = { head: null, commits: [] };
   renderScm(); renderBranch(); emptyChat();
+  resetPrState(); // the pull request list and detail, and any conflict being resolved, were the last folder's
   void refreshLiveShare();
 }
 

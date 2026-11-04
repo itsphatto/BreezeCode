@@ -4,7 +4,8 @@ function updateActIndicator(immediate = false): void {
   const activeBtn = document.querySelector<HTMLElement>('.act-btn[data-view].on');
   const ind = document.getElementById('actIndicator');
   if (!ind) return;
-  if (!activeBtn || !layout.sideOpen || !activeBtn.offsetParent) {
+  // The Source Control page replaces the side bar, so its icon stays lit whether or not the side bar is open.
+  if (!activeBtn || !(layout.sideOpen || $('#main').classList.contains('scm-page')) || !activeBtn.offsetParent) {
     ind.style.opacity = '0';
     return;
   }
@@ -50,9 +51,13 @@ function morphSideHead(from: HTMLElement, to: HTMLElement): void {
 }
 // `morph`: only a click on the activity bar animates the header; shortcuts and commands switch at once.
 function showView(v: string, reveal = false, morph = false): void {
-  const was = morph && layout.sideOpen && layout.view !== v ? $(`[data-panel="${layout.view}"]`) : null;
+  // Source Control is a full page (prs.ts) rather than a side-bar panel: it notes the view to go back to, and any other view closes it.
+  if (v === 'git') openScmPage(); else closeScmPage(false);
+  // Neither side of a switch to or from the page has a header to morph.
+  const was = morph && layout.sideOpen && layout.view !== v && layout.view !== 'git' && v !== 'git' ? $(`[data-panel="${layout.view}"]`) : null;
   layout.view = v;
-  if (reveal && !layout.sideOpen) layout.sideOpen = true;
+  // The page doesn't use the side bar, so it leaves it as it was; closing the page then returns to exactly that.
+  if (reveal && !layout.sideOpen && v !== 'git') layout.sideOpen = true;
   applyLayout();
   $$('.act-btn[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   $$('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== v));
@@ -61,10 +66,11 @@ function showView(v: string, reveal = false, morph = false): void {
   if (v === 'git') void refreshGit();
   if (v === 'skills') void refreshSkills();
 }
-// Clicking the active view's icon again collapses the side bar, like VS Code.
+// Clicking the active view's icon again collapses the side bar, like VS Code. For Source Control, the page, it closes it.
 $$('.act-btn[data-view]').forEach(b => b.onclick = () => {
   const v = b.dataset.view as string;
-  if (v === layout.view && layout.sideOpen) { layout.sideOpen = false; applyLayout(); } else showView(v, true, true);
+  if (v === 'git' && scmPageOpen) closeScmPage();
+  else if (v === layout.view && layout.sideOpen && v !== 'git') { layout.sideOpen = false; applyLayout(); } else showView(v, true, true);
 });
 
 /* ================= Breeze Space (chat only) ================= */

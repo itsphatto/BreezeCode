@@ -397,14 +397,8 @@
           </div>
         </div>
         <!-- Git -->
-        <div data-panel="git" class="contents hidden">
-          <div class="side-head"><span>Source Control</span><span class="head-actions">
-              <button class="icon-btn hidden" id="scmGenMsg" data-act="git.genCommitMsg" title="Generate commit message" data-tooltip="Generate commit message"><svg data-i="sparkles" data-size="14"></svg></button>
-              <button class="icon-btn" data-act="git.more" title="More actions"><svg data-i="more"></svg></button>
-              <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg data-i="chevronLeft" data-size="14"></svg></button>
-            </span></div>
-          <div class="side-body scm" id="scm"></div>
-        </div>
+        <!-- The Source Control page (#scmPage, in the centre) lives there; this stays so the view switch finds its panel -->
+        <div data-panel="git" class="contents hidden"></div>
         <!-- Skills & plugins the agents load -->
         <div data-panel="skills" class="contents hidden">
           <div class="side-head"><span>Skills &amp; Plugins</span><span class="head-actions">
@@ -491,6 +485,20 @@
             </div>
             <iframe class="preview-frame hidden" id="previewFrame" title="Preview"></iframe>
           </div>
+        </div>
+
+        <!-- Source Control: a full page (prs.ts). Changes, commit box and graph on the left, a diff or pull request on the right. -->
+        <div class="scm-view" id="scmPage">
+          <div class="scm-left" id="scmLeft">
+            <div class="side-head"><span>Source Control</span><span class="head-actions">
+                <button class="icon-btn hidden" id="scmGenMsg" data-act="git.genCommitMsg" title="Generate commit message" data-tooltip="Generate commit message"><svg data-i="sparkles" data-size="14"></svg></button>
+                <button class="icon-btn" data-act="git.more" title="More actions"><svg data-i="more"></svg></button>
+                <button class="icon-btn" id="scmClose" title="Close Source Control"><svg data-i="x" data-size="14"></svg></button>
+              </span></div>
+            <div class="side-body scm" id="scm"></div>
+            <div class="sash sash-v" data-sash="scm"></div>
+          </div>
+          <div class="scm-detail" id="scmDetail"></div>
         </div>
 
         <div class="terminal" id="terminal">
@@ -776,7 +784,11 @@
   <script src="breeze/live.js" defer></script>
   <script src="breeze/space.js" defer></script>
   <script src="breeze/dropdowns.js" defer></script>
+  <script src="breeze/scmcore.js" defer></script>
+  <script src="breeze/conflictcore.js" defer></script>
   <script src="breeze/git.js" defer></script>
+  <script src="breeze/prs.js" defer></script>
+  <script src="breeze/conflicts.js" defer></script>
   <script src="breeze/skills.js" defer></script>
   <script src="breeze/palette.js" defer></script>
   <script src="breeze/emmet.js" defer></script>

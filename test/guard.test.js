@@ -76,6 +76,9 @@ test('safeGitArgs turns off config-driven commands', () => {
   assert.deepEqual(safeGitArgs(['status', '--porcelain']), ['-c', 'core.fsmonitor=false', 'status', '--porcelain']);
   assert.deepEqual(safeGitArgs(['diff', '--', 'a']), ['-c', 'core.fsmonitor=false', 'diff', '--no-ext-diff', '--no-textconv', '--', 'a']);
   assert.deepEqual(safeGitArgs(['show', 'abc']).slice(2, 5), ['show', '--no-ext-diff', '--no-textconv']);
+  // Config pairs put ahead of the command stay ahead of it, and the command still gets its guards.
+  assert.deepEqual(safeGitArgs(['-c', 'core.hooksPath=/x', 'show', ':2:a']),
+    ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/x', 'show', '--no-ext-diff', '--no-textconv', ':2:a']);
 });
 
 // A repository whose config runs a command on `git status` (core.fsmonitor) and on `git diff` (diff.external).

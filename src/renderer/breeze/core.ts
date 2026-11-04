@@ -47,6 +47,39 @@ interface GitFile { path: string; x: string; y: string; }
 interface GitStatus { repo: boolean; branch?: string; upstream?: string; ahead?: number; behind?: number; incoming?: string[]; hasCommits?: boolean; hasRemote?: boolean; files?: GitFile[]; ignored?: string[]; }
 interface GitCommit { hash: string; parents: string[]; author: string; when: string; refs: string[]; subject: string; }
 interface GitCommitDetail { hash: string; author: string; email: string; when: string; message: string; files: { path: string; added: number; removed: number }[]; }
+// GitHub pull requests (main/github.js). Every call resolves to a GhResult and never rejects; `error` is a GithubError
+// code ('reauth', 'forbidden', 'not-found', 'not-mergeable', 'head-changed', 'rate-limit', 'http'), why there is no
+// GitHub to ask ('signed-out', 'not-github', 'no-remote'), or 'invalid' for arguments main refused. A 'rate-limit'
+// carries resetAt: when the limit lifts, in epoch seconds (null when GitHub didn't say).
+interface GhPull {
+  number: number; title: string; author: string; avatar: string;
+  head: { ref: string; label: string; sha: string; repo: string | null };
+  base: string; draft: boolean; commits?: number;
+  mergeable: boolean | null; mergeableState: string; // 'clean', 'dirty' (conflicts), 'blocked', 'unknown'…
+  url: string; createdAt: string;
+}
+interface GhCommit { sha: string; message: string; author: string; avatar: string | null; date: string | null; }
+interface GhFile { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null; }
+type GhResult<T> = { ok: true; data: T } | { ok: false; error: string; message?: string; resetAt?: number | null };
+// partial: asking GitHub for each pull request's details stopped early (a rate limit or an expired sign-in), so some
+// rows may still read "checking".
+interface GhPullList { owner: string; repo: string; pulls: GhPull[]; partial?: 'rate-limit' | 'reauth' | null; }
+
+// A pull request's conflicts being resolved in a separate worktree (main/prconflict.js). For a 'text' file `ours` is the
+// pull request's version, `theirs` the base branch's; null means that side deleted it. `merged` is the file with
+// conflict markers. A 'binary' file (not UTF-8 text) is never decoded: ours, theirs and merged are null, hasOurs /
+// hasTheirs say which sides have it, and it is resolved by keeping one side or deleting it.
+interface ConflictFile {
+  path: string; kind: 'text' | 'binary';
+  ours: string | null; theirs: string | null; merged: string | null;
+  hasOurs: boolean; hasTheirs: boolean;
+}
+interface ConflictSession { id: string; number: number; base: string; headRef: string; clean: boolean; files: ConflictFile[]; }
+// A text file's result (null deletes it), or a binary file's choice.
+type ConflictResult = { path: string; text: string | null } | { path: string; choice: 'ours' | 'theirs' | 'delete' };
+// How finishing went: stage 'commit' means nothing was committed (the page stays editable), 'push' that the resolution
+// is committed in the worktree and finishing again only retries the push.
+type ConflictFinish = { ok: true } | { ok: false; stage: 'commit' | 'push'; message: string };
 
 interface DirEntry { name: string; dir: boolean; }
 interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; pdf?: boolean; size: number; }
@@ -206,6 +239,8 @@ interface BreezeApi {
     fullAccess(): Promise<boolean>;
     setFullAccess(on: boolean): Promise<boolean>;
     usage(): Promise<AgentUsage>;
+    // One question to the user's agent, read-only; its reply as it came (no commit-message clean-up).
+    ask(opts: { agent: string; prompt: string; model?: string; effort?: string }): Promise<string>;
     onEvent(cb: (runId: number, ev: AgentEvent) => void): () => void;
   };
   mcp: {
@@ -244,6 +279,20 @@ interface BreezeApi {
     sync(op: 'fetch' | 'pull' | 'push'): Promise<unknown>;
     deleteBranch(name: string): Promise<unknown>;
     genCommitMsg(opts: { agent: string; prompt: string; model?: string; effort?: string }): Promise<string>;
+    // Main asks GitHub for the pull request's branches and where it lives; only its number is sent.
+    prConflictStart(n: number): Promise<ConflictSession>;
+    // Rejects only for an ended session or a resolution that doesn't fit it; git failures resolve to { ok: false, stage }.
+    prConflictFinish(id: string, results: ConflictResult[]): Promise<ConflictFinish>;
+    prConflictAbort(id: string): Promise<void>;
+  };
+  gh: {
+    prs(base: string, force?: boolean): Promise<GhResult<GhPullList>>;
+    pr(n: number): Promise<GhResult<GhPull>>;
+    prCommits(n: number): Promise<GhResult<GhCommit[]>>;
+    prFiles(n: number): Promise<GhResult<GhFile[]>>;
+    commit(sha: string): Promise<GhResult<GhFile[]>>;
+    repo(): Promise<GhResult<{ allowMerge: boolean; allowSquash: boolean; allowRebase: boolean }>>;
+    merge(n: number, method: 'merge' | 'squash' | 'rebase', sha: string): Promise<GhResult<{ merged: boolean; message: string }>>;
   };
   auth: {
     user(): Promise<User | null>;

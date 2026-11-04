@@ -122,6 +122,40 @@ async function demoEdit(role: string): Promise<void> {
   el.dispatchEvent(new Event('input'));
 }
 
+// Two open pull requests into main for the browser demo: one ready to merge and one with conflicts.
+const demoPull = (number: number, title: string, author: string, ref: string, sha: string, conflicts: boolean): GhPull => ({
+  number, title, author, avatar: '', head: { ref, label: `${author}:${ref}`, sha, repo: `${author}/coffee-shop-landing` },
+  base: 'main', draft: false, mergeable: !conflicts, mergeableState: conflicts ? 'dirty' : 'clean',
+  url: `https://github.com/demo/coffee-shop-landing/pull/${number}`, createdAt: new Date(Date.now() - number * 3600e3).toISOString(),
+});
+const demoPulls: GhPull[] = [
+  { ...demoPull(48, 'Sapfire151/dev', 'Sapfire151', 'dev', 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', false), commits: 3 },
+  { ...demoPull(51, 'fix-login', 'maya', 'fix-login', 'f9e8d7c6b5a4039281706f5e4d3c2b1a09876543', true), commits: 2 },
+];
+const demoCommit = (sha: string, message: string, author: string, hoursAgo: number): GhCommit =>
+  ({ sha, message, author, avatar: null, date: new Date(Date.now() - hoursAgo * 3600e3).toISOString() });
+const demoPrCommits: Record<number, GhCommit[]> = {
+  48: [
+    demoCommit('1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b', 'Warm up the hero colours', 'Sapfire151', 30),
+    demoCommit('2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c', 'Add opening hours to the footer', 'Sapfire151', 26),
+    demoCommit('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', 'Tidy the menu spacing', 'Sapfire151', 24),
+  ],
+  51: [
+    demoCommit('3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d', 'Stop the login form reloading the page', 'maya', 52),
+    demoCommit('f9e8d7c6b5a4039281706f5e4d3c2b1a09876543', 'Show an error for a wrong password', 'maya', 50),
+  ],
+};
+const demoPrFiles: Record<number, GhFile[]> = {
+  48: [
+    { path: 'styles.css', previous: null, status: 'modified', additions: 3, deletions: 2, patch: '@@ -1,5 +1,6 @@\n /* Cozy, warm palette */\n :root {\n-  --bean: #2b1d12;\n-  --cream: #f4ece1;\n+  --bean: #3a2615;\n+  --cream: #f8f0e4;\n+  --hero: #c8793a;\n }' },
+    { path: 'index.html', previous: null, status: 'modified', additions: 2, deletions: 1, patch: '@@ -10,4 +10,5 @@\n <footer>\n-  <p>Open every day</p>\n+  <p>Open every day, 7am to 5pm</p>\n+  <p>Closed on public holidays</p>\n </footer>' },
+  ],
+  51: [
+    { path: 'script.js', previous: null, status: 'modified', additions: 4, deletions: 1, patch: '@@ -3,5 +3,8 @@\n form.addEventListener(\'submit\', e => {\n-  login(form);\n+  e.preventDefault();\n+  login(form).catch(err => {\n+    errorEl.textContent = err.message;\n+  });\n });' },
+    { path: 'login.html', previous: null, status: 'modified', additions: 1, deletions: 1, patch: '@@ -7,3 +7,3 @@\n <form id="login">\n-  <input name="pass">\n+  <input name="pass" type="password">\n </form>' },
+  ],
+};
+
 let demoConnectDone: (() => void) | null = null;
 function demoApi(): BreezeApi {
   const files = new Map(Object.entries(DEMO_FILES));
@@ -332,6 +366,19 @@ function demoApi(): BreezeApi {
       async stop() { /* demo runs finish on their own */ },
       async answer() { /* demo runs never ask */ },
       async setModel() { return true; },
+      // Canned replies for the conflict Duel: an advocate argues its side; the judge merges the two versions it was shown
+      // (ours, then theirs' lines that ours doesn't have) in a fenced block.
+      async ask({ prompt }) {
+        await wait(700);
+        if (!prompt.includes('You are the judge')) {
+          const side = prompt.includes('Argue that the "ours"') ? 'ours' : 'theirs';
+          return `Keep ${side}. It matches how the rest of this file is written, and a reader won't be surprised by it.\nIf the other side wins instead, the <b>layout</b> changes in a way nothing else here expects & the page looks different.`;
+        }
+        const fenced = (name: string): string[] => (new RegExp(`Version "${name}":\\n\`{4,}\\n([\\s\\S]*?)\`{4,}`).exec(prompt)?.[1] ?? '').split('\n').filter(Boolean);
+        const ours = fenced('ours');
+        const merged = [...ours, ...fenced('theirs').filter(l => !ours.includes(l))];
+        return `Both sides have a point: the merge keeps our lines and adds what only their side has.\n\n\`\`\`css\n${merged.join('\n')}\n\`\`\``;
+      },
       async fullAccess() { return store.get<boolean>('breeze.demoFullAccess', false); },
       async setFullAccess(on) { store.set('breeze.demoFullAccess', on); return on; },
       // Made-up numbers, so the browser preview shows what Settings → Agents looks like.
@@ -468,6 +515,48 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async deleteBranch() { throw new Error('Deleting branches works in the desktop app.'); },
       async sync() { throw new Error('Push and pull work in the desktop app.'); },
       async genCommitMsg() { return 'feat: demo change'; },
+      // Pull request #51's conflicts: one text file with two conflicting blocks, one file the base branch deleted, and an
+      // image both changed. Like main, only the number comes in; the branches are the pull request's own.
+      async prConflictStart(n) {
+        const pr = demoPulls.find(p => p.number === n);
+        if (!pr) throw new Error('Pull request not found');
+        if (pr.head.repo === null) throw new Error('The source repository no longer exists');
+        const base = pr.base, headRef = pr.head.ref;
+        const lines = (...l: string[]) => l.join('\n') + '\n';
+        const crlf = (s: string) => s.replaceAll('\n', '\r\n'); // styles.css has Windows line endings, to try the CRLF path
+        const merged = crlf(lines('.hero {', '  padding: 4rem 1rem;', '<<<<<<< HEAD', '  background: #fff7ed;', '  color: #7c2d12;', '=======', '  background: #fef3c7;', '>>>>>>> origin/main', '}', '',
+          '.nav {', '  display: flex;', '<<<<<<< HEAD', '  gap: 1.5rem;', '=======', '  gap: 2rem;', '  align-items: center;', '>>>>>>> origin/main', '}'));
+        const mine = lines('function login() {', "  return fetch('/api/login');", '}');
+        return { id: `demo-${n}`, number: n, base, headRef, clean: false, files: [
+          { path: 'styles.css', kind: 'text', ours: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fff7ed;', '  color: #7c2d12;', '}')), theirs: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fef3c7;', '}')), merged, hasOurs: true, hasTheirs: true },
+          { path: 'script.js', kind: 'text', ours: mine, theirs: null, merged: mine, hasOurs: true, hasTheirs: false },
+          { path: 'assets/beans.jpg', kind: 'binary', ours: null, theirs: null, merged: null, hasOurs: true, hasTheirs: true },
+        ] };
+      },
+      async prConflictFinish() { return { ok: true }; }, // nothing to push in the demo
+      async prConflictAbort() { /* nothing to remove in the demo */ },
+    },
+    gh: {
+      async prs(base) {
+        const pulls = base === 'main' ? demoPulls : [];
+        return { ok: true, data: { owner: 'demo', repo: 'coffee-shop-landing', pulls } };
+      },
+      async pr(n) {
+        const p = demoPulls.find(x => x.number === n);
+        return p ? { ok: true, data: p } : { ok: false, error: 'not-found', message: 'Not Found' };
+      },
+      async prCommits(n) { return { ok: true, data: demoPrCommits[n] || [] }; },
+      async prFiles(n) { return { ok: true, data: demoPrFiles[n] || [] }; },
+      async commit(sha) {
+        const n = Object.keys(demoPrCommits).map(Number).find(k => demoPrCommits[k].some(c => c.sha === sha));
+        return { ok: true, data: n ? demoPrFiles[n] : [] };
+      },
+      async repo() { return { ok: true, data: { allowMerge: true, allowSquash: true, allowRebase: true } }; },
+      async merge(n) {
+        const i = demoPulls.findIndex(p => p.number === n);
+        if (i >= 0) demoPulls.splice(i, 1); // a merged pull request is no longer open
+        return { ok: true, data: { merged: true, message: 'Merged' } };
+      },
     },
     auth: {
       async user() { return current; },
