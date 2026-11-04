@@ -15026,6 +15026,18 @@ input.dbg-edit.bad:focus-visible {
   gap: 4px;
 }
 
+.pr-merge-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--err);
+  font-size: 12px;
+}
+
+.pr-merge-note:empty {
+  display: none;
+}
+
 .pr-tabs {
   display: flex;
   gap: 2px;

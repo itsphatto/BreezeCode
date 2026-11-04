@@ -190,6 +190,84 @@ function fillPrFile(box: Element, blk: HTMLElement): void {
   if (set && body && !body.firstChild) body.innerHTML = patchHtml(set.files[Number(blk.dataset.i)].patch, set.url);
 }
 
+/* ----- Pull requests: merging on GitHub ----- */
+type PrMergeMethod = 'merge' | 'squash' | 'rebase';
+const PR_MERGE_TIP: Record<string, string> = { conflict: 'Resolve the conflicts first', checking: 'GitHub is still checking this pull request' };
+const PR_MERGE_ERROR_COPY: Record<string, string> = {
+  'not-mergeable': 'GitHub can\'t merge this pull request right now',
+  'head-changed': 'New commits were pushed while you were reviewing',
+  forbidden: 'You don\'t have permission to merge here',
+};
+// The pull request being merged now (0: none; one merge at a time), and what the last failed merge said, shown in that
+// pull request's header until it is opened again. Kept here, not in the detail, so that switching tabs doesn't lose either.
+let prMerging = 0;
+let prMergeNote: { n: number; text: string; reload: boolean } | null = null;
+
+// A draft has no Merge button at all; the others have one that is only enabled when GitHub says the pull request is ready.
+function prMergeBtnHtml(pr: GhPull): string {
+  const st = prStatus(pr);
+  if (st === 'draft') return '';
+  const tip = PR_MERGE_TIP[st];
+  return `<button class="btn btn-primary btn-sm" id="prMerge" aria-haspopup="menu"${st !== 'ready' || prMerging ? ' disabled' : ''}${tip ? ` title="${escAttr(tip)}"` : ''}>${prMerging === pr.number ? 'Merging…' : 'Merge'}</button>`;
+}
+function prMergeNoteHtml(n: number): string {
+  const m = prMergeNote?.n === n ? prMergeNote : null;
+  return m ? `${esc(m.text)}${m.reload ? '<button class="btn btn-sm" data-pr-view="retry">Reload</button>' : ''}` : '';
+}
+// Brings the Merge button and the note under it up to date, if this pull request's detail is on screen.
+function syncMergeUi(pr: GhPull): void {
+  const view = document.querySelector(`#scmDetail .pr-view[data-n="${pr.number}"]`);
+  const btn = view?.querySelector('#prMerge');
+  if (btn) btn.outerHTML = prMergeBtnHtml(pr);
+  const note = view?.querySelector('#prMergeNote');
+  if (note) note.innerHTML = prMergeNoteHtml(pr.number);
+}
+
+// The three ways GitHub can merge, each enabled when the repository allows it. If that can't be found out, all three are
+// offered and GitHub refuses the one that isn't allowed.
+async function openMergeMenu(pr: GhPull, btn: HTMLElement): Promise<void> {
+  if (btn.dataset.asking) return;
+  btn.dataset.asking = '1';
+  const repo = await ghSafe(api.gh.repo());
+  delete btn.dataset.asking;
+  if (!btn.isConnected || prMerging) return;
+  const allow = repo.ok ? repo.data : { allowMerge: true, allowSquash: true, allowRebase: true };
+  const item = (label: string, method: PrMergeMethod, ok: boolean): MenuItem => ({ label, run: () => void mergePr(pr, method), enabled: () => ok });
+  const r = btn.getBoundingClientRect();
+  popupMenu(r.left, r.bottom + 4, [
+    item('Create a merge commit', 'merge', allow.allowMerge),
+    item('Squash and merge', 'squash', allow.allowSquash),
+    item('Rebase and merge', 'rebase', allow.allowRebase),
+  ], undefined, btn);
+}
+
+// Merges with the head the detail was rendered with: if commits were pushed since, GitHub refuses (head-changed) rather
+// than merging something that was never reviewed.
+async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
+  if (prMerging) return;
+  const n = pr.number;
+  const shown = () => !!document.querySelector(`#scmDetail .pr-view[data-n="${n}"]`);
+  prMerging = n;
+  prMergeNote = null;
+  syncMergeUi(pr);
+  const res = await ghSafe(api.gh.merge(n, method, pr.head.sha));
+  prMerging = 0;
+  if (!res.ok || !res.data.merged) {
+    const error = res.ok ? '' : res.error;
+    const text = PR_MERGE_ERROR_COPY[error] ?? ((res.ok ? res.data.message : res.message) || 'Couldn\'t merge this pull request');
+    if (shown()) { prMergeNote = { n, text, reload: error === 'head-changed' }; syncMergeUi(pr); } else toast(text);
+    return;
+  }
+  toast(`Merged #${n}`);
+  if (shown()) scmEmptyDetail(); // it is no longer open
+  void refreshPrs(true);
+  // The branch the pull request went into now has new commits on GitHub: bring them in when that's the branch checked out.
+  if (gitState.branch === pr.base) {
+    try { await api.git.sync('pull'); } catch (e) { toast(`Merged #${n}, but pulling ${pr.base} failed: ${errMsg(e)}`); }
+    await refreshGit();
+  }
+}
+
 function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, files: GhResult<GhFile[]>): string {
   const st = prStatus(pr);
   const tabs: [PrTab, string, number | null][] = [['commits', 'Commits', commits.ok ? commits.data.length : null], ['files', 'Files', files.ok ? files.data.length : null]];
@@ -198,7 +276,8 @@ function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, fi
   return `<div class="pr-head">
       <div class="pr-title"><h3>${esc(pr.title)}</h3><span class="pr-n">#${pr.number}</span>${pr.draft ? '<span class="pill">Draft</span>' : ''}</div>
       <div class="pr-meta"><span class="pr-st"><span class="pr-dot ${st}"></span>${PR_STATUS_LABEL[st]}</span><span class="pr-br">${esc(pr.head.label)} → ${esc(pr.base)}</span>${prAvatar(pr.author, pr.avatar)}<span>${esc(pr.author)}</span>${when ? `<span>${esc(when)}</span>` : ''}</div>
-      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${pr.draft ? '' : '<button class="btn btn-primary btn-sm" id="prMerge" disabled>Merge</button>'}</div>
+      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${prMergeBtnHtml(pr)}</div>
+      <div class="pr-merge-note" id="prMergeNote" role="alert">${prMergeNoteHtml(pr.number)}</div>
     </div>
     <div class="pr-tabs" role="tablist">${tabs.map(([k, label, n]) => `<button class="pr-tab ${k === tab ? 'on' : ''}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n === null ? '' : ` <span class="count">${n}</span>`}</button>`).join('')}</div>
     <div class="pr-body" id="prBody"></div>`;
@@ -206,7 +285,8 @@ function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, fi
 
 async function openPr(n: number): Promise<void> {
   const gen = ++prOpenGen;
-  const shown = () => gen === prOpenGen && !!document.querySelector(`#scmDetail .pr-view[data-n="${n}"]`);
+  prMergeNote = null; // opening it again (or Reload) starts clean
+  const shown =() => gen === prOpenGen && !!document.querySelector(`#scmDetail .pr-view[data-n="${n}"]`);
   showScmDetail(`<div class="pr-view" data-n="${n}"><div class="pr-loading"><div class="spinner sm"></div>Loading pull request #${n}</div></div>`);
   const [prRes, commits, files] = await Promise.all([ghSafe(api.gh.pr(n)), ghSafe(api.gh.prCommits(n)), ghSafe(api.gh.prFiles(n))]);
   if (!shown()) return; // another pull request, a file or the empty page took the right side meanwhile
@@ -273,6 +353,8 @@ async function openPr(n: number): Promise<void> {
     const tabBtn = t.closest<HTMLElement>('[data-tab]');
     if (tabBtn) { tab = tabBtn.dataset.tab as PrTab; paint(); return; }
     if (t.closest('[data-pr-view="retry"]')) { void openPr(n); return; }
+    const mergeBtn = t.closest<HTMLElement>('#prMerge');
+    if (mergeBtn) { if (!mergeBtn.hasAttribute('disabled')) void openMergeMenu(pr, mergeBtn); return; }
     const fileHead = t.closest<HTMLElement>('.pr-file-head');
     if (fileHead) {
       const blk = fileHead.parentElement as HTMLElement, box = blk.parentElement as HTMLElement;
@@ -298,7 +380,7 @@ async function openPr(n: number): Promise<void> {
       if (!shown()) return;
       const again = await ghSafe(api.gh.pr(n));
       if (!again.ok || !shown() || prStatus(again.data) === 'checking') return;
-      pr = again.data;
+      pr = { ...again.data, head: pr.head }; // the commits and files on screen are for the head first loaded, and so is a merge
       if (prData?.res.ok) {
         const i = prData.res.data.pulls.findIndex(p => p.number === n);
         if (i >= 0) { prData.res.data.pulls[i] = pr; paintPrs(); }

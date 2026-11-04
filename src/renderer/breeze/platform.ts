@@ -519,7 +519,11 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
         return { ok: true, data: n ? demoPrFiles[n] : [] };
       },
       async repo() { return { ok: true, data: { allowMerge: true, allowSquash: true, allowRebase: true } }; },
-      async merge() { return { ok: true, data: { merged: true, message: 'Merged' } }; },
+      async merge(n) {
+        const i = demoPulls.findIndex(p => p.number === n);
+        if (i >= 0) demoPulls.splice(i, 1); // a merged pull request is no longer open
+        return { ok: true, data: { merged: true, message: 'Merged' } };
+      },
     },
     auth: {
       async user() { return current; },
