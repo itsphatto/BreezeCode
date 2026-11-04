@@ -91,6 +91,8 @@ async function findTools(o) {
     cxx = tool(await probe([f.dir], cpp));
     break;
   }
+  // GDB debugs C, C++ and Rust (debugGdb.js); MinGW-w64 builds put it beside gcc.
+  const gdb = tool(await probe(ccDir ? [ccDir, ...dirs] : dirs, 'gdb'));
 
   let python = null;
   // `pip install x` then F5 should just work, but a PC can hold several Pythons (Store, python.org, MSYS2) and
@@ -163,12 +165,12 @@ async function findTools(o) {
   const sqlite = tool(await probe(pathDirs, 'sqlite3'));
 
   const binDirs = [];
-  for (const t of [cc, cxx, python, dotnet, java, rustc, cargo, node, lua, php, sqlite]) {
+  for (const t of [cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite]) {
     if (!t) continue;
     const d = P.dirname(t.path);
     if (!pathDirs.some((x) => same(x, d)) && !binDirs.some((x) => same(x, d))) binDirs.push(d);
   }
-  return { cc, cxx, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, binDirs };
+  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, binDirs };
 }
 
 async function freshPath(platform, run) {
@@ -404,6 +406,62 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
   };
 }
 
+// How the debugger builds a C, C++ or Rust file: like runPlan, with no optimising and with `debugHeader`
+// (runtime/breeze_debug.h), which holds the program before main until GDB attaches. Returns { steps, exe, entry, cpp }
+// (`entry` is the function "stop on entry" stops at) or { error }.
+function debugPlan(absFile, tools, platform, { stdioHeader, debugHeader }, opts = {}) {
+  const P = pathFor(platform);
+  const cwd = P.dirname(absFile);
+  const { name, ext, base } = P.parse(absFile);
+  const e = ext.toLowerCase();
+  const exe = P.join(cwd, 'build', name + (platform === 'win32' ? '.exe' : ''));
+
+  if (e === '.rs') {
+    // Rust can't take a header: the wait is a small C object linked into the program, which needs GCC.
+    if (!tools.cc) return { error: 'Debugging Rust needs GCC and GDB (MinGW-w64, from MSYS2 or WinLibs) next to Rust' };
+    const waitObj = P.join(opts.cargoToml ? P.dirname(opts.cargoToml) : cwd, opts.cargoToml ? 'target' : 'build', 'breeze_debug.o');
+    const wait = { display: `${tools.cc.name} -c breeze_debug.h`, file: tools.cc.path, args: ['-c', '-x', 'c', debugHeader, '-o', waitObj], cwd };
+    // kernel32 again after the object: the linker reads libraries once, in order, and rustc lists them before it.
+    const link = ['-C', `link-arg=${waitObj}`, '-C', 'link-arg=-lkernel32'];
+    if (opts.cargoToml) {
+      if (!tools.cargo) return { error: missing('rs', platform) };
+      const dir = P.dirname(opts.cargoToml);
+      // The encoded form keeps a path with spaces whole (RUSTFLAGS splits on them).
+      const env = { CARGO_ENCODED_RUSTFLAGS: link.join('\x1f') };
+      return {
+        steps: [
+          { ...wait, mkdir: P.dirname(waitObj) },
+          { display: 'cargo build', file: tools.cargo.path, args: ['build', '--message-format=json-render-diagnostics'], cwd: dir, env, cargo: true },
+        ],
+        exe: null, entry: null, cpp: false,
+      };
+    }
+    if (!tools.rustc) return { error: missing('rs', platform) };
+    const crate = name.replace(/\W/g, '_');
+    const flags = ['--edition', '2021', '-g', '-C', 'opt-level=0', ...link];
+    return {
+      steps: [
+        { ...wait, mkdir: P.dirname(waitObj) },
+        { display: `rustc "${base}" -o "${P.join('build', P.basename(exe))}" -g`, file: tools.rustc.path, args: [absFile, '-o', exe, ...flags], cwd },
+      ],
+      exe, entry: `${crate}::main`, cpp: false,
+    };
+  }
+
+  const cpp = ['.cpp', '.cc', '.cxx'].includes(e);
+  if (e !== '.c' && !cpp) return { error: 'Breeze can debug .c, .cpp and .rs files this way' };
+  const compiler = cpp ? tools.cxx : tools.cc;
+  if (!compiler) return { error: missing('c', platform) };
+  const flags = [cpp ? '-std=c++20' : '-std=c17', '-Wall', '-g', '-O0', ...(/clang/i.test(compiler.name) ? ['-gdwarf-4'] : [])];
+  return {
+    steps: [{
+      display: `${compiler.name} "${base}" -o "${P.join('build', P.basename(exe))}" ${flags.join(' ')}`,
+      file: compiler.path, args: [absFile, '-o', exe, ...flags, '-include', stdioHeader, '-include', debugHeader], cwd, mkdir: P.dirname(exe),
+    }],
+    exe, entry: 'main', cpp,
+  };
+}
+
 function runSteps(steps, { spawn, env, onStart, onData, onChild, onDone }) {
   let child = null;
   let cancelled = false;
@@ -468,4 +526,4 @@ function ensureBuildIgnored(rootDir) {
   fs.appendFileSync(file, (text === '' || text.endsWith('\n') ? '' : '\n') + 'build/\n');
 }
 
-module.exports = { nodeSupportsTs, findTools, freshPath, toolEnv, runPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };
+module.exports = { nodeSupportsTs, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };

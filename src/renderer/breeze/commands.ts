@@ -365,6 +365,7 @@ const MENUS: Menu[] = [
       { label: 'Agents Panel', act: 'view.toggleAgents', key: 'Ctrl+Alt+B', checked: () => layout.agentsOpen },
       { label: 'Terminal', act: 'term.toggle', key: 'Ctrl+`', checked: () => layout.termOpen },
       { label: 'Preview', act: 'view.togglePreview', checked: () => layout.previewOpen },
+      { label: 'Notebook View', act: 'nb.toggleView', checked: () => nbShown(activeBuf()), enabled: () => isNotebook(activeBuf()) },
       { label: 'Split Editor Right', act: 'view.splitEditor', key: 'Ctrl+\\', checked: () => !!splitPath },
       { label: 'Reset Layout', act: 'view.resetLayout' },
       { sep: true },

@@ -397,6 +397,13 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async definition() { return []; },
       async references() { return []; },
       async rename() { return {}; },
+      onDiagnostics() { return () => { /* no language servers in the browser */ }; },
+    },
+    nb: {
+      async run() { throw new Error('Running notebooks needs the desktop app'); },
+      async stop() { },
+      onMessage() { return () => { /* no kernels in the browser */ }; },
+      onState() { return () => { /* no kernels in the browser */ }; },
     },
     // Debugging runs the program on this computer, so the browser preview has nothing to attach to.
     debug: {
@@ -414,6 +421,7 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async evaluate() { throw new Error('Debugging needs the desktop app'); },
       async setValue() { throw new Error('Debugging needs the desktop app'); },
       async stdin() { return false; },
+      async installNetcoredbg() { throw new Error('Debugging needs the desktop app'); },
       onEvent() { return () => { /* no events in the browser */ }; },
     },
     git: {

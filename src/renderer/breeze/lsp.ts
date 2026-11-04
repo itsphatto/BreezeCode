@@ -37,6 +37,13 @@ async function lspFlush(b: EditorBuffer): Promise<void> {
   lspTimers.delete(b.path);
   await lspSend(b).catch(() => undefined);
 }
+// Errors and warnings from the server land next to the editor's own (setDiags).
+api.lsp.onDiagnostics((rel, diags, lines) => {
+  const b = buffers.get(rel);
+  if (b?.kind !== 'text' || !lspOn.has(rel) && !lspSent.has(rel)) return;
+  b.lspDiags = { diags, lines };
+  setDiags(b);
+});
 function lspClosed(path: string): void {
   clearTimeout(lspTimers.get(path));
   lspTimers.delete(path);

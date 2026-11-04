@@ -40,3 +40,4 @@ DemoVideo/
 /test-phatto
 # Plan execution scratch
 .superpowers/
+test/fixtures/**/build/

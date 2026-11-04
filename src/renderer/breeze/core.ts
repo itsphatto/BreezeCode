@@ -50,7 +50,12 @@ interface GitCommitDetail { hash: string; author: string; email: string; when: s
 
 interface DirEntry { name: string; dir: boolean; }
 interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; pdf?: boolean; size: number; }
-interface Diag { line: number; col: number; len: number; msg: string; }
+type NbMessage = { id: string } & (
+  | { type: 'stream'; name: string; text: string }
+  | { type: 'display' | 'result'; data: Record<string, string> }
+  | { type: 'error'; ename: string; evalue: string; traceback: string[] }
+  | { type: 'done'; count?: number });
+interface Diag { line: number; col: number; len: number; msg: string; sev?: number; } // sev 2: a warning
 type SyntaxResult = { ok: true } | (Diag & { eof?: boolean }) | null;
 interface RootInfo { root: string; name: string; }
 // A folder opened from Explorer's "Open with Breeze Code", with the file that was right-clicked (project-relative).
@@ -145,9 +150,18 @@ interface BreezeApi {
     evaluate(expr: string, frameId: number | undefined, context: 'watch' | 'repl' | 'hover'): Promise<DebugValue>;
     setValue(ref: number, name: string, value: string): Promise<DebugValue>;
     stdin(text: string): Promise<boolean>;
+    // Downloads netcoredbg (for C#) into Breeze's data folder; resolves with its path.
+    installNetcoredbg(): Promise<string>;
     onEvent(cb: (ev: DebugEvent) => void): () => void;
   };
   lint: { check(code: string, ext: string): Promise<SyntaxResult>; };
+  // Notebook kernels: replies to run() arrive as messages named by the request's id.
+  nb: {
+    run(rel: string, id: string, code: string): Promise<void>;
+    stop(rel: string): Promise<void>;
+    onMessage(cb: (rel: string, msg: NbMessage) => void): () => void;
+    onState(cb: (rel: string, state: 'idle' | 'busy' | 'dead') => void): () => void;
+  };
   lsp: {
     open(rel: string, text: string): Promise<LspOpen>;
     // The whole new text, or one edit in offsets of the text sent before.
@@ -158,6 +172,8 @@ interface BreezeApi {
     definition(rel: string, line: number, ch: number): Promise<LspLocation[]>;
     references(rel: string, line: number, ch: number): Promise<LspLocation[]>;
     rename(rel: string, line: number, ch: number, name: string): Promise<Record<string, LspEdit[]>>;
+    // A file's errors and warnings from its server, for the text that had `lines` lines.
+    onDiagnostics(cb: (rel: string, diags: Diag[], lines: number) => void): () => void;
   };
   term: {
     cwd(): Promise<string>;

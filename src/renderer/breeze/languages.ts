@@ -5,7 +5,7 @@ const LANGS: Record<string, [lexer: string, name: string]> = {
   css: ['css', 'CSS'], scss: ['css', 'SCSS'], less: ['css', 'Less'],
   js: ['js', 'JavaScript'], mjs: ['js', 'JavaScript'], cjs: ['js', 'JavaScript'], jsx: ['js', 'JavaScript JSX'],
   ts: ['js', 'TypeScript'], tsx: ['js', 'TypeScript JSX'], mts: ['js', 'TypeScript'], cts: ['js', 'TypeScript'],
-  json: ['json', 'JSON'], jsonc: ['js', 'JSON with Comments'],
+  json: ['json', 'JSON'], jsonc: ['js', 'JSON with Comments'], ipynb: ['json', 'Jupyter Notebook'],
   md: ['md', 'Markdown'], markdown: ['md', 'Markdown'],
   py: ['py', 'Python'],
   java: ['java', 'Java'], rs: ['rs', 'Rust'],

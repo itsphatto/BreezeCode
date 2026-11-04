@@ -48,6 +48,13 @@ contextBridge.exposeInMainWorld('breeze', {
     definition: (rel, line, ch) => invoke('lsp:definition', rel, line, ch),
     references: (rel, line, ch) => invoke('lsp:references', rel, line, ch),
     rename: (rel, line, ch, name) => invoke('lsp:rename', rel, line, ch, name),
+    onDiagnostics: cb => listen('lsp:diagnostics', cb),
+  },
+  nb: {
+    run: (rel, id, code) => invoke('nb:run', rel, id, code),
+    stop: rel => invoke('nb:stop', rel),
+    onMessage: cb => listen('nb:message', cb),
+    onState: cb => listen('nb:state', cb),
   },
   debug: {
     start: (rel, opts) => invoke('debug:start', rel, opts),
@@ -64,6 +71,7 @@ contextBridge.exposeInMainWorld('breeze', {
     evaluate: (expr, frameId, context) => invoke('debug:evaluate', expr, frameId, context),
     setValue: (ref, name, value) => invoke('debug:setValue', ref, name, value),
     stdin: text => invoke('debug:stdin', text),
+    installNetcoredbg: () => invoke('debug:installNetcoredbg'),
     onEvent: cb => listen('debug:event', cb),
   },
   lint: {

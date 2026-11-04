@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Built once per machine by debugDotnet.js into Breeze's own data folder. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>BreezeDebugHook</AssemblyName>
+  </PropertyGroup>
+</Project>

@@ -16,6 +16,8 @@ interface EditorBuffer {
   runDiags?: Diag[];     // the entries of `diags` that came from the last failed run (cleared by the next run or lint)
   lintSeq?: number;
   lintTimer?: TimeoutId;
+  lint?: { diags: Diag[]; lines: number };    // the editor's own check, and the language server's (see setDiags)
+  lspDiags?: { diags: Diag[]; lines: number };
   undo: Snapshot[];      // the editor keeps its own history (see "Undo & redo")
   redo: Snapshot[];
   lastEdit: { kind: string; at: number } | null;

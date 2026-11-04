@@ -91,19 +91,25 @@ let debugStopped = false;                  // the user stopped the last run (its
 const EXC_KEY = 'breeze.debug.exceptions';
 let debugExceptions: ExceptionMode = ((m: unknown) => (m === 'none' || m === 'all' ? m : 'uncaught'))(store.get<unknown>(EXC_KEY, 'uncaught'));
 
-// Python, or JavaScript/TypeScript run by Node; null for anything else (main/debug.js decides the same way).
-function debugKind(path: string | null): 'python' | 'node' | null {
+// Python, JavaScript/TypeScript run by Node, C/C++/Rust under GDB, Java, or C# under netcoredbg; null for anything else
+// (main/debug.js decides the same way).
+type DebugKind = 'python' | 'node' | 'native' | 'java' | 'dotnet';
+function debugKind(path: string | null): DebugKind | null {
   if (!path) return null;
   if (/\.py$/i.test(path)) return 'python';
+  if (/\.(?:c|cpp|cc|cxx|rs)$/i.test(path)) return 'native';
+  if (/\.java$/i.test(path)) return 'java';
+  if (/\.cs$/i.test(path)) return 'dotnet';
   return /\.(?:[cm]?js|m?ts)$/i.test(path) ? 'node' : null;
 }
+const DEBUG_LANGS = 'Python, JavaScript, TypeScript, C, C++, C#, Rust or Java';
 
 // Ctrl+Shift+D: debug the open file (the page's own file while the page shows). With a session already going, it
 // just brings the page up.
 async function startDebugging(): Promise<void> {
   if (debugState !== 'stopped') { openDebugView(); return; }
   const path = debugPageShowing() ? debugTarget() : active;
-  if (!path || !debugKind(path)) { toast('Breeze can debug Python, JavaScript and TypeScript files'); return; }
+  if (!path || !debugKind(path)) { toast(`Breeze can debug ${DEBUG_LANGS} files`); return; }
   await startDebugFile(path);
 }
 // Saves the file if it has changes (the program runs from disk), shows the page and starts. Every breakpoint goes

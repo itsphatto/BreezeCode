@@ -88,3 +88,44 @@ test('TypeScript server: completion, hover, definition, references and rename', 
     m.stopAll();
   }
 });
+
+test('toDiags keeps errors and warnings, one line long at most', () => {
+  const { toDiags } = require('../src/main/lsp');
+  const r = (l1, c1, l2, c2) => ({ start: { line: l1, character: c1 }, end: { line: l2, character: c2 } });
+  assert.deepEqual(toDiags([
+    { range: r(2, 4, 2, 9), message: 'Undefined name\nmore detail', severity: 1 },
+    { range: r(0, 0, 3, 1), message: 'Spans lines', severity: 2 },
+    { range: r(1, 0, 1, 1), message: 'Unused', severity: 4 },
+    { range: r(1, 2, 1, 2), message: 'No severity' },
+  ]), [
+    { line: 0, col: 0, len: 1, msg: 'Spans lines', sev: 2 },
+    { line: 1, col: 2, len: 1, msg: 'No severity', sev: 1 },
+    { line: 2, col: 4, len: 5, msg: 'Undefined name', sev: 1 },
+  ]);
+  assert.deepEqual(toDiags(null), []);
+});
+
+test('TypeScript server: problems for the open file, cleared once fixed', { skip: !fs.existsSync(TSC) && 'TypeScript 7 binary not installed', timeout: 60000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-lsp-'));
+  const bad = "const x: number = 'a';\n";
+  fs.writeFileSync(path.join(dir, 'a.ts'), bad);
+  const seen = [];
+  let wake = () => undefined;
+  const next = () => new Promise(res => { wake = res; });
+  const m = new LspManager({ findServer: async () => ({ cmd: TSC, args: ['--lsp', '--stdio'] }), env: async () => process.env, onDiagnostics: (rel, d, lines) => { seen.push({ rel, d, lines }); wake(); } });
+  m.setRoot(dir);
+  try {
+    let got = next();
+    await m.open('a.ts', bad);
+    await got;
+    assert.equal(seen.at(-1).rel, 'a.ts');
+    assert.equal(seen.at(-1).lines, 2);
+    assert.match(seen.at(-1).d[0].msg, /not assignable/);
+    got = next();
+    await m.change('a.ts', 'const x: number = 1;\n');
+    await got;
+    assert.deepEqual(seen.at(-1).d, []);
+  } finally {
+    m.stopAll();
+  }
+});

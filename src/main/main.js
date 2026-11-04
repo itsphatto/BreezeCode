@@ -10,13 +10,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const vm = require('node:vm');
-const { findTools, freshPath, toolEnv, runPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
+const { findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
 const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
 const { AntigravityAgentService } = require('./antigravityAgentService.js');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
 const { LspManager, SERVERS, findOnPath } = require('./lsp');
+const { Kernels } = require('./kernel');
 const skillsLib = require('./skills');
 const mcpLib = require('./mcp');
 const { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } = require('./previewServer');
@@ -457,7 +458,7 @@ function boxDir() {
 async function setRoot(dir) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
-  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); stopDebug(); }
+  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); stopDebug(); }
   root = dir;
   termCwd = dir;
   const saved = loadState();
@@ -680,7 +681,7 @@ handle('fs:restore', async () => {
 handle('fs:openLaunch', () => openLaunch(root));
 
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); stopDebug(); saveState({ lastRoot: null });
+  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); stopDebug(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {
@@ -1104,7 +1105,10 @@ async function findServer(kind) {
   }
   return null;
 }
-const lsp = new LspManager({ findServer, env: lspEnv });
+const lsp = new LspManager({
+  findServer, env: lspEnv,
+  onDiagnostics: (rel, diags, lines) => win?.webContents.send('lsp:diagnostics', rel, diags, lines),
+});
 const lspPos = (line, character) => ({ line: Number(line) | 0, character: Number(character) | 0 });
 // Every file goes through resolveIn first: the servers only ever hear about files inside the open folder.
 handle('lsp:open', (_e, rel, text) => { resolveIn(rel); lsp.setRoot(root); return lsp.open(rel, String(text)); });
@@ -1120,6 +1124,23 @@ handle('lsp:definition', (_e, rel, line, ch) => lsp.definition(rel, lspPos(line,
 handle('lsp:references', (_e, rel, line, ch) => lsp.references(rel, lspPos(line, ch)));
 handle('lsp:rename', (_e, rel, line, ch, name) => lsp.rename(rel, lspPos(line, ch), String(name)));
 app.on('will-quit', () => lsp.stopAll());
+
+// Notebook kernels (kernel.js): one Python per open notebook, running in the notebook's folder with the Python F5 uses.
+const kernels = new Kernels({
+  script: unpacked(path.join(ROOT, 'runtime', 'breeze_kernel.py')),
+  python: async () => {
+    const { tools, pathValue } = await getTools();
+    return { cmd: tools.python?.path || 'python', env: toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue) };
+  },
+});
+kernels.on('message', (nb, msg) => win?.webContents.send('nb:message', nb, msg));
+kernels.on('state', (nb, state) => win?.webContents.send('nb:state', nb, state));
+handle('nb:run', (_e, rel, id, code) => {
+  const abs = resolveIn(rel);
+  return kernels.run(rel, path.dirname(abs), String(id), String(code));
+});
+handle('nb:stop', (_e, rel) => kernels.stop(String(rel)));
+app.on('will-quit', () => kernels.stopAll());
 
 // Runs a .c, .cpp, .cs, .java, .js, .lua, .php, .py, .rs, .sql or .ts file in the open folder, streaming into the terminal under one id.
 let activeRun = null; // { id, cancel }
@@ -1231,6 +1252,40 @@ function stopDebug() { debug.stop().catch(() => { /* already gone */ }); }
 // On the way out nothing waits for stop() (its tree kill comes after a disconnect), so the tree is killed at once.
 function killDebug() { debug.killNow(); }
 app.on('before-quit', killDebug);
+
+// C# debugging uses netcoredbg (Samsung, MIT): one on the PATH, or the copy Breeze downloads into its data folder.
+// The download is a pinned release, checked against its SHA-256 before it is unpacked.
+const NETCOREDBG = {
+  url: 'https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-win64.zip',
+  sha256: '3c410a45fa502415203a94fcb88654af65bf8e3dac158a5527a722e7a6b9274a',
+};
+const netcoredbgDir = () => path.join(app.getPath('userData'), 'netcoredbg');
+function findNetcoredbg(pathValue) {
+  const own = path.join(netcoredbgDir(), 'netcoredbg', 'netcoredbg.exe');
+  return exists(own) ? own : findOnPath(['netcoredbg'], pathValue);
+}
+let netcoredbgInstall = null;
+handle('debug:installNetcoredbg', () => {
+  if (process.platform !== 'win32') throw new Error('Install netcoredbg from github.com/Samsung/netcoredbg');
+  netcoredbgInstall ??= (async () => {
+    const res = await fetch(NETCOREDBG.url);
+    if (!res.ok) throw new Error(`The download failed (${res.status})`);
+    const zip = Buffer.from(await res.arrayBuffer());
+    if (crypto.createHash('sha256').update(zip).digest('hex') !== NETCOREDBG.sha256) throw new Error("The download didn't match the expected file, so it wasn't used");
+    const dir = netcoredbgDir();
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'netcoredbg.zip');
+    fs.writeFileSync(file, zip);
+    const tar = path.join(process.env.SystemRoot || String.raw`C:\Windows`, 'System32', 'tar.exe');
+    await new Promise((resolve, reject) => execFile(tar, ['-xf', file, '-C', dir], { windowsHide: true }, e => (e ? reject(new Error(`Couldn't unpack netcoredbg: ${e.message}`)) : resolve())));
+    fs.rmSync(file, { force: true });
+    const exe = findNetcoredbg('');
+    if (!exe) throw new Error("netcoredbg wasn't in the download");
+    return exe;
+  })().finally(() => { netcoredbgInstall = null; });
+  return netcoredbgInstall;
+});
 // A breakpoint list from the page: whole lines only, text fields as strings.
 function cleanBps(list) {
   if (!Array.isArray(list)) return [];
@@ -1256,8 +1311,24 @@ handle('debug:start', async (_e, rel, opts) => {
   const env = toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
   if (/\.py$/i.test(file)) env.PYTHONUTF8 = '1'; // as F5 does, so print("café ✓") survives a pipe on a non-UTF-8 code page
   const node = /\.(?:[cm]?js|[cm]?ts)$/i.test(file) ? await which('node', pathValue) : null;
+  // C, C++ and Rust are built for the debugger first (toolchains.debugPlan); the build runs inside the session.
+  let build = null, buildError = null;
+  if (/\.(?:c|cpp|cc|cxx|rs)$/i.test(file)) {
+    const headers = { stdioHeader: unpacked(path.join(ROOT, 'runtime', 'breeze_stdio.h')), debugHeader: unpacked(path.join(ROOT, 'runtime', 'breeze_debug.h')) };
+    const plan = debugPlan(file, tools, process.platform, headers, { cargoToml: /\.rs$/i.test(file) ? nearestProject(file, n => n === 'Cargo.toml') : null });
+    if (plan.error) buildError = plan.error; else build = plan;
+    if (build) { try { ensureBuildIgnored(root); } catch { /* .gitignore is a nicety */ } }
+  }
   await debug.start({
-    root, file, env,
+    root, file, env, build, buildError,
+    gdb: tools.gdb?.path || 'gdb',
+    java: tools.java?.path || 'java',
+    javac: tools.java ? path.join(path.dirname(tools.java.path), process.platform === 'win32' ? 'javac.exe' : 'javac') : 'javac',
+    dotnet: tools.dotnet?.path || 'dotnet',
+    netcoredbg: findNetcoredbg(pathValue),
+    hookSrc: unpacked(path.join(ROOT, 'runtime', 'BreezeDebugHook')),
+    hookDir: path.join(app.getPath('userData'), 'debug-hook'),
+    project: /\.cs$/i.test(file) ? nearestProject(file, n => /\.csproj$/i.test(n)) : null,
     python: tools.python?.path || 'python',
     node: node || 'node',
     stopOnEntry: !!o.stopOnEntry,
