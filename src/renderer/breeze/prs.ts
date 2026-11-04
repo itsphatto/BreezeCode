@@ -315,7 +315,7 @@ async function openPr(n: number): Promise<void> {
     } else if (tab === 'conflict') {
       const gone = pr.head.repo === null;
       body.innerHTML = `<div class="pr-conflict"><h4>This pull request has conflicts with ${esc(pr.base)}</h4><p>GitHub can't merge it until they are resolved.</p>
-        <button class="btn btn-primary btn-sm" id="prResolve" disabled${gone ? ' title="The source repository no longer exists"' : ''}>Resolve conflicts</button>
+        <button class="btn btn-primary btn-sm" id="prResolve"${gone ? ' disabled title="The source repository no longer exists"' : ''}>Resolve conflicts</button>
         ${gone ? '<p class="pr-hint">The source repository no longer exists</p>' : ''}</div>`;
     } else {
       if (!commits.ok) { body.innerHTML = fail('commits'); return; }
@@ -353,6 +353,7 @@ async function openPr(n: number): Promise<void> {
     const tabBtn = t.closest<HTMLElement>('[data-tab]');
     if (tabBtn) { tab = tabBtn.dataset.tab as PrTab; paint(); return; }
     if (t.closest('[data-pr-view="retry"]')) { void openPr(n); return; }
+    if (t.closest('#prResolve')) { if (!t.closest('#prResolve')?.hasAttribute('disabled')) void openConflictPage(pr); return; }
     const mergeBtn = t.closest<HTMLElement>('#prMerge');
     if (mergeBtn) { if (!mergeBtn.hasAttribute('disabled')) void openMergeMenu(pr, mergeBtn); return; }
     const fileHead = t.closest<HTMLElement>('.pr-file-head');

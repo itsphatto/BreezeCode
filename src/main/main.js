@@ -14,6 +14,7 @@ const { findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuild
 const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
 const { AntigravityAgentService } = require('./antigravityAgentService.js');
 const { parseGithubRemote, githubClient, GithubError, enrichPulls } = require('./github');
+const prconflict = require('./prconflict');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
@@ -468,6 +469,9 @@ async function setRoot(dir) {
   const recentAt = Object.fromEntries(recent.map(r => [r, r === dir ? Date.now() : saved.recentAt?.[r] ?? null]));
   saveState({ lastRoot: dir, recent, recentAt });
   startWatching();
+  // Worktrees a crash left behind from resolving a pull request's conflicts in this folder.
+  for (const [id, c] of conflictSessions) if (path.resolve(c.session.repoDir) === path.resolve(dir)) conflictSessions.delete(id); // pruned just below
+  void prconflict.pruneConflicts({ run: runGitIn, repoDir: dir, worktreesDir: conflictWorktrees() }).catch(() => {});
   return { root: dir, name: path.basename(dir) };
 }
 
@@ -3032,6 +3036,59 @@ handle('gh:merge', (_e, n, method, sha) => ghCall(async ({ client, owner, repo }
   if (out.merged) for (const k of prCache.keys()) if (k.startsWith(`${owner}/${repo}/`)) prCache.delete(k);
   return out;
 }));
+/* ----- Resolving a pull request's conflicts (in a separate worktree, see prconflict.js) ----- */
+const conflictSessions = new Map(); // session id -> { session, pushTo }
+const conflictWorktrees = () => path.join(app.getPath('userData'), 'pr-worktrees');
+// prconflict's run(cwd, args, input?): git's stdout, or a rejection with the exit code on .code and the output on .stdout / .stderr.
+async function runGitIn(cwd, args, input) {
+  const bin = await gitBin();
+  return new Promise((res, rej) => {
+    const child = execFile(bin, safeGitArgs(args), {
+      cwd, windowsHide: true, timeout: 120000, maxBuffer: 64 * 1024 * 1024,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
+    }, (err, stdout, stderr) => {
+      if (!err) return res(stdout);
+      const e = new Error((stderr || err.message).trim());
+      e.code = err.code; e.stdout = stdout; e.stderr = stderr;
+      rej(e);
+    });
+    if (input != null) child.stdin.end(input);
+  });
+}
+const conflictSession = id => {
+  const s = conflictSessions.get(id);
+  if (!s) throw new Error('This conflict session has ended');
+  return s;
+};
+// The branch is pushed back to where it lives: origin, or the fork's own URL when the pull request comes from one.
+handle('git:prConflictStart', async (_e, n, base, headRef, headRepo) => {
+  if (!Number.isInteger(n) || n <= 0) throw new Error('Bad pull request number');
+  if (typeof base !== 'string' || !base || typeof headRef !== 'string' || !headRef) throw new Error('Bad branch name');
+  if (headRepo != null && !/^[\w.-]+\/[\w.-]+$/.test(headRepo)) throw new Error('Bad repository name');
+  const origin = parseGithubRemote((await git(['remote', 'get-url', 'origin'])).trim());
+  if (!origin) throw new Error('This repository isn\'t on GitHub');
+  const sameRepo = headRepo == null || headRepo.toLowerCase() === `${origin.owner}/${origin.repo}`.toLowerCase();
+  const pushTo = sameRepo ? 'origin' : `https://github.com/${headRepo}.git`;
+  const session = await prconflict.startConflict({ run: runGitIn, repoDir: resolveIn(''), worktreesDir: conflictWorktrees(), number: n, base, headRef });
+  conflictSessions.set(session.id, { session, pushTo });
+  return session;
+});
+handle('git:prConflictFinish', async (_e, id, results) => {
+  const { session, pushTo } = conflictSession(id);
+  if (!Array.isArray(results)) throw new Error('Bad resolution');
+  const clean = results.map(r => {
+    if (!r || typeof r.path !== 'string' || !(r.text === null || typeof r.text === 'string')) throw new Error('Bad resolution');
+    return { path: r.path, text: r.text };
+  });
+  await prconflict.finishConflict({ run: runGitIn, session, results: clean, pushTo });
+  conflictSessions.delete(id);
+  prCache.clear(); // the pull request's head moved, and so may its mergeable state
+});
+handle('git:prConflictAbort', async (_e, id) => {
+  const { session } = conflictSession(id);
+  await prconflict.abortConflict({ run: runGitIn, repoDir: session.repoDir, session });
+  conflictSessions.delete(id);
+});
 handle('git:diff', (_e, rel, staged) => git(['diff', '--no-color', ...(staged ? ['--cached'] : []), '--', ...checkPaths(rel)]));
 handle('git:init', () => git(['init']));
 // A file as of the last commit, for the editor's change marks. null: nothing to compare with (no repository,

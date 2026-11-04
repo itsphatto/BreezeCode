@@ -61,6 +61,11 @@ interface GhCommit { sha: string; message: string; author: string; avatar: strin
 interface GhFile { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null; }
 type GhResult<T> = { ok: true; data: T } | { ok: false; error: string; message?: string };
 
+// A pull request's conflicts being resolved in a separate worktree (main/prconflict.js). `ours` is the pull request's
+// file, `theirs` the base branch's; null means that side deleted it. `merged` is the file with conflict markers.
+interface ConflictFile { path: string; ours: string | null; theirs: string | null; merged: string; }
+interface ConflictSession { id: string; number: number; base: string; headRef: string; clean: boolean; files: ConflictFile[]; }
+
 interface DirEntry { name: string; dir: boolean; }
 interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; pdf?: boolean; size: number; }
 type NbMessage = { id: string } & (
@@ -257,6 +262,9 @@ interface BreezeApi {
     sync(op: 'fetch' | 'pull' | 'push'): Promise<unknown>;
     deleteBranch(name: string): Promise<unknown>;
     genCommitMsg(opts: { agent: string; prompt: string; model?: string; effort?: string }): Promise<string>;
+    prConflictStart(n: number, base: string, headRef: string, headRepo: string | null): Promise<ConflictSession>;
+    prConflictFinish(id: string, results: { path: string; text: string | null }[]): Promise<void>;
+    prConflictAbort(id: string): Promise<void>;
   };
   gh: {
     prs(base: string, force?: boolean): Promise<GhResult<{ owner: string; repo: string; pulls: GhPull[] }>>;

@@ -502,6 +502,19 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async deleteBranch() { throw new Error('Deleting branches works in the desktop app.'); },
       async sync() { throw new Error('Push and pull work in the desktop app.'); },
       async genCommitMsg() { return 'feat: demo change'; },
+      // Pull request #51's conflicts: one text file with two conflicting blocks, and one file the base branch deleted.
+      async prConflictStart(n, base, headRef) {
+        const lines = (...l: string[]) => l.join('\n') + '\n';
+        const merged = lines('.hero {', '  padding: 4rem 1rem;', '<<<<<<< HEAD', '  background: #fff7ed;', '  color: #7c2d12;', '=======', '  background: #fef3c7;', '>>>>>>> origin/main', '}', '',
+          '.nav {', '  display: flex;', '<<<<<<< HEAD', '  gap: 1.5rem;', '=======', '  gap: 2rem;', '  align-items: center;', '>>>>>>> origin/main', '}');
+        const mine = lines('function login() {', "  return fetch('/api/login');", '}');
+        return { id: `demo-${n}`, number: n, base, headRef, clean: false, files: [
+          { path: 'styles.css', ours: lines('.hero {', '  padding: 4rem 1rem;', '  background: #fff7ed;', '  color: #7c2d12;', '}'), theirs: lines('.hero {', '  padding: 4rem 1rem;', '  background: #fef3c7;', '}'), merged },
+          { path: 'script.js', ours: mine, theirs: null, merged: mine },
+        ] };
+      },
+      async prConflictFinish() { /* nothing to push in the demo */ },
+      async prConflictAbort() { /* nothing to remove in the demo */ },
     },
     gh: {
       async prs(base) {

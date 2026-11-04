@@ -15248,3 +15248,182 @@ input.dbg-edit.bad:focus-visible {
 .pr-conflict .pr-hint {
   color: var(--text-3);
 }
+
+/* ----- Pull requests: the conflict page ----- */
+.cf-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.cf-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.cf-file:hover {
+  background: var(--bg-2);
+}
+
+.cf-file.on {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--text);
+}
+
+.cf-ck {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: var(--ok);
+}
+
+.cf-fname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-left {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-3);
+  color: var(--text-2);
+  font-size: 11px;
+  text-align: center;
+}
+
+.cf-file.done .cf-left {
+  display: none;
+}
+
+.cf-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.cf-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.cf-path {
+  font: 12px var(--font-code);
+  overflow-wrap: anywhere;
+}
+
+.cf-count {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.cf-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.cf-acts .btn[aria-pressed="true"] {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.cf-panes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  flex: 1;
+}
+
+.cf-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 200px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cf-pane header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+  font-size: 12px;
+}
+
+.cf-pane header small {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-code,
+.cf-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--code-text);
+  font: 12px/18px var(--font-code);
+  overflow: auto;
+  white-space: pre;
+  resize: none;
+  box-sizing: border-box;
+}
+
+.cf-text {
+  width: 100%;
+  color: var(--text);
+}
+
+.cf-text:focus {
+  outline: none;
+  background: var(--bg-1);
+}
+
+.cf-text.bad {
+  box-shadow: inset 2px 0 0 var(--warn);
+}
+
+.cf-code.empty {
+  color: var(--text-3);
+}
+
+.cf-gone {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  padding: 16px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+}
+
+.cf-clean {
+  padding: 8px 0;
+}
