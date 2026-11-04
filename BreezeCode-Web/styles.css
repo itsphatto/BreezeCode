@@ -398,7 +398,7 @@ h2 {
 .feature p { margin: 0; color: var(--text-2); font-size: 15.5px; text-wrap: pretty; }
 
 .shot { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); }
-.shot img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; }
+.shot img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; object-position: top left; }
 
 code, .mono { font-family: var(--font-code); font-size: .9em; }
 .feature p code { padding: 1px 6px; border-radius: 4px; background: var(--bg-3); color: var(--text); }
@@ -417,7 +417,7 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
 .hs.is-pinned .features { align-items: stretch; gap: 28px; padding: 0; overflow: visible; }
 /* Height-led width so a card plus its words always fits a short laptop screen. */
 .hs.is-pinned .feature { width: min(600px, 42vw, calc((100vh - 330px) * 1.6)); }
-.hs.is-pinned .team { display: flex; flex-direction: column; justify-content: center; aspect-ratio: 16 / 10; }
+.hs.is-pinned .team { display: flex; flex-direction: column; justify-content: center; aspect-ratio: 16 / 9; }
 
 /* Team mock: an HTML picture of the @mention flow, drawn like the app's chat panel */
 .team { padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: radial-gradient(80% 60% at 100% 0%, rgba(0, 94, 255, .14), transparent 70%), var(--bg-1); }

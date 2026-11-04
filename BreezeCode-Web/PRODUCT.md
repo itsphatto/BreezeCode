@@ -40,7 +40,7 @@ Four pillars: work in the open (every read, edit and command shows live), bring 
 
 ## Evidence on Hand
 
-- Product screenshots in `assets/screens/` (hero, agent at work, Git, setup agents, Box, Vibe), captured from the renderer's browser demo with scripted agent runs.
+- Product screenshots in `assets/screens/` (hero, agent at work, Git, setup agents, Space, Vibe), captured from the renderer's browser demo with scripted agent runs.
 - Agent logos (`assets/agents/`) and language logos (`assets/langs/`).
 - **The "Up to 12× less memory" line is a rough estimate.** Keep it hedged ("up to"), don't make it more specific, and don't present it as a benchmark.
 - There are no testimonials, user counts, download stats, press or company logos. Don't make any up.

@@ -78,6 +78,8 @@ Breeze finds the coding agents already installed on your computer and signs in w
 | <img src="assets/icons/antigravity.png" height="16" alt=""> **Antigravity** | Antigravity's agent service | Not reported by Antigravity |
 | <img src="assets/icons/ollama.svg" height="16" alt=""> **Local model** | Ollama, LM Studio or any OpenAI-compatible server | No limit, it runs on your PC |
 
+<img src="docs/screenshots/settings.jpg" alt="Settings open on Agents, with the installed agents, the full access switch and each agent's usage" width="900">
+
 ## Several agents, one prompt
 
 @mention agents from different companies in a single prompt and each takes its piece. They call dibs on their files first, you settle any overlap, and then they build side by side.
@@ -95,6 +97,8 @@ flowchart LR
     B -. "touches another<br/>agent's file" .-> G["Breeze puts it<br/>back and tells you"]
 ```
 
+<img src="docs/screenshots/multi-agent.jpg" alt="Claude and Codex working from one prompt, with a Who does what card showing each agent's files and who owns the overlap" width="900">
+
 ## Features
 
 <table>
@@ -106,10 +110,10 @@ flowchart LR
 Ask in plain words. The agent card shows who's on it and what they're up to, and every read, edit and command lands in the chat live.
 
 </td>
-<td width="50%"><img src="docs/screenshots/ide-work.jpg" alt="Claude Code working on a request, with its file reads in the agents panel and the live preview beside the editor"></td>
+<td width="50%"><img src="docs/screenshots/agent-at-work.jpg" alt="Claude writing menu.js live in the editor, with its reads and edits in the agents panel"></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/screenshots/setup-agents.jpg" alt="The Pick your AI agent screen listing the agents found on this computer"></td>
+<td width="50%"><img src="docs/screenshots/setup-agents.jpg" alt="The Preferences step of first launch, with theme cards and the agents found on this computer"></td>
 <td width="50%" valign="top">
 
 ### Your agent, found
@@ -126,10 +130,10 @@ First launch looks for coding agents, Git and Node.js. Pick one, or point Breeze
 Stage, discard, commit and push from Source Control, with a graph of every checkpoint and branch. Files an agent is touching get flagged in the explorer and tabs.
 
 </td>
-<td width="50%"><img src="docs/screenshots/ide-git.jpg" alt="Source Control with staged and changed files and a graph of checkpoints"></td>
+<td width="50%"><img src="docs/screenshots/source-control.jpg" alt="Source Control with staged, changed and incoming files and a graph of checkpoints"></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/screenshots/box.jpg" alt="Breeze Space with a reply containing a code artifact card"></td>
+<td width="50%"><img src="docs/screenshots/space-chat.jpg" alt="Breeze Space with a code card in the reply and contact.css being written in a panel beside the chat"></td>
 <td width="50%" valign="top">
 
 ### Breeze Space
@@ -146,7 +150,7 @@ Just a prompt and a chat. No editor, no fuss. Code in a reply turns into a card 
 While an agent works, the IDE fades out and an Instagram or Facebook feed rolls. A card says when your code's ready; head back whenever you like.
 
 </td>
-<td width="50%"><img src="docs/screenshots/vibe.jpg" alt="Vibe Code Mode over the dimmed editor, with a feed and a code-ready card"></td>
+<td width="50%"><img src="docs/screenshots/vibe.jpg" alt="Vibe Code Mode over the dimmed editor, with a feed card and the agent's live status"></td>
 </tr>
 </table>
 
@@ -167,6 +171,20 @@ While an agent works, the IDE fades out and an Instagram or Facebook feed rolls.
 | **Accounts** | Sign in with GitHub or Google, with several accounts |
 | **Discord** | Rich Presence shows what you're working on |
 | **Feels alive** | Tiny synthesized sounds for clicks, typing and agents, with a volume slider |
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/debugger.jpg" alt="The debugger paused on a breakpoint, with the call stack, variables, watches and program output"><br><sub>The debugger</sub></td>
+<td width="50%"><img src="docs/screenshots/palette.jpg" alt="The Command Palette filtering commands by the word toggle"><br><sub>The Command Palette</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/space.jpg" alt="An empty Breeze Space chat asking What can I help with"><br><sub>Breeze Space, ready for a prompt</sub></td>
+<td width="50%"><img src="docs/screenshots/space-terminal.jpg" alt="Breeze Space with a terminal panel open beside the chat"><br><sub>A terminal beside the chat</sub></td>
+</tr>
+<tr>
+<td colspan="2"><img src="docs/screenshots/flight.gif" alt="The view flies up from Breeze Code through the clouds into Breeze Space"><br><sub>Turn on Extra animation to fly between Breeze Code and Breeze Space</sub></td>
+</tr>
+</table>
 
 ## Getting started
 
