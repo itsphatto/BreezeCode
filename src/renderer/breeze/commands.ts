@@ -91,6 +91,7 @@ const commands: Record<string, () => unknown> = {
   'view.toggleMinimap': () => { setMinimap(!minimapOn); sfx.play('menu'); },
   'view.splitEditor': () => { if (splitPath) { closeSplit(); } else { openSplit(); } renderTabs(); },
   'view.resetLayout': () => {
+    closeScmPage(); // it resets the side bar and preview, which are hidden behind the Source Control page
     const prev = { ...layout };
     Object.assign(layout, DEFAULT_LAYOUT, { view: layout.view });
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
