@@ -944,9 +944,9 @@ const holdStartup = <T>(p: Promise<T>): Promise<T> => { startupWaits?.push(p.cat
 // True until the app has faded in over the launch (init.ts). Background work that starts processes (git, tool
 // checks) waits for it: on Windows each process start freezes the main process, which drives that fade.
 let launching = true;
-const SCREEN_KEY = 'breeze.screen'; // the screen showing, for a reload to come back to (init.ts)
+const SCREEN_KEY = 'breeze.screen'; // the screen showing, for a reload or the next launch to come back to (init.ts)
 function swapScreen(to: string): void {
-  try { sessionStorage.setItem(SCREEN_KEY, to); } catch { /* storage off: a reload opens on Home */ }
+  store.set(SCREEN_KEY, to);
   const next = $(to);
   const screens = ['#onboard', '#ide', '#box', '#debug'].map(id => $(id));
   $('#debugBtn').classList.toggle('on', to === '#debug'); // the activity bar's Debug stays lit while its page shows

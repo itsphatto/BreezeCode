@@ -178,7 +178,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
     if (wasDirty !== isDirty(b)) { renderTabs(); renderTree(); }
     if (b.path === splitPath) renderSplit();
     if (findOpen) runFind(false);
-    queueRender(); saveSession(); scheduleLint(b); lspChanged(b);
+    queueRender(); saveSession(); scheduleLint(b); lspChanged(b); autoSaveSoon();
     // Suggest words while typing one; any other edit closes the list.
     if (b.lastEdit?.kind === 'type' && Date.now() - b.lastEdit.at < 100) editorSuggest(b); else hideSuggest();
   });

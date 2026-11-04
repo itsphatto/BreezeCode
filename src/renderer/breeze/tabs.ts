@@ -33,6 +33,7 @@ async function openFileInSplit(path: string): Promise<void> {
 }
 function setActive(path: string | null): void {
   const changed = active !== path;
+  if (changed && autoSave === 'focus') autoSaveNow();
   active = path;
   if (changed && path) sfx.play('tab');
   renderTabs(); renderEditor(); renderTree(); saveSession();
@@ -533,6 +534,37 @@ async function saveBuffers(list: EditorBuffer[]): Promise<boolean> {
   for (const b of list.filter(b => b.disk != null)) saved.push(await saveFile(b.path));
   return saved.every(Boolean);
 }
+/* ----- Auto save (Settings → General → Editor) ----- */
+// 'delay' saves a second after typing stops; 'focus' saves when the window loses focus or another tab is picked.
+// Both also save on leaving the window. Untitled files (nowhere to go yet), files changed on disk (that needs a
+// choice) and files an agent is editing are left for a manual save.
+type AutoSave = 'off' | 'delay' | 'focus';
+const AUTO_SAVE_MODES: AutoSave[] = ['off', 'delay', 'focus'];
+const AUTO_SAVE_MS = 1000;
+const savedAutoSave = store.get<string>('breeze.autoSave', 'delay');
+let autoSave: AutoSave = AUTO_SAVE_MODES.find(m => m === savedAutoSave) ?? 'delay';
+let autoSaveTimer: TimeoutId | undefined;
+function setAutoSave(mode: AutoSave): void {
+  autoSave = mode;
+  store.set('breeze.autoSave', mode);
+  clearTimeout(autoSaveTimer);
+  if (mode !== 'off') autoSaveNow();
+}
+const autoSavable = (b: EditorBuffer) => isDirty(b) && !b.untitled && b.disk == null && !locks[b.path];
+function autoSaveNow(): void {
+  clearTimeout(autoSaveTimer);
+  if (autoSave === 'off') return;
+  const list = [...buffers.values()].filter(autoSavable);
+  if (list.length) background(saveBuffers(list));
+}
+// Called on every edit.
+function autoSaveSoon(): void {
+  if (autoSave !== 'delay') return;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(autoSaveNow, AUTO_SAVE_MS);
+}
+window.addEventListener('blur', autoSaveNow);
+
 async function saveAll(): Promise<boolean> {
   const dirty = [...buffers.values()].filter(isDirty);
   const ok = await saveBuffers(dirty);

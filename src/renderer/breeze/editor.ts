@@ -159,6 +159,7 @@ function renderEditor(): void {
     empty.classList.add('hidden');
     hlLines.replaceChildren(); hlBoxes.replaceChildren(); gutLines.replaceChildren();
     closeFind();
+    queueMinimap();
     updateStatus();
     return;
   }
@@ -717,7 +718,135 @@ function editorSliders(editor: HTMLElement, surface: () => CodeSurface | undefin
   const horiz = scrollSlider(editor.querySelector<HTMLElement>('.code') ?? editor, surface, 'h');
   return ta => { vert(ta); horiz(ta); };
 }
-const updateSliders = editorSliders($('#editor'), () => activeText()?.ta);
+const editorSlidersOnly = editorSliders($('#editor'), () => activeText()?.ta);
+// The sliders and the minimap follow the same scrolls and file switches.
+const updateSliders = (ta?: CodeSurface): void => { editorSlidersOnly(ta); queueMinimap(); };
+
+/* ----- Minimap: the whole file zoomed out beside the right slider (Settings → General → Editor) ----- */
+// Each line is MM_LINE px tall and each character MM_CHAR px wide, in its syntax colour. A file taller than the
+// map scrolls along with the editor, as the editor's scroll fraction. The shaded box is the part on screen: drag
+// it to scroll, or click anywhere on the map to jump there (and keep dragging).
+const MM_LINE = 2, MM_CHAR = 1, MM_COLS = 120, MM_SLIDER_LANE = 16;
+let minimapOn = store.get<boolean>('breeze.minimap', true) !== false;
+const mmEl = document.createElement('div');
+mmEl.className = 'minimap';
+mmEl.setAttribute('aria-hidden', 'true');
+const mmCanvas = document.createElement('canvas');
+const mmView = document.createElement('div');
+mmView.className = 'minimap-view';
+mmEl.append(mmCanvas, mmView);
+$('#editor').append(mmEl);
+let mmQueued = false;
+function setMinimap(on: boolean): void {
+  minimapOn = on;
+  store.set('breeze.minimap', on);
+  queueMinimap();
+}
+function queueMinimap(): void {
+  if (mmQueued) return;
+  mmQueued = true;
+  requestAnimationFrame(() => { mmQueued = false; drawMinimap(); });
+}
+// Token colours come from the editor's own CSS (tk-* classes), read once per theme.
+const mmColors = new Map<string, string>();
+new MutationObserver(() => { mmColors.clear(); queueMinimap(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+function mmColor(kind: string | null): string {
+  const key = kind ?? '';
+  let c = mmColors.get(key);
+  if (c) return c;
+  const probe = document.createElement('span');
+  if (kind) probe.className = `tk-${kind}`;
+  $('#hl').append(probe);
+  c = getComputedStyle(probe).color;
+  probe.remove();
+  mmColors.set(key, c);
+  return c;
+}
+// Where the map's first drawn pixel row sits in the file's full map (0 unless the map is taller than its box).
+function mmGeometry(ta: CodeSurface, lines: number) {
+  const h = mmEl.clientHeight;
+  const full = lines * MM_LINE;
+  const overflow = Math.max(0, ta.scrollHeight - ta.clientHeight);
+  const offset = full > h && overflow > 0 ? (full - h) * ta.scrollTop / overflow : 0;
+  const viewTop = ta.scrollTop / LINE_H * MM_LINE - offset;
+  const viewH = Math.max(8, ta.clientHeight / LINE_H * MM_LINE);
+  return { h, full, offset, viewTop, viewH, overflow };
+}
+function drawMinimap(): void {
+  if (!booted) { queueMinimap(); return; } // notebook.ts (nbShown) and the first file aren't in yet
+  const b = activeText();
+  const show = minimapOn && !!b && !nbShown(b);
+  $('#editor').classList.toggle('minimap-on', show);
+  if (!show || !b) return;
+  const ta = b.ta, doc = highlighted(b), lines = doc.lines.length;
+  const w = mmEl.clientWidth - MM_SLIDER_LANE, dpr = devicePixelRatio || 1;
+  const g = mmGeometry(ta, lines);
+  if (!w || !g.h) return;
+  if (mmCanvas.width !== Math.round(w * dpr) || mmCanvas.height !== Math.round(g.h * dpr)) {
+    mmCanvas.width = Math.round(w * dpr); mmCanvas.height = Math.round(g.h * dpr);
+    mmCanvas.style.width = `${w}px`; mmCanvas.style.height = `${g.h}px`;
+  }
+  const ctx = mmCanvas.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, g.h);
+  ctx.globalAlpha = .7;
+  const cols = Math.min(MM_COLS, Math.floor(w / MM_CHAR));
+  const first = Math.floor(g.offset / MM_LINE), last = Math.min(lines, Math.ceil((g.offset + g.h) / MM_LINE));
+  const text = doc.text, starts = doc.starts, kinds = doc.kinds;
+  const plain = mmColor(null);
+  for (let i = first; i < last; i++) {
+    const from = doc.lines[i], to = Math.min(i + 1 < lines ? doc.lines[i + 1] - 1 : text.length, from + cols * 2);
+    const y = i * MM_LINE - g.offset;
+    let k = starts.length ? lineOfOffset(starts, from) : -1;
+    let col = 0, runStart = -1, runColor = '';
+    const flush = () => { if (runStart >= 0) { ctx.fillStyle = runColor; ctx.fillRect(runStart * MM_CHAR, y, (col - runStart) * MM_CHAR, MM_LINE - .5); runStart = -1; } };
+    for (let at = from; at < to && col < cols; at++) {
+      while (k >= 0 && k + 1 < starts.length && starts[k + 1] <= at) k++;
+      const ch = text.charCodeAt(at);
+      if (ch === 32 || ch === 9) { flush(); col += ch === 9 ? 4 - (col % 4) : 1; continue; } // tabs stop every 4 columns, as .hl draws them
+      const color = k >= 0 && starts[k] <= at ? (kinds[k] ? mmColor(kinds[k]) : plain) : plain;
+      if (runStart >= 0 && color !== runColor) flush();
+      if (runStart < 0) { runStart = col; runColor = color; }
+      col++;
+    }
+    flush();
+  }
+  mmView.style.transform = `translateY(${g.viewTop}px)`;
+  mmView.style.height = `${g.viewH}px`;
+}
+mmEl.addEventListener('pointerdown', e => {
+  const b = activeText();
+  if (!b || e.button !== 0) return;
+  e.preventDefault();
+  const ta = b.ta, lines = highlighted(b).lines.length;
+  const r = mmEl.getBoundingClientRect();
+  let g = mmGeometry(ta, lines);
+  // Off the box: centre the view on the clicked line first.
+  if (e.target !== mmView) {
+    const line = (e.clientY - r.top + g.offset) / MM_LINE;
+    ta.scrollTop = clamp(line * LINE_H - ta.clientHeight / 2, 0, g.overflow);
+    g = mmGeometry(ta, lines);
+  }
+  // Then drag the box: its travel across the map maps onto the whole scroll.
+  const travel = Math.min(g.full, g.h) - g.viewH;
+  const startY = e.clientY, startTop = ta.scrollTop;
+  mmEl.classList.add('drag');
+  try { mmEl.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+  const move = (ev: PointerEvent) => { if (travel > 0) ta.scrollTop = clamp(startTop + (ev.clientY - startY) * g.overflow / travel, 0, g.overflow); };
+  const up = () => {
+    mmEl.classList.remove('drag');
+    mmEl.removeEventListener('pointermove', move);
+    mmEl.removeEventListener('pointerup', up);
+    mmEl.removeEventListener('pointercancel', up);
+    ta.focus({ preventScroll: true });
+  };
+  mmEl.addEventListener('pointermove', move);
+  mmEl.addEventListener('pointerup', up);
+  mmEl.addEventListener('pointercancel', up);
+});
+mmEl.addEventListener('wheel', e => { const ta = activeText()?.ta; if (ta) { e.preventDefault(); ta.scrollTop += e.deltaY; } }, { passive: false });
+new ResizeObserver(queueMinimap).observe($('#editor'));
 
 
 
@@ -853,7 +982,7 @@ splitTa.addEventListener('input', () => {
   }
   if (wasDirty !== isDirty(b)) { renderTabs(); renderTree(); }
   if (b.path === active) queueRender();
-  paintSplit(); saveSession(); scheduleLint(b);
+  paintSplit(); saveSession(); scheduleLint(b); autoSaveSoon();
   $('#splitDirty').classList.toggle('hidden', !isDirty(b));
 });
 splitTa.addEventListener('beforeinput', e => { const b = splitBuf(); if (b) beforeEdit(b, e as InputEvent, splitTa); });

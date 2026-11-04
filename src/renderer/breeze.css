@@ -3075,6 +3075,55 @@ svg.ico-svg:active {
   min-width: 0;
 }
 
+/* Minimap (editor.ts): the file zoomed out between the code and the right slider. */
+.minimap {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100px;
+  /* Opaque, so code scrolled sideways doesn't show under it; the right 16px is the slider's lane. */
+  background: var(--bg);
+  z-index: 4;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+}
+
+.editor.minimap-on>.minimap {
+  display: block;
+}
+
+.editor.minimap-on>.code {
+  margin-right: 100px;
+}
+
+.minimap canvas {
+  display: block;
+}
+
+.minimap-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 16px;
+  background: rgba(var(--ink), .07);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), .06);
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity .15s, background-color .15s;
+}
+
+.minimap:hover .minimap-view,
+.minimap.drag .minimap-view {
+  opacity: 1;
+}
+
+.minimap.drag .minimap-view {
+  background: rgba(var(--ink), .14);
+}
+
 .hl {
   margin: 0;
   padding: 10px 24px 10px 4px;

@@ -1,12 +1,10 @@
 /* ================= Init ================= */
-// Ctrl+R reloads the window: the screen it was on (the editor or Breeze Space) comes back instead of Home. The screen
-// is kept for this window's session only (swapScreen), so a fresh launch still opens on Home.
+// A reload or a fresh launch comes back to the screen the window was on (the editor or Breeze Space) instead of Home,
+// so closing Breeze in the editor reopens it in the editor. The screen is remembered by swapScreen.
 const reloadedMode: WorkMode | null = (() => {
   if (!appState.onboarded) return null;
-  try {
-    const s = sessionStorage.getItem(SCREEN_KEY);
-    return s === '#ide' || s === '#debug' ? 'ide' : s === '#box' ? 'box' : null; // a reload ends the debug session: back to the editor
-  } catch { return null; }
+  const s = store.get<string>(SCREEN_KEY, '');
+  return s === '#ide' || s === '#debug' ? 'ide' : s === '#box' ? 'box' : null; // a debug session doesn't survive: back to the editor
 })();
 // Opened from Explorer: straight into the editor with the right-clicked file (setup still comes first on a first run).
 function showLaunched(info: LaunchInfo): void {
