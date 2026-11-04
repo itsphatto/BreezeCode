@@ -67,6 +67,7 @@ const commands: Record<string, () => unknown> = {
   'view.search': searchSelection,
   'view.git': () => showView('git', true),
   'view.toggleSide': () => {
+    closeScmPage(); // the side bar is hidden behind the Source Control page: go back to what it holds, then toggle it
     const prev = { ...layout };
     layout.sideOpen = !layout.sideOpen;
     sfx.play('menu');
@@ -81,6 +82,7 @@ const commands: Record<string, () => unknown> = {
     applyLayoutAnimated();
   },
   'view.togglePreview': () => {
+    closeScmPage(); // the preview is hidden behind the Source Control page: close it first so the toggle is seen
     const prev = { ...layout };
     layout.previewOpen = !layout.previewOpen;
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
