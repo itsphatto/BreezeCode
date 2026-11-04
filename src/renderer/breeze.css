@@ -14844,3 +14844,395 @@ input.dbg-edit.bad:focus-visible {
   min-height: 0;
   max-height: none;
 }
+
+/* ----- Pull requests: the list ----- */
+.pr-note {
+  line-height: 1.4;
+}
+
+.pr-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 1px 0;
+  padding: 6px 8px 6px 14px;
+  border-radius: 6px;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.pr-row:hover,
+.pr-row.on {
+  background: var(--bg-3);
+  color: var(--text);
+}
+
+.pr-l1,
+.pr-l2,
+.pr-l3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pr-t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pr-n {
+  flex: none;
+  color: var(--text-3);
+}
+
+.pr-l2,
+.pr-l3 {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.pr-br {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-code);
+}
+
+.pr-au {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pr-l3 .pill {
+  margin-left: auto;
+}
+
+.pr-av {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 600;
+  object-fit: cover;
+}
+
+.pr-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.pr-dot.ready {
+  background: var(--ok);
+}
+
+.pr-dot.conflict {
+  background: var(--err);
+}
+
+.pr-dot.checking {
+  background: var(--warn);
+}
+
+/* ----- Pull requests: the detail ----- */
+.pr-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 16px 18px;
+  box-sizing: border-box;
+}
+
+.pr-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  color: var(--text-3);
+}
+
+.pr-loading.pr-fail {
+  flex-direction: column;
+}
+
+.pr-loading p,
+.pr-hint {
+  margin: 0;
+}
+
+.pr-hint {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.pr-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pr-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pr-title h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.pr-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.pr-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pr-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pr-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+
+.pr-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.pr-tab:hover {
+  color: var(--text);
+}
+
+.pr-tab.on {
+  color: var(--text);
+  border-bottom-color: var(--blue-text);
+}
+
+.pr-tab .count {
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--bg-3);
+  font-size: 10px;
+}
+
+.pr-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pr-commit,
+.pr-file {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.pr-commit-head,
+.pr-file-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+  min-width: 0;
+}
+
+.pr-commit-head:hover,
+.pr-file-head:hover {
+  background: var(--bg-3);
+}
+
+.pr-commit-head .chev,
+.pr-file-head .chev {
+  flex: none;
+  display: inline-flex;
+  transform: rotate(270deg);
+  transition: transform .18s cubic-bezier(.16, 1, .3, 1);
+}
+
+.pr-commit:not(.open) .pr-commit-head .chev,
+.pr-file.closed .pr-file-head .chev {
+  transform: rotate(180deg);
+}
+
+.pr-cmsg,
+.pr-fname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pr-cmsg {
+  flex: 1 1 100px;
+  font-weight: 600;
+}
+
+.pr-commit-head .pr-csub {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pr-fname {
+  font-family: var(--font-code);
+}
+
+.pr-csub,
+.pr-fst {
+  flex: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.pr-commit-head code {
+  flex: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.pr-stat {
+  flex: none;
+  font: 11.5px var(--font-code);
+}
+
+.pr-stat .add {
+  color: var(--ok);
+}
+
+.pr-stat .del {
+  color: var(--err);
+}
+
+.pr-commit:not(.open) .pr-commit-body,
+.pr-file.closed .pr-file-body {
+  display: none;
+}
+
+.pr-commit-body {
+  padding: 0 10px 10px;
+}
+
+.pr-commit-body .pr-loading {
+  padding: 10px;
+}
+
+.pr-diff {
+  max-height: 480px;
+  border-radius: 0;
+  border-width: 1px 0 0;
+}
+
+.pr-diff .dl {
+  display: flex;
+  min-width: max-content;
+  padding: 0;
+}
+
+.pr-diff .ln {
+  flex: none;
+  width: 44px;
+  padding: 0 8px 0 0;
+  text-align: right;
+  color: var(--text-3);
+  user-select: none;
+  opacity: .8;
+}
+
+.pr-diff .tx {
+  padding: 0 12px 0 8px;
+}
+
+.pr-diff .dl.note {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.pr-nopatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.pr-conflict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.pr-conflict h4,
+.pr-conflict p {
+  margin: 0;
+}
+
+.pr-conflict p {
+  color: var(--text-2);
+}
+
+.pr-conflict .pr-hint {
+  color: var(--text-3);
+}

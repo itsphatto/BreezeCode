@@ -30,6 +30,7 @@ async function refreshGit(): Promise<void> {
   }
   renderScm(); renderBranch(); renderTree(); renderTabs();
   refreshHeadTexts();
+  void refreshPrs(); // a switched branch has other pull requests; the window focus and every git change come through here too
   if (gitLog.commits.length) {
     for (const c of gitLog.commits) {
       if (!commitDetails.has(c.hash)) {
@@ -368,6 +369,7 @@ function renderScm(): void {
     ${scmSectionHtml('changes', 'Changes', changes, false, `<button class="icon-btn" data-scm-all="discard" title="Discard All Changes">${svgIcon('undo')}</button><button class="icon-btn" data-scm-all="stage" title="Stage All Changes">${svgIcon('plus')}</button>`)}
     ${incomingSectionHtml()}
     ${empty}
+    ${prSectionHtml()}
     <div class="scm-sec graph ${scmCollapsed.has('graph') ? 'closed' : ''}" data-sec="graph">
       <div class="scm-head"><span class="chev"><svg width="10" height="10"><use href="#i-chev"/></svg></span><span class="title">Checkpoints</span><span class="count">${gitLog.commits.length}</span></div>
       <div class="scm-list">${renderGraphRows()}</div>
