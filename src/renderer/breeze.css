@@ -15427,3 +15427,109 @@ input.dbg-edit.bad:focus-visible {
 .cf-clean {
   padding: 8px 0;
 }
+
+/* The Duel: the agent's two arguments and the judge's verdict, above the three panes. */
+.cf-duel:empty {
+  display: none;
+}
+
+.cf-duel {
+  margin-bottom: 8px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+}
+
+.cf-duel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.cf-duel-head small {
+  color: var(--text-3);
+}
+
+.cf-duel-head .btn {
+  margin-left: auto;
+}
+
+.cf-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.cf-card {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cf-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.cf-card-text {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cf-card-dim {
+  color: var(--text-3);
+}
+
+.cf-card-err {
+  color: var(--err);
+}
+
+.cf-card .cf-card-dim + .cf-card-dim,
+.cf-card-text + .cf-card-dim {
+  margin-top: 4px;
+}
+
+/* The judge's merge, waiting in Result for Accept, Edit or Reject. */
+.cf-proposal:not(.on) {
+  display: none;
+}
+
+.cf-proposal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--blue-soft);
+  font-size: 12px;
+}
+
+.cf-prop-tag {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 11px;
+}
+
+.cf-prop-acts {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.cf-text.proposed {
+  box-shadow: inset 2px 0 0 var(--blue);
+}

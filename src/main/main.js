@@ -3185,6 +3185,9 @@ function cleanCommitText(text, fallback) {
   if (quoted) clean = clean.slice(1, -1).trim();
   return clean || fallback;
 }
+// What the writers make of an agent's reply: the commit box wants cleanCommitText; a plain question (agent:ask) wants the
+// reply as it came, only trimmed, so a code block in it survives.
+const rawReply = (text, fallback) => String(text || '').trim() || fallback;
 // Runs an agent CLI with the prompt on stdin and resolves with whatever `finish` makes of its whole output.
 function runCommitCli(bin, args, base, prompt, finish, onLine) {
   return new Promise((resolve, reject) => {
@@ -3208,7 +3211,10 @@ function runCommitCli(bin, args, base, prompt, finish, onLine) {
     child.on('error', reject);
   });
 }
-function antigravityCommitMsg(base, prompt, model) {
+// Each writer below runs its agent once with the prompt, read-only. `ask` returns the raw reply (see rawReply) and throws
+// when there is none; without it the reply is cleaned up as a commit message, with a stand-in where one existed.
+function antigravityCommitMsg(base, prompt, model, effort, ask) {
+  const tidy = ask ? rawReply : cleanCommitText;
   const service = new AntigravityAgentService({
     executablePath: agentBins.get('antigravity') || undefined,
     cwd: base,
@@ -3232,29 +3238,36 @@ function antigravityCommitMsg(base, prompt, model) {
     // No reply is an error, with what it ran into (a tool it wasn't allowed to use, say), not a stand-in message:
     // the renderer then writes one from the file list and says why.
     service.on('exit', code => {
-      const clean = cleanCommitText(resultText, '');
+      const clean = tidy(resultText, '');
       if (clean) resolve(clean);
       else reject(new Error(note || `Antigravity wrote no message (exit code ${code})`));
     });
     service.start().catch(reject);
   });
 }
-async function localCommitMsg(base, prompt, model) {
+async function localCommitMsg(base, prompt, model, effort, ask) {
   const cfg = await llmConfig(true).catch(() => null);
   if (!cfg) throw new Error('No Ollama server is connected');
   const body = {
     model: model || cfg.model,
     messages: [
-      { role: 'system', content: 'You write detailed Git commit messages: a Conventional Commits subject line (at most 72 characters) followed by a blank line and one specific bullet per distinct change, naming the files, components or behaviour affected. Follow the format and rules in the request exactly. Output ONLY the commit message without quotes, code fences or explanations.' },
+      { role: 'system', content: ask
+        ? 'You are a careful senior engineer. Follow the format and length limits in the request exactly.'
+        : 'You write detailed Git commit messages: a Conventional Commits subject line (at most 72 characters) followed by a blank line and one specific bullet per distinct change, naming the files, components or behaviour affected. Follow the format and rules in the request exactly. Output ONLY the commit message without quotes, code fences or explanations.' },
       { role: 'user', content: prompt }
     ],
     temperature: 0.2,
     stream: false
   };
   const j = await llmRequest({ base, cfg }, body);
-  return cleanCommitText(withoutThinking(j.choices?.[0]?.message?.content || ''), 'chore: update files');
+  const text = withoutThinking(j.choices?.[0]?.message?.content || '');
+  if (!ask) return cleanCommitText(text, 'chore: update files');
+  const reply = rawReply(text, '');
+  if (!reply) throw new Error('The local model wrote no reply');
+  return reply;
 }
-function codexCommitMsg(base, prompt, model, effort) {
+function codexCommitMsg(base, prompt, model, effort, ask) {
+  const tidy = ask ? rawReply : cleanCommitText;
   const bin = agentBins.get('codex');
   if (!bin) throw new Error('Codex was not found');
   // Only a model this Codex offers (its own list): signed in with ChatGPT it refuses the API ones, gpt-4o among them,
@@ -3275,7 +3288,7 @@ function codexCommitMsg(base, prompt, model, effort) {
   };
   // No reply is an error with Codex's reason (the renderer then writes a message from the file list), not a stand-in.
   const finish = () => {
-    const clean = cleanCommitText(message, '');
+    const clean = tidy(message, '');
     if (clean) return clean;
     let why = failed;
     try { why = JSON.parse(failed).error?.message || why; } catch { /* plain text */ }
@@ -3283,7 +3296,7 @@ function codexCommitMsg(base, prompt, model, effort) {
   };
   return runCommitCli(bin, args, base, prompt, finish, onLine);
 }
-function claudeCommitMsg(base, prompt, model) {
+function claudeCommitMsg(base, prompt, model, effort, ask) {
   const bin = agentBins.get('claude');
   if (!bin) throw new Error('Claude was not found');
   const targetModel = CLAUDE_MODELS.includes(model) && model !== 'default' ? model : 'haiku';
@@ -3291,7 +3304,10 @@ function claudeCommitMsg(base, prompt, model) {
   const finish = out => {
     let text;
     try { text = JSON.parse(out).result; } catch { text = out; }
-    return cleanCommitText(text, 'chore: update project');
+    if (!ask) return cleanCommitText(text, 'chore: update project');
+    const reply = rawReply(text, '');
+    if (!reply) throw new Error('Claude wrote no reply');
+    return reply;
   };
   return runCommitCli(bin, args, base, prompt, finish);
 }
@@ -3302,6 +3318,17 @@ handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
   const writer = COMMIT_WRITERS[agent || await defaultCommitAgent()];
   if (!writer) throw new Error(`Unsupported agent: ${agent}`);
   return writer(base, prompt, model, effort);
+});
+// A one-shot, read-only question to the user's agent (the conflict Duel): the same writers, but the reply comes back as it
+// was, not cleaned up as a commit message. Its own channel, so commit-message changes never reach it.
+handle('agent:ask', async (_e, { agent, prompt, model, effort } = {}) => {
+  const base = root;
+  if (!base) throw new Error('Open a folder first');
+  if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 200000) throw new Error('The prompt must be text, up to 200,000 characters');
+  if (agent !== undefined && agent !== null && !Object.hasOwn(COMMIT_WRITERS, agent)) throw new Error(`Unsupported agent: ${agent}`);
+  const id = agent || await defaultCommitAgent();
+  if (!id) throw new Error('No AI agent is available');
+  return COMMIT_WRITERS[id](base, prompt, model, effort, true);
 });
 
 /* ================= Sign in with GitHub / Google ================= */

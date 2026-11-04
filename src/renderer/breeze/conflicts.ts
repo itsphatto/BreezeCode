@@ -14,6 +14,13 @@ type CfFile = {
 };
 const CF_ENDED = 'This conflict session has ended';
 
+// The Duel on one conflict: the agent argues for ours, then for theirs, then judges. One card each.
+type DuelCard = { state: 'wait' | 'run' | 'done' | 'fail'; text: string };
+type Duel = { file: CfFile; agent: string; ours: DuelCard; theirs: DuelCard; judge: DuelCard; note: string; running: boolean };
+// The judge's merge, put into the file's text but not yet accepted: where it sits, and the text before it (what Reject restores).
+type Proposal = { file: CfFile; start: number; end: number; prev: string };
+const NO_ARGUMENT = '(no argument)';
+
 // A file one side deleted has no markers to resolve: keep it or delete it.
 const cfOneSided = (f: CfFile): boolean => f.ours === null || f.theirs === null;
 const cfSurvivor = (f: CfFile): string => f.ours ?? f.theirs ?? '';
@@ -48,7 +55,11 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   let busy = false;       // committing or cancelling
   let pushFailed = false; // the resolution is committed in the worktree, only the push is left
   let ended = false;      // main no longer knows this session
+  let duel: Duel | null = null;         // the latest Duel, running or finished
+  let proposal: Proposal | null = null; // the judge's merge waiting for Accept or Reject
   const view = $('#scmDetail .cf-view');
+  // Late results are dropped once the page is left (a new page for the same pull request is a different view) or the session is over.
+  const alive = (): boolean => mine() && view.isConnected && !ended;
   const ours = session.headRef, theirs = session.base;
 
   const note = (text: string): void => { $('#cfNote', view).textContent = text; };
@@ -93,7 +104,14 @@ async function openConflictPage(pr: GhPull): Promise<void> {
     $('#cfCount', view).textContent = b ? `${f.cur + 1} of ${blocks.length} left` : hasMarkers(f.text) ? 'Conflict markers left in the result' : 'No conflicts left';
     view.querySelectorAll<HTMLButtonElement>('[data-cf-use], [data-cf-step]').forEach(btn => { btn.disabled = !b || pushFailed || busy; });
     view.querySelectorAll<HTMLButtonElement>('[data-cf-step]').forEach(btn => { btn.disabled = blocks.length < 2; });
+    const duelBtn = view.querySelector<HTMLButtonElement>('[data-cf-use="duel"]');
+    if (duelBtn) { // one Duel at a time
+      const running = !!duel?.running;
+      duelBtn.disabled = !b || pushFailed || busy || running;
+      duelBtn.title = running ? 'A duel is running' : 'Have your AI agent argue both sides and propose a merge';
+    }
     $('#cfText', view).classList.toggle('bad', hasMarkers(f.text));
+    $('#cfText', view).classList.toggle('proposed', proposal?.file === f);
   };
 
   // Brings the textarea to the conflict being looked at.
@@ -121,14 +139,15 @@ async function openConflictPage(pr: GhPull): Promise<void> {
     }
     return `<div class="cf-bar"><span class="cf-path">${esc(f.path)}</span><span class="cf-count" id="cfCount"></span>
         <span class="cf-acts"><button class="icon-btn" data-cf-step="-1" title="Previous conflict" aria-label="Previous conflict">${svgIcon('chevronLeft', 14)}</button><button class="icon-btn" data-cf-step="1" title="Next conflict" aria-label="Next conflict">${svgIcon('chevronRight', 14)}</button>
-        <button class="btn btn-sm" data-cf-use="ours">Use ours</button><button class="btn btn-sm" data-cf-use="theirs">Use theirs</button><button class="btn btn-sm" data-cf-use="both">Use both</button><button class="btn btn-sm" data-cf-use="duel" disabled title="Coming soon">Duel</button>${copy}</span></div>
-      <div class="cf-panes">${pane('Ours', ours, '<pre class="cf-code" id="cfOurs"></pre>')}${pane('Theirs', theirs, '<pre class="cf-code" id="cfTheirs"></pre>')}${pane('Result', 'edit freely', `<textarea class="cf-text" id="cfText" spellcheck="false" wrap="off" aria-label="Result for ${escAttr(f.path)}"${pushFailed ? ' readonly' : ''}></textarea>`)}</div>`;
+        <button class="btn btn-sm" data-cf-use="ours">Use ours</button><button class="btn btn-sm" data-cf-use="theirs">Use theirs</button><button class="btn btn-sm" data-cf-use="both">Use both</button><button class="btn btn-sm" data-cf-use="duel">Duel</button>${copy}</span></div>
+      <div class="cf-duel" id="cfDuel" aria-live="polite"></div>
+      <div class="cf-panes">${pane('Ours', ours, '<pre class="cf-code" id="cfOurs"></pre>')}${pane('Theirs', theirs, '<pre class="cf-code" id="cfTheirs"></pre>')}${pane('Result', 'edit freely', `<div class="cf-proposal" id="cfProposal"></div><textarea class="cf-text" id="cfText" spellcheck="false" wrap="off" aria-label="Result for ${escAttr(f.path)}"${pushFailed ? ' readonly' : ''}></textarea>`)}</div>`;
   };
 
   const paintMain = (): void => {
     $('#cfMain', view).innerHTML = mainHtml();
     const f = file();
-    if (!cfOneSided(f)) { $<HTMLTextAreaElement>('#cfText', view).value = f.text; paintBlock(); scrollToBlock(); }
+    if (!cfOneSided(f)) { $<HTMLTextAreaElement>('#cfText', view).value = f.text; paintBlock(); paintDuel(); paintProposal(); scrollToBlock(); }
   };
   const paintAll = (): void => {
     paintHeader();
@@ -144,6 +163,7 @@ async function openConflictPage(pr: GhPull): Promise<void> {
 
   const finish = async (): Promise<void> => {
     if (busy || ended) return;
+    proposal = null; // committing keeps what the result says
     busy = true; note(''); paintAll();
     try {
       await api.git.prConflictFinish(session.id, files.map(cfResult));
@@ -167,10 +187,125 @@ async function openConflictPage(pr: GhPull): Promise<void> {
     if (mine()) back();
   };
 
+  // ----- Duel -----
+  const cardHtml = (title: string, c: DuelCard, extra = ''): string => {
+    const body = c.state === 'wait' ? '<div class="cf-card-dim">Waiting</div>'
+      : c.state === 'run' ? '<div class="cf-card-dim">Thinking</div>'
+      : c.state === 'fail' ? `<div class="cf-card-text cf-card-err">${esc(c.text)}</div>` // agent output is text, never markup
+      : `<div class="cf-card-text">${esc(c.text)}</div>`;
+    return `<section class="cf-card ${c.state}"><header><b>${title}</b>${c.state === 'run' ? '<span class="spinner sm" role="status" aria-label="Working"></span>' : ''}</header>${body}${extra}</section>`;
+  };
+  const paintDuel = (): void => {
+    const box = view.querySelector<HTMLElement>('#cfDuel');
+    if (!box) return;
+    if (!duel || duel.file !== file()) { box.innerHTML = ''; return; }
+    box.innerHTML = `<div class="cf-duel-head"><b>Duel</b><small>${esc(duel.agent)}</small>${duel.running ? '' : '<button class="btn btn-sm btn-ghost" data-cf-duel="close">Close</button>'}</div>
+      <div class="cf-cards">${cardHtml('Ours', duel.ours)}${cardHtml('Theirs', duel.theirs)}${cardHtml('Verdict', duel.judge, duel.note ? `<div class="cf-card-dim">${esc(duel.note)}</div>` : '')}</div>`;
+  };
+
+  // The line (0-based) a position in the file's text is on, and the position in the textarea, which reads LF.
+  const taPos = (text: string, pos: number): number => text.slice(0, pos).replace(/\r\n?/g, '\n').length;
+  const lineOf = (text: string, pos: number): number => text.slice(0, pos).split('\n').length - 1;
+  const paintProposal = (): void => {
+    const box = view.querySelector<HTMLElement>('#cfProposal');
+    if (!box) return;
+    const p = proposal;
+    if (!p || p.file !== file()) { box.innerHTML = ''; box.classList.remove('on'); return; }
+    const from = lineOf(p.file.text, p.start) + 1, to = lineOf(p.file.text, p.end - (p.end > p.start ? 1 : 0)) + 1;
+    const where = p.end === p.start ? 'removes this conflict' : from === to ? `line ${from}` : `lines ${from}–${to}`;
+    box.classList.add('on');
+    box.innerHTML = `<span class="cf-prop-tag">Proposed</span><span class="cf-prop-text">The judge's merge, ${where}</span>
+      <span class="cf-prop-acts"><button class="btn btn-sm btn-primary" data-cf-prop="accept">Accept</button><button class="btn btn-sm" data-cf-prop="edit">Edit</button><button class="btn btn-sm" data-cf-prop="reject">Reject</button></span>`;
+  };
+  // Keeps the proposal as it is in Result; from here it is an ordinary part of the text.
+  const acceptProposal = (): void => {
+    if (!proposal) return;
+    proposal = null;
+    paintProposal();
+    view.querySelector('#cfText')?.classList.remove('proposed');
+  };
+  const rejectProposal = (): void => {
+    const p = proposal;
+    if (!p) return;
+    proposal = null;
+    p.file.text = p.prev; // the exact text from before the proposal
+    if (p.file === file()) { $<HTMLTextAreaElement>('#cfText', view).value = p.file.text; paintProposal(); paintState(); scrollToBlock(); }
+  };
+  const editProposal = (): void => {
+    const p = proposal, ta = view.querySelector<HTMLTextAreaElement>('#cfText');
+    if (!p || !ta || p.file !== file()) return;
+    const lh = Number.parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    ta.focus();
+    ta.setSelectionRange(taPos(p.file.text, p.start), taPos(p.file.text, p.start)); // typing doesn't replace the merge; it counts as accepting it
+    ta.scrollTop = Math.max(0, (lineOf(p.file.text, p.start) - 2) * lh);
+  };
+
+  const runDuel = async (): Promise<void> => {
+    if (duel?.running) return;
+    const agent = currentActiveAgent();
+    if (!agent) { openAgentPicker(); return; }
+    const f = file();
+    const b = parseConflicts(f.text)[f.cur];
+    if (!b) return;
+    if (proposal?.file === f) acceptProposal(); // a new Duel moves on from the last proposal
+    const lf = (s: string): string => s.replace(/\r\n/g, '\n');
+    const around = blockContext(f.text, b);
+    const prompts = duelPrompts({ path: f.path, before: lf(around.before), ours: lf(b.ours), theirs: lf(b.theirs), after: lf(around.after) });
+    const d: Duel = { file: f, agent: agent.name, ours: { state: 'wait', text: '' }, theirs: { state: 'wait', text: '' }, judge: { state: 'wait', text: '' }, note: '', running: true };
+    duel = d;
+    const repaint = (): void => { if (duel === d && alive()) { paintDuel(); paintBlock(); } };
+    // One call to the agent into its card; the reply, or '' when it failed (the card shows why).
+    const ask = async (card: DuelCard, prompt: string): Promise<string | null> => {
+      card.state = 'run'; repaint();
+      let reply: string, failed = '';
+      try { reply = await api.agent.ask({ agent: agent.id, prompt }); } catch (e) { reply = ''; failed = errMsg(e) || 'The agent didn\'t answer'; }
+      if (!alive()) return null; // the page was left or the session ended
+      if (failed) { card.state = 'fail'; card.text = failed; } else { card.state = 'done'; card.text = reply; }
+      repaint();
+      return failed ? '' : reply;
+    };
+    repaint();
+    const oursReply = await ask(d.ours, prompts.ours);
+    if (oursReply === null) return;
+    const theirsReply = await ask(d.theirs, prompts.theirs);
+    if (theirsReply === null) return;
+    const verdict = await ask(d.judge, prompts.judge(oursReply || NO_ARGUMENT, theirsReply || NO_ARGUMENT));
+    if (verdict === null) return;
+    d.running = false;
+    if (d.judge.state === 'done') propose(d, verdict, b);
+    repaint();
+  };
+
+  // Puts the judge's block where the conflict was, if it is still there as it was when the Duel started.
+  const propose = (d: Duel, reply: string, was: ConflictBlock): void => {
+    const code = extractCodeBlock(reply);
+    if (code === null) { d.note = 'The judge didn\'t propose a merge'; return; }
+    d.judge.text = withoutCodeBlock(reply) || 'The judge proposed a merge.';
+    const f = d.file;
+    const blocks = parseConflicts(f.text).filter(x => x.ours === was.ours && x.theirs === was.theirs);
+    const b = blocks.find(x => x.start === was.start) ?? blocks[0];
+    if (!b) { d.note = 'This conflict changed while the judge was working, so the merge wasn\'t applied'; return; }
+    // The block is whole lines, so the merge is too (unless the file ends right after the closing marker).
+    const custom = code === '' || !/\n$/.test(f.text.slice(b.start, b.end)) ? code : code + '\n';
+    const eol = (s: string): string => withEol(s, f.crlf);
+    const start = eol(f.text.slice(0, b.start)).length;
+    const prev = f.text;
+    f.text = eol(applyChoice(f.text, b, { custom }));
+    proposal = { file: f, start, end: start + eol(custom).length, prev };
+    if (f === file()) { $<HTMLTextAreaElement>('#cfText', view).value = f.text; paintHeader(); paintFiles(); paintProposal(); scrollToProposal(); }
+  };
+  const scrollToProposal = (): void => {
+    const p = proposal, ta = view.querySelector<HTMLTextAreaElement>('#cfText');
+    if (!p || !ta) return;
+    const lh = Number.parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    ta.scrollTop = Math.max(0, (lineOf(p.file.text, p.start) - 2) * lh);
+  };
+
   const use = (choice: 'ours' | 'theirs' | 'both'): void => {
     const f = file();
     const b = parseConflicts(f.text)[f.cur];
     if (!b) return;
+    if (proposal?.file === f) acceptProposal(); // choosing for another conflict keeps the proposal
     f.text = applyChoice(f.text, b, choice);
     $<HTMLTextAreaElement>('#cfText', view).value = f.text;
     paintState();
@@ -182,7 +317,10 @@ async function openConflictPage(pr: GhPull): Promise<void> {
     const fileBtn = t.closest<HTMLElement>('.cf-file');
     if (fileBtn) { sel = Number(fileBtn.dataset.i); paintFiles(); paintMain(); return; }
     const useBtn = t.closest<HTMLElement>('[data-cf-use]');
-    if (useBtn) { if (useBtn.dataset.cfUse !== 'duel') use(useBtn.dataset.cfUse as 'ours' | 'theirs' | 'both'); return; }
+    if (useBtn) { if (useBtn.dataset.cfUse === 'duel') void runDuel(); else use(useBtn.dataset.cfUse as 'ours' | 'theirs' | 'both'); return; }
+    const prop = t.closest<HTMLElement>('[data-cf-prop]')?.dataset.cfProp;
+    if (prop) { if (prop === 'accept') acceptProposal(); else if (prop === 'reject') rejectProposal(); else editProposal(); return; }
+    if (t.closest('[data-cf-duel="close"]')) { if (!duel?.running) { duel = null; paintDuel(); paintBlock(); } return; }
     const step = t.closest<HTMLElement>('[data-cf-step]');
     if (step) {
       const f = file(), count = parseConflicts(f.text).length;
@@ -203,6 +341,7 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   view.oninput = e => {
     if ((e.target as HTMLElement).id !== 'cfText') return;
     file().text = withEol((e.target as HTMLTextAreaElement).value, file().crlf); // the textarea reads LF
+    if (proposal?.file === file()) acceptProposal(); // editing the result while a merge is proposed keeps it
     paintState();
   };
 

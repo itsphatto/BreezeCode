@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/breeze/conflictcore.ts'), 'utf8')), ctx);
-const { parseConflicts, applyChoice, hasMarkers } = vm.runInContext('({ parseConflicts, applyChoice, hasMarkers })', ctx);
+const { parseConflicts, applyChoice, hasMarkers, duelPrompts, extractCodeBlock, withoutCodeBlock, blockContext } = vm.runInContext('({ parseConflicts, applyChoice, hasMarkers, duelPrompts, extractCodeBlock, withoutCodeBlock, blockContext })', ctx);
 const plain = v => JSON.parse(JSON.stringify(v));
 
 const TWO = ['a', '<<<<<<< HEAD', 'o1', 'o2', '=======', 't1', '>>>>>>> origin/main', 'mid', '<<<<<<< HEAD', 'o3', '=======', 't3', 't4', '>>>>>>> origin/main', 'z', ''].join('\n');
@@ -86,4 +86,76 @@ test('withEol puts CRLF back, and leaves LF files alone', () => {
   assert.equal(withEol('a\nb\r\nc\n', true), 'a\r\nb\r\nc\r\n');
   assert.equal(withEol('a\nb\n', false), 'a\nb\n');
   assert.equal(withEol('', true), '');
+});
+
+const duelInput = { path: 'src/app.ts', before: 'import a;\n', ours: 'const x = 1;\n', theirs: 'const x = 2;\n', after: 'export x;\n' };
+
+test('duelPrompts: both advocates see the path, both versions and the context', () => {
+  const p = duelPrompts(duelInput);
+  for (const prompt of [p.ours, p.theirs]) {
+    assert.ok(prompt.includes('src/app.ts'));
+    assert.ok(prompt.includes('const x = 1;'));
+    assert.ok(prompt.includes('const x = 2;'));
+    assert.ok(prompt.includes('import a;'));
+    assert.ok(prompt.includes('export x;'));
+    assert.ok(/120 words/.test(prompt));
+  }
+  assert.notEqual(p.ours, p.theirs);
+  assert.ok(/ours/i.test(p.ours));
+  assert.ok(/theirs/i.test(p.theirs));
+});
+
+test('duelPrompts: the judge gets both arguments and asks for one fenced block', () => {
+  const j = duelPrompts(duelInput).judge('Ours is safer.', 'Theirs is newer.');
+  assert.ok(j.includes('src/app.ts'));
+  assert.ok(j.includes('const x = 1;') && j.includes('const x = 2;'));
+  assert.ok(j.includes('Ours is safer.') && j.includes('Theirs is newer.'));
+  assert.ok(/80 words/.test(j));
+  assert.ok(/exactly one/i.test(j) && j.includes('```'));
+});
+
+test('extractCodeBlock: first fenced block without its fence line or language tag', () => {
+  assert.equal(extractCodeBlock('Verdict…\n```ts\nconst a = 1;\n```'), 'const a = 1;');
+  assert.equal(extractCodeBlock('Both.\n```\na\nb\n```\nthen\n```\nc\n```\n'), 'a\nb');
+  assert.equal(extractCodeBlock('x\r\n```js\r\nline\r\n```\r\n'), 'line');
+});
+
+test('extractCodeBlock: null without a fence, or with one that never closes', () => {
+  assert.equal(extractCodeBlock('No code here.'), null);
+  assert.equal(extractCodeBlock('```ts\nconst a = 1;\n'), null);
+  assert.equal(extractCodeBlock(''), null);
+});
+
+test('extractCodeBlock: an empty block is an empty merge', () => {
+  assert.equal(extractCodeBlock('Drop both.\n```\n```'), '');
+});
+
+test('withoutCodeBlock: the reply minus its first fenced block', () => {
+  assert.equal(withoutCodeBlock('Verdict.\n\n```ts\nconst a = 1;\n```\n'), 'Verdict.');
+  assert.equal(withoutCodeBlock('A\n```\nx\n```\nB\n```\ny\n```'), 'A\nB\n```\ny\n```');
+  assert.equal(withoutCodeBlock('No code.'), 'No code.');
+});
+
+test('blockContext: up to N lines on each side of the block', () => {
+  const lines = Array.from({ length: 100 }, (_, i) => `l${i}`);
+  const text = [...lines.slice(0, 50), '<<<<<<< HEAD', 'o', '=======', 't', '>>>>>>> main', ...lines.slice(50)].join('\n') + '\n';
+  const [b] = parseConflicts(text);
+  const ctx40 = plain(blockContext(text, b));
+  assert.equal(ctx40.before.split('\n').length - 1, 40);
+  assert.ok(ctx40.before.startsWith('l10\n') && ctx40.before.endsWith('l49\n'));
+  assert.ok(ctx40.after.startsWith('l50\n') && ctx40.after.endsWith('l89\n'));
+  const ctx2 = plain(blockContext(text, b, 2));
+  assert.equal(ctx2.before, 'l48\nl49\n');
+  assert.equal(ctx2.after, 'l50\nl51\n');
+});
+
+test('blockContext: short files, and a block at the very start or end', () => {
+  const t = '<<<<<<< HEAD\no\n=======\nt\n>>>>>>> main\nrest\nend';
+  const [b] = parseConflicts(t);
+  assert.deepEqual(plain(blockContext(t, b)), { before: '', after: 'rest\nend' });
+  const u = 'top\n<<<<<<< HEAD\no\n=======\nt\n>>>>>>> main';
+  const [c] = parseConflicts(u);
+  assert.deepEqual(plain(blockContext(u, c)), { before: 'top\n', after: '' });
+  const v = '\n<<<<<<< HEAD\no\n=======\nt\n>>>>>>> main\n';
+  assert.equal(plain(blockContext(v, parseConflicts(v)[0])).before, '\n');
 });

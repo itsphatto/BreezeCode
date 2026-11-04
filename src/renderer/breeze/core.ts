@@ -224,6 +224,8 @@ interface BreezeApi {
     fullAccess(): Promise<boolean>;
     setFullAccess(on: boolean): Promise<boolean>;
     usage(): Promise<AgentUsage>;
+    // One question to the user's agent, read-only; its reply as it came (no commit-message clean-up).
+    ask(opts: { agent: string; prompt: string; model?: string; effort?: string }): Promise<string>;
     onEvent(cb: (runId: number, ev: AgentEvent) => void): () => void;
   };
   mcp: {

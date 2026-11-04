@@ -45,6 +45,65 @@ function applyChoice(text: string, block: ConflictBlock, choice: ConflictChoice)
   return text.slice(0, block.start) + pick + text.slice(block.end);
 }
 
+// Up to `lines` lines right before the block and right after it, as the text has them (line breaks kept). `start` and `end`
+// sit on line boundaries, so each side is whole lines.
+function blockContext(text: string, block: ConflictBlock, lines = 40): { before: string; after: string } {
+  let from = block.start;
+  for (let n = 0; n < lines && from > 0; n++) from = from < 2 ? 0 : text.lastIndexOf('\n', from - 2) + 1; // the line before `from`
+  let to = block.end;
+  for (let n = 0; n < lines && to < text.length; n++) {
+    const nl = text.indexOf('\n', to);
+    to = nl === -1 ? text.length : nl + 1;
+  }
+  return { before: text.slice(from, block.start), after: text.slice(block.end, to) };
+}
+
+// The Duel: each side's advocate argues for its version, then a judge picks or merges. The agent is the user's own and
+// reads only what is in these prompts (nothing from the open folder), so the file path and the surrounding lines are here.
+type DuelInput = { path: string; before: string; ours: string; theirs: string; after: string };
+function duelPrompts(input: DuelInput): { ours: string; theirs: string; judge: (oursArg: string, theirsArg: string) => string } {
+  const fence = (s: string): string => '```\n' + (s === '' || s.endsWith('\n') ? s : s + '\n') + '```';
+  const setting = `A merge conflict in ${input.path}. The code just before it:
+${fence(input.before)}
+
+Version "ours":
+${fence(input.ours)}
+
+Version "theirs":
+${fence(input.theirs)}
+
+The code just after it:
+${fence(input.after)}`;
+  const advocate = (side: 'ours' | 'theirs', other: string): string => `You are arguing for one side of a merge conflict. ${setting}
+
+Argue that the "${side}" version should win: why it is right for this code, and what breaks if "${other}" wins instead. Use at most 120 words. Plain text, no code block, no preamble.`;
+  return {
+    ours: advocate('ours', 'theirs'),
+    theirs: advocate('theirs', 'ours'),
+    judge: (oursArg, theirsArg) => `You are the judge of a merge conflict. ${setting}
+
+The advocate for "ours" says:
+${oursArg}
+
+The advocate for "theirs" says:
+${theirsArg}
+
+Decide how the conflict should be resolved: one side, or a merge of both. Give a verdict of at most 80 words, then exactly one fenced code block holding only the merged lines that replace the conflict (no conflict markers, no surrounding code, no second code block).`,
+  };
+}
+
+// The first fenced block in an agent's reply, without its fence lines and language tag; null if there is none (or it never closes).
+const CODE_BLOCK = /^[ \t]*```[^\r\n]*\r?\n([\s\S]*?)(?:\r?\n)?[ \t]*```[ \t]*(?:\r?\n|$)/m;
+function extractCodeBlock(reply: string): string | null {
+  const m = CODE_BLOCK.exec(reply);
+  return m ? m[1] : null;
+}
+
+// The reply without that first fenced block: the judge's verdict, shown next to the proposed merge.
+function withoutCodeBlock(reply: string): string {
+  return reply.replace(CODE_BLOCK, '').trim();
+}
+
 // A textarea's value always has LF line breaks. For a file that had CRLF, put them back before it is stored.
 function withEol(text: string, crlf: boolean): string {
   return crlf ? text.replace(/\r?\n/g, '\r\n') : text;
