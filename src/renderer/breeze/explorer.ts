@@ -304,10 +304,6 @@ $('#tree').addEventListener('contextmenu', e => {
   // The project root keeps the OS's own separators (backslashes on Windows), so the full path uses them too.
   const sep = rootInfo.root.includes('\\') ? '\\' : '/';
   const absPath = rootInfo.root.replace(/[\\/]+$/, '') + sep + p.replaceAll('/', sep);
-  const compareItems: MenuItem[] = isDir ? [] : [
-    ...(compareBase && compareBase !== p ? [{ label: `Compare with ${baseName(compareBase)}`, run: () => background(compareFiles(compareBase as string, p)) }] : []),
-    { label: 'Select for Compare', run: () => { compareBase = p; toast(`Selected ${baseName(p)} · right-click another file to compare`); } },
-  ];
   const fileItems: MenuItem[] = p ? [
     ...(isDir ? [] : [{ label: 'Open in Split View', run: () => background(openFileInSplit(p)) }]),
     { label: 'Reveal in File Explorer', run: () => background(api.fs.reveal(p)) },
@@ -318,8 +314,6 @@ $('#tree').addEventListener('contextmenu', e => {
   const pasteItem: MenuItem[] = [{ label: treeClip ? `Paste ${baseName(treeClip.path)}` : 'Paste', enabled: () => !!treeClip, run: () => background(pasteEntry(dir)) }];
   const restItems: MenuItem[] = p ? [
     { sep: true },
-    ...compareItems,
-    ...(compareItems.length ? [{ sep: true }] : []),
     { label: 'Rename', key: 'F2', run: () => background(renameEntry(p)) },
     { label: 'Delete', key: 'Delete', run: () => deleteEntry(p, isDir) },
     { sep: true },
@@ -474,11 +468,9 @@ async function trashEntry(p: string): Promise<string | null> {
   return stash;
 }
 
-/* ----- Explorer menu: clipboard, compare, git, agent ----- */
+/* ----- Explorer menu: clipboard, git, agent ----- */
 // What Cut or Copy picked, waiting for Paste. Only inside this project, so it lives here rather than on the OS clipboard.
 let treeClip: { path: string; cut: boolean } | null = null;
-// The file "Select for Compare" picked.
-let compareBase: string | null = null;
 
 // "a.js" → "a copy.js", then "a copy 2.js", … until it's a name `taken` (lowercased) doesn't have.
 function freeName(name: string, taken: Set<string>): string {
@@ -510,69 +502,8 @@ async function pasteEntry(dir: string): Promise<void> {
   toast(`${clip.cut ? 'Moved' : 'Pasted'} ${baseName(to)}`);
 }
 
-// A text file as it is in the editor (unsaved edits included), else as it is on disk; null for anything not text.
-async function textOf(p: string): Promise<string | null> {
-  const b = buffers.get(p);
-  if (b?.kind === 'text') return b.text;
-  const r = await api.fs.readFile(p);
-  return r.text == null ? null : r.text.replaceAll('\r\n', '\n');
-}
-// The lines of `a` turned into `b`, each marked ' ', '-' or '+'. null when the changed middle is too big to compare.
-function lineDiff(a: string[], b: string[]): string[] | null {
-  let s = 0;
-  while (s < a.length && s < b.length && a[s] === b[s]) s++;
-  let ea = a.length, eb = b.length;
-  while (ea > s && eb > s && a[ea - 1] === b[eb - 1]) { ea--; eb--; }
-  const n = ea - s, m = eb - s, W = m + 1;
-  if (n * m > 4_000_000) return null;
-  // L[i][j]: the longest common run of a[s+i..ea) and b[s+j..eb).
-  const L = new Uint32Array((n + 1) * W);
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      L[i * W + j] = a[s + i] === b[s + j] ? L[(i + 1) * W + j + 1] + 1 : Math.max(L[(i + 1) * W + j], L[i * W + j + 1]);
-    }
-  }
-  const out = a.slice(0, s).map(l => ' ' + l);
-  let i = 0, j = 0;
-  while (i < n || j < m) {
-    if (i < n && j < m && a[s + i] === b[s + j]) { out.push(' ' + a[s + i]); i++; j++; }
-    else if (j < m && (i === n || L[i * W + j + 1] >= L[(i + 1) * W + j])) { out.push('+' + b[s + j]); j++; }
-    else { out.push('-' + a[s + i]); i++; }
-  }
-  for (let k = ea; k < a.length; k++) out.push(' ' + a[k]);
-  return out;
-}
-// Only the changed lines and `ctx` lines around them, each stretch headed "@@ -old +new @@" like git's.
-function diffHunks(lines: string[], ctx = 3): string[] {
-  const keep = new Uint8Array(lines.length);
-  lines.forEach((l, k) => {
-    if (l[0] !== ' ') keep.fill(1, Math.max(0, k - ctx), Math.min(lines.length, k + ctx + 1));
-  });
-  const out: string[] = [];
-  let la = 1, lb = 1;
-  lines.forEach((l, k) => {
-    if (keep[k] && !keep[k - 1]) out.push(`@@ -${la} +${lb} @@`);
-    if (keep[k]) out.push(l);
-    if (l[0] !== '+') la++;
-    if (l[0] !== '-') lb++;
-  });
-  return out;
-}
 const diffBody = (lines: string[]): string =>
-  lines.map(l => `<div class="dl ${diffLineClass(l)}">${esc(l) || ' '}</div>`).join('') || '<div class="dl">The files are the same.</div>';
-async function compareFiles(a: string, b: string): Promise<void> {
-  let ta: string | null, tb: string | null;
-  try { [ta, tb] = await Promise.all([textOf(a), textOf(b)]); } catch (e) { toast(errMsg(e)); return; }
-  if (ta == null || tb == null) { toast('Only text files can be compared'); return; }
-  const lines = lineDiff(ta.split('\n'), tb.split('\n'));
-  if (!lines) { toast('These files differ too much to compare here'); return; }
-  openModal(`<div class="diff-head"><span class="ico">${fileIcon(a)}</span><b>${esc(a)}</b><span class="text-3">↔</span><span class="ico">${fileIcon(b)}</span><b>${esc(b)}</b><span class="pill">Compare</span></div>
-    <div class="diff">${diffBody(diffHunks(lines))}</div>
-    <div class="row end mt-12"><button class="btn" id="cmpA">Open ${esc(baseName(a))}</button><button class="btn" id="cmpB">Open ${esc(baseName(b))}</button><button class="btn btn-primary" data-close>Close</button></div>`, m => {
-    $('#cmpA', m).onclick = () => { closeModal(); openFile(a); };
-    $('#cmpB', m).onclick = () => { closeModal(); openFile(b); };
-  }, undefined, 'top');
-}
+  lines.map(l => `<div class="dl ${diffLineClass(l)}">${esc(l) || ' '}</div>`).join('') || '<div class="dl">No textual changes.</div>';
 
 async function addToGitignore(p: string, isDir: boolean): Promise<void> {
   const entry = `/${p}${isDir ? '/' : ''}`;
@@ -611,7 +542,7 @@ async function showFileHistory(p: string): Promise<void> {
         let text: string;
         try { text = await api.git.fileShow(hash, p); } catch (e) { toast(errMsg(e)); return; }
         const lines = text.split('\n').filter(l => !/^(?:diff --git|index |--- |\+\+\+ |new file mode|deleted file mode|similarity index|rename (?:from|to) )/.test(l));
-        diffEl.innerHTML = diffBody(lines).replace('The files are the same.', 'No textual changes.');
+        diffEl.innerHTML = diffBody(lines);
         listEl.hidden = true; diffEl.hidden = false; back.hidden = false;
         pill.textContent = hash.slice(0, 7);
       })());

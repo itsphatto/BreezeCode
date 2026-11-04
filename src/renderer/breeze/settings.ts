@@ -176,9 +176,13 @@ function setTheme(t: Theme): void {
 // The account card sits at the top of General.
 function accountHtml(): string {
   const others = accounts.accounts.map(a => `<div class="set-row"><div class="set-text"><div class="set-title">${esc(a.name)}</div><div class="set-sub">${esc(a.email ?? a.provider)}</div></div>
-      <div class="set-ctl set-acct-ctl">${accountKey(a) === accounts.active ? '<span class="pill ok set-active">Active</span>' : `<button class="btn btn-sm" data-switch-acct="${escAttr(accountKey(a))}">Switch</button>`}${holdDelHtml(a.email ?? a.name, `data-remove-acct="${escAttr(accountKey(a))}"`)}</div></div>`).join('');
-  return `<div class="set-user">${avatarHtml(user, user?.name ?? 'Not signed in')}<div class="set-user-text"><div class="set-title">${user ? esc(user.name) : 'Not signed in'}</div><div class="set-sub">${user ? esc(user.provider) : 'Sign in to sync your name and picture.'}</div></div>
-      <div class="set-user-actions"><button class="btn btn-sm" id="sAddAcct">Add account</button>${user ? '<button class="btn btn-sm btn-danger" id="sSignOut">Sign out</button>' : ''}</div></div>
+      <div class="set-ctl set-acct-ctl">${accountKey(a) === accounts.active ? '<span class="pill ok set-active">Active</span>' : `<button class="btn btn-sm" data-switch-acct="${escAttr(accountKey(a))}">Switch</button>`}</div></div>`).join('');
+  // Signed in: name with its provider beside it, and the email used to sign in under it. Signed out: a Sign in button.
+  const who = user
+    ? `<div class="set-title set-user-name"><span class="set-user-display">${esc(user.name)}</span><span class="set-user-provider">${esc(user.provider)}</span></div><div class="set-sub">${esc(user.email ?? user.login ?? '')}</div>`
+    : '<div class="set-title">Not signed in</div><div class="set-sub">Sign in to sync your name and picture.</div>';
+  return `<div class="set-user">${avatarHtml(user, user?.name ?? 'Not signed in')}<div class="set-user-text">${who}</div>
+      <div class="set-user-actions">${user ? '<button class="btn btn-sm btn-danger" id="sSignOut">Sign out</button>' : '<button class="btn btn-sm" id="sAddAcct">Sign in</button>'}</div></div>
     ${others ? `<h5>Accounts</h5>${others}` : ''}`;
 }
 
@@ -780,10 +784,6 @@ function bindSettings(m: HTMLElement): void {
     const a = accounts.accounts.find(x => accountKey(x) === b.dataset.switchAcct);
     if (a) background(switchAccount(a).then(() => { justSwitched = true; refreshSettings(); }));
   });
-  $$('[data-remove-acct]', pane).forEach(b => holdToDelete(b, () => {
-    const a = accounts.accounts.find(x => accountKey(x) === b.dataset.removeAcct);
-    if (a) background(removeAccount(a).then(refreshSettings));
-  }));
   on('sAddAcct', () => addAccount());
   on('sSignOut', () => background(signOut().then(refreshSettings)));
   // Help and Developer

@@ -12441,6 +12441,32 @@ body.layout-animating #previewPane {
   min-width: 0;
 }
 
+.set-user-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.set-user-display {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.set-user-provider {
+  flex: none;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.set-user-text .set-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .set-user-actions {
   display: flex;
   flex: none;
