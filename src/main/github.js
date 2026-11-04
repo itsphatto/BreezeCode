@@ -13,12 +13,25 @@ function parseGithubRemote(url) {
 const CODES = { 401: 'reauth', 403: 'forbidden', 404: 'not-found', 405: 'not-mergeable', 409: 'head-changed' };
 
 class GithubError extends Error {
-  constructor(message, code, status) {
+  constructor(message, code, status, extra = {}) {
     super(message);
     this.name = 'GithubError';
     this.code = code;
     this.status = status;
+    Object.assign(this, extra); // resetAt (epoch seconds, or null) on a 'rate-limit'
   }
+}
+
+// GitHub says "rate limited" with a 429, or with a 403 whose x-ratelimit-remaining is 0 (an ordinary 403 is a
+// permission problem). The reset time is when the limit lifts, in epoch seconds; null when GitHub didn't say.
+function rateLimitOf(res) {
+  const header = name => (typeof res.headers?.get === 'function' ? res.headers.get(name) : null);
+  if (res.status !== 429 && !(res.status === 403 && header('x-ratelimit-remaining') === '0')) return null;
+  const num = name => { const v = header(name); return v == null || v === '' ? NaN : Number(v); };
+  const reset = num('x-ratelimit-reset');
+  if (Number.isFinite(reset) && reset > 0) return { resetAt: reset };
+  const after = num('retry-after');
+  return { resetAt: Number.isFinite(after) && after >= 0 ? Math.ceil(Date.now() / 1000 + after) : null };
 }
 
 const normalizePull = p => ({
@@ -77,6 +90,8 @@ function githubClient({ token, fetch: f = fetch }) {
     let data = null;
     try { data = res.status === 204 ? null : await res.json(); } catch { /* an empty or non-JSON body */ }
     if (res.ok) return data;
+    const limited = rateLimitOf(res);
+    if (limited) throw new GithubError(data?.message || "GitHub's rate limit was reached", 'rate-limit', res.status, limited);
     throw new GithubError(data?.message || `GitHub returned ${res.status}`, CODES[res.status] || 'http', res.status);
   };
 
@@ -115,7 +130,8 @@ function githubClient({ token, fetch: f = fetch }) {
       const d = await request('GET', rp(o, r));
       return { allowMerge: !!d.allow_merge_commit, allowSquash: !!d.allow_squash_merge, allowRebase: !!d.allow_rebase_merge };
     },
-    async mergePull(o, r, n, { method, sha }) {
+    async mergePull(o, r, n, { method, sha } = {}) {
+      if (!sha) throw new Error('mergePull needs the head sha');
       // Sending the head sha makes GitHub refuse (409) if the branch moved since the user looked.
       const d = await request('PUT', `${rp(o, r)}/pulls/${n}/merge`, { merge_method: method, sha });
       return { merged: !!d?.merged, message: d?.message ?? '' };
@@ -125,21 +141,27 @@ function githubClient({ token, fetch: f = fetch }) {
 
 // GitHub's list endpoint leaves out `mergeable` and `commits`; only the single-pull endpoint has them. Asks for each listed
 // pull request (at most `limit` requests at once) and takes those fields from the answer. A pull request whose answer fails
-// keeps its list data (so it still reads "checking"); the list itself never fails here.
+// keeps its list data (so it still reads "checking"); the list itself never fails here. A rate limit or an expired sign-in
+// stops the asking (every further request would fail the same way, and use up more of the limit): `partial` says which,
+// and is null when every row was asked about.
 async function enrichPulls(client, owner, repo, pulls, limit = 6) {
   const out = pulls.slice();
   let next = 0;
+  let partial = null;
   const worker = async () => {
-    while (next < pulls.length) {
+    while (next < pulls.length && !partial) {
       const i = next++;
       try {
         const full = await client.getPull(owner, repo, pulls[i].number);
         out[i] = { ...pulls[i], mergeable: full.mergeable, mergeableState: full.mergeableState, ...(full.commits === undefined ? {} : { commits: full.commits }) };
-      } catch { /* keep the list's data for this one */ }
+      } catch (e) {
+        if (e && (e.code === 'rate-limit' || e.code === 'reauth')) partial = partial || e.code;
+        /* otherwise keep the list's data for this one */
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(limit, pulls.length) }, worker));
-  return out;
+  return { pulls: out, partial };
 }
 
 module.exports = { parseGithubRemote, githubClient, GithubError, enrichPulls };

@@ -9,8 +9,9 @@ function fakeFetch(...queue) {
     calls.push({ url, init });
     const next = queue.shift();
     if (next instanceof Error) throw next;
-    const { status = 200, json = null } = next || {};
-    return { status, ok: status >= 200 && status < 300, json: async () => json };
+    const { status = 200, json = null, headers = {} } = next || {};
+    const h = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v)]));
+    return { status, ok: status >= 200 && status < 300, json: async () => json, headers: { get: name => h[name.toLowerCase()] ?? null } };
   };
   f.calls = calls;
   return f;
@@ -75,7 +76,8 @@ test('enrichPulls takes mergeable and commits from getPull, and keeps the list d
       return { number: 1, mergeable: false, mergeableState: 'dirty', commits: 3 };
     },
   };
-  const out = await enrichPulls(client, 'o', 'r', listed);
+  const { pulls: out, partial } = await enrichPulls(client, 'o', 'r', listed);
+  assert.equal(partial, null);
   assert.deepEqual(out[0], { number: 1, title: 't1', mergeable: false, mergeableState: 'dirty', commits: 3 });
   assert.deepEqual(out[1], listed[1]);
   assert.equal(out[1].mergeable, null);
@@ -92,12 +94,30 @@ test('enrichPulls runs at most 6 getPull calls at once and keeps the list order'
       return { mergeable: true, mergeableState: 'clean', commits: n };
     },
   };
-  const out = await enrichPulls(client, 'o', 'r', listed);
+  const { pulls: out } = await enrichPulls(client, 'o', 'r', listed);
   assert.equal(peak, 6);
   assert.deepEqual(out.map(p => p.number), listed.map(p => p.number));
   assert.ok(out.every(p => p.mergeable === true && p.commits === p.number));
-  assert.deepEqual(await enrichPulls(client, 'o', 'r', []), []);
+  assert.deepEqual(await enrichPulls(client, 'o', 'r', []), { pulls: [], partial: null });
 });
+
+for (const code of ['rate-limit', 'reauth']) {
+  test(`enrichPulls stops asking after a ${code} failure and says so`, async () => {
+    const listed = Array.from({ length: 10 }, (_, i) => ({ number: i + 1, mergeable: null, mergeableState: 'unknown' }));
+    const asked = [];
+    const client = {
+      async getPull(_o, _r, n) {
+        asked.push(n);
+        if (n === 1) throw new GithubError('stop', code, code === 'reauth' ? 401 : 403);
+        return { mergeable: true, mergeableState: 'clean', commits: 1 };
+      },
+    };
+    const { pulls, partial } = await enrichPulls(client, 'o', 'r', listed, 1); // one at a time, so the stop is exact
+    assert.equal(partial, code);
+    assert.deepEqual(asked, [1]);
+    assert.deepEqual(pulls, listed);
+  });
+}
 
 test('listPulls copes with a deleted head repository', async () => {
   const f = fakeFetch({ json: [samplePull({ head: { ref: 'feature', label: 'gone:feature', sha: 'abc', repo: null } })] });
@@ -184,6 +204,35 @@ test('errors map to GithubError codes', async () => {
       return true;
     });
   }
+});
+
+test('a 403 with no rate limit left and a 429 map to rate-limit with the reset time', async () => {
+  const cases = [
+    { status: 403, headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1767225600' } },
+    { status: 429, headers: { 'x-ratelimit-reset': '1767225600' } },
+  ];
+  for (const c of cases) {
+    const client = githubClient({ token: 't', fetch: fakeFetch({ ...c, json: { message: 'API rate limit exceeded' } }) });
+    await assert.rejects(client.getRepo('o', 'r'), e => {
+      assert.ok(e instanceof GithubError);
+      assert.equal(e.code, 'rate-limit');
+      assert.equal(e.status, c.status);
+      assert.equal(e.resetAt, 1767225600);
+      return true;
+    });
+  }
+  // A 403 with requests left is still a permission problem.
+  const forbidden = githubClient({ token: 't', fetch: fakeFetch({ status: 403, headers: { 'x-ratelimit-remaining': '42' }, json: { message: 'no' } }) });
+  await assert.rejects(forbidden.getRepo('o', 'r'), e => e.code === 'forbidden' && e.resetAt === undefined);
+  // A 429 without a reset header still reads as a rate limit.
+  const bare = githubClient({ token: 't', fetch: fakeFetch({ status: 429, json: null }) });
+  await assert.rejects(bare.getRepo('o', 'r'), e => e.code === 'rate-limit' && e.resetAt === null && e.message.length > 0);
+});
+
+test('mergePull refuses to merge without the head sha', async () => {
+  const f = fakeFetch({ json: { merged: true } });
+  await assert.rejects(githubClient({ token: 't', fetch: f }).mergePull('o', 'r', 7, { method: 'merge' }), /sha/);
+  assert.equal(f.calls.length, 0);
 });
 
 test('an error without a body still has a message', async () => {

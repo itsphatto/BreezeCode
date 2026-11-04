@@ -170,7 +170,7 @@ contextBridge.exposeInMainWorld('breeze', {
     sync: op => invoke('git:sync', op),
     deleteBranch: name => invoke('git:deleteBranch', name),
     genCommitMsg: opts => invoke('git:genCommitMsg', opts),
-    prConflictStart: (n, base, headRef, headRepo) => invoke('git:prConflictStart', n, base, headRef, headRepo),
+    prConflictStart: n => invoke('git:prConflictStart', n),
     prConflictFinish: (id, results) => invoke('git:prConflictFinish', id, results),
     prConflictAbort: id => invoke('git:prConflictAbort', id),
   },

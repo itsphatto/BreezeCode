@@ -67,10 +67,14 @@ function isLocalHost(host, port) {
 /* ----- Git ----- */
 // A repository's own config can name commands git runs by itself (core.fsmonitor on status, diff.external and
 // textconv drivers on diff and show). Breeze runs git whenever files change, so those are off for every call it makes.
+// Leading `-c name=value` pairs the caller put first (prconflict.js turns hooks off that way) stay ahead of the command.
 function safeGitArgs(args) {
-  const [cmd, ...rest] = args;
+  let i = 0;
+  while (args[i] === '-c' && i + 1 < args.length) i += 2;
+  const pre = args.slice(0, i);
+  const [cmd, ...rest] = args.slice(i);
   const noDrivers = cmd === 'diff' || cmd === 'show' ? ['--no-ext-diff', '--no-textconv'] : [];
-  return ['-c', 'core.fsmonitor=false', cmd, ...noDrivers, ...rest];
+  return ['-c', 'core.fsmonitor=false', ...pre, cmd, ...noDrivers, ...rest];
 }
 
 /* ----- Programs that need cmd.exe ----- */

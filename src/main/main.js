@@ -472,7 +472,7 @@ async function setRoot(dir) {
   // Worktrees a crash left behind from resolving a pull request's conflicts in this folder.
   for (const [id, c] of conflictSessions) if (path.resolve(c.session.repoDir) === path.resolve(dir)) conflictSessions.delete(id); // pruned just below
   // A Resolve started right after waits for this (conflictPrunes), so the prune can't remove its fresh worktree.
-  const prune = prconflict.pruneConflicts({ run: runGitIn, repoDir: dir, worktreesDir: conflictWorktrees() }).catch(() => {}).finally(() => { if (conflictPrunes.get(dir) === prune) conflictPrunes.delete(dir); });
+  const prune = Promise.resolve().then(() => prconflict.pruneConflicts({ run: runGitIn, hooksDir: noHooksDir(), repoDir: dir, worktreesDir: conflictWorktrees() })).catch(() => {}).finally(() => { if (conflictPrunes.get(dir) === prune) conflictPrunes.delete(dir); });
   conflictPrunes.set(dir, prune);
   return { root: dir, name: path.basename(dir) };
 }
@@ -3006,45 +3006,70 @@ async function githubFor() {
   const acct = accounts.find(a => accountId(a) === active && a.provider === 'GitHub') || accounts.find(a => a.provider === 'GitHub');
   const token = acct && getSecret(`token:${accountId(acct)}`);
   if (!token) return { error: 'signed-out' };
-  return { client: githubClient({ token, fetch }), ...remote };
+  return { client: githubClient({ token, fetch }), url, ...remote };
 }
-// Runs fn({ client, owner, repo }) and wraps the outcome as { ok, data } or { ok, error, message }. Never rejects.
+// Runs fn({ client, owner, repo, url }) and wraps the outcome as { ok, data } or { ok, error, message } (plus resetAt,
+// epoch seconds or null, on a 'rate-limit'). Never rejects.
 async function ghCall(fn) {
   try {
     const gh = await githubFor();
     if (gh.error) return { ok: false, error: gh.error };
     return { ok: true, data: await fn(gh) };
   } catch (e) {
-    if (e instanceof GithubError) return { ok: false, error: e.code, message: e.message };
+    if (e instanceof GithubError) return { ok: false, error: e.code, message: e.message, ...(e.code === 'rate-limit' ? { resetAt: e.resetAt ?? null } : {}) };
     return { ok: false, error: 'http', message: e.message };
   }
 }
+// The renderer's arguments are checked before anything is asked of GitHub.
+const GH_INVALID = { ok: false, error: 'invalid', message: 'Invalid request' };
+const prNumberOk = n => Number.isInteger(n) && n > 0;
+const SHA40 = /^[0-9a-f]{40}$/i;
+const MERGE_METHODS = ['merge', 'squash', 'rebase'];
 const PR_TTL = 30000;
 const prCache = new Map(); // `owner/repo/base` -> { at, data }
-handle('gh:prs', (_e, base, force) => ghCall(async ({ client, owner, repo }) => {
-  const key = `${owner}/${repo}/${base}`;
-  const hit = prCache.get(key);
-  if (!force && hit && Date.now() - hit.at < PR_TTL) return hit.data;
-  const data = { owner, repo, pulls: await enrichPulls(client, owner, repo, await client.listPulls(owner, repo, base)) };
-  prCache.set(key, { at: Date.now(), data });
-  return data;
-}));
-handle('gh:pr', (_e, n) => ghCall(({ client, owner, repo }) => client.getPull(owner, repo, n)));
-handle('gh:prCommits', (_e, n) => ghCall(({ client, owner, repo }) => client.pullCommits(owner, repo, n)));
-handle('gh:prFiles', (_e, n) => ghCall(({ client, owner, repo }) => client.pullFiles(owner, repo, n)));
-handle('gh:commit', (_e, sha) => ghCall(({ client, owner, repo }) => client.getCommit(owner, repo, sha)));
+// data.partial: null, or 'rate-limit' / 'reauth' when asking for each pull request's details stopped early.
+handle('gh:prs', async (_e, base, force) => {
+  if (typeof base !== 'string' || !base) return GH_INVALID;
+  return ghCall(async ({ client, owner, repo }) => {
+    const key = `${owner}/${repo}/${base}`;
+    const hit = prCache.get(key);
+    if (!force && hit && Date.now() - hit.at < PR_TTL) return hit.data;
+    const { pulls, partial } = await enrichPulls(client, owner, repo, await client.listPulls(owner, repo, base));
+    const data = { owner, repo, pulls, partial };
+    prCache.set(key, { at: Date.now(), data }); // a partial one too: asking again at once would only hit the same limit
+    return data;
+  });
+});
+handle('gh:pr', async (_e, n) => (prNumberOk(n) ? ghCall(({ client, owner, repo }) => client.getPull(owner, repo, n)) : GH_INVALID));
+handle('gh:prCommits', async (_e, n) => (prNumberOk(n) ? ghCall(({ client, owner, repo }) => client.pullCommits(owner, repo, n)) : GH_INVALID));
+handle('gh:prFiles', async (_e, n) => (prNumberOk(n) ? ghCall(({ client, owner, repo }) => client.pullFiles(owner, repo, n)) : GH_INVALID));
+handle('gh:commit', async (_e, sha) => (typeof sha === 'string' && SHA40.test(sha) ? ghCall(({ client, owner, repo }) => client.getCommit(owner, repo, sha)) : GH_INVALID));
 handle('gh:repo', () => ghCall(({ client, owner, repo }) => client.getRepo(owner, repo)));
-handle('gh:merge', (_e, n, method, sha) => ghCall(async ({ client, owner, repo }) => {
-  const out = await client.mergePull(owner, repo, n, { method, sha });
-  // The merged pull request is gone from its base's list; drop this repository's cached lists (the base is part of the key).
-  if (out.merged) for (const k of prCache.keys()) if (k.startsWith(`${owner}/${repo}/`)) prCache.delete(k);
-  return out;
-}));
+handle('gh:merge', async (_e, n, method, sha) => {
+  if (!prNumberOk(n) || !MERGE_METHODS.includes(method) || typeof sha !== 'string' || !SHA40.test(sha)) return GH_INVALID;
+  return ghCall(async ({ client, owner, repo }) => {
+    const out = await client.mergePull(owner, repo, n, { method, sha });
+    // The merged pull request is gone from its base's list; drop this repository's cached lists (the base is part of the key).
+    if (out.merged) for (const k of prCache.keys()) if (k.startsWith(`${owner}/${repo}/`)) prCache.delete(k);
+    return out;
+  });
+});
 /* ----- Resolving a pull request's conflicts (in a separate worktree, see prconflict.js) ----- */
 const conflictSessions = new Map(); // session id -> { session, pushTo }
 const conflictPrunes = new Map(); // repo folder -> the prune of leftover worktrees that is running for it
 const conflictStarts = new Map(); // `repo folder|number` -> the start in progress, so two quick clicks share one
 const conflictWorktrees = () => path.join(app.getPath('userData'), 'pr-worktrees');
+// The empty folder every git call in a conflict worktree uses as core.hooksPath, so no hook from the pull request (or
+// the repository) runs there. Emptied if anything ever got into it. pruneConflicts never removes it: it only takes
+// folders named after a repository.
+function noHooksDir() {
+  const dir = path.join(conflictWorktrees(), '.no-hooks');
+  let names = null;
+  try { names = fs.readdirSync(dir); } catch { /* not made yet */ }
+  if (names && names.length) fs.rmSync(dir, { recursive: true, force: true });
+  if (!names || names.length) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 // prconflict's run(cwd, args, input?): git's stdout, or a rejection with the exit code on .code and the output on .stdout / .stderr.
 async function runGitIn(cwd, args, input) {
   const bin = await gitBin();
@@ -3066,28 +3091,39 @@ const conflictSession = id => {
   if (!s) throw new Error('This conflict session has ended');
   return s;
 };
-// The branch is pushed back to where it lives: origin, or the fork's own URL when the pull request comes from one.
-handle('git:prConflictStart', async (_e, n, base, headRef, headRepo) => {
+const GH_START_COPY = {
+  'signed-out': 'Sign in with GitHub to resolve conflicts', reauth: 'Your GitHub sign-in expired',
+  'not-github': 'This repository isn\'t on GitHub', 'no-remote': 'No origin remote',
+};
+// Only the pull request's number comes from the renderer. Its branches and where it lives are asked of GitHub for the
+// open folder's origin, and the branch is pushed back there: origin, or the fork's own URL (SSH when origin is SSH).
+handle('git:prConflictStart', async (_e, n) => {
   if (!Number.isInteger(n) || n <= 0) throw new Error('Bad pull request number');
-  if (typeof base !== 'string' || !base || typeof headRef !== 'string' || !headRef) throw new Error('Bad branch name');
-  if (headRepo != null && !/^[\w.-]+\/[\w.-]+$/.test(headRepo)) throw new Error('Bad repository name');
   const repoDir = resolveIn('');
   await conflictPrunes.get(repoDir);
-  for (const name of [base, headRef]) {
-    // Names come from the pull request, which anyone can open: only what git accepts as a branch name, and nothing that reads as an option.
-    const ok = !name.startsWith('-') && await runGitIn(repoDir, ['check-ref-format', '--branch', name]).then(() => true, () => false);
-    if (!ok) throw new Error('That branch name isn\'t valid');
-  }
   const key = `${repoDir}|${n}`;
   for (const c of conflictSessions.values()) if (c.session.repoDir === repoDir && c.session.number === n) return c.session; // already open
   let starting = conflictStarts.get(key);
   if (!starting) {
     starting = (async () => {
-      const origin = parseGithubRemote((await git(['remote', 'get-url', 'origin'])).trim());
-      if (!origin) throw new Error('This repository isn\'t on GitHub');
-      const sameRepo = headRepo == null || headRepo.toLowerCase() === `${origin.owner}/${origin.repo}`.toLowerCase();
-      const pushTo = sameRepo ? 'origin' : `https://github.com/${headRepo}.git`;
-      const session = await prconflict.startConflict({ run: runGitIn, repoDir, worktreesDir: conflictWorktrees(), number: n, base, headRef });
+      const res = await ghCall(async ({ client, owner, repo, url }) => ({ pr: await client.getPull(owner, repo, n), owner, repo, url }));
+      if (!res.ok) {
+        if (res.error === 'rate-limit') throw new Error(`GitHub's rate limit was reached${res.resetAt ? `. Try again after ${new Date(res.resetAt * 1000).toLocaleTimeString()}` : ''}`);
+        throw new Error(GH_START_COPY[res.error] || res.message || 'Couldn\'t load the pull request from GitHub');
+      }
+      const { pr, owner, repo, url } = res.data;
+      const base = pr.base, headRef = pr.head.ref, headRepo = pr.head.repo;
+      if (headRepo == null) throw new Error('The source repository no longer exists');
+      if (typeof headRepo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(headRepo)) throw new Error('Bad repository name');
+      for (const name of [base, headRef]) {
+        // Names come from the pull request, which anyone can open: only what git accepts as a branch name, and nothing that reads as an option.
+        const ok = typeof name === 'string' && !!name && !name.startsWith('-') && await runGitIn(repoDir, ['check-ref-format', '--branch', name]).then(() => true, () => false);
+        if (!ok) throw new Error('That branch name isn\'t valid');
+      }
+      const sameRepo = headRepo.toLowerCase() === `${owner}/${repo}`.toLowerCase();
+      const ssh = /^(?:git@|ssh:\/\/)/i.test(url);
+      const pushTo = sameRepo ? 'origin' : ssh ? `git@github.com:${headRepo}.git` : `https://github.com/${headRepo}.git`;
+      const session = await prconflict.startConflict({ run: runGitIn, hooksDir: noHooksDir(), repoDir, worktreesDir: conflictWorktrees(), number: n, base, headRef });
       conflictSessions.set(session.id, { session, pushTo });
       return session;
     })().finally(() => conflictStarts.delete(key));
@@ -3095,25 +3131,38 @@ handle('git:prConflictStart', async (_e, n, base, headRef, headRepo) => {
   }
   return starting;
 });
+// Resolves to { ok: true }, or { ok: false, stage, message } when git failed: stage 'commit' (nothing was committed;
+// the resolution can still change) or 'push' (it is committed in the worktree, and finishing again only pushes).
+// Rejects for an ended session or a resolution that doesn't fit the session.
 handle('git:prConflictFinish', async (_e, id, results) => {
   const { session, pushTo } = conflictSession(id);
   if (!Array.isArray(results)) throw new Error('Bad resolution');
+  const kinds = new Map(session.files.map(f => [f.path, f.kind]));
   const clean = results.map(r => {
-    if (!r || typeof r.path !== 'string' || !(r.text === null || typeof r.text === 'string')) throw new Error('Bad resolution');
+    if (!r || typeof r.path !== 'string') throw new Error('Bad resolution');
+    if (kinds.get(r.path) === 'binary') {
+      if (!['ours', 'theirs', 'delete'].includes(r.choice)) throw new Error('Bad resolution');
+      return { path: r.path, choice: r.choice };
+    }
+    if (!(r.text === null || typeof r.text === 'string')) throw new Error('Bad resolution');
     return { path: r.path, text: r.text };
   });
   // Only the conflicted files, each once: a path such as the worktree's own .git file would redirect the commit and push.
-  const owned = new Set(session.files.map(f => f.path));
-  if (clean.length !== owned.size || new Set(clean.map(r => r.path)).size !== clean.length || !clean.every(r => owned.has(r.path))) {
+  if (clean.length !== kinds.size || new Set(clean.map(r => r.path)).size !== clean.length || !clean.every(r => kinds.has(r.path))) {
     throw new Error('These files don\'t belong to this conflict');
   }
-  await prconflict.finishConflict({ run: runGitIn, session, results: clean, pushTo });
+  try {
+    await prconflict.finishConflict({ run: runGitIn, hooksDir: noHooksDir(), session, results: clean, pushTo });
+  } catch (e) {
+    return { ok: false, stage: e && e.stage === 'push' ? 'push' : 'commit', message: String(e?.message || e) };
+  }
   conflictSessions.delete(id);
   prCache.clear(); // the pull request's head moved, and so may its mergeable state
+  return { ok: true };
 });
 handle('git:prConflictAbort', async (_e, id) => {
   const { session } = conflictSession(id);
-  await prconflict.abortConflict({ run: runGitIn, repoDir: session.repoDir, session });
+  await prconflict.abortConflict({ run: runGitIn, hooksDir: noHooksDir(), repoDir: session.repoDir, session });
   conflictSessions.delete(id);
 });
 handle('git:diff', (_e, rel, staged) => git(['diff', '--no-color', ...(staged ? ['--cached'] : []), '--', ...checkPaths(rel)]));
