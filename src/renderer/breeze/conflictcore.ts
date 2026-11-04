@@ -44,3 +44,8 @@ function applyChoice(text: string, block: ConflictBlock, choice: ConflictChoice)
   if (!/\n$/.test(text.slice(block.start, block.end)) && typeof choice !== 'object') pick = pick.replace(/\r?\n$/, '');
   return text.slice(0, block.start) + pick + text.slice(block.end);
 }
+
+// A textarea's value always has LF line breaks. For a file that had CRLF, put them back before it is stored.
+function withEol(text: string, crlf: boolean): string {
+  return crlf ? text.replace(/\r?\n/g, '\r\n') : text;
+}

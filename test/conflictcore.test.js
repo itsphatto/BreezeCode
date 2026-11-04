@@ -80,3 +80,10 @@ test('hasMarkers', () => {
   assert.equal(hasMarkers('a <<<<<<< b\n'), false);
   assert.equal(hasMarkers(''), false);
 });
+
+test('withEol puts CRLF back, and leaves LF files alone', () => {
+  const withEol = vm.runInContext('withEol', ctx);
+  assert.equal(withEol('a\nb\r\nc\n', true), 'a\r\nb\r\nc\r\n');
+  assert.equal(withEol('a\nb\n', false), 'a\nb\n');
+  assert.equal(withEol('', true), '');
+});

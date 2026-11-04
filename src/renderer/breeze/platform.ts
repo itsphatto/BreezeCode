@@ -505,11 +505,12 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       // Pull request #51's conflicts: one text file with two conflicting blocks, and one file the base branch deleted.
       async prConflictStart(n, base, headRef) {
         const lines = (...l: string[]) => l.join('\n') + '\n';
-        const merged = lines('.hero {', '  padding: 4rem 1rem;', '<<<<<<< HEAD', '  background: #fff7ed;', '  color: #7c2d12;', '=======', '  background: #fef3c7;', '>>>>>>> origin/main', '}', '',
-          '.nav {', '  display: flex;', '<<<<<<< HEAD', '  gap: 1.5rem;', '=======', '  gap: 2rem;', '  align-items: center;', '>>>>>>> origin/main', '}');
+        const crlf = (s: string) => s.replaceAll('\n', '\r\n'); // styles.css has Windows line endings, to try the CRLF path
+        const merged = crlf(lines('.hero {', '  padding: 4rem 1rem;', '<<<<<<< HEAD', '  background: #fff7ed;', '  color: #7c2d12;', '=======', '  background: #fef3c7;', '>>>>>>> origin/main', '}', '',
+          '.nav {', '  display: flex;', '<<<<<<< HEAD', '  gap: 1.5rem;', '=======', '  gap: 2rem;', '  align-items: center;', '>>>>>>> origin/main', '}'));
         const mine = lines('function login() {', "  return fetch('/api/login');", '}');
         return { id: `demo-${n}`, number: n, base, headRef, clean: false, files: [
-          { path: 'styles.css', ours: lines('.hero {', '  padding: 4rem 1rem;', '  background: #fff7ed;', '  color: #7c2d12;', '}'), theirs: lines('.hero {', '  padding: 4rem 1rem;', '  background: #fef3c7;', '}'), merged },
+          { path: 'styles.css', ours: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fff7ed;', '  color: #7c2d12;', '}')), theirs: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fef3c7;', '}')), merged },
           { path: 'script.js', ours: mine, theirs: null, merged: mine },
         ] };
       },

@@ -471,7 +471,9 @@ async function setRoot(dir) {
   startWatching();
   // Worktrees a crash left behind from resolving a pull request's conflicts in this folder.
   for (const [id, c] of conflictSessions) if (path.resolve(c.session.repoDir) === path.resolve(dir)) conflictSessions.delete(id); // pruned just below
-  void prconflict.pruneConflicts({ run: runGitIn, repoDir: dir, worktreesDir: conflictWorktrees() }).catch(() => {});
+  // A Resolve started right after waits for this (conflictPrunes), so the prune can't remove its fresh worktree.
+  const prune = prconflict.pruneConflicts({ run: runGitIn, repoDir: dir, worktreesDir: conflictWorktrees() }).catch(() => {}).finally(() => { if (conflictPrunes.get(dir) === prune) conflictPrunes.delete(dir); });
+  conflictPrunes.set(dir, prune);
   return { root: dir, name: path.basename(dir) };
 }
 
@@ -3038,6 +3040,8 @@ handle('gh:merge', (_e, n, method, sha) => ghCall(async ({ client, owner, repo }
 }));
 /* ----- Resolving a pull request's conflicts (in a separate worktree, see prconflict.js) ----- */
 const conflictSessions = new Map(); // session id -> { session, pushTo }
+const conflictPrunes = new Map(); // repo folder -> the prune of leftover worktrees that is running for it
+const conflictStarts = new Map(); // `repo folder|number` -> the start in progress, so two quick clicks share one
 const conflictWorktrees = () => path.join(app.getPath('userData'), 'pr-worktrees');
 // prconflict's run(cwd, args, input?): git's stdout, or a rejection with the exit code on .code and the output on .stdout / .stderr.
 async function runGitIn(cwd, args, input) {
@@ -3065,13 +3069,29 @@ handle('git:prConflictStart', async (_e, n, base, headRef, headRepo) => {
   if (!Number.isInteger(n) || n <= 0) throw new Error('Bad pull request number');
   if (typeof base !== 'string' || !base || typeof headRef !== 'string' || !headRef) throw new Error('Bad branch name');
   if (headRepo != null && !/^[\w.-]+\/[\w.-]+$/.test(headRepo)) throw new Error('Bad repository name');
-  const origin = parseGithubRemote((await git(['remote', 'get-url', 'origin'])).trim());
-  if (!origin) throw new Error('This repository isn\'t on GitHub');
-  const sameRepo = headRepo == null || headRepo.toLowerCase() === `${origin.owner}/${origin.repo}`.toLowerCase();
-  const pushTo = sameRepo ? 'origin' : `https://github.com/${headRepo}.git`;
-  const session = await prconflict.startConflict({ run: runGitIn, repoDir: resolveIn(''), worktreesDir: conflictWorktrees(), number: n, base, headRef });
-  conflictSessions.set(session.id, { session, pushTo });
-  return session;
+  const repoDir = resolveIn('');
+  await conflictPrunes.get(repoDir);
+  for (const name of [base, headRef]) {
+    // Names come from the pull request, which anyone can open: only what git accepts as a branch name, and nothing that reads as an option.
+    const ok = !name.startsWith('-') && await runGitIn(repoDir, ['check-ref-format', '--branch', name]).then(() => true, () => false);
+    if (!ok) throw new Error('That branch name isn\'t valid');
+  }
+  const key = `${repoDir}|${n}`;
+  for (const c of conflictSessions.values()) if (c.session.repoDir === repoDir && c.session.number === n) return c.session; // already open
+  let starting = conflictStarts.get(key);
+  if (!starting) {
+    starting = (async () => {
+      const origin = parseGithubRemote((await git(['remote', 'get-url', 'origin'])).trim());
+      if (!origin) throw new Error('This repository isn\'t on GitHub');
+      const sameRepo = headRepo == null || headRepo.toLowerCase() === `${origin.owner}/${origin.repo}`.toLowerCase();
+      const pushTo = sameRepo ? 'origin' : `https://github.com/${headRepo}.git`;
+      const session = await prconflict.startConflict({ run: runGitIn, repoDir, worktreesDir: conflictWorktrees(), number: n, base, headRef });
+      conflictSessions.set(session.id, { session, pushTo });
+      return session;
+    })().finally(() => conflictStarts.delete(key));
+    conflictStarts.set(key, starting);
+  }
+  return starting;
 });
 handle('git:prConflictFinish', async (_e, id, results) => {
   const { session, pushTo } = conflictSession(id);
@@ -3080,6 +3100,11 @@ handle('git:prConflictFinish', async (_e, id, results) => {
     if (!r || typeof r.path !== 'string' || !(r.text === null || typeof r.text === 'string')) throw new Error('Bad resolution');
     return { path: r.path, text: r.text };
   });
+  // Only the conflicted files, each once: a path such as the worktree's own .git file would redirect the commit and push.
+  const owned = new Set(session.files.map(f => f.path));
+  if (clean.length !== owned.size || new Set(clean.map(r => r.path)).size !== clean.length || !clean.every(r => owned.has(r.path))) {
+    throw new Error('These files don\'t belong to this conflict');
+  }
   await prconflict.finishConflict({ run: runGitIn, session, results: clean, pushTo });
   conflictSessions.delete(id);
   prCache.clear(); // the pull request's head moved, and so may its mergeable state

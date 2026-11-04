@@ -10,6 +10,7 @@ type CfFile = {
   text: string;                       // the result, for a file both sides have
   pick: 'keep' | 'delete' | null;     // for a file one side deleted; null until chosen
   cur: number;                        // the conflict being looked at
+  crlf: boolean;                      // the file has CRLF line breaks, which the textarea hides
 };
 const CF_ENDED = 'This conflict session has ended';
 
@@ -42,7 +43,7 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   }
   if (!mine()) { api.git.prConflictAbort(session.id).catch(() => {}); return; } // the right side moved on while it was preparing
 
-  const files: CfFile[] = session.files.map(f => ({ path: f.path, ours: f.ours, theirs: f.theirs, text: f.merged, pick: null, cur: 0 }));
+  const files: CfFile[] = session.files.map(f => ({ path: f.path, ours: f.ours, theirs: f.theirs, text: f.merged, pick: null, cur: 0, crlf: f.merged.includes('\r\n') }));
   let sel = 0;
   let busy = false;       // committing or cancelling
   let pushFailed = false; // the resolution is committed in the worktree, only the push is left
@@ -201,7 +202,7 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   // Editing the result: the file's counter, its tick and the Commit button follow.
   view.oninput = e => {
     if ((e.target as HTMLElement).id !== 'cfText') return;
-    file().text = (e.target as HTMLTextAreaElement).value;
+    file().text = withEol((e.target as HTMLTextAreaElement).value, file().crlf); // the textarea reads LF
     paintState();
   };
 
