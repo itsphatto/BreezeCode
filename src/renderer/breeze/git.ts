@@ -545,11 +545,22 @@ async function showDiff(f: GitFile, staged: boolean): Promise<void> {
   } catch (e) { toast(errMsg(e)); return; }
   const lines = text.split('\n').filter(l => !/^(?:diff --git|index |--- |\+\+\+ )/.test(l));
   const body = lines.map(l => `<div class="dl ${diffLineClass(l)}">${esc(l) || ' '}</div>`).join('') || '<div class="dl">No textual changes.</div>';
-  openModal(`<div class="diff-head"><span class="ico">${fileIcon(f.path)}</span><b>${esc(f.path)}</b><span class="pill">${staged ? 'Staged' : statusOf(f).title}</span></div>
+  const html = `<div class="diff-head"><span class="ico">${fileIcon(f.path)}</span><b>${esc(f.path)}</b><span class="pill">${staged ? 'Staged' : statusOf(f).title}</span></div>
     <div class="diff">${body}</div>
-    <div class="row end mt-12"><button class="btn" id="diffOpen">Open File</button><button class="btn btn-primary" id="diffStage">${staged ? 'Unstage' : 'Stage'}</button></div>`, m => {
+    <div class="row end mt-12"><button class="btn" id="diffOpen">Open File</button><button class="btn btn-primary" id="diffStage">${staged ? 'Unstage' : 'Stage'}</button></div>`;
+  const toggleStage = () => void gitOp(() => (staged ? api.git.unstage([f.path], !!gitState.hasCommits) : api.git.stage([f.path])));
+  // On the Source Control page the diff sits beside the changes; anywhere else it's a modal.
+  if (scmPageOpen) {
+    showScmDetail(`<div class="scm-diff-view">${html}</div>`, el => {
+      $('#diffOpen', el).onclick = () => { closeScmPage(); openFile(f.path); };
+      // The file moves to the other list once staged or unstaged, so what's shown no longer matches it.
+      $('#diffStage', el).onclick = () => { scmEmptyDetail(); toggleStage(); };
+    });
+    return;
+  }
+  openModal(html, m => {
     $('#diffOpen', m).onclick = () => { closeModal(); openFile(f.path); };
-    $('#diffStage', m).onclick = () => { closeModal(); void gitOp(() => (staged ? api.git.unstage([f.path], !!gitState.hasCommits) : api.git.stage([f.path]))); };
+    $('#diffStage', m).onclick = () => { closeModal(); toggleStage(); };
   }, undefined, 'top');
 }
 

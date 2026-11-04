@@ -14757,3 +14757,90 @@ input.dbg-edit.bad:focus-visible {
 :root[data-theme="light"] .nb-out.err {
   color: #b91c1c;
 }
+
+/* ================= Source Control page ================= */
+/* While it's open (prs.ts) the page stands in for the editor, preview and side bar. The side bar's column closes to
+   nothing like a collapsed side bar, the agents panel stays, and `layout` itself is untouched. */
+.scm-view {
+  display: none;
+  min-width: 0;
+  min-height: 0;
+}
+
+.main.scm-page {
+  grid-template-columns: 44px 0px minmax(0, 1fr) var(--agents-w);
+}
+
+.main.scm-snap {
+  transition: none;
+}
+
+.main.scm-page .sidebar {
+  visibility: hidden;
+  overflow: hidden;
+  margin: 0;
+  border-width: 0;
+}
+
+.main.scm-page .work {
+  display: none;
+}
+
+.main.scm-page .scm-view {
+  display: flex;
+}
+
+.scm-left,
+.scm-detail {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.scm-left {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--scm-left, 320px);
+  margin-right: var(--gap);
+  background: var(--bg-1);
+}
+
+.scm-left:hover .head-actions,
+.scm-left .head-actions:focus-within {
+  opacity: 1;
+}
+
+.scm-left > .side-body {
+  min-height: 0;
+}
+
+.scm-detail {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.scm-detail > .scm-empty {
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+
+.scm-diff-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 14px 16px;
+  box-sizing: border-box;
+}
+
+.scm-diff-view .diff {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}

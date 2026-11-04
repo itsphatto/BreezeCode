@@ -1,7 +1,7 @@
 /* ================= Layout: resizable, collapsible panels ================= */
-interface Layout { side: number; agents: number; term: number; preview: number; sideOpen: boolean; agentsOpen: boolean; termOpen: boolean; previewOpen: boolean; view: string; }
-type SashKind = 'side' | 'agents' | 'preview' | 'term';
-const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, preview: 460, sideOpen: true, agentsOpen: true, termOpen: false, previewOpen: true, view: 'files' };
+interface Layout { side: number; agents: number; term: number; preview: number; scmLeft: number; sideOpen: boolean; agentsOpen: boolean; termOpen: boolean; previewOpen: boolean; view: string; }
+type SashKind = 'side' | 'agents' | 'preview' | 'term' | 'scm';
+const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, preview: 460, scmLeft: 320, sideOpen: true, agentsOpen: true, termOpen: false, previewOpen: true, view: 'files' };
 const layout: Layout = { ...DEFAULT_LAYOUT, ...store.get<Partial<Layout>>('breeze.layout', {}) };
 // One terminal panel, shown in the IDE or in Breeze Space. Moving it keeps its sessions and what they've printed.
 const termHome = $('#terminal').parentElement as HTMLElement;
@@ -26,12 +26,18 @@ function applyLayout(): void {
   $('#boxTerm').setAttribute('aria-pressed', String(inSpace));
   main.style.setProperty('--side-w', layout.sideOpen ? `${layout.side}px` : '0px');
   main.style.setProperty('--agents-w', layout.agentsOpen ? `${layout.agents}px` : '0px');
+  // The Source Control page's left column (prs.ts); a layout saved before it existed has no scmLeft.
+  $('#scmPage').style.setProperty('--scm-left', `${clamp(layout.scmLeft, 240, 560)}px`);
   main.classList.toggle('no-side', !layout.sideOpen);
   main.classList.toggle('no-agents', !layout.agentsOpen);
-  const maxPreview = work.clientWidth ? work.clientWidth - 220 : layout.preview;
-  // The inline width beats the .no-preview rule, so a closed preview has to be zeroed here or its column stays as a blank gap.
-  work.style.setProperty('--preview-w', layout.previewOpen ? `${clamp(layout.preview, 220, Math.max(220, maxPreview))}px` : '0px');
-  work.classList.toggle('no-preview', !layout.previewOpen);
+  // The work area is hidden while the Source Control page is open, so it has no width to size the preview from; it's
+  // sized again when the page closes (an unclamped width left in it would squeeze the editor out when it came back).
+  if (!main.classList.contains('scm-page')) {
+    const maxPreview = work.clientWidth ? work.clientWidth - 220 : layout.preview;
+    // The inline width beats the .no-preview rule, so a closed preview has to be zeroed here or its column stays as a blank gap.
+    work.style.setProperty('--preview-w', layout.previewOpen ? `${clamp(layout.preview, 220, Math.max(220, maxPreview))}px` : '0px');
+    work.classList.toggle('no-preview', !layout.previewOpen);
+  }
   t.style.setProperty('--term-h', `${clamp(layout.term, 80, Math.max(80, innerHeight - 220))}px`);
   t.classList.toggle('open', layout.termOpen);
   void setIcon($('#termTitle'), layout.termOpen ? 'chevronDown' : 'chevronRight');
@@ -59,6 +65,7 @@ const SASH_DRAG: Record<SashKind, (start: Layout, dx: number, dy: number) => voi
   side: (start, dx) => { const w = start.side + dx; layout.sideOpen = w >= 120; if (layout.sideOpen) layout.side = clamp(w, 170, 640); },
   agents: (start, dx) => { const w = start.agents - dx; layout.agentsOpen = w >= 180; if (layout.agentsOpen) layout.agents = clamp(w, 260, 720); },
   preview: (start, dx) => { const w = start.preview - dx; layout.previewOpen = w >= 140; if (layout.previewOpen) layout.preview = clamp(w, 220, $('#work').clientWidth - 220); },
+  scm: (start, dx) => { layout.scmLeft = clamp(start.scmLeft + dx, 240, 560); },
   term: (start, _dx, dy) => { const h = start.term - dy; layout.termOpen = h >= 60; if (layout.termOpen) layout.term = clamp(h, 80, innerHeight - 220); },
 };
 // Sashes sit in the middle of the gap between two cards: both the grab area and the line it lights.
@@ -79,11 +86,12 @@ function sashGap(sash: HTMLElement): [number, number, number, number] | null {
   // A closed preview keeps its (zero-width) card in the layout; its sash would sit on the editor's edge and resize
   // nothing useful, since the editor and agents already share the sash beside the agents panel.
   if (kind === 'preview' && !layout.previewOpen) return null;
+  if (kind === 'side' && $('#main').classList.contains('scm-page')) return null; // the page replaces the side bar
   const card = cardEl.getBoundingClientRect();
   const half = (Number.parseFloat(getComputedStyle($('#main')).getPropertyValue('--gap')) || 6) / 2;
   return kind === 'term'
     ? [card.left, card.top - half, card.width, 0]
-    : [kind === 'side' ? card.right + half : card.left - half, card.top, 0, card.height];
+    : [kind === 'side' || kind === 'scm' ? card.right + half : card.left - half, card.top, 0, card.height];
 }
 function placeSashes(): void {
   for (const sash of sashCards.keys()) {
@@ -125,7 +133,7 @@ function startSashDrag(sash: HTMLElement, kind: SashKind, e: PointerEvent): void
     removeEventListener('pointermove', move); removeEventListener('pointerup', up);
     document.body.classList.remove('resizing', 'resizing-h'); sash.classList.remove('active');
     placeSashLine((ev.target as HTMLElement)?.closest?.<HTMLElement>('[data-sash]') === sash ? sash : null);
-    if (layout.side !== start.side || layout.agents !== start.agents || layout.preview !== start.preview || layout.term !== start.term || layout.sideOpen !== start.sideOpen || layout.agentsOpen !== start.agentsOpen || layout.previewOpen !== start.previewOpen || layout.termOpen !== start.termOpen) {
+    if (layout.side !== start.side || layout.agents !== start.agents || layout.preview !== start.preview || layout.scmLeft !== start.scmLeft || layout.term !== start.term || layout.sideOpen !== start.sideOpen || layout.agentsOpen !== start.agentsOpen || layout.previewOpen !== start.previewOpen || layout.termOpen !== start.termOpen) {
       pushAppAction({ type: 'layout', prev: start, next: { ...layout } });
     }
   };
@@ -142,7 +150,8 @@ $$<HTMLElement>('[data-sash]').forEach(sash => {
   sash.addEventListener('pointerleave', () => { if (!sash.classList.contains('active')) placeSashLine(null); });
   sash.addEventListener('dblclick', () => {
     const prev = { ...layout };
-    layout[kind] = DEFAULT_LAYOUT[kind];
+    const key = kind === 'scm' ? 'scmLeft' : kind;
+    layout[key] = DEFAULT_LAYOUT[key];
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
     applyLayoutAnimated();
   });
