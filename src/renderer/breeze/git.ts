@@ -30,7 +30,9 @@ async function refreshGit(): Promise<void> {
   }
   renderScm(); renderBranch(); renderTree(); renderTabs();
   refreshHeadTexts();
-  void refreshPrs(); // a switched branch has other pull requests; the window focus and every git change come through here too
+  // A switched branch has other pull requests; the window focus and every git change come through here too. Only while
+  // Source Control is open, so background git activity doesn't use up GitHub's rate limit; opening it asks afresh.
+  if (scmPageOpen) void refreshPrs();
   if (gitLog.commits.length) {
     for (const c of gitLog.commits) {
       if (!commitDetails.has(c.hash)) {

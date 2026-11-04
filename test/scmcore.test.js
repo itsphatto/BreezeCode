@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/breeze/scmcore.ts'), 'utf8')), ctx);
-const { parsePatch, prStatus, prListState } = vm.runInContext('({ parsePatch, prStatus, prListState })', ctx);
+const { parsePatch, prStatus, prListState, prHasConflict } = vm.runInContext('({ parsePatch, prStatus, prListState, prHasConflict })', ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 test('parsePatch numbers lines from the hunk header', () => {
@@ -36,6 +36,14 @@ test('prStatus picks draft, conflict, checking, ready in that order', () => {
   assert.equal(prStatus({ mergeable: null, mergeableState: 'unknown', draft: false }), 'checking');
   assert.equal(prStatus({ mergeable: true, mergeableState: 'clean', draft: true }), 'draft');
   assert.equal(prStatus({ mergeable: false, mergeableState: 'dirty', draft: true }), 'draft');
+});
+
+test('prHasConflict sees a conflict whether or not the pull request is a draft', () => {
+  assert.equal(prHasConflict({ mergeable: false, mergeableState: 'unknown', draft: true }), true);
+  assert.equal(prHasConflict({ mergeable: null, mergeableState: 'dirty', draft: true }), true);
+  assert.equal(prHasConflict({ mergeable: false, mergeableState: 'dirty', draft: false }), true);
+  assert.equal(prHasConflict({ mergeable: true, mergeableState: 'clean', draft: true }), false);
+  assert.equal(prHasConflict({ mergeable: null, mergeableState: 'unknown', draft: false }), false);
 });
 
 test('prListState reports no-branch first, then loading, errors and ok', () => {

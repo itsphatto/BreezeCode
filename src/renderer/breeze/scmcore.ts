@@ -29,6 +29,12 @@ function prStatus(p: { mergeable: boolean | null; mergeableState: string; draft:
   return 'ready';
 }
 
+// Whether GitHub says the pull request conflicts with its base, draft or not (prStatus reads 'draft' first, so a draft
+// in conflict is still 'draft' there; its Conflict tab and Resolve depend on this instead).
+function prHasConflict(p: { mergeable: boolean | null; mergeableState: string }): boolean {
+  return p.mergeable === false || p.mergeableState === 'dirty';
+}
+
 // What the PR list should show: a state key, or the GithubError code when the request failed.
 function prListState(s: { signedIn: boolean; branch: string | null; result: GhResult<unknown> | null }): 'no-branch' | 'signed-out' | 'loading' | 'ok' | string {
   if (s.branch === null) return 'no-branch';

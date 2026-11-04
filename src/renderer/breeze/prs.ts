@@ -51,7 +51,7 @@ function scmEmptyDetail(): void {
 $('#scmClose').onclick = () => closeScmPage();
 
 /* ----- Pull requests: the list in the left column ----- */
-type PrList = GhResult<{ owner: string; repo: string; pulls: GhPull[] }>;
+type PrList = GhResult<GhPullList>;
 // The last answer, for the folder and branch it was asked about (a different one is never shown in its place).
 let prData: { root: string; branch: string; res: PrList } | null = null;
 // Bumped by every refreshPrs: an answer that comes back after another refresh began is dropped, so a slow answer for the
@@ -62,6 +62,11 @@ let prOpenGen = 0;
 
 const githubSignedIn = (): boolean => accounts.accounts.some(a => a.provider === 'GitHub');
 const PR_STATUS_LABEL = { ready: 'Ready to merge', conflict: 'Has conflicts', checking: 'Checking for conflicts', draft: 'Draft' };
+// GitHub's rate limit, with the local time it lifts at when GitHub said.
+const prRateLimitText = (resetAt?: number | null): string => {
+  const when = typeof resetAt === 'number' && resetAt > 0 ? new Date(resetAt * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  return when ? `GitHub's rate limit was reached. Try again after ${when}` : 'GitHub\'s rate limit was reached. Try again later';
+};
 const prAgo = (iso: string | null): string => (iso && !Number.isNaN(Date.parse(iso)) ? timeAgo(Date.parse(iso)) : '');
 const prAvatar = (login: string, url: string | null): string =>
   url ? `<img class="pr-av" alt="" src="${escAttr(url)}">` : `<span class="pr-av">${esc((login[0] ?? '?').toUpperCase())}</span>`;
@@ -104,9 +109,23 @@ function prBodyHtml(state: string, res: PrList | null, branch: string): string {
   if (state === 'reauth') return note('Your GitHub sign-in expired', act('Sign in again', 'signin'));
   if (state === 'not-github') return note('This repository isn\'t on GitHub');
   if (state === 'no-remote') return note('No origin remote');
+  if (state === 'rate-limit') return note(esc(prRateLimitText(res && !res.ok ? res.resetAt : null)), act('Retry', 'retry'));
   if (state !== 'ok' || !res?.ok) return note('Couldn\'t load pull requests', act('Retry', 'retry'));
   if (!res.data.pulls.length) return note(`No open pull requests into ${esc(branch)}`);
-  return res.data.pulls.map(prRowHtml).join('');
+  // Some rows' details couldn't be asked for: say why under them.
+  const partial = res.data.partial === 'rate-limit' ? note('GitHub\'s rate limit was reached, so some statuses are missing')
+    : res.data.partial === 'reauth' ? note('Your GitHub sign-in expired, so some statuses are missing', act('Sign in again', 'signin')) : '';
+  return res.data.pulls.map(prRowHtml).join('') + partial;
+}
+
+// A different folder was opened (or the folder was closed): nothing on the page may still be about the last one.
+function resetPrState(): void {
+  prGen++; prOpenGen++; // answers still on their way are for the last folder
+  prData = null;
+  prMergeNote = null;
+  endConflictPage();
+  if (document.querySelector('#scmDetail')) scmEmptyDetail();
+  paintPrs();
 }
 
 // The section Source Control's left column shows between the commit box and the checkpoints. Not drawn without a repository.
@@ -246,7 +265,9 @@ async function openMergeMenu(pr: GhPull, btn: HTMLElement): Promise<void> {
 async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
   if (prMerging) return;
   const n = pr.number;
-  const shown = () => !!document.querySelector(`#scmDetail .pr-view[data-n="${n}"]`);
+  const root = rootInfo?.root, gen = prOpenGen;
+  // Still the same folder and the same opened detail (a folder switch bumps prOpenGen too).
+  const shown = () => gen === prOpenGen && !!document.querySelector(`#scmDetail .pr-view[data-n="${n}"]`);
   prMerging = n;
   prMergeNote = null;
   syncMergeUi(pr);
@@ -254,7 +275,8 @@ async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
   prMerging = 0;
   if (!res.ok || !res.data.merged) {
     const error = res.ok ? '' : res.error;
-    const text = PR_MERGE_ERROR_COPY[error] ?? ((res.ok ? res.data.message : res.message) || 'Couldn\'t merge this pull request');
+    const text = !res.ok && error === 'rate-limit' ? prRateLimitText(res.resetAt)
+      : PR_MERGE_ERROR_COPY[error] ?? ((res.ok ? res.data.message : res.message) || 'Couldn\'t merge this pull request');
     if (shown()) { prMergeNote = { n, text, reload: error === 'head-changed' }; syncMergeUi(pr); } else toast(text);
     return;
   }
@@ -262,7 +284,7 @@ async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
   if (shown()) scmEmptyDetail(); // it is no longer open
   void refreshPrs(true);
   // The branch the pull request went into now has new commits on GitHub: bring them in when that's the branch checked out.
-  if (gitState.branch === pr.base) {
+  if (rootInfo?.root === root && gitState.branch === pr.base) {
     try { await api.git.sync('pull'); } catch (e) { toast(`Merged #${n}, but pulling ${pr.base} failed: ${errMsg(e)}`); }
     await refreshGit();
   }
@@ -271,7 +293,7 @@ async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
 function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, files: GhResult<GhFile[]>): string {
   const st = prStatus(pr);
   const tabs: [PrTab, string, number | null][] = [['commits', 'Commits', commits.ok ? commits.data.length : null], ['files', 'Files', files.ok ? files.data.length : null]];
-  if (st === 'conflict') tabs.push(['conflict', 'Conflict', null]);
+  if (prHasConflict(pr)) tabs.push(['conflict', 'Conflict', null]); // a draft in conflict too; only Merge is hidden for drafts
   const when = prAgo(pr.createdAt);
   return `<div class="pr-head">
       <div class="pr-title"><h3>${esc(pr.title)}</h3><span class="pr-n">#${pr.number}</span>${pr.draft ? '<span class="pill">Draft</span>' : ''}</div>
@@ -293,7 +315,7 @@ async function openPr(n: number): Promise<void> {
   const view = document.querySelector<HTMLElement>('#scmDetail .pr-view') as HTMLElement;
   if (!prRes.ok) {
     const signIn = prRes.error === 'reauth' || prRes.error === 'signed-out';
-    const known = GH_ERROR_COPY[prRes.error];
+    const known = prRes.error === 'rate-limit' ? prRateLimitText(prRes.resetAt) : GH_ERROR_COPY[prRes.error];
     view.innerHTML = `<div class="pr-loading pr-fail"><p>${esc(known ?? 'Couldn\'t load pull request')}</p>${prRes.message && !known ? `<p class="pr-hint">${esc(prRes.message)}</p>` : ''}<button class="btn btn-sm" data-pr-view="${signIn ? 'signin' : 'retry'}">${signIn ? (prRes.error === 'reauth' ? 'Sign in again' : 'Sign in') : 'Retry'}</button></div>`;
     view.onclick = e => {
       const a = (e.target as HTMLElement).closest<HTMLElement>('[data-pr-view]')?.dataset.prView;
@@ -386,7 +408,7 @@ async function openPr(n: number): Promise<void> {
         const i = prData.res.data.pulls.findIndex(p => p.number === n);
         if (i >= 0) { prData.res.data.pulls[i] = pr; paintPrs(); }
       }
-      if (tab === 'conflict' && prStatus(pr) !== 'conflict') tab = 'commits';
+      if (tab === 'conflict' && !prHasConflict(pr)) tab = 'commits';
       paint();
     }, 2000);
   }

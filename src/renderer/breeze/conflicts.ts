@@ -7,12 +7,24 @@
 
 type CfFile = {
   path: string; ours: string | null; theirs: string | null;
-  text: string;                       // the result, for a file both sides have
-  pick: 'keep' | 'delete' | null;     // for a file one side deleted; null until chosen
+  binary: boolean;                    // not UTF-8 text: never shown or edited, only kept from one side or deleted
+  hasOurs: boolean; hasTheirs: boolean;
+  text: string;                       // the result, for a text file both sides have
+  pick: 'keep' | 'delete' | null;     // for a text file one side deleted; null until chosen
+  bin: 'ours' | 'theirs' | 'delete' | null; // for a binary file; null until chosen
   cur: number;                        // the conflict being looked at
   crlf: boolean;                      // the file has CRLF line breaks, which the textarea hides
 };
 const CF_ENDED = 'This conflict session has ended';
+// Bumped when the folder changes: a conflict page from before is over, whatever it was doing.
+let cfWorkspaceGen = 0;
+let cfOpenPage: { end(): void } | null = null;
+function endConflictPage(): void {
+  cfWorkspaceGen++;
+  const page = cfOpenPage;
+  cfOpenPage = null;
+  page?.end();
+}
 
 // The Duel on one conflict: the agent argues for ours, then for theirs, then judges. One card each.
 type DuelCard = { state: 'wait' | 'run' | 'done' | 'fail'; text: string };
@@ -21,18 +33,20 @@ type Duel = { file: CfFile; agent: string; ours: DuelCard; theirs: DuelCard; jud
 type Proposal = { file: CfFile; start: number; end: number; prev: string };
 const NO_ARGUMENT = '(no argument)';
 
-// A file one side deleted has no markers to resolve: keep it or delete it.
-const cfOneSided = (f: CfFile): boolean => f.ours === null || f.theirs === null;
+// A text file one side deleted has no markers to resolve: keep it or delete it.
+const cfOneSided = (f: CfFile): boolean => !f.binary && (f.ours === null || f.theirs === null);
 const cfSurvivor = (f: CfFile): string => f.ours ?? f.theirs ?? '';
-const cfResolved = (f: CfFile): boolean => (cfOneSided(f) ? f.pick !== null : !hasMarkers(f.text));
-const cfResult = (f: CfFile): { path: string; text: string | null } =>
-  ({ path: f.path, text: cfOneSided(f) ? (f.pick === 'keep' ? cfSurvivor(f) : null) : f.text });
-// What is still to resolve in a file: its conflict blocks, or 1 for a deleted file not yet decided.
-const cfLeft = (f: CfFile): number => (cfOneSided(f) ? (f.pick === null ? 1 : 0) : parseConflicts(f.text).length);
+const cfResolved = (f: CfFile): boolean => (f.binary ? f.bin !== null : cfOneSided(f) ? f.pick !== null : !hasMarkers(f.text));
+const cfResult = (f: CfFile): ConflictResult => (f.binary
+  ? { path: f.path, choice: f.bin ?? 'ours' } // only sent once every file is resolved, so bin is set by then
+  : { path: f.path, text: cfOneSided(f) ? (f.pick === 'keep' ? cfSurvivor(f) : null) : f.text });
+// What is still to resolve in a file: its conflict blocks, or 1 for a file to keep or delete that isn't decided yet.
+const cfLeft = (f: CfFile): number => (f.binary ? (f.bin === null ? 1 : 0) : cfOneSided(f) ? (f.pick === null ? 1 : 0) : parseConflicts(f.text).length);
 
 async function openConflictPage(pr: GhPull): Promise<void> {
   const n = pr.number;
-  const mine = (): boolean => !!document.querySelector(`#scmDetail .cf-view[data-n="${n}"]`);
+  const wsGen = cfWorkspaceGen; // a folder switch ends this page
+  const mine = (): boolean => wsGen === cfWorkspaceGen && !!document.querySelector(`#scmDetail .cf-view[data-n="${n}"]`);
   const shell = (inner: string): string => `<div class="pr-view cf-view" data-n="${n}">${inner}</div>`;
   const back = (): void => { void openPr(n); };
   const fail = (text: string): void => {
@@ -43,14 +57,17 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   showScmDetail(shell(`<div class="pr-loading"><div class="spinner sm"></div>Preparing the merge of ${esc(pr.base)} into #${n}</div>`));
   let session: ConflictSession;
   try {
-    session = await api.git.prConflictStart(n, pr.base, pr.head.ref, pr.head.repo);
+    session = await api.git.prConflictStart(n); // main asks GitHub for the branches and where to push
   } catch (e) {
     if (mine()) fail(errMsg(e) || 'Couldn\'t prepare the merge');
     return;
   }
   if (!mine()) { api.git.prConflictAbort(session.id).catch(() => {}); return; } // the right side moved on while it was preparing
 
-  const files: CfFile[] = session.files.map(f => ({ path: f.path, ours: f.ours, theirs: f.theirs, text: f.merged, pick: null, cur: 0, crlf: f.merged.includes('\r\n') }));
+  const files: CfFile[] = session.files.map(f => {
+    const text = f.merged ?? '';
+    return { path: f.path, ours: f.ours, theirs: f.theirs, binary: f.kind === 'binary', hasOurs: f.hasOurs, hasTheirs: f.hasTheirs, text, pick: null, bin: null, cur: 0, crlf: text.includes('\r\n') };
+  });
   let sel = 0;
   let busy = false;       // committing or cancelling
   let pushFailed = false; // the resolution is committed in the worktree, only the push is left
@@ -61,6 +78,12 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   // Late results are dropped once the page is left (a new page for the same pull request is a different view) or the session is over.
   const alive = (): boolean => mine() && view.isConnected && !ended;
   const ours = session.headRef, theirs = session.base;
+  // The folder changed: nothing more is done with this session from here (a commit already in flight finishes on its own).
+  cfOpenPage = { end: (): void => {
+    if (ended) return;
+    ended = true;
+    if (!busy) api.git.prConflictAbort(session.id).catch(() => {});
+  } };
 
   const note = (text: string): void => { $('#cfNote', view).textContent = text; };
   const file = (): CfFile => files[sel];
@@ -94,7 +117,7 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   // The conflict being looked at: its two sides, the counter, and which buttons work.
   const paintBlock = (): void => {
     const f = file();
-    if (cfOneSided(f)) return;
+    if (f.binary || cfOneSided(f)) return;
     const blocks = parseConflicts(f.text);
     f.cur = blocks.length ? clamp(f.cur, 0, blocks.length - 1) : 0;
     const b = blocks[f.cur];
@@ -126,9 +149,19 @@ async function openConflictPage(pr: GhPull): Promise<void> {
 
   const mainHtml = (): string => {
     const f = file();
-    const copy = pushFailed && !(cfOneSided(f) && f.pick !== 'keep') ? '<button class="btn btn-sm" data-cf="copy">Copy resolved file</button>' : '';
+    const copy = pushFailed && !f.binary && !(cfOneSided(f) && f.pick !== 'keep') ? '<button class="btn btn-sm" data-cf="copy">Copy resolved file</button>' : '';
     const pane = (title: string, sub: string, body: string): string =>
       `<section class="cf-pane"><header><b>${title}</b><small>${esc(sub)}</small></header>${body}</section>`;
+    if (f.binary) {
+      const off = pushFailed || busy;
+      const btn = (choice: 'ours' | 'theirs' | 'delete', label: string, has: boolean): string =>
+        `<button class="btn btn-sm" data-cf-bin="${choice}" aria-pressed="${f.bin === choice}"${off || !has ? ' disabled' : ''}${has ? '' : ' title="This side deleted the file"'}>${label}</button>`;
+      const state = f.bin === 'ours' ? `Keeping the version from ${ours}` : f.bin === 'theirs' ? `Keeping the version from ${theirs}` : f.bin === 'delete' ? 'The file will be deleted' : 'Keep one side or delete the file';
+      const side = (has: boolean): string => `<div class="cf-gone">${has ? 'Not a text file, so it isn\'t shown' : 'Deleted in this branch'}</div>`;
+      return `<div class="cf-bar"><span class="cf-path">${esc(f.path)}</span><span class="cf-count">${esc(state)}</span>
+        <span class="cf-acts">${btn('ours', 'Keep ours', f.hasOurs)}${btn('theirs', 'Keep theirs', f.hasTheirs)}${btn('delete', 'Delete file', true)}</span></div>
+        <div class="cf-panes">${pane('Ours', ours, side(f.hasOurs))}${pane('Theirs', theirs, side(f.hasTheirs))}${pane('Result', '', '<div class="cf-gone">This file can\'t be merged here</div>')}</div>`;
+    }
     if (cfOneSided(f)) {
       const side = (text: string | null): string => (text === null ? '<div class="cf-gone">Deleted in this branch</div>' : `<pre class="cf-code">${esc(text)}</pre>`);
       const state = f.pick === 'keep' ? 'The file is kept' : f.pick === 'delete' ? 'The file will be deleted' : 'Keep this file or delete it';
@@ -147,7 +180,7 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   const paintMain = (): void => {
     $('#cfMain', view).innerHTML = mainHtml();
     const f = file();
-    if (!cfOneSided(f)) { $<HTMLTextAreaElement>('#cfText', view).value = f.text; paintBlock(); paintDuel(); paintProposal(); scrollToBlock(); }
+    if (!f.binary && !cfOneSided(f)) { $<HTMLTextAreaElement>('#cfText', view).value = f.text; paintBlock(); paintDuel(); paintProposal(); scrollToBlock(); }
   };
   const paintAll = (): void => {
     paintHeader();
@@ -165,16 +198,30 @@ async function openConflictPage(pr: GhPull): Promise<void> {
     if (busy || ended) return;
     proposal = null; // committing keeps what the result says
     busy = true; note(''); paintAll();
+    let res: ConflictFinish;
     try {
-      await api.git.prConflictFinish(session.id, files.map(cfResult));
+      res = await api.git.prConflictFinish(session.id, files.map(cfResult));
     } catch (e) {
+      // The session is gone, or main refused the resolution: nothing was committed.
       busy = false;
       const msg = errMsg(e);
-      if (msg.includes(CF_ENDED)) ended = true; else pushFailed = true;
-      note(ended ? msg : `${msg || 'Couldn\'t push'}. ${session.clean ? 'The merge is committed locally; retry the push' : 'Your resolution is committed locally; retry the push or copy the files'}`);
-      if (mine()) paintAll();
+      if (msg.includes(CF_ENDED)) ended = true;
+      if (mine()) { note(msg || 'Couldn\'t commit the resolution'); paintAll(); }
       return;
     }
+    busy = false;
+    if (!res.ok) {
+      // Only a failed push leaves the resolution committed; after a failed commit the page stays as it was, to change and try again.
+      if (res.stage === 'push') pushFailed = true;
+      if (mine()) {
+        note(res.stage === 'push'
+          ? `${res.message || 'Couldn\'t push'}. ${session.clean ? 'The merge is committed locally; retry the push' : 'Your resolution is committed locally; retry the push or copy the files'}`
+          : `Couldn't commit the resolution: ${res.message || 'git failed'}`);
+        paintAll();
+      }
+      return;
+    }
+    ended = true; // main has removed the session
     toast('Conflicts resolved and pushed');
     void refreshPrs(true);
     if (mine()) back();
@@ -330,13 +377,19 @@ async function openConflictPage(pr: GhPull): Promise<void> {
       if (count > 1) { f.cur = (f.cur + Number(step.dataset.cfStep) + count) % count; paintBlock(); scrollToBlock(); }
       return;
     }
+    const binBtn = t.closest<HTMLButtonElement>('[data-cf-bin]');
+    if (binBtn) {
+      if (!binBtn.disabled && file().binary) { file().bin = binBtn.dataset.cfBin as 'ours' | 'theirs' | 'delete'; paintHeader(); paintFiles(); paintMain(); }
+      return;
+    }
     const pick = t.closest<HTMLElement>('[data-cf-pick]');
     if (pick) { file().pick = pick.dataset.cfPick as 'keep' | 'delete'; paintHeader(); paintFiles(); paintMain(); return; }
     const act = t.closest<HTMLElement>('[data-cf]')?.dataset.cf;
     if (act === 'commit' || act === 'push') void finish();
     else if (act === 'cancel') void cancel();
     else if (act === 'copy') {
-      const text = cfResult(file()).text;
+      const r = cfResult(file());
+      const text = 'text' in r ? r.text : null;
       if (text !== null) background(navigator.clipboard.writeText(text).then(() => toast('File copied')));
     }
   };

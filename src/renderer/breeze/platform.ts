@@ -515,19 +515,25 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async deleteBranch() { throw new Error('Deleting branches works in the desktop app.'); },
       async sync() { throw new Error('Push and pull work in the desktop app.'); },
       async genCommitMsg() { return 'feat: demo change'; },
-      // Pull request #51's conflicts: one text file with two conflicting blocks, and one file the base branch deleted.
-      async prConflictStart(n, base, headRef) {
+      // Pull request #51's conflicts: one text file with two conflicting blocks, one file the base branch deleted, and an
+      // image both changed. Like main, only the number comes in; the branches are the pull request's own.
+      async prConflictStart(n) {
+        const pr = demoPulls.find(p => p.number === n);
+        if (!pr) throw new Error('Pull request not found');
+        if (pr.head.repo === null) throw new Error('The source repository no longer exists');
+        const base = pr.base, headRef = pr.head.ref;
         const lines = (...l: string[]) => l.join('\n') + '\n';
         const crlf = (s: string) => s.replaceAll('\n', '\r\n'); // styles.css has Windows line endings, to try the CRLF path
         const merged = crlf(lines('.hero {', '  padding: 4rem 1rem;', '<<<<<<< HEAD', '  background: #fff7ed;', '  color: #7c2d12;', '=======', '  background: #fef3c7;', '>>>>>>> origin/main', '}', '',
           '.nav {', '  display: flex;', '<<<<<<< HEAD', '  gap: 1.5rem;', '=======', '  gap: 2rem;', '  align-items: center;', '>>>>>>> origin/main', '}'));
         const mine = lines('function login() {', "  return fetch('/api/login');", '}');
         return { id: `demo-${n}`, number: n, base, headRef, clean: false, files: [
-          { path: 'styles.css', ours: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fff7ed;', '  color: #7c2d12;', '}')), theirs: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fef3c7;', '}')), merged },
-          { path: 'script.js', ours: mine, theirs: null, merged: mine },
+          { path: 'styles.css', kind: 'text', ours: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fff7ed;', '  color: #7c2d12;', '}')), theirs: crlf(lines('.hero {', '  padding: 4rem 1rem;', '  background: #fef3c7;', '}')), merged, hasOurs: true, hasTheirs: true },
+          { path: 'script.js', kind: 'text', ours: mine, theirs: null, merged: mine, hasOurs: true, hasTheirs: false },
+          { path: 'assets/beans.jpg', kind: 'binary', ours: null, theirs: null, merged: null, hasOurs: true, hasTheirs: true },
         ] };
       },
-      async prConflictFinish() { /* nothing to push in the demo */ },
+      async prConflictFinish() { return { ok: true }; }, // nothing to push in the demo
       async prConflictAbort() { /* nothing to remove in the demo */ },
     },
     gh: {
