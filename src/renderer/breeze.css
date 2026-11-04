@@ -11823,6 +11823,256 @@ body.layout-animating #previewPane {
   }
 }
 
+/* Liquid switch: Jhey Tompkins' liquid toggle (codepen), in Breeze blue. settings.ts adds the parts below into
+   every .switch and the class .liquid-toggle; Developer → Classic switches takes them out again. Drawn at the
+   original 140×60 and zoomed down, so every number below is the original's. Filters live in breeze.html. */
+.switch.liquid-toggle {
+  --transition: 0.2s;
+  --ease: ease-out;
+  --hue: 211;
+  --unchecked: hsl(218, 8%, 81%);
+  --progress: round(down, var(--complete), 85);
+  --checked: hsl(var(--hue, 144),
+      calc((8 + (var(--progress) / 85 * (92))) * 1%),
+      calc((81 - (var(--progress) / 85 * (81 - 43))) * 1%));
+  --control: hsl(300, 100%, 100%);
+  --border: 5px;
+  --width: 140;
+  --height: 60;
+  zoom: .4;
+  height: calc(var(--height) * 1px);
+  width: calc(var(--width) * 1px);
+  border-radius: 100px;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  overflow: visible;
+  container-type: inline-size;
+  background: #0000;
+  box-shadow: none;
+  outline-offset: 2px;
+  /* tap: hold the bubble up first, then slide; a dropped drag just settles */
+  transition: --complete .12s ease-out .18s, outline var(--transition) var(--ease);
+
+  &.switch-sm {
+    zoom: .25;
+  }
+
+  &[data-dragging] {
+    transition: outline var(--transition) var(--ease);
+  }
+
+  &[data-dropped] {
+    transition: --complete .15s ease-out, outline var(--transition) var(--ease);
+  }
+
+  &:is(:active, [data-pressed]) {
+    --transition: 0.6s;
+    --ease: linear(0 0%, 0.6091 3.69%, 1.0259 7.24%, 1.1733 9.05%, 1.283 10.92%, 1.3562 12.87%, 1.3948 14.95%,
+        1.4014 16.03%, 1.3999 17.16%, 1.3731 19.64%, 1.3202 22.27%, 1.1394 29.39%, 1.0582 33.17%, 0.9943 37.45%,
+        0.9734 39.64%, 0.9593 41.92%, 0.9505 45.08%, 0.9517 48.7%, 0.9924 63.02%, 1.0046 71.2%, 1.0061 78.24%, 1 100%);
+  }
+
+  &::after,
+  .sw-knob {
+    display: none;
+  }
+
+  * {
+    pointer-events: none;
+  }
+
+  &:focus-visible {
+    outline: 4px solid color-mix(in oklch, var(--checked), #0000);
+  }
+
+  &:active {
+    outline: none;
+  }
+
+  &[data-active='true']:focus-visible {
+    outline: 4px solid #0000;
+  }
+
+  .indicator {
+    border-radius: 100px;
+    pointer-events: none;
+    height: 100%;
+    width: 100%;
+    background: var(--checked);
+    position: absolute;
+    top: 50%;
+    scale: 1;
+    left: 50%;
+    translate: -50% -50%;
+  }
+
+  .knockout {
+    height: calc(var(--height) * 1px);
+    width: calc(var(--width) * 1px);
+    border-radius: 100px;
+    filter: url(#remove-black);
+    position: absolute;
+    inset: 0;
+    will-change: filter, scale;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .indicator--masked {
+    background: var(--checked);
+    z-index: 12;
+    height: 100%;
+    width: 100%;
+    translate: -50% -50%;
+    container-type: inline-size;
+    transition: background calc(var(--transition) * 0.5) ease-out;
+
+    .mask {
+      position: absolute;
+      height: calc(100% - (2 * var(--border)));
+      width: calc(60% - (2 * var(--border)));
+      top: 50%;
+      background: #000;
+      left: var(--border);
+      border-radius: 100px;
+      translate: calc((var(--complete) / 100) * (100cqi - 60cqi - (0 * var(--border)))) -50%;
+      transition-property: height, width, margin, scale;
+      transition-duration: var(--transition);
+      transition-timing-function: var(--ease);
+      will-change: height, width, margin;
+    }
+  }
+
+  .wrapper {
+    position: absolute;
+    inset: 0;
+    border-radius: 100px;
+    clip-path: inset(0 0 0 0 round 100px);
+    filter: blur(6px);
+    transition: filter var(--transition) var(--ease);
+  }
+
+  .liquids {
+    position: absolute;
+    inset: 0;
+    transform: translate3d(0, 0, 0);
+    border-radius: 100px;
+    overflow: hidden;
+    filter: url(#goo);
+
+    .liquid__shadow {
+      position: absolute;
+      inset: 0;
+      box-shadow: inset 0px 0px 3px 4px var(--checked),
+        inset calc(((var(--complete) / 100) * 8px) + -4px) 0px 3px 4px var(--checked);
+      border-radius: 100px;
+      transition: box-shadow calc(var(--transition) * 0.5) ease-out;
+    }
+
+    .liquid__track {
+      height: calc((var(--height) * 1px) - (0 * var(--border)));
+      width: calc((var(--width) * 1px) - (0 * var(--border)));
+      background: var(--checked);
+      border-radius: 100px;
+      position: absolute;
+      top: 50%;
+      left: 0;
+      translate: calc((var(--complete) / 100) * (100cqi - 100% - (6 * var(--border)))) -50%;
+      transition-property: height, width, filter, left, background;
+      transition-duration: var(--transition), var(--transition), var(--transition), var(--transition), calc(var(--transition) * 0.5);
+      transition-timing-function: var(--ease), var(--ease), var(--ease), var(--ease), ease-out;
+    }
+  }
+
+  &[data-pressed] .liquid__track {
+    min-height: 30px;
+  }
+
+  &.on:not([data-active='true']) .liquid__track {
+    left: calc(var(--border) * 6);
+  }
+
+  .indicator__liquid {
+    position: absolute;
+    height: calc(100% - (2 * var(--border)));
+    width: calc(60% - (2 * var(--border)));
+    container-type: inline-size;
+    top: 50%;
+    background: #0000;
+    left: var(--border);
+    border-radius: 100px;
+    translate: calc((var(--complete) / 100) * (100cqi - 100% - (2 * var(--border)))) -50%;
+    transition-property: scale;
+    transition-duration: var(--transition);
+    transition-timing-function: var(--ease);
+
+    :is(.cover, .shadow) {
+      transition: opacity var(--transition) var(--ease);
+    }
+
+    .shadow {
+      opacity: 0;
+      position: absolute;
+      inset: 0;
+      border-radius: 100px;
+      box-shadow: 1px -1px 2px hsl(0 0% 100% / 0.5) inset,
+        0px -1px 2px hsl(0 0% 100% / 0.5) inset,
+        -1px -1px 2px hsl(0 0% 100% / 0.5) inset,
+        1px 1px 2px hsl(0 0% 30% / 0.5) inset,
+        -8px 4px 10px -6px hsl(0 0% 30% / 0.25) inset,
+        -1px 1px 6px hsl(0 0% 30% / 0.25) inset,
+        -1px -1px 8px hsl(0 0% 60% / 0.15), 1px 1px 2px hsl(0 0% 30% / 0.15),
+        2px 2px 6px hsl(0 0% 30% / 0.15),
+        -2px -1px 2px hsl(0 0% 100% / 0.25) inset,
+        3px 6px 16px -6px hsl(0 0% 30% / 0.5);
+      z-index: 20;
+    }
+
+    .cover {
+      position: absolute;
+      inset: 0;
+      background: white;
+      border-radius: 100px;
+    }
+  }
+
+  /* held: the knob swells into a glass bubble over the liquid */
+  &:is([data-active='true'], :active) {
+    .indicator--masked .mask {
+      height: calc((100% - (2 * var(--border))) * (1.65 - (var(--delta, 0) * 0.025)));
+      width: calc((60% - (2 * var(--border))) * (1.65 + (var(--delta, 0) * 0.025)));
+      margin-left: calc((60% - (2 * var(--border))) * ((.65 + (var(--delta, 0) * 0.025)) * -0.5));
+    }
+
+    .indicator__liquid {
+      scale: calc(1.65 + (var(--delta, 0) * 0.025)) calc(1.65 - (var(--delta, 0) * 0.025));
+    }
+
+    .wrapper {
+      filter: blur(0px);
+    }
+
+    .indicator__liquid .shadow {
+      opacity: 1;
+    }
+
+    .indicator__liquid .cover {
+      opacity: 0;
+    }
+
+    .indicator__liquid .liquid__track {
+      left: calc(var(--border) * 3);
+      height: calc((var(--height) * 1px) - (6 * var(--border)));
+    }
+  }
+
+  &:disabled {
+    opacity: .5;
+    cursor: wait;
+  }
+}
+
 /* Miscellaneous → Enter code: a short field with its button. */
 .set-code {
   display: flex;

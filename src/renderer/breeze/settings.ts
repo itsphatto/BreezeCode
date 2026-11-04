@@ -34,37 +34,89 @@ const settingsRoot = () => document.querySelector<HTMLElement>('#modalRoot .scri
 const switchHtml = (id: string, on: boolean, label: string) =>
   `<button class="switch ${on ? 'on' : ''}" id="${id}" role="switch" aria-checked="${on}" aria-label="${escAttr(label)}"><span class="sw-knob"></span></button>`;
 
+// Liquid switch (breeze.css "liquid switch"): the parts that make the glass knob and the goo, put into every
+// .switch as it appears. Developer → Classic switches keeps the plain track and square knob instead.
+const LIQUID_PARTS = '<div class="knockout"><div class="indicator indicator--masked"><div class="mask"></div></div></div>'
+  + '<div class="indicator__liquid"><div class="shadow"></div><div class="wrapper"><div class="liquids"><div class="liquid__shadow"></div><div class="liquid__track"></div></div></div><div class="cover"></div></div>';
+let classicSwitch = store.get<boolean>('breeze.classicSwitch', false) === true;
+function liquidSwitch(el: HTMLElement): void {
+  const liquid = !classicSwitch;
+  if (el.classList.contains('liquid-toggle') === liquid) return;
+  el.classList.toggle('liquid-toggle', liquid);
+  if (liquid) el.insertAdjacentHTML('beforeend', LIQUID_PARTS);
+  else el.querySelectorAll(':scope > .knockout, :scope > .indicator__liquid').forEach(p => p.remove());
+}
+function setClassicSwitch(on: boolean): void {
+  classicSwitch = on;
+  store.set('breeze.classicSwitch', on);
+  document.querySelectorAll<HTMLElement>('button.switch').forEach(liquidSwitch);
+}
+document.querySelectorAll<HTMLElement>('button.switch').forEach(liquidSwitch);
+new MutationObserver(recs => {
+  for (const r of recs) for (const n of r.addedNodes) {
+    if (!(n instanceof HTMLElement)) continue;
+    if (n.matches('button.switch')) liquidSwitch(n);
+    n.querySelectorAll<HTMLElement>('button.switch').forEach(liquidSwitch);
+  }
+}).observe(document.body, { childList: true, subtree: true });
+
+const switchSettle = new WeakMap<HTMLElement, number>();
+function settleSwitch(el: HTMLElement, ms: number): void {
+  clearTimeout(switchSettle.get(el));
+  switchSettle.set(el, window.setTimeout(() => {
+    delete el.dataset.active; delete el.dataset.pressed; delete el.dataset.dropped;
+    el.style.removeProperty('--delta');
+  }, ms));
+}
+
 // Tap a switch to flip it, or drag the knob: it follows the pointer and lands on the nearer side.
 // A drag that ends on the side it started from swallows the click, so it changes nothing.
+// A liquid switch keeps its bubble up until the slide is done, then lets it settle back into the knob.
 (() => {
-  let drag: { el: HTMLButtonElement; x0: number; from: number; moved: boolean } | null = null;
+  let drag: { el: HTMLButtonElement; x0: number; lastX: number; from: number; moved: boolean } | null = null;
   let swallow: HTMLElement | null = null;
   const end = (e: PointerEvent) => {
     if (!drag) return;
     const { el, from, moved } = drag;
     drag = null;
-    delete el.dataset.active;
     delete el.dataset.dragging;
-    if (!moved) return;
+    if (!el.classList.contains('liquid-toggle')) delete el.dataset.active;
+    el.style.removeProperty('--delta');
+    if (!moved) { if (el.classList.contains('liquid-toggle')) settleSwitch(el, 350); return; }
     const at = Number.parseFloat(el.style.getPropertyValue('--complete')) || 0;
+    if (el.classList.contains('liquid-toggle')) { el.dataset.dropped = 'true'; settleSwitch(el, 100); }
     el.style.removeProperty('--complete');   // eases from where the knob was let go
     if ((at >= 50) === (from === 100) || e.type === 'pointercancel') swallow = el;
   };
   document.addEventListener('pointerdown', e => {
     const el = (e.target as HTMLElement).closest<HTMLButtonElement>('button.switch');
     if (!el || el.disabled || e.button !== 0) return;
-    drag = { el, x0: e.clientX, from: el.classList.contains('on') ? 100 : 0, moved: false };
+    drag = { el, x0: e.clientX, lastX: e.clientX, from: el.classList.contains('on') ? 100 : 0, moved: false };
+    clearTimeout(switchSettle.get(el));
+    delete el.dataset.dropped;
     el.dataset.active = 'true';
+    if (el.classList.contains('liquid-toggle')) el.dataset.pressed = 'true';
     el.setPointerCapture(e.pointerId);
+  });
+  // Keys flip a liquid switch with the same bubble a tap gets.
+  document.addEventListener('keydown', e => {
+    const el = e.target instanceof HTMLElement ? e.target.closest<HTMLButtonElement>('button.switch.liquid-toggle') : null;
+    if (!el || el.disabled || (e.key !== 'Enter' && e.key !== ' ')) return;
+    el.dataset.active = 'true'; el.dataset.pressed = 'true';
+    settleSwitch(el, 350);
   });
   document.addEventListener('pointermove', e => {
     if (!drag) return;
     const dx = e.clientX - drag.x0;
+    if (drag.el.classList.contains('liquid-toggle')) drag.el.style.setProperty('--delta', String(Math.min(Math.abs(e.clientX - drag.lastX), 12)));
+    drag.lastX = e.clientX;
     if (!drag.moved && Math.abs(dx) < 3) return;
     drag.moved = true;
     drag.el.dataset.dragging = 'true';
     // The knob travels the switch's width less its height (one knob plus the padding on both sides).
-    const travel = Math.max(1, drag.el.clientWidth - drag.el.clientHeight);
+    // A liquid switch is zoomed, so measure it as drawn; its knob is 60% of the width and swells as it's held.
+    const box = drag.el.getBoundingClientRect();
+    const travel = Math.max(1, drag.el.classList.contains('liquid-toggle') ? box.width * .5 : drag.el.clientWidth - drag.el.clientHeight);
     drag.el.style.setProperty('--complete', String(clamp(drag.from + dx / travel * 100, 0, 100)));
   });
   document.addEventListener('pointerup', end);
@@ -334,6 +386,7 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Run setup again', 'Pick your agent and workspace again.', '<button class="btn btn-sm" data-set-cmd="help.setup">Start</button>')}
       ${settingRow('Developer tools', esc(keyOf('win.devtools')), '<button class="btn btn-sm" data-set-cmd="win.devtools">Toggle</button>')}
       ${settingRow('Reload window', esc(keyOf('win.reload')), '<button class="btn btn-sm" data-set-cmd="win.reload">Reload</button>')}
+      ${settingRow('Classic switches', 'Use the flat on/off switch instead of the liquid one.', switchHtml('sClassicSwitch', classicSwitch, 'Classic switches'))}
       ${settingRow('Turn off Developer', 'Hide this section again.', '<button class="btn btn-sm" id="sDevOff">Turn off</button>')}`;
   }
 }
@@ -457,6 +510,8 @@ function bindSettings(m: HTMLElement): void {
   // Switches are rebuilt with the pane, so remember where each knob was (mid-drag or mid-slide too) and slide on from there.
   const prevSwitch = new Map<string, string>();
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => prevSwitch.set(s.id, getComputedStyle(s).getPropertyValue('--complete')));
+  // Held switches and how long their bubble stays up: 0.1s after a drag is let go, a tap's whole slide otherwise.
+  const prevHeld = new Map([...pane.querySelectorAll<HTMLElement>('.switch[data-active]')].map(s => [s.id, s.dataset.dropped ? 100 : 350]));
   if (pane.dataset.tab !== settingsTab) lightJoke = ''; // a fresh joke for each visit
   // A part greyed out by its switch (Discord presence, Vibe Code Mode's feeds) fades there and back. The pane is
   // rebuilt below, so the new copy takes over from exactly how the old one looked, even mid-fade: turning presence on
@@ -502,9 +557,15 @@ function bindSettings(m: HTMLElement): void {
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => {
     const was = Number.parseFloat(prevSwitch.get(s.id) ?? '');
     const to = s.classList.contains('on') ? 100 : 0;
+    // A liquid switch held as it flipped keeps its bubble up on the rebuilt one, and slides as a tap does.
+    const liquid = !classicSwitch;
+    const held = prevHeld.get(s.id);
+    if (liquid && held) { s.dataset.active = 'true'; s.dataset.pressed = 'true'; settleSwitch(s, held); }
     if (Number.isNaN(was) || Math.abs(was - to) < .5 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     s.animate([{ '--complete': String(was) }, { '--complete': String(to) }],
-      { duration: 220 * Math.abs(to - was) / 100, easing: 'cubic-bezier(.65, 0, .35, 1)' });
+      liquid && held === 100 ? { duration: 150, easing: 'ease-out' }
+        : liquid ? { duration: 120 * Math.abs(to - was) / 100, delay: 180, easing: 'ease-out', fill: 'backwards' }
+        : { duration: 220 * Math.abs(to - was) / 100, easing: 'cubic-bezier(.65, 0, .35, 1)' });
   });
   $$('[data-set-tab]', m).forEach(b => b.classList.toggle('on', b.dataset.setTab === settingsTab));
   const on = (id: string, fn: (el: HTMLElement) => void) => { const el = $(`#${id}`, pane); if (el) el.onclick = () => fn(el); };
@@ -628,6 +689,7 @@ function bindSettings(m: HTMLElement): void {
     codeIn.onkeydown = e => { if (e.key === 'Enter') tryCode(); };
     codeIn.oninput = () => { $<HTMLButtonElement>('#sCodeGo', pane).disabled = !codeIn.value.trim(); };
   }
+  on('sClassicSwitch', () => { setClassicSwitch(!classicSwitch); refreshSettings(); });
   on('sDevOff', () => { appState.devMode = false; saveApp(); applyDevMode(); settingsTab = 'misc'; refreshSettings(); });
   // Discord
   on('sDiscord', el => {

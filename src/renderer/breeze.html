@@ -19,6 +19,34 @@
     <div class="launch-glint"></div>
     <img class="launch-logo" src="../../assets/brand/Agent.png" width="150" height="150" alt="" draggable="false">
   </div>
+  <!-- Filters for the liquid on/off switch (breeze.css "liquid switch"). Not display:none, or they stop applying. -->
+  <svg class="sprite" width="0" height="0" aria-hidden="true">
+    <defs>
+      <filter id="goo">
+        <feGaussianBlur result="blur" in="SourceGraphic" stdDeviation="2" />
+        <feColorMatrix result="goo" in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 16 -10" />
+        <feComposite in="goo" operator="atop" />
+      </filter>
+      <filter id="knockout" color-interpolation-filters="sRGB">
+        <feColorMatrix result="knocked" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  -1 -1 -1 1 0" />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="3" intercept="-1" />
+          <feFuncG type="linear" slope="3" intercept="-1" />
+          <feFuncB type="linear" slope="3" intercept="-1" />
+        </feComponentTransfer>
+        <feComponentTransfer>
+          <feFuncR type="table" tableValues="0 0 0 0 0 1 1 1 1 1" />
+          <feFuncG type="table" tableValues="0 0 0 0 0 1 1 1 1 1" />
+          <feFuncB type="table" tableValues="0 0 0 0 0 1 1 1 1 1" />
+        </feComponentTransfer>
+      </filter>
+      <filter id="remove-black" color-interpolation-filters="sRGB">
+        <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  -255 -255 -255 0 1" result="black-pixels" />
+        <feMorphology in="black-pixels" operator="dilate" radius="0.5" result="smoothed" />
+        <feComposite in="SourceGraphic" in2="smoothed" operator="out" />
+      </filter>
+    </defs>
+  </svg>
   <!-- Shared SVG symbols -->
   <svg class="sprite" width="0" height="0" aria-hidden="true">
     <symbol id="i-swirl" viewBox="0 0 24 24">
