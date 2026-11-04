@@ -723,10 +723,10 @@ const editorSlidersOnly = editorSliders($('#editor'), () => activeText()?.ta);
 const updateSliders = (ta?: CodeSurface): void => { editorSlidersOnly(ta); queueMinimap(); };
 
 /* ----- Minimap: the whole file zoomed out beside the right slider (Settings → General → Editor) ----- */
-// Each line is MM_LINE px tall and each character MM_CHAR px wide, in its syntax colour. A file taller than the
-// map scrolls along with the editor, as the editor's scroll fraction. The shaded box is the part on screen: drag
-// it to scroll, or click anywhere on the map to jump there (and keep dragging).
-const MM_LINE = 2, MM_CHAR = 1, MM_COLS = 120, MM_SLIDER_LANE = 16;
+// Each line is MM_LINE px tall and each character MM_CHAR px wide, drawn as a tiny glyph in its syntax colour. A
+// file taller than the map scrolls along with the editor, as the editor's scroll fraction. The shaded box is the
+// part on screen: drag it to scroll, or click anywhere on the map to jump there (and keep dragging).
+const MM_LINE = 3, MM_CHAR = 1, MM_COLS = 120, MM_SLIDER_LANE = 16, MM_FONT = 3;
 let minimapOn = store.get<boolean>('breeze.minimap', true) !== false;
 const mmEl = document.createElement('div');
 mmEl.className = 'minimap';
@@ -790,7 +790,12 @@ function drawMinimap(): void {
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, g.h);
-  ctx.globalAlpha = .7;
+  ctx.globalAlpha = .85;
+  // Glyphs are squeezed sideways so each one fills exactly MM_CHAR px, like a monospace grid.
+  ctx.font = `${MM_FONT}px ${getComputedStyle($('#hl')).fontFamily || 'monospace'}`;
+  ctx.textBaseline = 'top';
+  const sx = MM_CHAR / (ctx.measureText('M').width || MM_CHAR);
+  ctx.setTransform(dpr * sx, 0, 0, dpr, 0, 0);
   const cols = Math.min(MM_COLS, Math.floor(w / MM_CHAR));
   const first = Math.floor(g.offset / MM_LINE), last = Math.min(lines, Math.ceil((g.offset + g.h) / MM_LINE));
   const text = doc.text, starts = doc.starts, kinds = doc.kinds;
@@ -799,8 +804,8 @@ function drawMinimap(): void {
     const from = doc.lines[i], to = Math.min(i + 1 < lines ? doc.lines[i + 1] - 1 : text.length, from + cols * 2);
     const y = i * MM_LINE - g.offset;
     let k = starts.length ? lineOfOffset(starts, from) : -1;
-    let col = 0, runStart = -1, runColor = '';
-    const flush = () => { if (runStart >= 0) { ctx.fillStyle = runColor; ctx.fillRect(runStart * MM_CHAR, y, (col - runStart) * MM_CHAR, MM_LINE - .5); runStart = -1; } };
+    let col = 0, runStart = -1, runColor = '', run = '';
+    const flush = () => { if (runStart >= 0) { ctx.fillStyle = runColor; ctx.fillText(run, runStart * MM_CHAR / sx, y); runStart = -1; run = ''; } };
     for (let at = from; at < to && col < cols; at++) {
       while (k >= 0 && k + 1 < starts.length && starts[k + 1] <= at) k++;
       const ch = text.charCodeAt(at);
@@ -808,6 +813,7 @@ function drawMinimap(): void {
       const color = k >= 0 && starts[k] <= at ? (kinds[k] ? mmColor(kinds[k]) : plain) : plain;
       if (runStart >= 0 && color !== runColor) flush();
       if (runStart < 0) { runStart = col; runColor = color; }
+      run += text[at];
       col++;
     }
     flush();

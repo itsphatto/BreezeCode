@@ -247,7 +247,6 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
       <h5>Editor</h5>
       ${settingRow('Auto save', 'Off, a second after you stop typing, or when you switch tabs or windows.', segHtml('sAutoSave', [['off', 'Off'], ['delay', 'After delay'], ['focus', 'On focus change']], autoSave))}
-      ${settingRow('Minimap', 'A zoomed-out view of the file beside the scrollbar. Click or drag it to scroll.', switchHtml('sMinimap', minimapOn, 'Minimap'))}
       <h5>Layout</h5>
       ${settingRow('Side bar', esc(keyOf('view.toggleSide')), switchHtml('sSide', layout.sideOpen, 'Side bar'))}
       ${settingRow('Agents panel', esc(keyOf('view.toggleAgents')), switchHtml('sAgents', layout.agentsOpen, 'Agents panel'))}
@@ -260,6 +259,8 @@ function settingsBody(tab: SettingsTab): string {
       <p class="set-sub"></p>
       <h5>Text</h5>
       ${settingRow('Font size', 'Code in the editor and the debugger.', `<div class="set-volume set-font-size"><input type="range" id="sCodeSize" min="${CODE_SIZE_MIN}" max="${CODE_SIZE_MAX}" step="1" value="${codeSize}" aria-label="Code font size"><span class="set-volume-val" id="sCodeSizeVal">${codeSize}px</span></div>`)}
+      <h5>Editor</h5>
+      ${settingRow('Minimap', 'A zoomed-out view of the file beside the scrollbar. Click or drag it to scroll.', switchHtml('sMinimap', minimapOn, 'Minimap'))}
       <h5>Motion</h5>
       ${settingRow('Extra animation', 'Fly between Breeze Code and Breeze Space, and bring the debugger in panel by panel.', switchHtml('sBigAnim', bigAnim, 'Extra animation'))}`;
     case 'controls': return `<h4>Controls</h4>
@@ -513,13 +514,13 @@ function bindSettings(m: HTMLElement): void {
   // General
   seg('sMode', v => { if (v !== appState.mode) { closeModal(); enterMode(v as WorkMode); } });
   seg('sAutoSave', v => { const m = AUTO_SAVE_MODES.find(x => x === v); if (m && m !== autoSave) { setAutoSave(m); refreshSettings(); } });
-  on('sMinimap', () => { setMinimap(!minimapOn); refreshSettings(); });
   layoutSwitch('sSide', 'view.toggleSide');
   layoutSwitch('sAgents', 'view.toggleAgents');
   layoutSwitch('sTerm', 'term.toggle');
   layoutSwitch('sPreview', 'view.togglePreview');
   layoutSwitch('sResetLayout', 'view.resetLayout');
   // Appearance
+  on('sMinimap', () => { setMinimap(!minimapOn); refreshSettings(); });
   $$('[data-theme-pick]', pane).forEach(b => b.onclick = () => {
     const pick = b.dataset.themePick as Theme;
     if (pick === theme) return;

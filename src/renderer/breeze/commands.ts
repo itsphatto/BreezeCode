@@ -86,6 +86,7 @@ const commands: Record<string, () => unknown> = {
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
     applyLayoutAnimated();
   },
+  'view.toggleMinimap': () => { setMinimap(!minimapOn); sfx.play('menu'); },
   'view.splitEditor': () => { if (splitPath) { closeSplit(); } else { openSplit(); } renderTabs(); },
   'view.resetLayout': () => {
     const prev = { ...layout };
@@ -366,6 +367,7 @@ const MENUS: Menu[] = [
       { label: 'Terminal', act: 'term.toggle', key: 'Ctrl+`', checked: () => layout.termOpen },
       { label: 'Preview', act: 'view.togglePreview', checked: () => layout.previewOpen },
       { label: 'Notebook View', act: 'nb.toggleView', checked: () => nbShown(activeBuf()), enabled: () => isNotebook(activeBuf()) },
+      { label: 'Minimap', act: 'view.toggleMinimap', checked: () => minimapOn },
       { label: 'Split Editor Right', act: 'view.splitEditor', key: 'Ctrl+\\', checked: () => !!splitPath },
       { label: 'Reset Layout', act: 'view.resetLayout' },
       { sep: true },
