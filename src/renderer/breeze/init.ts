@@ -86,6 +86,7 @@ async function boot(): Promise<void> {
     document.documentElement.removeAttribute('data-launching');
     welcome.classList.remove('ob-await');
     if (welcome.getClientRects().length) welcome.classList.add('ob-intro');
+    if (step === STEP.name && !appState.onboarded) nameInput.focus({ preventScroll: true }); // goStep couldn't, the app was hidden
     if (!greet) return;
     const home = $('.home-step');
     home.classList.add('home-in');

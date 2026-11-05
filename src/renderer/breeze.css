@@ -94,6 +94,7 @@
   --glass-strong: rgba(35, 35, 37, .74);
   --glass-line: rgba(255, 255, 255, .1);
   --glass-blur: blur(22px) saturate(160%);
+  --space-blur: blur(8px) saturate(160%); /* Breeze Space's prompt and terminal, over its stars */
   /* Ink is the colour of hover washes and hairlines, as an "r, g, b" triple for rgba(var(--ink), alpha):
      white over the dark themes, black over the light one. */
   --ink: 255, 255, 255;
@@ -143,6 +144,7 @@
   --glass: rgba(251, 249, 244, .97);
   --glass-strong: rgba(248, 245, 238, .98);
   --glass-blur: none;
+  --space-blur: none;
   --glass-line: rgba(70, 55, 30, .12);
   /* Fibre grain: brown noise at a few percent, tiled over the big surfaces (see "paper grain" below). */
   --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .24 0 0 0 0 .13 0 0 0 .16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -651,16 +653,32 @@ button {
   -webkit-app-region: drag;
 }
 
-/* Onboarding backdrop: the sky the launch animation opened (launch.css), behind every step. The welcome shows it
-   at full strength; past it (sign-in, preferences, Home) it is turned down, so the glassy cards and white text stay
-   calm on it. */
+/* Onboarding backdrop: the sky the launch animation opened (launch.css), behind every step. All of setup shows it
+   at full strength, so it reads as one place; on Home it is turned down, so the glassy cards and white text stay calm
+   on it. */
 .ob-sky {
   pointer-events: none;
   transition: filter .8s cubic-bezier(.65, 0, .35, 1);
 }
 
-.onboard:not(:has(.ob-step[data-step="0"]:not(.hidden))) .ob-sky {
+.onboard:has(.home-step:not(.hidden)) .ob-sky {
   filter: brightness(.5) saturate(1);
+}
+
+/* Both dark themes: Home's sky (--home-sky, launch.css), the one the intro opens onto. */
+:root:is([data-theme="dark"], [data-theme="contrast"]) .onboard:has(.home-step:not(.hidden)) .ob-sky {
+  --sky-drift-a: #000;
+  background: var(--home-sky);
+  filter: none;
+}
+
+/* Home's light drifts twice as fast as the launch's. */
+.onboard:has(.home-step:not(.hidden)) .ob-sky::before {
+  animation-duration: 2.5s;
+}
+
+.onboard:has(.home-step:not(.hidden)) .ob-sky::after {
+  animation-duration: 3s;
 }
 
 /* April Fools: everything on Home shows in inverted colours (the launch does too, launch.css). */
@@ -687,10 +705,9 @@ button {
   position: fixed;
 }
 
-/* Light theme: setup keeps the dark theme's dimmed sky over the same dark page (the white text needs it); Home's
-   sky and panels are where light mode shows. */
+/* Light theme: setup looks the same as in the dark themes; Home's sky and panels are where light mode shows. */
 :root[data-theme="light"] .onboard { background: #1d1d1f; }
-:root[data-theme="light"] .onboard:has(.home-step:not(.hidden)) .ob-sky { filter: brightness(.92) saturate(1.05); }
+:root[data-theme="light"] .onboard:has(.home-step:not(.hidden)) .ob-sky { filter: brightness(.6) saturate(1.05); }
 
 /* Every step sits above the sky. */
 .ob-step {
@@ -710,14 +727,9 @@ button {
   --blue-text: #c2d7ff;
 }
 
-.onboard :is(.setup-card, .start-tile, .device-code, .home-recent, .home-agent),
+.onboard :is(.setup-card, .start-tile, .device-code),
 .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) {
   backdrop-filter: blur(36px) saturate(1.3);
-}
-
-/* The GitHub and Google buttons are see-through so the sky shows behind them. */
-.onboard .signin-btns .btn:not(.btn-ghost) {
-  background: rgba(50, 50, 52, .35);
 }
 
 .ob-step {
@@ -759,7 +771,7 @@ button {
 .ob-start {
   padding: 11px 30px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 12px;
   background: #fff;
   color: #1f4dff;
   font-size: 15px;
@@ -810,13 +822,334 @@ button {
   background: var(--blue);
 }
 
-/* On the welcome's blue sky the dots go white, the current one solid. */
-.onboard:has(.ob-step[data-step="0"]:not(.hidden)) .ob-dots span {
+/* On the sky the dots go white, the current one solid. */
+.onboard .ob-dots span {
   background: rgba(255, 255, 255, .45);
 }
 
-.onboard:has(.ob-step[data-step="0"]:not(.hidden)) .ob-dots span.on {
+.onboard .ob-dots span.on {
   background: #fff;
+}
+
+/* The ones behind you take you back. The tall hit area makes up for how small they are. */
+.ob-dots span.back {
+  position: relative;
+  cursor: pointer;
+}
+
+.ob-dots span.back::after {
+  content: "";
+  position: absolute;
+  inset: -8px -3px;
+}
+
+.ob-dots span:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+/* ---------- Setup screens on the sky (motion: onboarding.ts) ---------- */
+.ob-step.ob-flow {
+  animation: none;
+}
+
+.ob-flow > h2 {
+  width: fit-content;
+  margin-inline: auto;
+  font-size: clamp(22px, 4vw, 30px);
+  letter-spacing: -.02em;
+  color: #fff;
+  text-shadow: 0 0 2px rgba(10, 30, 120, .45), 0 1px 14px rgba(10, 30, 120, .4);
+}
+
+/* The tight shadow gives small white text a real edge where the sky is palest. */
+.ob-flow > p.lead {
+  color: #fff;
+  text-shadow: 0 0 1px rgba(10, 30, 120, .9), 0 0 4px rgba(10, 30, 120, .75), 0 1px 10px rgba(10, 30, 120, .45);
+}
+
+/* Focused by script so a keyboard or screen reader user lands on the new screen (onboarding.ts); not a control. */
+.ob-step :is(h1, h2)[tabindex]:focus {
+  outline: none;
+}
+
+.ob-icon {
+  display: block;
+  margin: 0 auto;
+}
+
+.ob-ghost {
+  position: fixed;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* A flight starts past the window's edge; that mustn't flash a scrollbar (or hide the dots, syncDots). */
+.onboard.ob-flying {
+  overflow: hidden;
+}
+
+/* Dimmed, it still has to read as a button, but a press does nothing. */
+.ob-start:disabled {
+  pointer-events: none;
+}
+
+/* Name */
+.ob-who {
+  padding-bottom: 96px;
+}
+
+.ob-who > h2 {
+  margin-top: 18px;
+  margin-bottom: 26px;
+}
+
+#obNameForm {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  width: min(420px, 100%);
+  margin: 0 auto;
+}
+
+.ob-field {
+  --line: rgba(255, 255, 255, .7); /* what a focused text box's edge stays at */
+  position: relative;
+  width: 100%;
+  text-align: left;
+}
+
+.ob-field input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 60px;
+  padding: 22px 18px 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .86);
+  color: #14161c;
+  caret-color: #1f4dff;
+  font-size: 16px;
+}
+
+.ob-field label {
+  position: absolute;
+  left: 19px;
+  top: 20px;
+  color: #4a4f5c;
+  font-size: 15px;
+  pointer-events: none;
+  transform-origin: left top;
+  transition: transform .16s ease;
+}
+
+.ob-field input:focus + label,
+.ob-field input:not(:placeholder-shown) + label {
+  transform: translateY(-10px) scale(.76);
+}
+
+/* White glass for what sits on the sky: dark text whatever the theme, and whatever the sky is doing behind it. */
+.ob-form,
+.prefs .setup-card {
+  --text: #14161c;
+  --text-2: #3f4450;
+  --text-3: #565c69;
+  --line: rgba(20, 22, 28, .16);
+  --line-hi: rgba(20, 22, 28, .3);
+  --bg: rgba(255, 255, 255, .6);
+  --bg-1: rgba(255, 255, 255, .6);
+  --bg-2: rgba(255, 255, 255, .6);
+  --bg-3: rgba(255, 255, 255, .78);
+  --blue-text: #0b4fcc;
+  --blue-soft: rgba(31, 77, 255, .1);
+  --ink: 20, 22, 28;
+  --hover-dim: rgba(20, 22, 28, .07);
+  --ok: #0f7a3e;
+  --warn: #8a5300;
+  --err: #b91c1c;
+  color-scheme: light;
+  color: var(--text);
+  background: rgba(255, 255, 255, .8);
+  border: 1px solid rgba(255, 255, 255, .6);
+  backdrop-filter: blur(36px) saturate(1.3);
+}
+
+/* Account: the icon sits higher than on the name screen, so it visibly slides up between them. */
+.ob-step.ob-account {
+  align-self: start;
+  padding: clamp(44px, 9vh, 96px) 0 44px;
+}
+
+.ob-form {
+  display: grid;
+  gap: 12px;
+  width: min(380px, 100%);
+  margin: 16px auto 0;
+  padding: 22px 26px 26px;
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(10, 30, 120, .22);
+}
+
+.ob-form h2 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  letter-spacing: -.02em;
+}
+
+.ob-form .signin-btns {
+  max-width: none;
+  margin: 0;
+}
+
+.ob-form .signin-error {
+  color: #6f4200;
+  background: rgba(245, 158, 11, .16);
+}
+
+/* The column is narrower than the code and its two buttons on one line. */
+.ob-form .device-code {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.ob-form .device-code span {
+  flex-basis: 100%;
+  white-space: nowrap;
+}
+
+.ob-form .device-code .btn {
+  white-space: nowrap;
+}
+
+.ob-connected {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-3);
+  text-align: left;
+}
+
+.ob-connected .avatar {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  border: 0;
+  font-size: 13px;
+}
+
+.ob-connected-txt {
+  display: grid;
+  min-width: 0;
+  font-size: 13.5px;
+}
+
+.ob-connected-txt > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ob-connected-txt small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.ob-terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.ob-terms input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: #1f4dff;
+}
+
+.ob-terms a {
+  color: var(--blue-text);
+  font-weight: 600;
+}
+
+#obAccountNext {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #fff;
+  background: #1f4dff;
+  border-color: #1f4dff;
+}
+
+/* Make it yours: the agents get a column of their own and scroll inside it; the window never has to. */
+.ob-step.setup.prefs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: min(880px, calc(100vw - 48px));
+  max-height: 100vh;
+  padding: 44px 0 40px;
+}
+
+.ob-step.setup.prefs h2 {
+  margin-bottom: 4px;
+}
+
+.ob-step.setup.prefs p.lead {
+  margin-bottom: 16px;
+}
+
+.prefs .setup-grid {
+  flex: 0 1 auto;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+  margin-bottom: 16px;
+}
+
+.prefs .setup-card {
+  border-radius: 14px;
+}
+
+.prefs .ob-agents {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.prefs #agentList {
+  position: relative; /* its pickers' parts count as the list's overflow, not the card's */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.prefs .set-theme .set-sub.set-warn {
+  color: #b91c1c;
+}
+
+/* The narrow cards here wrap their description rather than cut it. */
+.prefs .set-theme .set-sub {
+  white-space: normal;
 }
 
 .signin-btns {
@@ -3082,7 +3415,8 @@ svg.ico-svg:active {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 130px;
+  /* --mm-width: set by drawMinimap, narrower when the file has long lines. */
+  width: var(--mm-width);
   /* Opaque, so code scrolled sideways doesn't show under it; the right 16px is the slider's lane. */
   background: var(--bg);
   z-index: 4;
@@ -3096,7 +3430,7 @@ svg.ico-svg:active {
 }
 
 .editor.minimap-on>.code {
-  margin-right: 130px;
+  margin-right: var(--mm-width);
 }
 
 .minimap canvas {
@@ -3107,7 +3441,6 @@ svg.ico-svg:active {
   position: absolute;
   top: 0;
   left: 0;
-  right: 16px;
   /* Always shown, faint; brighter on hover and while dragged. */
   background: rgba(var(--ink), .06);
   transition: background-color .15s;
@@ -3179,7 +3512,7 @@ svg.ico-svg:active {
   margin-left: 10px;
   padding: 0 3px 0 9px;
   border: 1px solid color-mix(in srgb, var(--blue) 40%, transparent);
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--blue) 14%, transparent);
   color: var(--blue-text);
   font: 600 11px/1 var(--font-ui);
@@ -3190,7 +3523,7 @@ svg.ico-svg:active {
 
 .show-more-size {
   padding: 2px 6px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--blue) 22%, transparent);
   color: var(--text-2);
   font: 500 10.5px/1 var(--font-code);
@@ -5779,39 +6112,9 @@ body.vibing .ide {
 }
 
 /* ================= Onboarding: setup fits one screen ================= */
-.ob-step.setup {
-  width: min(940px, calc(100vw - 48px));
-  padding: 12px 0 36px;
-}
-
-.ob-step.setup h2 {
-  font-size: clamp(17px, 5vw, 22px);
-  margin-bottom: 4px;
-}
-
-.ob-step.setup p.lead {
-  font-size: 13px;
-  margin-bottom: 16px;
-}
-
-.setup .setup-grid {
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  align-items: start;
-  margin-bottom: 0;
-}
-
 .setup-col {
   display: grid;
   gap: 12px;
-}
-
-/* Preferences: one column, read top to bottom, Continue at the end. */
-.ob-step.setup.prefs {
-  width: min(620px, calc(100vw - 48px));
-}
-
-.prefs .setup-grid {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 .prefs .set-themes {
@@ -5846,17 +6149,7 @@ body.vibing .ide {
   padding: 7px 10px;
 }
 
-@media (max-width: 860px) {
-  .setup .setup-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 @media (max-height: 640px) {
-  .ob-step.setup p.lead {
-    display: none;
-  }
-
   .setup .setup-card .muted {
     margin-bottom: 6px;
   }
@@ -5918,7 +6211,7 @@ body.vibing .ide {
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;
-  color: var(--text-2);
+  color: var(--text-3);
   transition: color .15s ease;
 }
 
@@ -5927,7 +6220,7 @@ body.vibing .ide {
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;
-  color: #f5f5f7 !important;
+  color: var(--text);
 }
 
 .device-code {
@@ -7099,25 +7392,17 @@ body.vibing .ide {
 
 /* ================= Home: jump back in, or start a project ================= */
 .ob-step.home-step {
-  /* Home runs a size up from the setup steps; the width is divided back so it still fits narrow windows. */
-  --home-zoom: 1.15;
-  zoom: var(--home-zoom);
-  width: min(920px, calc((100vw - 48px) / var(--home-zoom)));
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  width: 100%;
+  height: 100vh;
+  padding: 0;
   text-align: left;
 }
 
-/* A small window gets everything on Home back at its plain size. */
-@media (max-width: 760px), (max-height: 640px) {
-  .ob-step.home-step {
-    --home-zoom: 1;
-  }
-}
-
 /* Solid night-blue panels rather than glass: the sky behind them is the brand, the panels are content and stay calm.
-   #aaaaaa-level greys on #1C1F2E read about 7:1. The Sign in button shares them in its corner outside the step, so its
-   border doesn't change as it moves between there and the heading. */
-.onboard .ob-step.home-step,
-.onboard > .home-profile {
+   #aaaaaa-level greys on #1C1F2E read about 7:1. */
+.onboard .ob-step.home-step {
   --bg: rgba(28, 31, 46, .94);
   --bg-1: rgba(28, 31, 46, .94);
   --bg-2: rgba(28, 31, 46, .94);
@@ -7127,19 +7412,18 @@ body.vibing .ide {
   --text-3: rgba(255, 255, 255, .56);
 }
 
-.onboard .home-step :is(.setup-card, .start-tile, .home-recent, .home-agent) {
+.onboard .home-step :is(.setup-card, .start-tile) {
   backdrop-filter: none;
 }
 
 /* A touch more see-through than the base cards, so the sky shows through a little. Text keeps full opacity. */
-.onboard .home-step :is(.home-recent, .home-agent, .start-tile) {
+.onboard .home-step :is(.home-side, .home-recent, .home-agent, .home-tools, .start-tile) {
   background: color-mix(in srgb, var(--bg-2) 70%, transparent);
 }
 
 /* Light theme: the same white-on-panel Home, the panels lifted to a lighter slate so they sit lighter on the bright
    sky. White on #46527d reads about 7.6:1, and the greys rise with it. */
-:root[data-theme="light"] .onboard .ob-step.home-step,
-:root[data-theme="light"] .onboard > .home-profile {
+:root[data-theme="light"] .onboard .ob-step.home-step {
   --bg: rgba(70, 82, 125, .92);
   --bg-1: rgba(70, 82, 125, .92);
   --bg-2: rgba(70, 82, 125, .92);
@@ -7150,12 +7434,12 @@ body.vibing .ide {
 }
 
 /* Over the bright light sky the panels stay solid: seen through, they paled the white text below 4.5:1. */
-:root[data-theme="light"] .onboard .home-step :is(.home-recent, .home-agent, .start-tile) {
+:root[data-theme="light"] .onboard .home-step :is(.home-side, .home-recent, .home-agent, .home-tools, .start-tile) {
   background: var(--bg-2);
 }
 
 /* Antigravity's blue mark sinks into the light slate, so its white mark shows there instead. */
-:root[data-theme="light"] .onboard .tint-antigravity .brand-img {
+:root[data-theme="light"] .onboard .home-step .tint-antigravity .brand-img {
   content: url("../../assets/icons/antigravity_white.png");
 }
 
@@ -7164,20 +7448,103 @@ body.vibing .ide {
   display: none;
 }
 
+/* The sidebar: who you are, and the three views of the main area. */
+.home-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 10px 0 10px 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.home-nav {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+}
+
+/* Hovers and selects like the Settings sections (.set-nav button). */
+.home-nav button {
+  width: 100%;
+}
+
+/* Each section's icon has its own hover motion, from the Settings set. */
+.home-nav button[data-home-view="session"] svg { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), color .22s ease; }
+.home-nav button[data-home-view="session"]:hover svg { transform: scale(1.22); }
+.home-nav button[data-home-view="agent"]:hover svg { animation: navPromptType .5s ease-out both; }
+.home-nav button[data-home-view="tools"]:hover svg { animation: navPaletteTilt .5s ease-out both; }
+
+.home-nav button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* Below the window's drag strip and buttons, so nothing that scrolls here ever slips under them. The content stops
+   growing past a comfortable width; its height keeps the window's, which is what Recent projects runs down. */
+.home-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin-top: 44px;
+  overflow: auto;
+}
+
+.home-body {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
+  padding: 4px 28px 24px;
+}
+
+.home-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.home-top .space-btn {
+  margin: 0;
+}
+
+/* A section comes in as a Settings pane does; showing it again replays this. */
+.home-view {
+  flex: 1;
+  animation: setPaneFadeIn .22s cubic-bezier(.16, 1, .3, 1);
+}
+
 .home-head {
-  margin-bottom: 28px;
+  min-width: 0;
 }
 
 .home-head h2 {
   margin-bottom: 10px;
-  font-size: clamp(22px, min(4.6vw, 6.5vh), 40px);
+  font-size: clamp(22px, min(3.2vw, 6vh), 40px);
+  overflow-wrap: anywhere;
 }
 
 .home-head p.lead {
-  /* Tucked closer to the title; the bottom margin gives the pulled-up space back so nothing below shifts. */
-  margin: -6px 0 6px;
+  /* Tucked closer to the title. */
+  margin: -6px 0 0;
   color: rgba(255, 255, 255, .92);
-  font-size: clamp(14px, 3vw, 18px);
+  font-size: clamp(14px, 1.6vw, 18px);
+}
+
+/* The light sky is palest behind the greeting: the shadow keeps its white text readable there. */
+:root[data-theme="light"] .home-head {
+  text-shadow: 0 1px 8px rgba(10, 30, 120, .45);
+}
+
+/* A view shown again from the sidebar (setup.ts): its rows are just there. */
+.home-step.home-stay :is(.recent-row, .agent-row) {
+  animation: none;
 }
 
 /* Coming off the launch screen (init.ts), the greeting comes into focus as the sky lifts, the line under it a beat
@@ -7198,26 +7565,25 @@ body.vibing .ide {
   }
 }
 
-/* Ways in on the leading side, recent projects beside them; stacked when the window is narrow. */
+/* Ways in on the leading side, recent projects beside them. Recent projects is exactly as tall as the row, which the
+   window's height sets: size containment stops its list from stretching the row, and the list scrolls inside. */
 .home-grid {
-  position: relative; /* its blocks' positions are measured against it, for their glide when it reflows (setup.ts) */
   display: grid;
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 5fr) minmax(0, 8fr);
   gap: 14px;
 }
 
-/* Side by side, Recent projects is exactly as tall as the four ways in: size containment stops its list from
-   stretching the row, and the list scrolls inside. Stacked on a narrow window it keeps the list's own capped height. */
-@media (min-width: 761px) {
-  .home-grid .home-recent {
-    contain: size;
-  }
+/* The panel's foot fades into the sky; the list's padding lets its last row scroll clear of the fade. */
+.home-grid .home-recent {
+  contain: size;
+  mask-image: linear-gradient(#000 calc(100% - min(120px, 30%)), transparent);
+}
 
-  .home-grid .recent-list {
-    flex: 1;
-    min-height: 0;
-    max-height: none;
-  }
+.home-grid .recent-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding-bottom: 96px;
 }
 
 /* Only the greeting speaks in Unbounded; every heading under it is the UI face. */
@@ -7264,7 +7630,7 @@ body.vibing .ide {
   overflow: auto;
 }
 
-/* The empty note sits in the middle of the card, which stretches to match the agent card beside it. */
+/* The empty note sits in the middle of the card. */
 .recent-list:has(> .recent-empty) {
   flex: 1;
   max-height: none;
@@ -7402,6 +7768,14 @@ body.vibing .ide {
   transition: -webkit-mask-position .5s cubic-bezier(.2, .8, .2, 1), mask-position .5s cubic-bezier(.2, .8, .2, 1);
 }
 
+/* Dark themes: the sweep is Home's current sky, sized to the window and lined up with it (fixed), so it stays as soft
+   as the sky itself rather than squeezing the whole gradient into one row. */
+:root:is([data-theme="dark"], [data-theme="contrast"]) .home-step .recent-row.lead .recent-open::before {
+  background: var(--home-sky);
+  background-attachment: fixed;
+  filter: none;
+}
+
 .recent-row.lead:hover .recent-open {
   border-color: rgba(255, 255, 255, .18);
   color: #fff;
@@ -7488,18 +7862,21 @@ body.vibing .ide {
   opacity: .6;
 }
 
-/* Start a project: the two ways in, stacked, each with the shortcut that does the same. */
+/* Start a project: the four ways in, stacked at the top, each with the shortcut that does the same. */
 .home-start {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .start-tile {
+  flex: 0 0 clamp(72px, 12.6vh, 104px);
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-content: center;
   align-items: center;
-  gap: 12px;
-  padding: 14px;
+  gap: 2px 14px;
+  padding: 8px 18px;
   text-align: left;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -7513,8 +7890,25 @@ body.vibing .ide {
 }
 
 .start-tile kbd {
-  font: 500 12px var(--font-ui);
+  grid-column: 2;
+  align-self: start;
+  font: 500 13.5px var(--font-ui);
   color: var(--text-3);
+}
+
+.start-tile .start-ico {
+  grid-row: 1 / span 2;
+  width: 48px;
+  height: 48px;
+}
+
+.start-tile .start-txt {
+  align-self: end;
+}
+
+/* Beats .start-txt .nm, later on. */
+.start-tile .start-txt .nm {
+  font-size: 18px;
 }
 
 .start-ico {
@@ -7555,7 +7949,7 @@ body.vibing .ide {
 
 /* Default agent: every agent found on this computer, one row each with its own model dropdown. The rows are
    part of the card, not cards of their own, so it keeps the same see-through glass as the tiles above. */
-.home-agent {
+:is(.home-agent, .home-tools) {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -7564,7 +7958,7 @@ body.vibing .ide {
 }
 
 /* The heading and its note on the leading side, with room below before the roster. */
-.home-agent header {
+:is(.home-agent, .home-tools) header {
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 4px 12px;
@@ -7572,13 +7966,39 @@ body.vibing .ide {
   margin: 0;
 }
 
-.home-agent .muted {
+:is(.home-agent, .home-tools) .muted {
   margin: 0;
 }
 
-/* Under the ways in and recent projects. */
-.home-step .home-agent {
-  margin-top: 14px;
+/* One row a tool, wrapping like the agents; these only report, so they don't answer the pointer. */
+.tool-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 6px;
+}
+
+/* The line a failed scan leaves in place of the rows (setup.ts). */
+:is(.tool-rows, .agent-rows) > p {
+  grid-column: 1 / -1;
+}
+
+.tool-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 62px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.tool-row.missing {
+  border-style: dashed;
+}
+
+.tool-row .sub {
+  overflow-wrap: anywhere;
 }
 
 .home-agent .agent-row {
@@ -7618,7 +8038,7 @@ body.vibing .ide {
    a new row. */
 .home-agent .agent-rows {
   position: relative; /* the cards' positions are measured against it, for their glide to a new row (setup.ts) */
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   max-height: none;
   overflow: visible;
 }
@@ -7626,13 +8046,6 @@ body.vibing .ide {
 .home-agent .agent-row {
   animation: rise .35s cubic-bezier(.2, .8, .2, 1) backwards;
   animation-delay: calc(var(--i, 0) * 60ms);
-}
-
-/* Pinned to the card's foot, so the card lines up with Jump back in beside it. */
-.home-agent .home-tip {
-  margin: auto 6px 4px;
-  padding-top: 12px;
-  color: var(--text-3);
 }
 
 .agent-rows {
@@ -7689,131 +8102,71 @@ body.vibing .ide {
   padding: 6px;
 }
 
-/* Home's account button, inline in the heading between "Welcome back," and the name. */
+/* Home's account button: the sidebar's top, level with the window's drag strip. */
 .home-profile {
-  position: relative;
-  z-index: 2;
-  display: inline-flex;
-  vertical-align: middle;
-  align-items: center;
-  gap: 9px;
-  padding: 5px 10px 5px 5px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  /* The same glass as the Home tiles (it sits outside .ob-step, so it can't use their --bg-2). */
-  background: rgba(42, 42, 44, .78);
-  backdrop-filter: blur(18px) saturate(1.2);
-  color: var(--text);
-  animation: fade .35s ease;
-  transition: border-color .15s, background-color .15s;
-}
-
-/* Signed out: the Sign in button leaves the heading and sits in the bottom left corner. */
-.home-profile.corner {
-  position: absolute;
-  bottom: 22px;
-  left: 22px;
-  display: flex;
-}
-
-/* Too short for the corner (placeSignIn, onboarding.ts): the far end of the heading's line. Nowrap keeps it on that
-   line; the greeting wraps instead. */
-.home-head h2:has(> .home-profile) {
-  flex-wrap: nowrap;
-}
-
-/* Exactly what it was in the corner, so nothing changes as it moves: Home's zoom divided back out, and the UI face
-   rather than the heading's. */
-.home-head h2 > .home-profile {
-  zoom: calc(1 / var(--home-zoom));
   flex: none;
-  margin-left: auto;
-  font-family: var(--font-ui);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0 0 14px 14px; /* the divider curves up at its ends, with the sidebar's corners */
+  background: none;
+  color: var(--text);
+  text-align: left;
+  -webkit-app-region: no-drag;
 }
 
 .home-profile.open {
-  border-color: var(--line-hi);
-}
-
-/* Signed in it is just the picture; the name and provider are in the menu it opens. */
-.home-profile:has(> .avatar) {
-  padding: 0;
-  border: 0;
-  background: none;
-  backdrop-filter: none;
-}
-
-.home-profile:has(> .avatar) .avatar {
-  width: 40px;
-  height: 40px;
-}
-
-.home-head h2 {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 14px;
-}
-
-/* The picture belongs to the name: closer to it than to the greeting, and onto the next line with it. */
-.home-who {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  background: rgba(255, 255, 255, .08);
 }
 
 .home-profile:focus-visible {
   outline: 2px solid var(--blue);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
-.home-profile .avatar {
-  width: 30px;
-  height: 30px;
+.home-profile .avatar,
+.home-profile .hp-ico {
+  flex: none;
+  width: 36px;
+  height: 36px;
   margin: 0;
   border: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .home-profile .hp-ico {
-  width: 30px;
-  height: 30px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--blue-soft);
-  color: #6ea0ff;
+  background: rgba(255, 255, 255, .12);
 }
 
 .hp-txt {
   display: grid;
-  text-align: left;
-  line-height: 1.2;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+  line-height: 1.25;
+}
+
+.hp-txt > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hp-txt .nm {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .hp-txt .sub {
   color: var(--text-2);
-  font-size: 11px;
-}
-
-.home-profile > .ico-svg {
-  color: var(--text-3);
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
-}
-
-.home-profile.open > .ico-svg {
-  transform: rotate(180deg);
-}
-
-@media (max-width: 760px) {
-  .home-grid {
-    grid-template-columns: 1fr;
-  }
+  font-size: 12px;
 }
 
 .signin {
@@ -7900,7 +8253,7 @@ body.vibing .box {
   border: 1px solid var(--glass-line);
   border-radius: 16px;
   background: var(--glass);
-  backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--space-blur);
   overflow: clip;
 }
 
@@ -8417,7 +8770,7 @@ body.layout-animating .box > .terminal.open {
   border-radius: 16px;
   background: var(--glass);
   border-color: var(--glass-line);
-  backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--space-blur);
 }
 
 /* The shadow lifts the prompt while you're typing in it. !important to beat the plain composer's flat focus. */
@@ -9669,22 +10022,41 @@ body.layout-animating .box > .terminal.open {
 .space-btn {
   flex: none;
   margin-right: 8px;
+  overflow: hidden;
   white-space: nowrap;
 }
 
-/* Hover needs it out of the title bar's drag area. */
-.box-bar .logo {
-  -webkit-app-region: no-drag;
+/* Hovered, it shows Breeze Space's own sky behind the label: the page's gradient (.box), with stars and dust (space.ts). */
+.space-btn::before,
+.space-btn-sky {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .25s ease;
 }
 
-.box-bar .logo img {
-  transform-origin: left center;
+.space-btn::before {
+  content: "";
+  background: radial-gradient(120% 110% at 50% -12%, rgba(0, 122, 255, .4), transparent 70%), var(--bg);
+}
+
+.space-btn:is(:hover, :focus-visible)::before,
+.space-btn:is(:hover, :focus-visible) .space-btn-sky {
+  opacity: 1;
+}
+
+.space-btn:hover::after {
+  opacity: 0;
 }
 
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   .box :is(.btn, .icon-btn, .pill-btn, .avatars, .chat-file-chip, .chat-img-wrap, #boxSend),
-  .space-btn,
-  .box-bar .logo img {
+  .space-btn {
     transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .18s ease, opacity .2s ease,
       transform .12s cubic-bezier(.16, 1, .3, 1), scale .18s cubic-bezier(.23, 1, .32, 1), translate .18s cubic-bezier(.23, 1, .32, 1);
   }
@@ -9694,12 +10066,10 @@ body.layout-animating .box > .terminal.open {
     scale: 1.03;
   }
 
-  .box :is(.icon-btn, .avatars, #boxSend):hover,
-  .box-bar .logo:hover img {
+  .box :is(.icon-btn, .avatars, #boxSend):hover {
     scale: 1.06;
   }
 
-  .box-bar .logo img,
   .box-chat .empty :is(img, h4),
   .box-chat .empty .empty-who {
     transition: scale .18s cubic-bezier(.23, 1, .32, 1), opacity .2s ease, color .15s ease;
@@ -11200,7 +11570,8 @@ body.layout-animating #previewPane {
   line-height: 1.15;
 }
 
-.set-nav button {
+.set-nav button,
+.home-nav button {
   position: relative;
   isolation: isolate;
   display: flex;
@@ -11219,6 +11590,7 @@ body.layout-animating #previewPane {
 
 /* The hover highlight grows in from the left instead of snapping on. */
 .set-nav button::before,
+.home-nav button::before,
 .box-side-row::before,
 .box-side-chat::before {
   content: "";
@@ -11233,27 +11605,32 @@ body.layout-animating #previewPane {
   transition: opacity .26s cubic-bezier(.16, 1, .3, 1), transform .34s cubic-bezier(.16, 1, .3, 1);
 }
 
-.set-nav button:hover {
+.set-nav button:hover,
+.home-nav button:hover {
   color: var(--text);
 }
 
 .set-nav button:hover::before,
+.home-nav button:hover::before,
 .box-side-row:hover::before,
 .box-side-chat:hover::before {
   opacity: 1;
   transform: scaleX(1);
 }
 
-.set-nav button.on {
+.set-nav button.on,
+.home-nav button[aria-current] {
   background: var(--blue-soft);
   color: var(--text);
 }
 
-.set-nav button.on::before {
+.set-nav button.on::before,
+.home-nav button[aria-current]::before {
   opacity: 0;
 }
 
 .set-nav button svg,
+.home-nav button svg,
 .set-nav-img {
   flex: none;
   transition: color .22s ease, transform .22s ease;
@@ -11271,12 +11648,19 @@ body.layout-animating #previewPane {
   color: var(--blue-text);
 }
 
-.set-nav button.on svg {
+.set-nav button.on svg,
+.home-nav button[aria-current] svg {
   transform: scale(1.05);
 }
 
+/* Pale on Home's panels, as its tile icons are. */
+.home-nav button[aria-current] svg {
+  color: #a8c7ff;
+}
+
 /* Hovering the selected section still uses the full hover size, so its animation ends where it rests. */
-.set-nav button.on:hover svg {
+.set-nav button.on:hover svg,
+.home-nav button[aria-current]:hover svg {
   transform: scale(1.14);
 }
 
@@ -11505,18 +11889,19 @@ body.layout-animating #previewPane {
   font-size: 13px;
 }
 
-.set-pane .btn-sm {
+.set-pane .btn-sm,
+.tool-row .btn-sm {
   padding: 6px 13px;
   font-size: 13.5px;
   border-radius: 8px;
 }
 
 /* Help & About's tools: Ready is the same size as Install beside it, so the column lines up. */
-.set-tools :is(.pill, .btn) {
+:is(.set-tools, .tool-row) :is(.pill, .btn) {
   min-width: 66px;
 }
 
-.set-tools .pill {
+:is(.set-tools, .tool-row) .pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -14412,7 +14797,7 @@ input.dbg-edit.bad:focus-visible {
   gap: 4px;
   padding: 4px 10px;
   border: 1px dashed var(--line-strong);
-  border-radius: 999px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-2);
   font: 12px var(--font-ui);

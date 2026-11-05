@@ -347,16 +347,15 @@ function setBigAnim(on: boolean): void {
 function renderObPrefs(): void {
   const themes = $('#obThemes');
   themes.innerHTML = THEMES.map(themeCardHtml).join('');
-  // As in Settings, Light's joke stays on one line: one that would wrap is swapped for another that fits.
-  const joke = themes.querySelector<HTMLElement>('[data-theme-pick="light"] .set-sub');
-  for (let i = 0; joke && joke.scrollWidth > joke.clientWidth && i < 40; i++) joke.textContent = lightJoke = pickOther(LIGHT_JOKES, lightJoke);
   $$<HTMLElement>('[data-theme-pick]', themes).forEach(b => b.onclick = () => {
     const pick = b.dataset.themePick as Theme;
     if (pick === theme) return;
     const from = themes.querySelector('.set-theme.on')?.getBoundingClientRect();
     setTheme(pick);
     renderObPrefs();
-    slideSelected(themes.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
+    const card = themes.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`);
+    slideSelected(card, from);
+    card?.focus(); // the redraw took the focused card away
   });
   const ctl = $('#obMotionCtl');
   if (!ctl.firstElementChild) ctl.innerHTML = switchHtml('obBigAnim', bigAnim, 'Extra animation');

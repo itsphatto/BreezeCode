@@ -580,7 +580,7 @@ function userMsg(text: string, attachments?: AgentAttachment[], tab?: AgentTabSt
     imgHtml = `<div class="msg-attachments">${items}</div>`;
   }
   const bodyText = text ? `<div>${mentionHtml(text, msgSurface.name === 'ide').replaceAll('\n', '<br>')}</div>` : '';
-  addMsg(`<div class="msg user"><div class="meta"><b>${esc(user?.name ?? 'You')}</b> ${clockTime()}</div><div class="body">${bodyText}${imgHtml}</div></div>`, t);
+  addMsg(`<div class="msg user"><div class="meta"><b>${esc(displayName() ?? 'You')}</b> ${clockTime()}</div><div class="body">${bodyText}${imgHtml}</div></div>`, t);
 }
 
 function thinkingLabel(k: AgentKey, agentId?: string | null): string {
