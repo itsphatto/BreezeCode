@@ -267,8 +267,8 @@ const sfx = (() => {
   document.addEventListener('pointerover', e => {
     if (e.pointerType !== 'mouse' || performance.now() - movedAt > 120) return;
     const t = e.target as Element;
-    // Home's tiles, cards and icon buttons too (Continue on its own, inside its card).
-    const btn = t.closest?.('.btn, #onboard :is(.icon-btn, .start-tile, .recent-go, .recent-open, .agent-row, .home-profile, .home-nav button)');
+    // Home's links, recent projects, rail and icon buttons too.
+    const btn = t.closest?.('.btn, #onboard :is(.icon-btn, .home-link, .recent-open, .act-btn, #homeProfile)');
     if (btn) { if (!btn.contains(e.relatedTarget as Node | null)) play('hover'); return; }
     const row = t.closest?.('.menu-item, [role="option"], .tree-item, .scm-row, .commit, .commit-detail-row');
     if (row && !row.contains(e.relatedTarget as Node | null)) play('rowHover');

@@ -198,8 +198,18 @@ function demoApi(): BreezeApi {
         store.set('breeze.demoOpen', true);
         markOpened();
         return info;
-
-
+      },
+      // Browser preview: no git, so a "clone" is an in-memory project named after the repository, after a short wait.
+      async clone(url) {
+        if (!/^(https?:\/\/|ssh:\/\/|[\w.-]+@[\w.-]+:)\S+$/i.test(url.trim())) throw new Error('That doesn\'t look like a repository address. Try https://github.com/owner/repo');
+        const name = url.trim().replace(/[/\\]+$/, '').split(/[/:]/).pop()?.replace(/\.git$/i, '') || 'repository';
+        await new Promise(r => setTimeout(r, 1200));
+        files.clear(); dirs.clear(); binary.clear();
+        files.set('README.md', `# ${name}\n\nCloned from ${url.trim()} (browser preview: nothing was downloaded).\n`);
+        info = { root: `demo:/${name}`, name };
+        store.set('breeze.demoOpen', true);
+        markOpened();
+        return info;
       },
       // Browser preview: no file dialog, so "Open file" opens the demo project's README and saving a new file puts it
       // in the demo project under the name it was given (numbered if that's taken).
@@ -557,6 +567,23 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
         if (i >= 0) demoPulls.splice(i, 1); // a merged pull request is no longer open
         return { ok: true, data: { merged: true, message: 'Merged' } };
       },
+      // A made-up year, quiet early on and busier lately, so the graph can be seen without the desktop app.
+      async contributions() {
+        if (current?.provider !== 'GitHub') return { ok: false, error: 'not-github' };
+        const end = new Date(), start = new Date(end);
+        start.setDate(start.getDate() - 364 - start.getDay());
+        const weeks: GhContributions['weeks'] = [];
+        let total = 0, seed = 7;
+        const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+        for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          if (d.getDay() === 0 || !weeks.length) weeks.push([]);
+          const lateness = (d.getTime() - start.getTime()) / (end.getTime() - start.getTime());
+          const count = rand() < lateness * .9 ? Math.floor(rand() * 12 * lateness) : 0;
+          total += count;
+          weeks[weeks.length - 1].push({ date: d.toISOString().slice(0, 10), count, level: count ? Math.min(4, Math.ceil(count / 3)) : 0 });
+        }
+        return { ok: true, data: { login: 'demo', total, weeks } };
+      },
     },
     auth: {
       async user() { return current; },
@@ -738,6 +765,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   folderPlus: [['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }], ['path', { d: 'M12 10v6' }], ['path', { d: 'M9 13h6' }]],
   file: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }]],
   filePlus: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }], ['path', { d: 'M12 12v6' }], ['path', { d: 'M9 15h6' }]],
+  home: [['path', { d: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8' }], ['path', { d: 'M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }]],
 };
 const formatAttr = ([k, v]: [string, string | number]): string => `${k}="${v}"`;
 const iconBody = (name: string): string =>

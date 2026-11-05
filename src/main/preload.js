@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('breeze', {
   fs: {
     openFolder: () => invoke('fs:openFolder'),
     createFolder: () => invoke('fs:createFolder'),
+    clone: url => invoke('fs:clone', url),
     openFile: () => invoke('fs:openFile'),
     newFile: (name, text) => invoke('fs:newFile', name, text),
     restore: () => invoke('fs:restore'),
@@ -182,6 +183,7 @@ contextBridge.exposeInMainWorld('breeze', {
     commit: sha => invoke('gh:commit', sha),
     repo: () => invoke('gh:repo'),
     merge: (n, method, sha) => invoke('gh:merge', n, method, sha),
+    contributions: () => invoke('gh:contributions'),
   },
   auth: {
     user: () => invoke('auth:user'),

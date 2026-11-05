@@ -116,7 +116,6 @@ function detectTools(force = false): Promise<Detection> {
   }).catch((e: unknown) => {
     $('#aiPill').className = 'pill warn'; swapText($('#aiPill'), 'Scan failed');
     $('#aiHint').textContent = errMsg(e);
-    if (!appState.detect) for (const id of ['#homeTools', '#homeAgents']) $(id).innerHTML = '<p class="muted">Could not check this computer. Breeze tries again when you come back to it.</p>';
     throw e;
   }).finally(() => { detecting = null; });
   return detecting;
@@ -332,8 +331,6 @@ function renderDetection(): void {
   const summary = d.tools.filter(t => t.found || !t.optional).map(t => `${t.name.replace('.js', '').replace('C/C++', 'C')} ${t.found ? 'ready' : 'missing'}`).join(' · ');
   $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;
   renderAgentBar();
-  renderHomeAgent();
-  renderHomeTools();
 }
 $('#rescan').onclick = () => { detectTools(true).catch(() => { /* the agent card shows the error */ }); };
 
@@ -655,8 +652,6 @@ function openAgentPicker(): void {
 let homeRecent: RecentFolder[] | null = null;
 let recentListHtml = '';
 let homeSeq = 0;
-// A steady colour per project, so each folder is recognisable at a glance.
-const projectHue = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 // Long paths keep their end, the part that tells two projects apart.
 const shortPath = (p: string, max = 52) => p.length > max ? `…${p.slice(-(max - 1))}` : p;
 // No Scan button: Home looks again as it opens and on each section (the cards redraw when the scan lands).
@@ -664,24 +659,21 @@ function scanForHome(): void {
   if (appState.detect) autoRescan();
   else detectTools().catch(() => { /* the cards show the error */ });
 }
-// Home's sidebar switches its main area between these views.
+// Home's rail switches its panel between these views.
 function showHomeView(view: string): void {
-  $$('.home-nav button').forEach(b => { b.ariaCurrent = b.dataset.homeView === view ? 'page' : null; });
+  $$<HTMLElement>('.home-rail [data-home-view]').forEach(b => {
+    const on = b.dataset.homeView === view;
+    b.classList.toggle('on', on);
+    b.ariaCurrent = on ? 'page' : null;
+  });
   $$('.home-view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== view));
   $('.home-main').scrollTop = 0;
 }
-$$('.home-nav button').forEach(b => b.onclick = () => {
-  $('.home-step').classList.add('home-stay'); // a view shown again doesn't replay its rows' rise
-  showHomeView(b.dataset.homeView ?? 'session');
-  scanForHome();
-});
+$$<HTMLElement>('.home-rail [data-home-view]').forEach(b => b.onclick = () => showHomeView(b.dataset.homeView ?? 'session'));
 $('#homeSpace').onclick = () => enterMode('box');
 function renderHome(): void {
-  $('.home-step').classList.remove('home-stay');
   showHomeView('session');
   renderHomeProfile();
-  renderHomeAgent();
-  renderHomeTools();
   scanForHome();
   renderRecentList();
   const seq = ++homeSeq;
@@ -691,191 +683,32 @@ function renderHome(): void {
     renderRecentList();
   }));
 }
-function recentRowHtml(r: RecentFolder, i: number): string {
+// The folder a project sits in: the row names the project itself.
+const parentDir = (p: string) => p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '') || p;
+// A recent project, as on an editor's start page: its name, then where it is.
+function recentRowHtml(r: RecentFolder): string {
   const when = r.missing ? 'Folder not found' : r.openedAt ? timeAgo(r.openedAt) : '';
-  // The most recent project leads, with its own Continue button.
-  const lead = i === 0 && !r.missing;
-  const cls = ['recent-row', lead ? 'lead' : '', r.missing ? 'missing' : ''].filter(Boolean).join(' ');
-  return `<div class="${cls}" role="listitem" data-hue="${projectHue(r.name)}">
-    <button class="recent-open" data-open="${escAttr(r.path)}" title="${escAttr(r.path)}">
-      <span class="recent-txt">${lead ? `<span class="eyebrow">Last opened${when ? ` - ${esc(when[0].toUpperCase() + when.slice(1))}` : ''}</span>` : ''}<span class="nm">${esc(r.name)}</span><span class="path">${esc(shortPath(r.path))}</span></span>
-      ${lead ? `<span class="recent-go">Continue${svgIcon('chevronRight', 14)}</span>` : `<span class="when">${esc(when)}</span>`}
+  return `<div class="recent-row${r.missing ? ' missing' : ''}" role="listitem">
+    <button class="recent-open" data-open="${escAttr(r.path)}" title="${escAttr(when ? `${r.path} · ${when}` : r.path)}">
+      <span class="nm">${esc(r.name)}</span><span class="path">${esc(shortPath(parentDir(r.path)))}</span>
     </button>
-    <button class="icon-btn recent-forget" data-forget="${escAttr(r.path)}" title="Remove from this list" aria-label="Remove ${escAttr(r.name)} from recent projects">${svgIcon('x', 13)}</button>
   </div>`;
 }
+// Ten at first; More shows the rest.
+const RECENT_SHOWN = 10;
+let recentAll = false;
 function renderRecentList(): void {
   const list = homeRecent;
   const el = $('#homeRecent');
-  $('#homeRecentCount').textContent = list?.length ? String(list.length) : '';
-  const empty = `<div class="recent-empty"><span>Projects you open show up here, so you can jump straight back in.</span></div>`;
-  const html = !list ? skeletonRows(4) : list.length ? list.map(recentRowHtml).join('') : empty;
-  // Start-up draws Home more than once; redrawing the same rows would replay their rise and make them jump.
+  const shown = list && !recentAll ? list.slice(0, RECENT_SHOWN) : list;
+  const more = list && shown && list.length > shown.length ? '<button class="home-link recent-more" data-more>More</button>' : '';
+  const html = !list || !shown ? skeletonRows(4)
+    : list.length ? shown.map(recentRowHtml).join('') + more
+    : '<div class="recent-empty">Folders you open show up here.</div>';
+  // Start-up draws Home more than once; redrawing the same rows would make them flicker.
   if (html === recentListHtml && el.childElementCount) return;
-  // A changed list (opening the last project at start-up turns its "2h ago" into "Just now") keeps the rows that
-  // were already on screen still; only new ones rise in.
-  const shown = new Set($$<HTMLElement>('.recent-open', el).map(b => b.dataset.open));
   recentListHtml = html;
   el.innerHTML = html;
-  // Set here, not in the markup: the page's CSP blocks inline style attributes.
-  $$('.recent-row', el).forEach((row, i) => {
-    row.style.setProperty('--hue', row.dataset.hue ?? '210');
-    row.style.setProperty('--i', String(i));
-    if (shown.has(row.querySelector<HTMLElement>('.recent-open')?.dataset.open)) row.classList.add('stay');
-  });
-}
-// Every agent found on this computer: picking a row makes it the default (as "Make default" on its chip does).
-// A found agent is a radio (picking it makes it the default); a missing one is greyed out with a Get button that
-// opens its download page. The default's "Default ·" label is added by markHomeDefault, not here, so switching the
-// default never redraws the rows.
-function homeAgentRowHtml(a: DetectedAgent): string {
-  const st = AGENT_STYLE[a.id] ?? { letter: a.name[0], tint: a.id };
-  const mark = brandMark('start-ico agent-mark', st.tint, st.letter);
-  if (!a.found) {
-    return `<div class="agent-row missing" role="group" aria-label="${escAttr(`${a.name}, not installed`)}">
-      ${mark}<span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">Not installed</span></span>
-      <button class="btn btn-sm" data-get="${escAttr(a.url)}" aria-label="${escAttr(`Get ${a.name}`)}" title="${escAttr(`Opens the ${a.name} download page`)}">Get</button>
-    </div>`;
-  }
-  // A local server's vendor line (every server it can talk to) is too long for a row.
-  const about = a.api ? 'Runs on this computer' : a.vendor;
-  return `<div class="agent-row" role="radio" aria-checked="false" tabindex="-1" data-agent="${escAttr(a.id)}">
-    ${mark}<span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(about)}</span></span>
-  </div>`;
-}
-// When a resize reflows a container (Home's agent cards wrapping onto another row as the window is squeezed), each block glides from where it stood to its new place and eases to its new
-// width, and the container eases to its new height, instead of all jumping there. Never scaled, so no text stretches.
-//  - Position: a transform, measured from layout (offsetLeft/Top), which no transform skews.
-//  - Width: margin-right. A grid item stretches to its column less its margin, so as the margin eases to nothing the
-//    card meets its column as it is now, wherever a drag has got to (a width animated to a fixed end went stale).
-//  - Height: margin-bottom on the container, so what wraps it (the agents card, the rest of Home) follows.
-// Sizes are read as the layout gives them, never as an animation has them: the column is the card's width plus its
-// animated margin, and a box's own margin never changes its height. Read with the animation in, the next frame saw a
-// jump that wasn't there, started a bigger one, and the cards swung wildly.
-// A gentle start: a card crossing to the next row travels most of the card's width, and a curve that set off at full
-// speed covered 100 px a frame and read as a leap.
-const REFLOW_GLIDE: KeyframeAnimationOptions = { duration: 420, easing: 'cubic-bezier(.4, 0, .2, 1)' };
-// Only a jump eases (a card moving to another row, the cards widening as one leaves their row): dragging the window
-// narrower also shifts and narrows them a pixel or two every frame, and an animation started for each of those
-// cancelled the jump's a frame later.
-const REFLOW_JUMP = 24;
-const px = (v: string) => Number.parseFloat(v) || 0;
-function glideOnReflow(container: HTMLElement): void {
-  const at = new WeakMap<Element, { x: number; y: number; w: number }>();
-  const baseMb = px(getComputedStyle(container).marginBottom);
-  let height = container.offsetHeight;
-  const restart = (el: HTMLElement) => { for (const a of el.getAnimations()) if (a.id === 'reflow-glide') a.cancel(); };
-  new ResizeObserver(() => {
-    if (!container.offsetParent) return; // hidden, its view switched away: nothing moved, and it would ease back open on return
-    // A maximize, restore or snap is instant (win-jump, platform.ts): everything just takes its new place.
-    // Read live (not the shared reduceMotion constant): this can fire before mentions.js, which defines it, has run.
-    const still = matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('win-jump');
-    const opts = { ...REFLOW_GLIDE, id: 'reflow-glide' };
-    for (const el of container.children) {
-      if (!(el instanceof HTMLElement) || !el.offsetParent) continue;
-      const cs = getComputedStyle(el), mr = px(cs.marginRight);
-      const now = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth + mr }, was = at.get(el);
-      at.set(el, now);
-      if (!was || still) continue;
-      const dx = was.x - now.x, dy = was.y - now.y, dw = was.w - now.w;
-      if (Math.hypot(dx, dy) < REFLOW_JUMP && Math.abs(dw) < REFLOW_JUMP) continue;
-      // From wherever a glide still running has it, so a second jump carries on from there.
-      const cur = new DOMMatrix(cs.transform === 'none' ? undefined : cs.transform);
-      restart(el);
-      el.animate([
-        { transform: `translate(${dx + cur.e}px, ${dy + cur.f}px)`, marginRight: `${mr - dw}px` },
-        { transform: 'none', marginRight: '0px' },
-      ], opts);
-    }
-    const h = container.offsetHeight, dh = height - h;
-    height = h;
-    if (still || Math.abs(dh) < REFLOW_JUMP) return;
-    const mb = px(getComputedStyle(container).marginBottom);
-    restart(container);
-    container.animate([{ marginBottom: `${mb + dh}px` }, { marginBottom: `${baseMb}px` }], opts);
-  }).observe(container);
-}
-glideOnReflow($('#homeAgents'));
-let homeAgentsHtml = '';
-function renderHomeAgent(): void {
-  const el = $('#homeAgents');
-  if (!appState.detect) { homeAgentsHtml = ''; el.innerHTML = skeletonRows(2); return; }
-  const agents = appState.detect.agents;
-  const found = agents.filter(a => a.found);
-  // Found agents first, so the ones you can pick sit together.
-  const html = [...found, ...agents.filter(a => !a.found)].map(homeAgentRowHtml).join('');
-  $('#homeAgentNote').textContent = found.length
-    ? 'New chats and plans go to the one you pick.'
-    : 'None installed yet. The editor, terminal and Git work without one.';
-  // The same agents as last time (a rescan that found nothing new, or a new default): keep the rows, just move the
-  // selection, so nothing rises in again.
-  if (html !== homeAgentsHtml || !el.childElementCount) {
-    homeAgentsHtml = html;
-    el.innerHTML = html;
-    // Each agent rises in turn, so the roster reads as the scan's result.
-    $$('.agent-row', el).forEach((row, i) => row.style.setProperty('--i', String(i)));
-    $$<HTMLElement>('[data-get]', el).forEach(b => b.onclick = () => background(api.sys.openExternal(b.dataset.get ?? '')));
-  }
-  markHomeDefault();
-}
-// Moves the default's look and "Default ·" label onto the current default's row, gliding over from the old one.
-function markHomeDefault(): void {
-  const el = $('#homeAgents');
-  const rows = $$<HTMLElement>('.agent-row[role="radio"]', el);
-  const old = el.querySelector<HTMLElement>('.agent-row.on');
-  const now = rows.find(r => r.dataset.agent === appState.agent) ?? null;
-  if (old === now && now) return;
-  const from = old?.getBoundingClientRect();
-  old?.querySelector('.def')?.remove();
-  for (const r of rows) {
-    const on = r === now;
-    r.classList.toggle('on', on);
-    r.setAttribute('aria-checked', String(on));
-    r.tabIndex = on ? 0 : -1;
-  }
-  now?.querySelector('.sub')?.insertAdjacentHTML('afterbegin', '<span class="def"><b>Default</b> · </span>');
-  // Keyboard focus lands on the default; with none picked yet, on the first row.
-  if (!now && rows.length) rows[0].tabIndex = 0;
-  slideSelected(now, from);
-}
-function pickHomeAgent(id: string): void {
-  const ag = appState.detect?.agents.find(a => a.id === id && a.found);
-  if (!ag || ag.id === appState.agent) return;
-  makeDefaultAgent(ag);
-  markHomeDefault();
-  $(`#homeAgents .agent-row[data-agent="${CSS.escape(id)}"]`).focus();
-}
-$('#homeAgents').addEventListener('click', e => {
-  const row = (e.target as HTMLElement).closest<HTMLElement>('.agent-row[role="radio"]');
-  if (row) pickHomeAgent(row.dataset.agent ?? '');
-});
-// A radio group: the arrows move the default between installed agents, Enter or Space picks the focused row.
-$('#homeAgents').addEventListener('keydown', e => {
-  const row = (e.target as HTMLElement).closest<HTMLElement>('.agent-row[role="radio"]');
-  if (!row || e.target !== row) return;
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickHomeAgent(row.dataset.agent ?? ''); return; }
-  const d = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
-  if (!d) return;
-  e.preventDefault();
-  const rows = $$('.agent-row[role="radio"]', $('#homeAgents'));
-  pickHomeAgent(rows[(rows.indexOf(row) + d + rows.length) % rows.length].dataset.agent ?? '');
-});
-// Git, Node.js and the compilers, in plain words. A missing one offers its download page when it has one.
-let homeToolsHtml = '';
-function renderHomeTools(): void {
-  const el = $('#homeTools');
-  if (!appState.detect) { homeToolsHtml = ''; el.innerHTML = skeletonRows(4); return; }
-  const html = appState.detect.tools.map(t => {
-    const state = t.found ? versionLabel(t.version) || 'Installed' : t.optional ? 'Optional' : 'Not installed';
-    const get = !t.found && t.url ? `<button class="btn btn-sm" data-get="${escAttr(t.url)}" aria-label="${escAttr(`Get ${t.name}`)}" title="${escAttr(`Opens the ${t.name} download page`)}">Get</button>` : '';
-    const ready = t.found ? '<span class="pill ok">Ready</span>' : '';
-    return `<div class="tool-row${t.found ? '' : ' missing'}" role="listitem"><span class="start-txt"><span class="nm">${esc(t.name)}</span><span class="sub">${esc(state)}</span></span>${ready}${get}</div>`;
-  }).join('');
-  // A rescan that found nothing new keeps the rows, and keyboard focus on them.
-  if (html === homeToolsHtml) return;
-  homeToolsHtml = html;
-  el.innerHTML = html;
-  bindToolButtons(el);
 }
 function leaveHome(): void {
   enterMode(appState.mode);
@@ -889,7 +722,13 @@ $('#logoHome').onclick = goHome;
 $('#boxLogoHome').onclick = goHome;
 async function openFromHome(dir: string, row: HTMLElement): Promise<void> {
   const r = homeRecent?.find(x => x.path === dir);
-  if (r?.missing) { toast(`${r.name} was moved or deleted. Remove it with ×.`); return; }
+  // A folder that's gone can't be opened; with no × on the list any more, picking it takes it off.
+  if (r?.missing) {
+    homeRecent = (homeRecent ?? []).filter(x => x.path !== dir);
+    renderRecentList();
+    background(api.fs.forgetRecent(dir).then(() => toast(`${r.name} was moved or deleted, so it's off the list`)));
+    return;
+  }
   if (rootInfo?.root !== dir) {
     if (!(await confirmDiscard())) return;
     row.classList.add('busy');
@@ -899,15 +738,7 @@ async function openFromHome(dir: string, row: HTMLElement): Promise<void> {
 }
 $('#homeRecent').addEventListener('click', e => {
   const t = e.target as HTMLElement;
-  const forget = t.closest<HTMLElement>('[data-forget]');
-  if (forget) {
-    const dir = forget.dataset.forget ?? '';
-    const name = homeRecent?.find(x => x.path === dir)?.name ?? dir;
-    homeRecent = (homeRecent ?? []).filter(x => x.path !== dir);
-    renderRecentList();
-    background(api.fs.forgetRecent(dir).then(() => toast(`Removed ${name} from recent projects`)));
-    return;
-  }
+  if (t.closest('[data-more]')) { recentAll = true; renderRecentList(); return; }
   const open = t.closest<HTMLElement>('[data-open]');
   if (open) background(openFromHome(open.dataset.open ?? '', open.parentElement as HTMLElement));
 });
@@ -951,6 +782,62 @@ async function newUntitledFile(): Promise<void> {
   setActive(b.path);
   b.ta?.focus();
 }
+// Clone Repository: a bar over the greeting takes the address. Enter asks where to put it, clones and opens it;
+// Esc, or clicking away while it's empty, puts the bar away. Errors stay in the bar so the address can be fixed.
+const cloneForm = $<HTMLFormElement>('#homeClone'), cloneUrl = $<HTMLInputElement>('#homeCloneUrl'), cloneHint = $('#homeCloneHint');
+const CLONE_HINT = 'Press Enter to pick a folder and clone, or Esc to cancel.';
+let cloning = false;
+function openCloneBar(): void {
+  cloneForm.classList.remove('hidden', 'err');
+  cloneHint.textContent = CLONE_HINT;
+  cloneUrl.focus();
+  cloneUrl.select();
+}
+function closeCloneBar(): void {
+  if (cloning) return;
+  cloneForm.classList.add('hidden');
+  cloneUrl.value = '';
+  $('#cloneRepo').focus({ preventScroll: true });
+}
+async function cloneRepo(url: string): Promise<void> {
+  if (!(await confirmDiscard())) return;
+  cloning = true;
+  cloneForm.classList.remove('err');
+  cloneForm.classList.add('busy');
+  cloneUrl.readOnly = true;
+  cloneHint.textContent = 'Pick a folder, then Breeze clones into it…';
+  try {
+    const r = await api.fs.clone(url);
+    if (!r) { cloneHint.textContent = CLONE_HINT; return; }
+    await loadWorkspace(r);
+    toast(`Cloned ${r.name}`);
+    cloning = false;
+    closeCloneBar();
+    leaveHome();
+  } catch (e) {
+    cloneForm.classList.add('err');
+    cloneHint.textContent = errMsg(e);
+    cloneUrl.focus();
+  } finally {
+    cloning = false;
+    cloneForm.classList.remove('busy');
+    cloneUrl.readOnly = false;
+  }
+}
+$('#cloneRepo').onclick = openCloneBar;
+cloneForm.onsubmit = e => {
+  e.preventDefault();
+  const url = cloneUrl.value.trim();
+  if (!url || cloning) return;
+  background(cloneRepo(url));
+};
+cloneUrl.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCloneBar(); } });
+cloneUrl.addEventListener('input', () => {
+  if (!cloneForm.classList.contains('err')) return;
+  cloneForm.classList.remove('err');
+  cloneHint.textContent = CLONE_HINT;
+});
+cloneUrl.addEventListener('blur', () => { if (!cloneUrl.value.trim()) setTimeout(closeCloneBar, 0); });
 $('#pickFolder').onclick = () => background(chooseProject(false));
 $('#createFolder').onclick = () => background(chooseProject(true));
 $('#pickFile').onclick = () => background(chooseFile());

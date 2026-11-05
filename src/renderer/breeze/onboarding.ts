@@ -50,6 +50,7 @@ function goStep(n: number): void {
   if (n === STEP.home) renderHome();
   // Once set up, Home is a screen of its own rather than a setup step, so the progress dots go.
   $('#onboard').classList.toggle('settled', appState.onboarded);
+  syncTitleBar(); // Home's title bar is the theme's, setup's is the sky
   playStep(prev, n, oldLogo, from);
 }
 $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
@@ -71,10 +72,42 @@ function stopObMotion(): void {
 }
 const obAnim = (el: Element, frames: Keyframe[], options: KeyframeAnimationOptions) => { obAnims.push(el.animate(frames, { fill: 'backwards', ...options })); };
 const riseIn = (el: Element, delay = 0) => obAnim(el, [{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }], { duration: 560, delay, easing: OB_SOFT });
-// Flies el into its place along a curve given relative to that place (the last point is always 0,0), fading in on the way.
-function curveIn(el: Element, p0: CurvePoint, p1: CurvePoint, p2: CurvePoint, duration: number): void {
-  const n = 40, pts = curveFrames(p0, p1, p2, { x: 0, y: 0 }, n);
-  obAnim(el, pts.map((p, i) => ({ transform: `translate(${p.x}px, ${p.y}px)`, opacity: Math.min(1, i / n * 2.2) })), { duration, easing: OB_CURVE });
+// Splits a heading into one box per letter (once), words kept whole so it wraps as before; the heading keeps its
+// text for screen readers and the letters are hidden from them.
+function letterBoxes(h: HTMLElement): HTMLElement[] {
+  if (!h.dataset.split) {
+    const text = h.textContent ?? '';
+    h.setAttribute('aria-label', text);
+    h.textContent = '';
+    text.split(/(\s+)/).forEach(part => {
+      if (!part) return;
+      if (/^\s+$/.test(part)) { h.append(part); return; }
+      const word = document.createElement('span');
+      word.className = 'ob-word';
+      word.setAttribute('aria-hidden', 'true');
+      for (const ch of part) {
+        const s = document.createElement('span');
+        s.className = 'ob-ch';
+        s.textContent = ch;
+        word.append(s);
+      }
+      h.append(word);
+    });
+    h.dataset.split = '1';
+  }
+  return [...h.querySelectorAll<HTMLElement>('.ob-ch')];
+}
+// Each letter in turn hops in from the left along a downward parabola: rising, over the top, and down into place.
+function lettersIn(h: HTMLElement): void {
+  const n = 24, dx = 70, lift = 34;
+  letterBoxes(h).forEach((s, i) => {
+    const frames: Keyframe[] = [];
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      frames.push({ transform: `translate(${-dx * (1 - t)}px, ${-lift * 4 * t * (1 - t)}px)`, opacity: Math.min(1, t * 2.5) });
+    }
+    obAnim(s, frames, { duration: 620, delay: i * 24, easing: OB_CURVE });
+  });
 }
 // The logo travels from its old spot to its new one. When the picture differs, or there's no new spot, a copy of the old
 // one travels along and fades out over the new.
@@ -111,14 +144,14 @@ function playStep(prev: number, n: number, oldLogo: HTMLImageElement | null, fro
         // Each card fades itself: one fading inside a parent loses its blurred backdrop until the fade ends.
         el.querySelectorAll(':scope > :not(.ob-logo, .ob-icon, .setup-grid), .setup-card').forEach(c => obAnim(c, [{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' }));
       } else if (n === STEP.name) {
-        const h = $('h2', el), x = -(h.getBoundingClientRect().right + 40), y = Math.min(innerHeight * .22, 150);
-        curveIn(h, { x, y }, { x: x * .62, y: y * .38 }, { x: x * .28, y: 0 }, 860);
-        riseIn($('.ob-field', el), 240);
-        riseIn(nameNext, 320);
+        lettersIn($('h2', el));
+        riseIn($('.ob-field', el), 300);
+        riseIn(nameNext, 380);
       } else if (n === STEP.signIn) {
-        // Up from below the window, bowing out through the left gutter where it can be seen, then level into place.
-        const form = $('.ob-form', el), r = form.getBoundingClientRect(), x = -r.left;
-        curveIn(form, { x: x * .7, y: innerHeight - r.top }, { x: x * 1.05, y: innerHeight * .3 }, { x: x * .6, y: 0 }, 880);
+        // The title's letters hop in like the name screen's, then the rest rises in under it.
+        const form = $('.ob-form', el);
+        lettersIn($('h2', form));
+        form.querySelectorAll(':scope > :not(h2)').forEach((c, i) => riseIn(c, 300 + i * 60));
       } else {
         el.querySelectorAll(':scope > :not(.setup-grid), .setup-card').forEach((c, i) => riseIn(c, i * 50));
       }
@@ -138,10 +171,12 @@ $('#obNameForm').onsubmit = e => {
   appState.name = name;
   goStep(STEP.signIn);
 };
-// While the onboarding screen (and so Home) is up, the window buttons sit straight on its backdrop and draw light.
+// While setup is up, the window buttons sit straight on its sky and draw light. Home has a plain title bar of its own,
+// like the IDE's, so they keep the theme's colours there.
 function syncTitleBar(): void {
   const ob = $('#onboard');
-  const on = !ob.classList.contains('hidden') && !ob.classList.contains('screen-out') && !ob.classList.contains('screen-prep');
+  const on = !ob.classList.contains('hidden') && !ob.classList.contains('screen-out') && !ob.classList.contains('screen-prep')
+    && $('.home-step').classList.contains('hidden');
   document.documentElement.classList.toggle('clear-bar', on);
 }
 new MutationObserver(syncTitleBar).observe($('#onboard'), { attributes: true, attributeFilter: ['class'] });
@@ -188,14 +223,75 @@ function renderHomeProfile(): void {
     : 'Sign in to bring your name and picture along, or just open a project.';
   $('#homeName').textContent = first ?? '';
   const btn = $('#homeProfile');
-  const pic = user?.avatar ? avatarHtml(user, '') : who ? `<span class="avatar tint-host">${esc(initialsOf(who))}</span>` : `<span class="hp-ico">${svgIcon('user', 15)}</span>`;
-  const sub = user ? user.email || user.provider : who ? 'Sign in' : '';
-  const html = `${pic}<span class="hp-txt"><span class="nm">${esc(who ?? 'Sign in')}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span>`;
+  // Just the picture, like the IDE's title bar; who it is goes in the tooltip.
+  const html = user?.avatar ? avatarHtml(user, '') : who ? `<span class="avatar tint-host">${esc(initialsOf(who))}</span>` : `<span class="avatar hp-ico">${svgIcon('user', 14)}</span>`;
+  btn.title = user ? `${who} · ${user.provider}` : 'Sign in';
   // Opening a project redraws the user; redrawing the same picture flashed it out and back as Home left.
   if (html !== homeProfileHtml) { homeProfileHtml = html; btn.innerHTML = html; }
   btn.setAttribute('aria-label', user ? `${who} · ${user.provider}` : `${who ? `${who}. ` : ''}Sign in with GitHub or Google`);
   // Signed in it opens the account menu; signed out it goes straight to signing in.
   btn.setAttribute('aria-haspopup', user ? 'menu' : 'dialog');
+  renderHomeContrib();
+}
+
+/* ----- Home: the GitHub account's contribution graph ----- */
+// Shown only while the signed-in account is a GitHub one. Asked for once per account (main keeps it ten minutes);
+// another account, or none, hides it until its own answer lands.
+let contribFor: string | null = null;
+let contribSeq = 0;
+const CONTRIB_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const contribDay = (iso: string) => new Date(`${iso}T00:00:00`);
+function renderHomeContrib(): void {
+  const box = $('#homeContrib');
+  const key = user?.provider === 'GitHub' ? `${user.provider}:${user.login ?? user.name}` : null;
+  if (key === contribFor) return;
+  contribFor = key;
+  box.classList.add('hidden');
+  if (!key) return;
+  const seq = ++contribSeq;
+  background(api.gh.contributions().then(r => {
+    if (seq !== contribSeq || !r.ok) return; // signed out meanwhile, or GitHub didn't answer: the graph stays away
+    drawContrib(r.data);
+    box.classList.remove('hidden');
+  }));
+}
+function drawContrib(c: GhContributions): void {
+  $('#homeContribTitle').textContent = `${c.total.toLocaleString()} contribution${c.total === 1 ? '' : 's'} in the last year`;
+  const graph = $('#homeContribGraph');
+  graph.setAttribute('aria-label', `${c.total} GitHub contributions in the last year`);
+  graph.textContent = '';
+  // Placed by grid line (set from script: the page's CSP blocks inline style attributes). Column 1 holds the day
+  // names, row 1 the month names; a day sits in its week's column and its weekday's row.
+  const put = (el: HTMLElement, col: number, row: number) => { el.style.gridColumn = String(col); el.style.gridRow = String(row); graph.append(el); };
+  graph.style.setProperty('--weeks', String(c.weeks.length));
+  ['Mon', 'Wed', 'Fri'].forEach((d, i) => {
+    const s = document.createElement('span');
+    s.className = 'cg-wd';
+    s.textContent = d;
+    put(s, 1, 3 + i * 2);
+  });
+  let lastMonth = -1;
+  c.weeks.forEach((week, w) => {
+    const first = contribDay(week[0].date);
+    // A month is named over the first week that starts in it, unless it is too near the end to fit its name.
+    const m = first.getMonth();
+    if (m !== lastMonth && (w > 0 || first.getDate() <= 7) && w < c.weeks.length - 2) {
+      const s = document.createElement('span');
+      s.className = 'cg-month';
+      s.textContent = CONTRIB_MONTHS[m];
+      put(s, w + 2, 1);
+    }
+    lastMonth = m;
+    for (const d of week) {
+      const day = contribDay(d.date);
+      const cell = document.createElement('i');
+      cell.className = 'cg-day';
+      cell.dataset.l = String(d.level);
+      cell.title = `${d.count ? `${d.count} contribution${d.count === 1 ? '' : 's'}` : 'No contributions'} on ${day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}`;
+      put(cell, w + 2, day.getDay() + 2);
+    }
+  });
+  $('#homeContribOpen').onclick = () => background(api.sys.openExternal(`https://github.com/${encodeURIComponent(c.login)}`));
 }
 // The progress dots sit in the gutter under a step. Once the window is too short for that gutter the step scrolls
 // under them, so they go. Every step is watched: each has its own height, and showing one resizes it from nothing.
@@ -317,6 +413,7 @@ bindSignin(onboardSignin);
 // Signed in, the account screen's buttons give way to who they're signed in as.
 function renderConnected(): void {
   $('#obSignin').classList.toggle('hidden', !!user);
+  $('#obSkipLine').classList.toggle('hidden', !!user); // signed in, there's nothing to skip
   const row = $('#obConnected');
   row.classList.toggle('hidden', !user);
   if (user) row.innerHTML = `${avatarHtml(user, '')}<span class="ob-connected-txt"><span>Connected as <b>${esc(user.name)}</b></span><small>${esc(user.provider)}</small></span>`;
@@ -328,7 +425,7 @@ $$<HTMLAnchorElement>('.ob-terms a').forEach(a => a.onclick = e => { e.preventDe
 function leaveAccount(): void {
   if (!termsBox.checked) {
     termsBox.focus();
-    if (!motionOff()) termsBox.animate([{ transform: 'none' }, { transform: 'scale(1.4)' }, { transform: 'none' }], { duration: 360, easing: 'ease-out' });
+    if (!motionOff()) $('.ob-terms .check').animate([{ transform: 'none' }, { transform: 'scale(1.4)' }, { transform: 'none' }], { duration: 360, easing: 'ease-out' });
     return;
   }
   if (!si('wait').classList.contains('hidden')) { background(api.auth.cancel()); signinView(false); }
@@ -371,7 +468,7 @@ api.auth.onEvent(ev => {
 
 // Hover icons (breeze.css, .icon-live): the loop runs while the pointer is on the button; leaving eases the icon back
 // from its current pose, since dropping a CSS animation snaps it home.
-const ICON_HOVER = '#onboard .recent-forget, #onboard .recent-open, #onboard .btn, #homeProfile, #rescan';
+const ICON_HOVER = '#onboard .recent-open, #onboard .btn, #homeProfile, #rescan';
 document.addEventListener('pointerover', e => (e.target as Element).closest?.(ICON_HOVER)?.classList.add('icon-live'));
 document.addEventListener('pointerout', e => {
   const b = (e.target as Element).closest?.(ICON_HOVER);
@@ -379,11 +476,5 @@ document.addEventListener('pointerout', e => {
   const svg = b.querySelector('svg');
   const pose = svg ? getComputedStyle(svg).transform : 'none';
   b.classList.remove('icon-live');
-  // The ✕ looks the same every quarter turn, so it turns on to the next one and overshoots a little as it lands.
-  if (svg && b.matches('.recent-forget')) {
-    const m = new DOMMatrix(pose === 'none' ? undefined : pose);
-    const from = (Math.atan2(m.b, m.a) * 180 / Math.PI + 360) % 360;
-    svg.animate([{ transform: `rotate(${from}deg)` }, { transform: `rotate(${Math.ceil((from + 30) / 90) * 90}deg)` }],
-      { duration: 280, easing: 'cubic-bezier(.34, 1.56, .64, 1)' });
-  } else if (svg && pose !== 'none') svg.animate([{ transform: pose }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  if (svg && pose !== 'none') svg.animate([{ transform: pose }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' });
 });

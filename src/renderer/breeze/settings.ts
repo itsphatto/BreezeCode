@@ -493,22 +493,79 @@ document.addEventListener('pointerdown', e => {
   if (recording && !(e.target as HTMLElement).closest?.('[data-kb]')) stopRecording();
 }, true);
 
-function settingsNavHtml(): string {
-  return visibleSettingsTabs().map(([id, label, icon]) => {
-    // Discord's logo is drawn by CSS (a mask over the text colour), so it follows the theme.
-    const iconHtml = icon === 'discord' ? '<span class="set-nav-img" aria-hidden="true"></span>' : svgIcon(icon, 17);
-    return '<button data-set-tab="' + id + '">' + iconHtml + '<span>' + esc(label) + '</span></button>';
-  }).join('');
+// The side tab, top to bottom: who you are, a search box, then the sections in groups.
+const SETTINGS_GROUPS: [string, SettingsTab[]][] = [
+  ['', ['general', 'appearance', 'controls']],
+  ['Agents', ['agents']],
+  ['Apps', ['discord', 'misc']],
+  ['Support', ['help', 'dev']],
+];
+let settingsQuery = '';
+// What a section holds, for search: its part headings and its rows' titles, read from its markup (a template
+// doesn't load the images in it). A row belongs to the part above it (-1: before the first heading).
+function settingsIndex(tab: SettingsTab): { subs: string[]; rows: [string, number][] } {
+  const t = document.createElement('template');
+  t.innerHTML = settingsBody(tab);
+  const subs: string[] = [], rows: [string, number][] = [];
+  t.content.querySelectorAll('h5, .set-title, .set-theme .nm').forEach(el => {
+    const text = el.textContent?.trim() ?? '';
+    if (el.tagName === 'H5') subs.push(text);
+    else if (text) rows.push([text, subs.length - 1]);
+  });
+  return { subs, rows };
+}
+function settingsNavHeadHtml(): string {
+  return `<div class="set-profile"></div>
+    <label class="set-search">${svgIcon('search', 15)}<input id="setSearch" type="search" placeholder="Search" aria-label="Search settings" autocomplete="off" spellcheck="false"></label>
+    <div class="set-nav-list"></div>`;
+}
+const settingsProfileHtml = () =>
+  `${avatarHtml(user, '')}<div class="set-profile-txt"><b>${esc(displayName() ?? 'Not signed in')}</b>
+    ${user
+      // The email the account signed in with (or its login when the provider gave none); it still opens General.
+      ? `<button class="set-profile-edit set-profile-mail" type="button" data-go-tab="general" title="${escAttr(user.email ?? user.login ?? user.provider)}">${esc(user.email ?? user.login ?? user.provider)}</button>`
+      : `<button class="set-profile-edit" type="button" data-go-tab="general">Sign in${svgIcon('pencil', 12)}</button>`}</div>`;
+// Redraws the side tab where it changed: who you are, and the sections (Developer comes and goes, search narrows them).
+function renderSettingsNav(m: HTMLElement): void {
+  const prof = $('.set-profile', m), list = $('.set-nav-list', m);
+  if (prof) { const html = settingsProfileHtml(); if (prof.innerHTML !== html) prof.innerHTML = html; }
+  if (list) { const html = settingsNavListHtml(); if (list.innerHTML !== html) list.innerHTML = html; }
+}
+function settingsNavListHtml(): string {
+  const q = settingsQuery.trim().toLowerCase();
+  const labels = new Map(visibleSettingsTabs().map(([id, label, icon]) => [id, { label, icon }]));
+  const groups = SETTINGS_GROUPS.map(([head, ids]) => {
+    const items = ids.filter(id => labels.has(id)).map(id => {
+      const { label, icon } = labels.get(id)!;
+      // Searching: a section shows when its name or anything in it matches; picking it goes to the first part that does.
+      let at = -1;
+      if (q) {
+        const idx = settingsIndex(id);
+        const subHit = idx.subs.findIndex(s => s.toLowerCase().includes(q));
+        const rowHit = idx.rows.find(([t]) => t.toLowerCase().includes(q));
+        if (!label.toLowerCase().includes(q) && subHit < 0 && !rowHit) return '';
+        at = rowHit && (subHit < 0 || rowHit[1] < subHit) ? rowHit[1] : subHit;
+      }
+      // Discord's logo is drawn by CSS (a mask over the text colour), so it follows the theme.
+      const iconHtml = icon === 'discord' ? '<span class="set-nav-img" aria-hidden="true"></span>' : svgIcon(icon, 17);
+      const on = id === settingsTab && !q;
+      return `<button class="set-item${on ? ' on' : ''}" data-set-tab="${id}"${at > 0 ? ` data-at="${at}"` : ''}${on ? ' aria-current="page"' : ''}>${iconHtml}<span>${esc(label)}</span></button>`;
+    }).join('');
+    return items ? `<div class="set-group">${head ? `<h6>${esc(head)}</h6>` : ''}${items}</div>` : '';
+  }).filter(Boolean);
+  return groups.length ? groups.join('<hr class="set-sep">') : '<p class="set-nav-empty">No settings match.</p>';
+}
+// Scrolls the pane to one of its parts (an h5), as a search result asks.
+function showSettingsPart(m: HTMLElement, i: number): void {
+  const h = $$('.set-pane h5', m)[i];
+  const main = $('.set-main', m);
+  if (!h || !main) return;
+  const top = h.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop - 16;
+  main.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 
 function bindSettings(m: HTMLElement): void {
   if (settingsTab === 'dev' && !appState.devMode) settingsTab = 'general';
-  // Developer was unlocked or turned off: redraw the section list under the heading.
-  const nav = $('.set-nav', m);
-  if (nav && $$('[data-set-tab]', nav).length !== visibleSettingsTabs().length) {
-    $$('[data-set-tab]', nav).forEach(b => b.remove());
-    nav.insertAdjacentHTML('beforeend', settingsNavHtml());
-  }
   const pane = $('.set-pane', m);
   // Switches are rebuilt with the pane, so remember where each knob was (mid-drag or mid-slide too) and slide on from there.
   const prevSwitch = new Map<string, string>();
@@ -570,7 +627,7 @@ function bindSettings(m: HTMLElement): void {
         : liquid ? { duration: 120 * Math.abs(to - was) / 100, delay: 180, easing: 'ease-out', fill: 'backwards' }
         : { duration: 220 * Math.abs(to - was) / 100, easing: 'cubic-bezier(.65, 0, .35, 1)' });
   });
-  $$('[data-set-tab]', m).forEach(b => b.classList.toggle('on', b.dataset.setTab === settingsTab));
+  renderSettingsNav(m);
   const on = (id: string, fn: (el: HTMLElement) => void) => { const el = $(`#${id}`, pane); if (el) el.onclick = () => fn(el); };
   const layoutSwitch = (id: string, act: string) => on(id, () => { run(act); refreshSettings(); });
   const seg = (id: string, fn: (v: string) => void) => $$(`#${id} button`, pane).forEach(b => b.onclick = () => fn(b.dataset.v ?? ''));
@@ -826,23 +883,48 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   const gears = [$('#settingsBtn'), $('#boxSettings')];
   gears.forEach(g => { g.classList.add('open'); g.setAttribute('aria-expanded', 'true'); });
   openModal(`<div class="settings-modal" aria-label="Settings">
-      <nav class="set-nav"><h3>Settings</h3>${settingsNavHtml()}</nav>
+      <nav class="set-nav" aria-label="Settings sections">${settingsNavHeadHtml()}</nav>
       <div class="set-main"><button class="set-close tab-close" data-close title="Close (Esc)" aria-label="Close"><svg class="tab-close-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><div class="set-pane"></div></div>
     </div>`, m => {
     m.classList.add('settings-shell');
     const root = $('.settings-modal', m);
-    // Delegated, so the Developer button works when it is added after the code is entered.
-    $('.set-nav', root).addEventListener('click', e => {
-      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-set-tab]');
-      if (!b || settingsTab === b.dataset.setTab) return;
-      settingsTab = b.dataset.setTab as SettingsTab;
+    settingsQuery = '';
+    // at: a search result's part to scroll to (its h5's index).
+    const switchTab = (tab: SettingsTab, at = 0) => {
+      const changed = settingsTab !== tab;
+      settingsTab = tab;
       const pane = $('.set-pane', root);
-      if (pane) {
+      if (changed && pane) {
         pane.style.animation = 'none';
         forceReflow(pane);
         pane.style.animation = '';
       }
-      bindSettings(root);
+      if (changed || settingsQuery) {
+        if (settingsQuery) { settingsQuery = ''; $<HTMLInputElement>('#setSearch', root).value = ''; }
+        $('.set-main', root).scrollTop = 0;
+        bindSettings(root);
+      }
+      if (at) showSettingsPart(root, at); // the new pane is in the page already, so its headings can be measured
+    };
+    // Delegated, so the Developer button works when it is added after the code is entered.
+    $('.set-nav', root).addEventListener('click', e => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-set-tab], [data-go-tab]');
+      if (b) switchTab((b.dataset.setTab ?? b.dataset.goTab) as SettingsTab, Number(b.dataset.at ?? 0));
+    });
+    // Search narrows the side tab to the sections that hold what's typed; Enter opens the first.
+    const search = $<HTMLInputElement>('#setSearch', root);
+    search.addEventListener('input', () => { settingsQuery = search.value; renderSettingsNav(root); });
+    search.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        root.querySelector<HTMLElement>('.set-nav-list [data-set-tab]')?.click();
+      } else if (e.key === 'Escape' && search.value) {
+        e.preventDefault();
+        e.stopPropagation();
+        search.value = '';
+        settingsQuery = '';
+        renderSettingsNav(root);
+      }
     });
     background(refreshAccounts().then(refreshSettings));
     bindSettings(root);

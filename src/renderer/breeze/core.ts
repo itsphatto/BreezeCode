@@ -61,6 +61,8 @@ interface GhPull {
 interface GhCommit { sha: string; message: string; author: string; avatar: string | null; date: string | null; }
 interface GhFile { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null; }
 type GhResult<T> = { ok: true; data: T } | { ok: false; error: string; message?: string; resetAt?: number | null };
+// A year of GitHub contributions: weeks run Sunday to Saturday (the first and last can be short); level is 0–4.
+interface GhContributions { login: string; total: number; weeks: { date: string; count: number; level: number }[][]; }
 // partial: asking GitHub for each pull request's details stopped early (a rate limit or an expired sign-in), so some
 // rows may still read "checking".
 interface GhPullList { owner: string; repo: string; pulls: GhPull[]; partial?: 'rate-limit' | 'reauth' | null; }
@@ -142,6 +144,8 @@ interface BreezeApi {
   fs: {
     openFolder(): Promise<RootInfo | null>;
     createFolder(): Promise<RootInfo | null>;
+    // Asks where to put it, clones the repository there and opens it; null when the folder pick is cancelled.
+    clone(url: string): Promise<RootInfo | null>;
     openFile(): Promise<LaunchInfo | null>;
     newFile(name: string, text: string): Promise<LaunchInfo | null>;
     restore(): Promise<RootInfo | LaunchInfo | null>;
@@ -293,6 +297,8 @@ interface BreezeApi {
     commit(sha: string): Promise<GhResult<GhFile[]>>;
     repo(): Promise<GhResult<{ allowMerge: boolean; allowSquash: boolean; allowRebase: boolean }>>;
     merge(n: number, method: 'merge' | 'squash' | 'rebase', sha: string): Promise<GhResult<{ merged: boolean; message: string }>>;
+    // The active account's last year of contributions; error 'not-github' when the active account isn't GitHub.
+    contributions(): Promise<GhResult<GhContributions>>;
   };
   auth: {
     user(): Promise<User | null>;

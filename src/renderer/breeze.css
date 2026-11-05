@@ -904,6 +904,17 @@ button {
   margin-bottom: 26px;
 }
 
+/* Letters of the name heading, each animated on its own (lettersIn, onboarding.ts). */
+.ob-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.ob-ch {
+  display: inline-block;
+  white-space: pre;
+}
+
 #obNameForm {
   display: grid;
   justify-items: center;
@@ -974,31 +985,115 @@ button {
   backdrop-filter: blur(36px) saturate(1.3);
 }
 
-/* Account: the icon sits higher than on the name screen, so it visibly slides up between them. */
-.ob-step.ob-account {
-  align-self: start;
-  padding: clamp(44px, 9vh, 96px) 0 44px;
+/* The account screen has no card: a soft white bloom on the sky carries its dark text instead. It lives on the
+   backdrop rather than the step, so it swells in from the name screen and melts away again on either side.
+   The layer never moves or scales (its edges would show as a box): --bloom grows the gradient's own size and
+   strength, from nothing to full. */
+@property --bloom {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+.ob-bloom {
+  --bloom: 0;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse calc(20% + 38% * var(--bloom)) calc(24% + 48% * var(--bloom)) at 50% 48%,
+      rgba(255, 255, 255, calc(.97 * var(--bloom))) 0%,
+      rgba(255, 255, 255, calc(.92 * var(--bloom))) 42%,
+      rgba(255, 255, 255, calc(.6 * var(--bloom))) 68%,
+      rgba(255, 255, 255, 0) 100%);
+  transition: --bloom 1s cubic-bezier(.65, 0, .35, 1);
+}
+
+.onboard:has(.ob-account:not(.hidden)) .ob-bloom {
+  --bloom: 1;
 }
 
 .ob-form {
   display: grid;
-  gap: 12px;
-  width: min(380px, 100%);
-  margin: 16px auto 0;
-  padding: 22px 26px 26px;
-  border-radius: 18px;
-  box-shadow: 0 18px 50px rgba(10, 30, 120, .22);
+  gap: 0;
+  width: min(320px, 100%);
+  margin: 14px auto 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
+/* A soft slate rather than black, so it sits in the white bloom; still about 9.5:1 on it. */
 .ob-form h2 {
-  margin: 0 0 4px;
-  font-size: 21px;
+  margin: 0;
+  color: #3d4352;
+  font-size: 22px;
   letter-spacing: -.02em;
+}
+
+.ob-sub {
+  margin: 6px 0 26px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.ob-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #1f4dff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ob-link:hover {
+  text-decoration: underline;
+}
+
+.ob-link:focus-visible {
+  outline: 2px solid #1f4dff;
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .ob-form .signin-btns {
   max-width: none;
   margin: 0;
+}
+
+/* The two providers look like the reference's text fields: tall, soft, left-aligned. */
+.ob-form .signin-btns .btn {
+  justify-content: flex-start;
+  height: 50px;
+  padding: 0 16px;
+  border: 1px solid rgba(20, 22, 28, .12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .7);
+  color: var(--text);
+  font-size: 14px;
+  box-shadow: none;
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+
+.ob-form .signin-btns .btn:hover {
+  background: #fff;
+  border-color: rgba(31, 77, 255, .45);
+}
+
+.ob-form .signin-btns .btn:focus-visible {
+  outline: none;
+  background: #fff;
+  border-color: #4f5bff;
+  box-shadow: 0 0 0 2px rgba(79, 91, 255, .35);
+}
+
+/* Signed in, the "or continue without one" line (and its gap) goes, so the row keeps the title at a distance itself. */
+.ob-form .ob-connected {
+  margin-top: 24px;
+  min-height: 50px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .7);
 }
 
 .ob-form .signin-error {
@@ -1059,38 +1154,136 @@ button {
 }
 
 .ob-terms {
+  position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 9px;
-  margin-top: 2px;
-  font-size: 12.5px;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 12px;
   line-height: 1.4;
   text-align: left;
   color: var(--text-2);
   cursor: pointer;
 }
 
-.ob-terms input {
+/* The real box stays (focusable, read by screen readers) but unseen; the drawn one below shows its state. */
+.ob-terms .ob-cbx {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Drawn checkbox: a rounded outline that unwinds into a tick when checked. */
+.ob-terms .check {
+  --accent-color: #1f4dff;
+  position: relative;
   flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 1px 0 0;
-  accent-color: #1f4dff;
+  width: 18px;
+  height: 18px;
+  margin-top: -1px;
+  -webkit-tap-highlight-color: transparent;
+  transform: translate3d(0, 0, 0);
+}
+
+.ob-terms .check::before {
+  content: "";
+  position: absolute;
+  top: -15px;
+  left: -15px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(34, 50, 84, .05);
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+
+.ob-terms .check svg {
+  position: relative;
+  z-index: 1;
+  display: block;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke: #8d93a0;
+  stroke-width: 1.5;
+  transform: translate3d(0, 0, 0);
+  transition: all .2s ease;
+}
+
+.ob-terms .check path {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 0;
+}
+
+.ob-terms .check polyline {
+  stroke-dasharray: 22;
+  stroke-dashoffset: 66;
+}
+
+.ob-terms:hover .check::before {
+  opacity: 1;
+}
+
+.ob-terms:hover .check svg,
+.ob-cbx:checked + .check svg {
+  stroke: var(--accent-color);
+}
+
+.ob-cbx:checked + .check path {
+  stroke-dashoffset: 60;
+  transition: all .3s linear;
+}
+
+.ob-cbx:checked + .check polyline {
+  stroke-dashoffset: 42;
+  transition: all .2s linear;
+  transition-delay: .15s;
+}
+
+.ob-cbx:focus-visible + .check::before {
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(31, 77, 255, .5);
 }
 
 .ob-terms a {
-  color: var(--blue-text);
-  font-weight: 600;
+  color: #1f4dff;
+  font-weight: 500;
+  text-decoration: none;
 }
 
+.ob-terms a:hover,
+.ob-terms a:focus-visible {
+  text-decoration: underline;
+}
+
+/* Compact and centered under the column, like the reference. */
 #obAccountNext {
   display: flex;
   align-items: center;
   justify-content: center;
+  justify-self: center;
   gap: 8px;
+  height: 36px;
+  margin-top: 28px;
+  padding: 0 18px;
+  border-radius: 8px;
   color: #fff;
-  background: #1f4dff;
-  border-color: #1f4dff;
+  background: #2b35ff;
+  border-color: #2b35ff;
+  font-size: 13.5px;
+  box-shadow: 0 4px 14px rgba(43, 53, 255, .28);
+}
+
+#obAccountNext:disabled {
+  opacity: 1;
+  color: rgba(255, 255, 255, .5);
+  background: #2b35ff;
+  box-shadow: none;
 }
 
 /* Make it yours: the agents get a column of their own and scroll inside it; the window never has to. */
@@ -2706,7 +2899,7 @@ button svg,
 .btn svg,
 .tab svg,
 .tree-item .ico svg,
-.set-nav button svg,
+.set-nav .set-item svg,
 .menu-item svg,
 .agent-card svg,
 .quick-card svg,
@@ -2724,7 +2917,7 @@ button:hover svg,
 .btn:hover svg,
 .tab:hover svg,
 .tree-item:hover .ico svg,
-.set-nav button:hover svg,
+.set-nav .set-item:hover svg,
 .menu-item:hover svg,
 .agent-card:hover svg,
 .quick-card:hover svg,
@@ -2742,7 +2935,7 @@ button:active svg,
 .btn:active svg,
 .tab:active svg,
 .tree-item:active .ico svg,
-.set-nav button:active svg,
+.set-nav .set-item:active svg,
 .menu-item:active svg,
 .agent-card:active svg,
 .quick-card:active svg,
@@ -6205,23 +6398,6 @@ body.vibing .ide {
   animation: rise .2s;
 }
 
-#signinSkip {
-  justify-self: center;
-  margin-top: 4px;
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-  color: var(--text-3);
-  transition: color .15s ease;
-}
-
-#signinSkip:hover,
-#signinSkip:focus-visible {
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-  color: var(--text);
-}
 
 .device-code {
   display: flex;
@@ -7436,57 +7612,18 @@ body.vibing .ide {
   }
 }
 
-/* ================= Home: jump back in, or start a project ================= */
+/* ================= Home: laid out like the IDE ================= */
+/* A title bar, a rail of views and one rounded panel, in the theme's own colours (no sky): no menus, layout buttons
+   or status bar. The panel holds an editor-style start page: Start on the left, Recent on the right. */
 .ob-step.home-step {
   display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
+  grid-template-rows: 45px minmax(0, 1fr);
   width: 100%;
   height: 100vh;
   padding: 0;
   text-align: left;
-}
-
-/* Solid night-blue panels rather than glass: the sky behind them is the brand, the panels are content and stay calm.
-   #aaaaaa-level greys on #1C1F2E read about 7:1. */
-.onboard .ob-step.home-step {
-  --bg: rgba(28, 31, 46, .94);
-  --bg-1: rgba(28, 31, 46, .94);
-  --bg-2: rgba(28, 31, 46, .94);
-  --bg-3: rgba(38, 42, 60, .96);
-  --line: rgba(255, 255, 255, .1);
-  --text-2: rgba(255, 255, 255, .72);
-  --text-3: rgba(255, 255, 255, .56);
-}
-
-.onboard .home-step :is(.setup-card, .start-tile) {
-  backdrop-filter: none;
-}
-
-/* A touch more see-through than the base cards, so the sky shows through a little. Text keeps full opacity. */
-.onboard .home-step :is(.home-side, .home-recent, .home-agent, .home-tools, .start-tile) {
-  background: color-mix(in srgb, var(--bg-2) 70%, transparent);
-}
-
-/* Light theme: the same white-on-panel Home, the panels lifted to a lighter slate so they sit lighter on the bright
-   sky. White on #46527d reads about 7.6:1, and the greys rise with it. */
-:root[data-theme="light"] .onboard .ob-step.home-step {
-  --bg: rgba(70, 82, 125, .92);
-  --bg-1: rgba(70, 82, 125, .92);
-  --bg-2: rgba(70, 82, 125, .92);
-  --bg-3: rgba(84, 97, 142, .94);
-  --line: rgba(255, 255, 255, .16);
-  --text-2: rgba(255, 255, 255, .88);
-  --text-3: rgba(255, 255, 255, .84);
-}
-
-/* Over the bright light sky the panels stay solid: seen through, they paled the white text below 4.5:1. */
-:root[data-theme="light"] .onboard .home-step :is(.home-side, .home-recent, .home-agent, .home-tools, .start-tile) {
-  background: var(--bg-2);
-}
-
-/* Antigravity's blue mark sinks into the light slate, so its white mark shows there instead. */
-:root[data-theme="light"] .onboard .home-step .tint-antigravity .brand-img {
-  content: url("../../assets/icons/antigravity_white.png");
+  background: var(--bg);
+  color: var(--text);
 }
 
 /* Home is where every launch lands, not a step to count: no progress dots. */
@@ -7494,467 +7631,425 @@ body.vibing .ide {
   display: none;
 }
 
-/* The sidebar: who you are, and the three views of the main area. */
-.home-side {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  margin: 10px 0 10px 10px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 14px;
+/* Setup's glassy colours (.onboard .ob-step) are for the sky; Home goes back to the theme's own. */
+.onboard .ob-step.home-step {
+  --bg: inherit;
+  --bg-1: inherit;
+  --bg-2: inherit;
+  --bg-3: inherit;
+  --text-2: inherit;
+  --text-3: inherit;
+  --blue-text: inherit;
 }
 
-.home-nav {
+/* The light theme gives all of setup a dark palette (it sits on the sky); Home takes the light theme's own back. */
+:root[data-theme="light"] .onboard .ob-step.home-step {
+  color-scheme: light;
+  --bg: #fbf9f4;
+  --bg-1: #f4f1e8;
+  --bg-2: #ece8dc;
+  --bg-3: #e3ded0;
+  --line: #d8d1c0;
+  --text: #26231e;
+  --text-2: #57514a;
+  --text-3: #645d53;
+  --blue-text: #0057b8;
+  --text-soft: #3b3731;
+  --line-hi: #c7bfab;
+  --line-strong: #a89f8a;
+  --ink: 38, 35, 30;
+  --hover-dim: rgba(70, 55, 30, .12);
+  --glass: rgba(251, 249, 244, .97);
+  --glass-strong: rgba(248, 245, 238, .98);
+  --glass-line: rgba(70, 55, 30, .12);
+  --ok: #137036;
+  --warn: #9c4706;
+  --err: #c42b1c;
+}
+
+/* Room for the window buttons on the right. */
+.home-bar {
+  position: relative;
+  padding-right: calc(138px + 10px);
+}
+
+.home-bar .logo img {
+  display: block;
+}
+
+.home-bar .project {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+#homeProfile .avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 9.5px;
+}
+
+#homeProfile .hp-ico {
   display: grid;
-  gap: 2px;
-  padding: 10px;
-}
-
-/* Hovers and selects like the Settings sections (.set-nav button). */
-.home-nav button {
-  width: 100%;
-}
-
-/* Each section's icon has its own hover motion, from the Settings set. */
-.home-nav button[data-home-view="session"] svg { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), color .22s ease; }
-.home-nav button[data-home-view="session"]:hover svg { transform: scale(1.22); }
-.home-nav button[data-home-view="agent"]:hover svg { animation: navPromptType .5s ease-out both; }
-.home-nav button[data-home-view="tools"]:hover svg { animation: navPaletteTilt .5s ease-out both; }
-
-.home-nav button:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px;
-}
-
-/* Below the window's drag strip and buttons, so nothing that scrolls here ever slips under them. The content stops
-   growing past a comfortable width; its height keeps the window's, which is what Recent projects runs down. */
-.home-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  margin-top: 44px;
-  overflow: auto;
-}
-
-.home-body {
-  flex: 1 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  width: 100%;
-  max-width: 1240px;
-  margin-inline: auto;
-  padding: 4px 28px 24px;
-}
-
-.home-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.home-top .space-btn {
-  margin: 0;
-}
-
-/* A section comes in as a Settings pane does; showing it again replays this. */
-.home-view {
-  flex: 1;
-  animation: setPaneFadeIn .22s cubic-bezier(.16, 1, .3, 1);
-}
-
-.home-head {
-  min-width: 0;
-}
-
-.home-head h2 {
-  margin-bottom: 10px;
-  font-size: clamp(22px, min(3.2vw, 6vh), 40px);
-  overflow-wrap: anywhere;
-}
-
-.home-head p.lead {
-  /* Tucked closer to the title. */
-  margin: -6px 0 0;
-  color: rgba(255, 255, 255, .92);
-  font-size: clamp(14px, 1.6vw, 18px);
-}
-
-/* The light sky is palest behind the greeting: the shadow keeps its white text readable there. */
-:root[data-theme="light"] .home-head {
-  text-shadow: 0 1px 8px rgba(10, 30, 120, .45);
-}
-
-/* A view shown again from the sidebar (setup.ts): its rows are just there. */
-.home-step.home-stay :is(.recent-row, .agent-row) {
-  animation: none;
-}
-
-/* Coming off the launch screen (init.ts), the greeting comes into focus as the sky lifts, the line under it a beat
-   later. */
-.home-step.home-in .home-head > * {
-  animation: homeBlurIn .8s cubic-bezier(.2, .8, .2, 1) backwards;
-}
-
-.home-step.home-in .home-head > .lead {
-  animation-delay: .14s;
-}
-
-@keyframes homeBlurIn {
-  from {
-    opacity: 0;
-    filter: blur(14px);
-    transform: scale(.97);
-  }
-}
-
-/* Ways in on the leading side, recent projects beside them. Recent projects is exactly as tall as the row, which the
-   window's height sets: size containment stops its list from stretching the row, and the list scrolls inside. */
-.home-grid {
-  display: grid;
-  grid-template-columns: minmax(240px, 5fr) minmax(0, 8fr);
-  gap: 14px;
-}
-
-/* The panel's foot fades into the sky; the list's padding lets its last row scroll clear of the fade. */
-.home-grid .home-recent {
-  contain: size;
-  mask-image: linear-gradient(#000 calc(100% - min(120px, 30%)), transparent);
-}
-
-.home-grid .recent-list {
-  flex: 1;
-  min-height: 0;
-  max-height: none;
-  padding-bottom: 96px;
-}
-
-/* Only the greeting speaks in Unbounded; every heading under it is the UI face. */
-.home-step .setup-card h3 {
-  font-family: var(--font-ui);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0;
-}
-
-.home-step .setup-card .muted,
-.home-step .recent-empty {
-  font-size: 13px;
-}
-
-.home-recent {
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  border-radius: 14px;
-}
-
-.home-recent header {
-  padding: 4px 6px 8px;
-}
-
-#homeRecentCount {
-  background: none;
-  border: none;
-}
-
-/* No projects yet: no count to show. */
-#homeRecentCount:empty {
-  display: none;
-}
-
-.recent-list {
-  display: grid;
-  /* Rows keep their own height at the top: stretched to fill the card, each row grew past its button and the
-     remove button (centred on the row) dropped below it. */
-  align-content: start;
-  gap: 2px;
-  max-height: min(300px, 40vh);
-  overflow: auto;
-}
-
-/* The empty note sits in the middle of the card. */
-.recent-list:has(> .recent-empty) {
-  flex: 1;
-  max-height: none;
-  align-content: center;
-}
-
-.recent-empty {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  padding: 26px 18px 30px;
+  place-items: center;
+  background: var(--bg-3);
   color: var(--text-2);
-  font-size: 12.5px;
+}
+
+.home-shell {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  min-height: 0;
+  padding: 6px 6px 6px 0;
+}
+
+.home-rail {
+  padding-top: 6px;
+}
+
+.home-rail .act-btn:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+/* The lit view gets the IDE's blue edge on the left. */
+.home-rail .act-btn.on::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 8px;
+  bottom: 8px;
+  width: 2.5px;
+  border-radius: 0 2px 2px 0;
+  background: var(--blue);
+}
+
+.home-main {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg-1);
+}
+
+.home-view {
+  min-height: 100%;
+}
+
+/* Everything on the start page is sized in em from this one font size, which grows with the window (14px at about
+   1280px wide, 19px at about 2200px), so a full-screen window gets a bigger page rather than a small one in the middle. */
+.home-welcome {
+  box-sizing: border-box;
+  width: min(64em, 100%);
+  margin: 0 auto;
+  padding: clamp(40px, 14vh, 160px) 3em 3em;
+  font-size: clamp(14px, .55vw + 7px, 19px);
+}
+
+/* Clone Repository's address bar, centered over the greeting like a quick-input box. */
+.home-clone {
+  width: min(40em, 100%);
+  margin: 0 auto 2.5em;
+  animation: clone-in .18s cubic-bezier(.2, .8, .2, 1);
+}
+
+@keyframes clone-in {
+  from { opacity: 0; transform: translateY(-6px); }
+}
+
+.clone-field {
+  display: flex;
+  align-items: center;
+  gap: .7em;
+  height: 2.7em;
+  padding: 0 .85em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.clone-field:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue), 0 8px 24px rgba(0, 0, 0, .18);
+}
+
+.clone-field svg {
+  flex: none;
+}
+
+.clone-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: .96em;
+}
+
+.clone-field input::placeholder {
+  color: var(--text-3);
+}
+
+.clone-hint {
+  margin: .45em 2px 0;
+  color: var(--text-3);
+  font-size: .86em;
   text-align: center;
 }
 
-.recent-empty .ico-svg {
-  color: var(--text-3);
+.home-clone.busy .clone-field {
+  opacity: .75;
 }
 
-.recent-row {
-  position: relative;
-  animation: rise .35s cubic-bezier(.2, .8, .2, 1) backwards;
-  animation-delay: calc(var(--i, 0) * 35ms);
+.home-clone.err .clone-field {
+  border-color: var(--err);
+  box-shadow: 0 0 0 1px var(--err), 0 8px 24px rgba(0, 0, 0, .18);
 }
 
-/* Already on screen before a redraw: no second rise. */
-.recent-row.stay {
-  animation: none;
-}
-
-.recent-open {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 42px 9px 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  transition: background-color .15s, border-color .15s, opacity .2s;
-}
-
-.recent-open:focus-visible {
-  outline: none;
-  border-color: var(--blue);
-  background: rgba(var(--ink), .05);
-}
-
-.recent-txt {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-}
-
-.recent-txt .nm,
-.recent-txt .path {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.recent-txt .nm {
-  font-size: 13.5px;
-  font-weight: 600;
-}
-
-.recent-txt .path {
-  font: 11.5px var(--font-code);
-  color: var(--text-3);
-}
-
-.recent-row .when {
-  color: var(--text-3);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.recent-forget {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  opacity: 0;
-  transition: opacity .15s;
-}
-
-.recent-row:hover .recent-forget,
-.recent-forget:focus-visible {
-  opacity: 1;
-}
-
-/* The project opened last leads the list, bigger and with its own Continue button. */
-.recent-row.lead {
-  margin-bottom: 8px;
-}
-
-/* A soft blue tint; on hover the signature accent sweeps in over it from the left (a layer, since gradients can't
-   transition), dimmed a little so the white text reads, and Continue turns white so it doesn't sink into the sky. */
-.recent-row.lead .recent-open {
-  position: relative;
-  isolation: isolate;
-  gap: 14px;
-  /* Same right inset as the rows below, so Continue lines up with their times; 17px top and bottom end it level
-     with the default agent row beside it. */
-  padding: 17px 42px 17px 16px;
-  border-color: rgba(var(--ink), .08);
-  background: linear-gradient(120deg, rgba(10, 108, 216, .24), transparent 70%);
-  transition: background-color .15s, border-color .3s, opacity .2s;
-}
-
-.recent-row.lead .recent-open::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--sig-accent);
-  filter: brightness(.72);
-  pointer-events: none;
-  /* A soft-edged wipe: the mask is 2.5 widths wide, opaque on its first width and clear past 1.5 widths, so the soft
-     edge starts right at the card's left side and the sweep shows from the first frame of the hover. */
-  -webkit-mask-image: linear-gradient(90deg, #000 40%, transparent 60%);
-  mask-image: linear-gradient(90deg, #000 40%, transparent 60%);
-  -webkit-mask-size: 250% 100%;
-  mask-size: 250% 100%;
-  -webkit-mask-position: 100% 0;
-  mask-position: 100% 0;
-  /* No tiling: a repeated tile peeked in at the right edge as a thin blue line while the sweep was at rest. */
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  transition: -webkit-mask-position .5s cubic-bezier(.2, .8, .2, 1), mask-position .5s cubic-bezier(.2, .8, .2, 1);
-}
-
-/* Dark themes: the sweep is Home's current sky, sized to the window and lined up with it (fixed), so it stays as soft
-   as the sky itself rather than squeezing the whole gradient into one row. */
-:root:is([data-theme="dark"], [data-theme="contrast"]) .home-step .recent-row.lead .recent-open::before {
-  background: var(--home-sky);
-  background-attachment: fixed;
-  filter: none;
-}
-
-.recent-row.lead:hover .recent-open {
-  border-color: rgba(255, 255, 255, .18);
-  color: #fff;
-}
-
-.recent-row.lead:hover .recent-open::before {
-  -webkit-mask-position: 0 0;
-  mask-position: 0 0;
-}
-
-/* The sky replaces the usual hover dim on this card and its Continue button. */
-.recent-row.lead:hover .recent-open::after,
-.recent-row.lead:hover .recent-open .recent-go::after {
-  opacity: 0;
-}
-
-/* The remove button sits on the sky too (the row's hover keeps the sky up while the pointer is on it). */
-.recent-row.lead:hover .recent-forget {
-  color: rgba(255, 255, 255, .85);
-}
-
-/* Hovering Continue itself still dims it a little, so it reads as the thing to press. */
-.recent-row.lead:hover .recent-open .recent-go:hover::after {
-  opacity: .35;
-}
-
-.recent-row.lead:hover .recent-open :is(.nm, .eyebrow, .path) {
-  color: #fff;
-  text-shadow: 0 1px 8px rgba(10, 30, 120, .45);
-}
-
-.recent-row.lead:hover .recent-open .recent-go {
-  background: #fff;
-  color: #1f4dff;
+.home-clone.err .clone-hint {
+  color: var(--err);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .recent-row.lead .recent-open::before { transition: none; }
+  .home-clone { animation: none; }
 }
 
-.recent-row.lead .recent-open:focus-visible {
-  border-color: var(--blue);
-}
-
-.recent-row.lead .nm {
-  font: 700 16px var(--font-display);
-  letter-spacing: -.01em;
-}
-
-.recent-txt .eyebrow {
-  margin-bottom: 3px;
-  color: var(--text-2);
-  font: 500 12px var(--font-ui);
-}
-
-.recent-go {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 7px 9px 7px 14px;
-  border-radius: 8px;
-  /* The same blue in every theme; #f5f5f7 on it reads 4.76:1. */
-  background: #005eff;
-  color: #f5f5f7;
-  font-size: 13px;
+.home-head h2 {
+  margin: 0;
+  font-size: 1.85em;
   font-weight: 600;
-  white-space: nowrap;
-  transition: background-color .3s ease, color .3s ease;
-}
-
-.recent-row.missing .recent-open {
-  opacity: .55;
-}
-
-.recent-row.missing .when {
-  color: var(--warn);
-}
-
-.recent-row.busy {
-  pointer-events: none;
-}
-
-.recent-row.busy .recent-open {
-  opacity: .6;
-}
-
-/* Start a project: the four ways in, stacked at the top, each with the shortcut that does the same. */
-.home-start {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.start-tile {
-  flex: 0 0 clamp(72px, 12.6vh, 104px);
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  align-content: center;
-  align-items: center;
-  gap: 2px 14px;
-  padding: 8px 18px;
-  text-align: left;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--bg-2);
+  letter-spacing: -.01em;
   color: var(--text);
 }
 
-.start-tile:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px;
-}
-
-.start-tile kbd {
-  grid-column: 2;
-  align-self: start;
-  font: 500 13.5px var(--font-ui);
+.home-head p.lead {
+  margin: .25em 0 0;
   color: var(--text-3);
+  font-size: 1.14em;
 }
 
-.start-tile .start-ico {
-  grid-row: 1 / span 2;
-  width: 48px;
-  height: 48px;
+.home-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18em, 1fr));
+  gap: 2.3em 4.5em;
+  margin-top: 2.4em;
 }
 
-.start-tile .start-txt {
-  align-self: end;
+.home-cols h3 {
+  margin: 0 0 .65em;
+  color: var(--text);
+  font-size: 1.14em;
+  font-weight: 600;
 }
 
-/* Beats .start-txt .nm, later on. */
-.start-tile .start-txt .nm {
-  font-size: 18px;
+.home-start {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: .15em;
+}
+
+/* Editor-start-page links: blue text, an icon in front, underline on hover. */
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: .65em;
+  padding: .3em .15em;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--blue-text);
+  font-size: .96em;
+  cursor: pointer;
+}
+
+/* The icons grow with the text. */
+.home-link svg,
+.clone-field svg {
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.home-link:hover {
+  text-decoration: underline;
+}
+
+.home-link:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.home-recent .recent-list {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+}
+
+.home-recent .recent-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+}
+
+.home-recent .recent-open {
+  display: flex;
+  align-items: baseline;
+  gap: .85em;
+  min-width: 0;
+  padding: .22em .15em;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font-size: .96em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-recent .recent-open .nm {
+  flex: none;
+  color: var(--blue-text);
+}
+
+.home-recent .recent-open .path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home-recent .recent-open:hover .nm {
+  text-decoration: underline;
+}
+
+.home-recent .recent-open:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.home-recent .recent-row.missing .nm {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.home-recent .recent-row.busy {
+  opacity: .6;
+  pointer-events: none;
+}
+
+.home-recent .recent-more {
+  margin-top: .15em;
+}
+
+.home-recent .recent-empty {
+  color: var(--text-3);
+  font-size: .96em;
+}
+
+/* GitHub contributions, under Start and Recent: GitHub's own greens, a square a day. */
+.home-contrib {
+  --cg-0: #161b22;
+  --cg-1: #0e4429;
+  --cg-2: #006d32;
+  --cg-3: #26a641;
+  --cg-4: #39d353;
+  margin-top: 2.8em;
+}
+
+:root[data-theme="light"] .home-contrib {
+  --cg-0: #ebedf0;
+  --cg-1: #9be9a8;
+  --cg-2: #40c463;
+  --cg-3: #30a14e;
+  --cg-4: #216e39;
+}
+
+.home-contrib h3 {
+  margin: 0 0 .65em;
+  color: var(--text);
+  font-size: 1.14em;
+  font-weight: 600;
+}
+
+.contrib-box {
+  padding: 1em 1.15em .7em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* A narrow window scrolls the year sideways rather than squeezing the squares. */
+.contrib-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.contrib-graph {
+  display: grid;
+  grid-template-columns: 2.7em repeat(var(--weeks, 53), minmax(10px, 1fr));
+  grid-template-rows: 1.45em repeat(7, auto);
+  gap: max(3px, .25em);
+  min-width: calc(30px + var(--weeks, 53) * 13px);
+  font-size: .82em;
+  color: var(--text-2);
+}
+
+.cg-month {
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+.cg-wd {
+  align-self: center;
+  line-height: 1;
+}
+
+.cg-day,
+.contrib-legend i {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: var(--cg-0);
+  outline: 1px solid rgba(var(--ink), .05);
+  outline-offset: -1px;
+}
+
+:is(.cg-day, .contrib-legend i)[data-l="1"] { background: var(--cg-1); }
+:is(.cg-day, .contrib-legend i)[data-l="2"] { background: var(--cg-2); }
+:is(.cg-day, .contrib-legend i)[data-l="3"] { background: var(--cg-3); }
+:is(.cg-day, .contrib-legend i)[data-l="4"] { background: var(--cg-4); }
+
+.contrib-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: .6em;
+  font-size: .82em;
+  color: var(--text-2);
+}
+
+.contrib-foot .home-link {
+  font-size: 1.04em;
+}
+
+.contrib-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.contrib-legend i {
+  width: .9em;
+  margin: 0 1px;
 }
 
 .start-ico {
@@ -7967,15 +8062,6 @@ body.vibing .ide {
   color: #6ea0ff;
 }
 
-/* On Home's panels the icons go paler, so they stand well clear of the panel (WCAG 1.4.11 asks 3:1) in both themes. */
-.onboard .home-step .start-ico {
-  color: #a8c7ff;
-}
-
-/* .start-tile outranks the light theme's blue-text icon rule. */
-:root[data-theme="light"] .onboard .home-step .start-tile .start-ico {
-  color: #dbe6ff;
-}
 
 .start-txt {
   display: grid;
@@ -7995,149 +8081,6 @@ body.vibing .ide {
 
 /* Default agent: every agent found on this computer, one row each with its own model dropdown. The rows are
    part of the card, not cards of their own, so it keeps the same see-through glass as the tiles above. */
-:is(.home-agent, .home-tools) {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 14px;
-}
-
-/* The heading and its note on the leading side, with room below before the roster. */
-:is(.home-agent, .home-tools) header {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  padding: 4px 6px 8px;
-  margin: 0;
-}
-
-:is(.home-agent, .home-tools) .muted {
-  margin: 0;
-}
-
-/* One row a tool, wrapping like the agents; these only report, so they don't answer the pointer. */
-.tool-rows {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 6px;
-}
-
-/* The line a failed scan leaves in place of the rows (setup.ts). */
-:is(.tool-rows, .agent-rows) > p {
-  grid-column: 1 / -1;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 62px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-
-.tool-row.missing {
-  border-style: dashed;
-}
-
-.tool-row .sub {
-  overflow-wrap: anywhere;
-}
-
-.home-agent .agent-row {
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-}
-
-/* One line, so the "Default ·" label never wraps a row taller and nudges the roster when the default moves. */
-.home-agent .agent-row .sub {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Not installed: greyed so the ones you can pick stand out, but the name stays readable (white at .56 on the
-   panel is about 6:1) and Get stays a full-strength button. */
-.home-agent .agent-row.missing {
-  cursor: default;
-  border-style: dashed;
-}
-
-.home-agent .agent-row.missing .agent-mark {
-  filter: grayscale(1);
-  opacity: .5;
-}
-
-.home-agent .agent-row.missing .nm {
-  color: var(--text-2);
-}
-
-.home-agent .agent-row.missing .sub {
-  color: var(--text-3);
-}
-
-/* The roster: found agents side by side, wrapping on narrow windows, each rising in as the scan reports it. A handful of
-   cards never needs to scroll, so it isn't a scroll box: as one, Chromium gave it a layer of its own that came up blank
-   for a frame while the window grew or settled (the cards vanished and came back), and it would clip cards gliding to
-   a new row. */
-.home-agent .agent-rows {
-  position: relative; /* the cards' positions are measured against it, for their glide to a new row (setup.ts) */
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  max-height: none;
-  overflow: visible;
-}
-
-.home-agent .agent-row {
-  animation: rise .35s cubic-bezier(.2, .8, .2, 1) backwards;
-  animation-delay: calc(var(--i, 0) * 60ms);
-}
-
-.agent-rows {
-  display: grid;
-  gap: 6px;
-  max-height: min(300px, 40vh);
-  overflow: auto;
-}
-
-.agent-row {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background-color .15s, border-color .15s;
-}
-
-.agent-row:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 1px;
-}
-
-.agent-row.on {
-  border-color: var(--blue);
-  /* The manage-agents modal's tint: strong enough that the sliding box (slideSelected) reads as one solid box
-     over the see-through rows, not a thin outline crossing theirs. */
-  background: var(--blue-soft);
-}
-
-.agent-row .start-txt .sub b {
-  color: var(--blue-text);
-  font-weight: 600;
-}
-
-/* Animated open when the row becomes the default (slideSelected in ui.ts). */
-.agent-row .sub .def {
-  display: inline-block;
-  overflow: hidden;
-  vertical-align: bottom;
-  white-space: pre;
-}
-
 .agent-mark {
   font: 700 13px var(--font-display);
   color: var(--tint, var(--text));
@@ -8149,72 +8092,6 @@ body.vibing .ide {
 }
 
 /* Home's account button: the sidebar's top, level with the window's drag strip. */
-.home-profile {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 14px 12px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0 0 14px 14px; /* the divider curves up at its ends, with the sidebar's corners */
-  background: none;
-  color: var(--text);
-  text-align: left;
-  -webkit-app-region: no-drag;
-}
-
-.home-profile.open {
-  background: rgba(255, 255, 255, .08);
-}
-
-.home-profile:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: -2px;
-}
-
-.home-profile .avatar,
-.home-profile .hp-ico {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  margin: 0;
-  border: 0;
-  font-size: 13px;
-}
-
-.home-profile .hp-ico {
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, .12);
-}
-
-.hp-txt {
-  display: grid;
-  flex: 1;
-  min-width: 0;
-  gap: 1px;
-  line-height: 1.25;
-}
-
-.hp-txt > * {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hp-txt .nm {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.hp-txt .sub {
-  color: var(--text-2);
-  font-size: 12px;
-}
-
 .signin {
   display: contents;
 }
@@ -11585,38 +11462,169 @@ body.layout-animating #previewPane {
 }
 
 /* ================= Settings pop-up ================= */
+/* Sized from the window: about three quarters of its width and most of its height, up to 1360 × 905, and never
+   smaller than fits (it fills a small window, less a margin). The side tab and the padding scale along with it;
+   the text stays its size. */
 .modal.settings-shell {
-  width: min(1080px, calc(100vw - 32px));
-  height: min(780px, calc(100vh - 48px));
+  width: clamp(min(720px, calc(100vw - 32px)), 74vw, 1360px);
+  height: clamp(min(540px, calc(100vh - 32px)), 84vh, 905px);
   padding: 0;
   overflow: hidden;
 }
 
 .settings-modal {
   display: grid;
-  grid-template-columns: 224px 1fr;
+  grid-template-columns: clamp(196px, 15vw, 233px) 1fr;
   height: 100%;
   font-size: 14.5px;
 }
 
+/* The side tab: who you are, a search box, then the sections in groups split by thin lines. */
 .set-nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 18px 10px;
+  padding: 18px 12px 24px;
   border-right: 1px solid var(--glass-line);
   background: rgba(var(--ink), .02);
   overflow-y: auto;
 }
 
-.set-nav h3 {
-  padding: 0 10px 14px;
-  font-size: 26px;
-  font-weight: 500;
-  line-height: 1.15;
+.set-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 8px 16px;
 }
 
-.set-nav button,
+.set-profile .avatar {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  border: 0;
+  font-size: 15px;
+}
+
+.set-profile-txt {
+  display: grid;
+  min-width: 0;
+}
+
+.set-profile-txt b {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.set-profile-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+/* A long email is cut with "…" rather than widening the side tab. */
+.set-profile-mail {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.set-profile-edit:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.set-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  margin: 0 0 12px;
+  padding: 0 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 8px;
+  background: rgba(var(--ink), .04);
+  color: var(--text-3);
+  cursor: text;
+  transition: border-color .15s ease;
+}
+
+.set-search:focus-within {
+  border-color: var(--blue);
+}
+
+.set-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.set-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.set-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.set-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.set-group h6 {
+  margin: 4px 12px 6px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.set-sep {
+  width: calc(100% - 16px);
+  margin: 10px 8px;
+  border: 0;
+  border-top: 1px solid var(--glass-line);
+}
+
+.set-profile-edit:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.set-nav-empty {
+  margin: 8px 12px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* The pages get more room around them, and stop at a readable width on a wide window. */
+.set-pane {
+  max-width: 800px;
+  margin-inline: auto; /* centered in the space beside the side tab */
+}
+
+.set-nav .set-item,
 .home-nav button {
   position: relative;
   isolation: isolate;
@@ -11635,7 +11643,7 @@ body.layout-animating #previewPane {
 }
 
 /* The hover highlight grows in from the left instead of snapping on. */
-.set-nav button::before,
+.set-nav .set-item::before,
 .home-nav button::before,
 .box-side-row::before,
 .box-side-chat::before {
@@ -11651,12 +11659,12 @@ body.layout-animating #previewPane {
   transition: opacity .26s cubic-bezier(.16, 1, .3, 1), transform .34s cubic-bezier(.16, 1, .3, 1);
 }
 
-.set-nav button:hover,
+.set-nav .set-item:hover,
 .home-nav button:hover {
   color: var(--text);
 }
 
-.set-nav button:hover::before,
+.set-nav .set-item:hover::before,
 .home-nav button:hover::before,
 .box-side-row:hover::before,
 .box-side-chat:hover::before {
@@ -11664,18 +11672,18 @@ body.layout-animating #previewPane {
   transform: scaleX(1);
 }
 
-.set-nav button.on,
+.set-nav .set-item.on,
 .home-nav button[aria-current] {
   background: var(--blue-soft);
   color: var(--text);
 }
 
-.set-nav button.on::before,
+.set-nav .set-item.on::before,
 .home-nav button[aria-current]::before {
   opacity: 0;
 }
 
-.set-nav button svg,
+.set-nav .set-item svg,
 .home-nav button svg,
 .set-nav-img {
   flex: none;
@@ -11690,11 +11698,11 @@ body.layout-animating #previewPane {
   mask: url('../../assets/icons/discord.png') center / contain no-repeat;
 }
 
-.set-nav button.on :is(svg, .set-nav-img) {
+.set-nav .set-item.on :is(svg, .set-nav-img) {
   color: var(--blue-text);
 }
 
-.set-nav button.on svg,
+.set-nav .set-item.on svg,
 .home-nav button[aria-current] svg {
   transform: scale(1.05);
 }
@@ -11705,32 +11713,32 @@ body.layout-animating #previewPane {
 }
 
 /* Hovering the selected section still uses the full hover size, so its animation ends where it rests. */
-.set-nav button.on:hover svg,
+.set-nav .set-item.on:hover svg,
 .home-nav button[aria-current]:hover svg {
   transform: scale(1.14);
 }
 
 /* Each settings section's icon has its own hover motion, played while the icon is enlarged.
    The gear turns with a transition so it spins back when the pointer leaves; Help and Discord just grow. */
-.set-nav button[data-set-tab="general"] svg { transition: transform .45s cubic-bezier(.3, .7, .2, 1), color .22s ease; }
-.set-nav button[data-set-tab="general"]:hover svg { transform: rotate(180deg) scale(1.14); }
-.set-nav button[data-set-tab="agents"]:hover svg { animation: navPromptType .5s ease-out both; }
-.set-nav button[data-set-tab="vibe"]:hover svg { animation: navPhoneBuzz .5s ease-in-out both; }
-.set-nav button[data-set-tab="help"] svg,
-.set-nav button[data-set-tab="discord"] .set-nav-img { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), color .22s ease, opacity .22s ease; }
-.set-nav button[data-set-tab="help"]:hover svg,
-.set-nav button[data-set-tab="discord"]:hover .set-nav-img { transform: scale(1.22); }
+.set-nav .set-item[data-set-tab="general"] svg { transition: transform .45s cubic-bezier(.3, .7, .2, 1), color .22s ease; }
+.set-nav .set-item[data-set-tab="general"]:hover svg { transform: rotate(180deg) scale(1.14); }
+.set-nav .set-item[data-set-tab="agents"]:hover svg { animation: navPromptType .5s ease-out both; }
+.set-nav .set-item[data-set-tab="vibe"]:hover svg { animation: navPhoneBuzz .5s ease-in-out both; }
+.set-nav .set-item[data-set-tab="help"] svg,
+.set-nav .set-item[data-set-tab="discord"] .set-nav-img { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), color .22s ease, opacity .22s ease; }
+.set-nav .set-item[data-set-tab="help"]:hover svg,
+.set-nav .set-item[data-set-tab="discord"]:hover .set-nav-img { transform: scale(1.22); }
 /* Miscellaneous: its three dots hop one after another, left to right (the icon draws them middle, right, left). */
-.set-nav button[data-set-tab="appearance"]:hover svg { animation: navPaletteTilt .5s ease-out both; }
-.set-nav button[data-set-tab="appearance"]:hover svg circle { transform-box: fill-box; transform-origin: center; animation: navPaintPop .36s cubic-bezier(.34, 1.56, .64, 1) both; }
-.set-nav button[data-set-tab="appearance"]:hover svg circle:nth-of-type(2) { animation-delay: 70ms; }
-.set-nav button[data-set-tab="appearance"]:hover svg circle:nth-of-type(3) { animation-delay: 140ms; }
-.set-nav button[data-set-tab="appearance"]:hover svg circle:nth-of-type(4) { animation-delay: 210ms; }
-.set-nav button[data-set-tab="controls"]:hover svg { animation: navKeysGrow .5s ease-out both; }
-.set-nav button[data-set-tab="controls"]:hover svg path { animation: navKeysTap .5s ease-in-out both; }
-.set-nav button[data-set-tab="misc"]:hover svg circle { animation: navDotHop .42s ease-in-out both; }
-.set-nav button[data-set-tab="misc"]:hover svg circle:nth-child(1) { animation-delay: 80ms; }
-.set-nav button[data-set-tab="misc"]:hover svg circle:nth-child(2) { animation-delay: 160ms; }
+.set-nav .set-item[data-set-tab="appearance"]:hover svg { animation: navPaletteTilt .5s ease-out both; }
+.set-nav .set-item[data-set-tab="appearance"]:hover svg circle { transform-box: fill-box; transform-origin: center; animation: navPaintPop .36s cubic-bezier(.34, 1.56, .64, 1) both; }
+.set-nav .set-item[data-set-tab="appearance"]:hover svg circle:nth-of-type(2) { animation-delay: 70ms; }
+.set-nav .set-item[data-set-tab="appearance"]:hover svg circle:nth-of-type(3) { animation-delay: 140ms; }
+.set-nav .set-item[data-set-tab="appearance"]:hover svg circle:nth-of-type(4) { animation-delay: 210ms; }
+.set-nav .set-item[data-set-tab="controls"]:hover svg { animation: navKeysGrow .5s ease-out both; }
+.set-nav .set-item[data-set-tab="controls"]:hover svg path { animation: navKeysTap .5s ease-in-out both; }
+.set-nav .set-item[data-set-tab="misc"]:hover svg circle { animation: navDotHop .42s ease-in-out both; }
+.set-nav .set-item[data-set-tab="misc"]:hover svg circle:nth-child(1) { animation-delay: 80ms; }
+.set-nav .set-item[data-set-tab="misc"]:hover svg circle:nth-child(2) { animation-delay: 160ms; }
 
 @keyframes navPaletteTilt {
   0% { transform: rotate(0) scale(1); }
@@ -11777,14 +11785,14 @@ body.layout-animating #previewPane {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .set-nav button:hover svg,
-  .set-nav button:hover svg circle { animation: none !important; }
+  .set-nav .set-item:hover svg,
+  .set-nav .set-item:hover svg circle { animation: none !important; }
 }
 
 .set-main {
   position: relative;
   overflow-y: auto;
-  padding: 24px 28px;
+  padding: clamp(22px, 2.2vw, 35px) clamp(24px, 2.8vw, 49px) clamp(28px, 3vw, 49px);
 }
 
 /* The pane fades and blurs out at its top and bottom edges while there is more to scroll that way: the mask fades
@@ -12883,11 +12891,17 @@ body.layout-animating #previewPane {
     overflow-x: auto;
   }
 
-  .set-nav h3 {
+  /* Too narrow for the side tab: just the sections, in one scrolling row. */
+  .set-nav :is(.set-profile, .set-search, .set-group h6, .set-sep) {
     display: none;
   }
 
-  .set-nav button span {
+  .set-nav-list,
+  .set-group {
+    flex-direction: row;
+  }
+
+  .set-nav .set-item span {
     white-space: nowrap;
   }
 }
@@ -13722,7 +13736,9 @@ body.layout-animating #previewPane {
 }
 
 /* The wordmarks and the swirl are white images: drawn dark here, except over the onboarding sky. */
-:root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *) {
+/* Home is off the sky (its own title bar), so its wordmark goes dark too. */
+:root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *),
+:root[data-theme="light"] .home-bar .logo img {
   filter: invert(.88);
 }
 
@@ -13931,7 +13947,6 @@ body.layout-animating #previewPane {
 /* Onboarding and Home: each icon acts out what its button does, over and over while the pointer is on it. Each loop
    moves straight away (no still frame first) and then rests a beat before the next. .icon-live (onboarding.ts) stands
    in for :hover, so leaving can ease the icon home from wherever it is instead of snapping. */
-#onboard .recent-forget.icon-live svg { animation: icon-turn 1.6s cubic-bezier(.34, 1.56, .64, 1) infinite; }
 #onboard .recent-open.icon-live .recent-go svg { animation: icon-nudge 1.3s ease-in-out infinite; }
 #onboard .btn.icon-live svg { animation: icon-hop 1.3s ease-in-out infinite; }
 #homeProfile.icon-live svg { animation: icon-pulse 1.5s ease-in-out infinite; }

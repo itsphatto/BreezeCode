@@ -451,12 +451,3 @@ function walkToCol(text: string, at: number, end: number, first: number): { at: 
   return col < first ? { at: at + first - col, col: first } : { at, col };
 }
 
-// A cubic Bezier sampled at n + 1 evenly spaced t: keyframes along a curve (the setup screens' fly-ins).
-type CurvePoint = { x: number; y: number };
-function curveFrames(p0: CurvePoint, p1: CurvePoint, p2: CurvePoint, p3: CurvePoint, n: number): CurvePoint[] {
-  const at = (a: number, b: number, c: number, d: number, t: number) => {
-    const u = 1 - t;
-    return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
-  };
-  return Array.from({ length: n + 1 }, (_, i) => ({ x: at(p0.x, p1.x, p2.x, p3.x, i / n), y: at(p0.y, p1.y, p2.y, p3.y, i / n) }));
-}

@@ -707,6 +707,47 @@ handle('fs:forgetRecent', (_e, dir) => {
   saveState({ recent: (st.recent || []).filter(r => r !== dir), recentAt });
 });
 
+// Clones a Git repository (Home's Clone Repository): asks which folder to put it in, clones it into a new subfolder
+// named after the repository, and opens that. Only https, ssh and git@host:path addresses; nothing that git could
+// read as an option or a local or helper-run transport. A github.com clone carries the signed-in GitHub account's
+// token as an auth header (through the environment, so it isn't in the process list or saved in .git/config), so
+// private repositories work too.
+const CLONE_URL = /^(https?:\/\/[^\s]+|ssh:\/\/[^\s]+|[\w.-]+@[\w.-]+:[^\s]+)$/i;
+handle('fs:clone', async (_e, url) => {
+  url = typeof url === 'string' ? url.trim() : '';
+  if (!CLONE_URL.test(url) || url.startsWith('-')) throw new Error('That doesn\'t look like a repository address. Try https://github.com/owner/repo');
+  const name = (url.replace(/[/\\]+$/, '').split(/[/:]/).pop() || '').replace(/\.git$/i, '').replace(/[/\\:*?"<>|]/g, '-').replace(/^\.+$/, '') || 'repository';
+  const r = await dialog.showOpenDialog(win, {
+    title: `Where should ${name} go?`, buttonLabel: 'Clone here',
+    defaultPath: app.getPath('documents'), properties: ['openDirectory', 'createDirectory'],
+  });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const taken = async d => fs.existsSync(d) && (await fsp.readdir(d).catch(() => ['(a file)'])).length > 0;
+  let dir = path.join(r.filePaths[0], name);
+  let n = 2;
+  while (await taken(dir)) dir = path.join(r.filePaths[0], `${name} (${n++})`);
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+  if (/^https:\/\/github\.com\//i.test(url)) {
+    const { accounts, active } = accountsState();
+    const acct = accounts.find(a => accountId(a) === active && a.provider === 'GitHub') || accounts.find(a => a.provider === 'GitHub');
+    const token = acct && getSecret(`token:${accountId(acct)}`);
+    if (token) {
+      const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+      Object.assign(env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}` });
+    }
+  }
+  const bin = await gitBin();
+  await new Promise((res, rej) => {
+    execFile(bin, safeGitArgs(['clone', '--', url, dir]), { cwd: r.filePaths[0], windowsHide: true, timeout: 10 * 60 * 1000, env },
+      (err, _out, stderr) => {
+        if (!err) return res();
+        const msg = (stderr || err.message).trim().split('\n').filter(l => l && !l.startsWith('Cloning into')).pop() || err.message;
+        rej(new Error(msg.replace(/^fatal:\s*/, '')));
+      });
+  });
+  return setRoot(dir);
+});
+
 handle('fs:openRecent', async (_e, dir) => {
   if (!(loadState().recent || []).includes(dir)) throw new Error('Unknown folder');
   return setRoot(dir);
@@ -3032,6 +3073,44 @@ const MERGE_METHODS = ['merge', 'squash', 'rebase'];
 const PR_TTL = 30000;
 const prCache = new Map(); // `owner/repo/base` -> { at, data }
 // data.partial: null, or 'rate-limit' / 'reauth' when asking for each pull request's details stopped early.
+/* ----- GitHub contributions: the signed-in account's last year, for Home's graph ----- */
+// Only for the active account, and only when it is a GitHub one. Kept for ten minutes per account, so going back
+// and forth to Home doesn't ask GitHub each time.
+const CONTRIB_LEVELS = { NONE: 0, FIRST_QUARTILE: 1, SECOND_QUARTILE: 2, THIRD_QUARTILE: 3, FOURTH_QUARTILE: 4 };
+const contribCache = new Map(); // account id -> { at, data }
+handle('gh:contributions', async () => {
+  const { accounts, active } = accountsState();
+  const acct = accounts.find(a => accountId(a) === active);
+  if (acct?.provider !== 'GitHub') return { ok: false, error: 'not-github' };
+  const id = accountId(acct);
+  const hit = contribCache.get(id);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return { ok: true, data: hit.data };
+  const token = getSecret(`token:${id}`);
+  if (!token) return { ok: false, error: 'signed-out' };
+  const query = 'query { viewer { login contributionsCollection { contributionCalendar { totalContributions weeks { contributionDays { date contributionCount contributionLevel } } } } } }';
+  try {
+    const r = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'Breeze-IDE' },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) return { ok: false, error: r.status === 401 ? 'signed-out' : 'http', message: `GitHub answered ${r.status}` };
+    const j = await r.json();
+    const cal = j.data?.viewer?.contributionsCollection?.contributionCalendar;
+    if (!cal) return { ok: false, error: 'http', message: j.errors?.[0]?.message || 'No contribution data' };
+    const data = {
+      login: j.data.viewer.login,
+      total: cal.totalContributions,
+      weeks: cal.weeks.map(w => w.contributionDays.map(d => ({ date: d.date, count: d.contributionCount, level: CONTRIB_LEVELS[d.contributionLevel] ?? 0 }))),
+    };
+    contribCache.set(id, { at: Date.now(), data });
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, error: 'network', message: e.message };
+  }
+});
+
 handle('gh:prs', async (_e, base, force) => {
   if (typeof base !== 'string' || !base) return GH_INVALID;
   return ghCall(async ({ client, owner, repo }) => {

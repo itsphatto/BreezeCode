@@ -201,6 +201,7 @@
   <div class="onboard" id="onboard">
     <div class="drag-strip"></div>
     <div class="ob-sky" aria-hidden="true"></div>
+    <div class="ob-bloom" aria-hidden="true"></div>
     <canvas class="home-fireworks hidden" id="homeFireworks" aria-hidden="true"></canvas>
     <!-- Welcome -->
     <section class="ob-step ob-await" data-step="0">
@@ -228,15 +229,14 @@
       <img class="ob-icon" width="56" height="56" alt="">
       <div class="ob-form">
         <h2 id="accountHeading" tabindex="-1">Create an account</h2>
+        <p class="ob-sub" id="obSkipLine">or <button class="ob-link" id="signinSkip" type="button">continue without one</button></p>
         <div class="signin" id="obSignin">
           <div class="signin-btns" data-si="choices">
             <button class="btn" data-signin="GitHub"><svg width="18" height="18">
                 <use href="#i-gh" />
-              </svg>Connect to GitHub</button>
-            <button class="btn" data-signin="Google"><img src="../../assets/icons/google.png" width="18" height="18" alt="">Connect
-              to Google</button>
+              </svg>Continue with GitHub</button>
+            <button class="btn" data-signin="Google"><img src="../../assets/icons/google.png" width="18" height="18" alt="">Continue with Google</button>
             <p class="signin-error hidden" data-si="error" role="alert"></p>
-            <button class="btn btn-ghost btn-sm" id="signinSkip">Use with no account</button>
           </div>
           <div class="waiting hidden" data-si="wait">
             <div class="spinner"></div>
@@ -251,10 +251,14 @@
         </div>
         <div class="ob-connected hidden" id="obConnected"></div>
         <label class="ob-terms">
-          <input type="checkbox" id="obTerms">
+          <input type="checkbox" id="obTerms" class="ob-cbx">
+          <span class="check" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18">
+              <path d="M 1 9 L 1 9 c 0 -5 3 -8 8 -8 L 9 1 C 14 1 17 5 17 9 L 17 9 c 0 4 -4 8 -8 8 L 9 17 C 5 17 1 14 1 9 L 1 9 Z"></path>
+              <polyline points="1 9 7 14 15 4"></polyline>
+            </svg></span>
           <span>I have read the <a href="https://breezecode.itsphatto.site/terms.html">Terms of Service</a> and <a href="https://breezecode.itsphatto.site/privacy.html">Privacy Policy</a></span>
         </label>
-        <button class="btn btn-primary btn-lg w-full" id="obAccountNext" disabled>Continue<svg data-i="arrowRight" data-size="16"></svg></button>
+        <button class="btn btn-primary" id="obAccountNext" disabled>Continue<svg data-i="arrowRight" data-size="16"></svg></button>
       </div>
     </section>
 
@@ -292,75 +296,65 @@
 
     <!-- 4 · Home: where every launch lands, and the last step of first-run setup -->
     <section class="ob-step home-step hidden" data-step="4" aria-labelledby="homeTitle">
-      <aside class="home-side">
-        <button class="home-profile" id="homeProfile" aria-haspopup="menu" aria-label="Account"></button>
-        <nav class="home-nav" aria-label="Home">
-          <button data-home-view="session" aria-current="page"><svg data-i="folder" data-size="16"></svg>Session</button>
-          <button data-home-view="agent"><svg data-i="sparkles" data-size="16"></svg>Agent</button>
-          <button data-home-view="tools"><svg data-i="puzzle" data-size="16"></svg>Tools</button>
+      <!-- Laid out like the IDE (title bar, a rail of views, one panel), without its menus, layout buttons or status bar. -->
+      <header class="titlebar home-bar">
+        <span class="logo"><img src="../../assets/brand/BreezeCode.png" alt="Breeze Code"></span>
+        <span class="spacer"></span>
+        <span class="project">Breeze Code</span>
+        <span class="spacer"></span>
+        <button class="btn btn-sm space-btn" id="homeSpace">Breeze Space</button>
+        <button class="avatars" id="homeProfile" aria-haspopup="menu" aria-label="Account"></button>
+      </header>
+      <div class="home-shell">
+        <nav class="activity home-rail" aria-label="Home">
+          <button class="act-btn on" data-home-view="session" aria-current="page" title="Home" aria-label="Home"><svg data-i="home" data-size="20"></svg></button>
+          <button class="act-btn" data-home-view="agent" title="Agent" aria-label="Agent"><svg data-i="sparkles" data-size="20"></svg></button>
         </nav>
-      </aside>
-      <div class="home-main">
-        <div class="home-body">
-          <div class="home-top">
-            <header class="home-head">
-              <h2 id="homeTitle" tabindex="-1"><span id="homeGreet">Welcome Back</span> <span id="homeName"></span></h2>
-              <p class="lead" id="homeLead">Pick up where you left off, or start something new.</p>
-            </header>
-            <button class="btn space-btn" id="homeSpace">Breeze Space</button>
-          </div>
-          <!-- One way in leads (Continue, the only blue on the screen); the ways to start a project sit beside it. -->
-          <div class="home-view home-grid" data-view="session">
-            <section class="home-start" aria-label="Start a project">
-              <button class="start-tile" id="pickFolder" aria-keyshortcuts="Control+O">
-                <span class="start-ico"><svg data-i="folder" data-size="24"></svg></span>
-                <span class="start-txt"><span class="nm">Open folder</span></span>
-                <kbd>Ctrl+O</kbd>
-              </button>
-              <button class="start-tile" id="createFolder" aria-keyshortcuts="Control+Shift+N">
-                <span class="start-ico"><svg data-i="folderPlus" data-size="24"></svg></span>
-                <span class="start-txt"><span class="nm">Create new folder</span></span>
-                <kbd>Ctrl+Shift+N</kbd>
-              </button>
-              <button class="start-tile" id="pickFile" aria-keyshortcuts="Control+K">
-                <span class="start-ico"><svg data-i="file" data-size="24"></svg></span>
-                <span class="start-txt"><span class="nm">Open file</span></span>
-                <kbd>Ctrl+K</kbd>
-              </button>
-              <button class="start-tile" id="createFile" aria-keyshortcuts="Control+N">
-                <span class="start-ico"><svg data-i="filePlus" data-size="24"></svg></span>
-                <span class="start-txt"><span class="nm">Create file</span></span>
-                <kbd>Ctrl+N</kbd>
-              </button>
-            </section>
-            <section class="setup-card home-recent" aria-labelledby="homeRecentTitle">
-              <header>
-                <h3 id="homeRecentTitle">Recent projects</h3><span class="pill" id="homeRecentCount"></span>
+        <main class="home-main">
+          <div class="home-view" data-view="session">
+            <div class="home-welcome">
+              <!-- Clone Repository: the address is typed here, over the greeting (openCloneBar, setup.ts). -->
+              <form class="home-clone hidden" id="homeClone" autocomplete="off">
+                <div class="clone-field">
+                  <svg data-i="gitBranch" data-size="16"></svg>
+                  <input id="homeCloneUrl" type="text" spellcheck="false" aria-label="Repository URL" placeholder="Repository URL, like https://github.com/owner/repo">
+                </div>
+                <p class="clone-hint" id="homeCloneHint" aria-live="polite">Press Enter to pick a folder and clone, or Esc to cancel.</p>
+              </form>
+              <header class="home-head">
+                <h2 id="homeTitle" tabindex="-1"><span id="homeGreet">Welcome Back</span> <span id="homeName"></span></h2>
+                <p class="lead" id="homeLead">Pick up where you left off, or start something new.</p>
               </header>
-              <div class="recent-list" id="homeRecent" role="list"></div>
-            </section>
+              <div class="home-cols">
+                <section class="home-start" aria-labelledby="homeStartTitle">
+                  <h3 id="homeStartTitle">Start</h3>
+                  <button class="home-link" id="createFile" aria-keyshortcuts="Control+N" title="Ctrl+N"><svg data-i="filePlus" data-size="16"></svg>New File</button>
+                  <button class="home-link" id="pickFile" aria-keyshortcuts="Control+K" title="Ctrl+K"><svg data-i="file" data-size="16"></svg>Open File</button>
+                  <button class="home-link" id="pickFolder" aria-keyshortcuts="Control+O" title="Ctrl+O"><svg data-i="folder" data-size="16"></svg>Open Folder</button>
+                  <button class="home-link" id="createFolder" aria-keyshortcuts="Control+Shift+N" title="Ctrl+Shift+N"><svg data-i="folderPlus" data-size="16"></svg>Create Folder</button>
+                  <button class="home-link" id="cloneRepo" aria-controls="homeClone"><svg data-i="gitBranch" data-size="16"></svg>Clone Repository</button>
+                </section>
+                <section class="home-recent" aria-labelledby="homeRecentTitle">
+                  <h3 id="homeRecentTitle">Recent</h3>
+                  <div class="recent-list" id="homeRecent" role="list"></div>
+                </section>
+              </div>
+              <!-- Signed in with GitHub: that account's last year of contributions (renderHomeContrib, onboarding.ts). -->
+              <section class="home-contrib hidden" id="homeContrib" aria-labelledby="homeContribTitle">
+                <h3 id="homeContribTitle"></h3>
+                <div class="contrib-box">
+                  <div class="contrib-scroll"><div class="contrib-graph" id="homeContribGraph" role="img"></div></div>
+                  <div class="contrib-foot">
+                    <button class="home-link contrib-open" id="homeContribOpen" type="button">View on GitHub</button>
+                    <span class="contrib-legend" aria-hidden="true">Less<i data-l="0"></i><i data-l="1"></i><i data-l="2"></i><i data-l="3"></i><i data-l="4"></i>More</span>
+                  </div>
+                </div>
+              </section>
+            </div>
           </div>
-          <!-- Your agents: every agent Breeze knows, found ones first. Picking one makes it the default; a missing one
-               offers its download page. -->
-          <div class="home-view hidden" data-view="agent">
-            <section class="setup-card home-agent" aria-labelledby="homeAgentTitle">
-              <header>
-                <h3 id="homeAgentTitle">Your agents</h3>
-                <p class="muted" id="homeAgentNote">New chats and plans go to the one you pick.</p>
-              </header>
-              <div class="agent-rows" id="homeAgents" role="radiogroup" aria-labelledby="homeAgentTitle"></div>
-            </section>
-          </div>
-          <div class="home-view hidden" data-view="tools">
-            <section class="setup-card home-tools" aria-labelledby="homeToolsTitle">
-              <header>
-                <h3 id="homeToolsTitle">Your tools</h3>
-                <p class="muted">What Breeze found on this computer to run your code.</p>
-              </header>
-              <div class="tool-rows" id="homeTools" role="list"></div>
-            </section>
-          </div>
-        </div>
+          <!-- Agent: nothing here yet. -->
+          <div class="home-view hidden" data-view="agent"></div>
+        </main>
       </div>
     </section>
 
