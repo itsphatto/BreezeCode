@@ -1822,9 +1822,17 @@ handle('agent:run', (_e, opts) => launchRun({ ...opts, team: null }));
 const usageMonth = () => new Date().toISOString().slice(0, 7);
 function addUsage(agent, tokens) {
   if (!agent) return;
-  const all = loadState().usage || {};
+  const s = loadState(), all = s.usage || {};
   const cur = all[agent]?.month === usageMonth() ? all[agent] : { month: usageMonth(), tokens: 0 };
-  saveState({ usage: { ...all, [agent]: { month: cur.month, tokens: cur.tokens + tokens } } });
+  // Each day's total too (the last 30 kept), for Home's Agent graph; agents that keep no logs of their own have only this.
+  const today = new Date().toISOString().slice(0, 10), cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const days = Object.fromEntries(Object.entries({ ...(s.usageDays?.[agent] || {}) }).filter(([d]) => d >= cutoff));
+  days[today] = (days[today] || 0) + tokens;
+  saveState({
+    usage: { ...all, [agent]: { month: cur.month, tokens: cur.tokens + tokens } },
+    usageDays: { ...(s.usageDays || {}), [agent]: days },
+    usageLast: { ...(s.usageLast || {}), [agent]: Date.now() },
+  });
 }
 const windowLabel = min => ({ 300: '5-hour', 10080: 'Weekly', 43200: 'Monthly' })[min] || `${Math.round(min / 60)}-hour`;
 // A window whose reset time has passed is empty again until the agent next reports.
@@ -1971,6 +1979,118 @@ async function agentUsage() {
   return { usage, limits: { claude: (await claudeLiveLimits()) ?? claudeLimits(), codex: codexLimits() }, notes: { claude: claudeLive.why } };
 }
 handle('agent:usage', () => (usageJob ??= agentUsage().finally(() => { usageJob = null; })));
+
+/* ----- Agent history: the last 14 days, a day at a time, for Home's Agent tab ----- */
+// Per agent: each day's tokens by kind (input, output, cache writes, cache reads; "other" where the kind isn't known),
+// how many tools it called and when it was last used. Claude and Codex from their own logs (any run, in Breeze or
+// not); other agents from Breeze's own runs (addUsage), which only know a total.
+const HISTORY_DAYS = 14;
+const histCache = new Map(); // file -> { key, data }
+const dayOf = ts => (typeof ts === 'string' ? ts.slice(0, 10) : null);
+async function readHistLog(file, parse) {
+  const st = await fs.promises.stat(file).catch(() => null);
+  if (!st) return null;
+  const key = `${st.mtimeMs}:${st.size}`;
+  if (histCache.get(file)?.key === key) return histCache.get(file).data;
+  const data = parse((await fs.promises.readFile(file, 'utf8')).split('\n'));
+  histCache.set(file, { key, data });
+  return data;
+}
+const emptyDay = () => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, other: 0 });
+function addDay(days, date, part) {
+  const d = days[date] ??= emptyDay();
+  for (const k of Object.keys(part)) d[k] += part[k] || 0;
+}
+// Each message id once (Claude repeats a message's usage on several lines, and a resumed chat copies earlier ones).
+async function claudeHistory(since) {
+  const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+  const byMsg = new Map();
+  for (const file of await recentLogs(base, 3, since)) {
+    const msgs = await readHistLog(file, lines => {
+      const m = new Map();
+      for (const line of lines) {
+        if (!line.includes('"usage"')) continue;
+        try {
+          const d = JSON.parse(line), u = d.message?.usage;
+          if (!u || !d.message.id || !d.timestamp) continue;
+          const tools = Array.isArray(d.message.content) ? d.message.content.filter(c => c?.type === 'tool_use').length : 0;
+          const prev = m.get(d.message.id);
+          m.set(d.message.id, {
+            at: d.timestamp, tools: Math.max(tools, prev?.tools || 0),
+            part: { input: u.input_tokens || 0, output: u.output_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0, cacheRead: u.cache_read_input_tokens || 0 },
+          });
+        } catch { /* a line still being written */ }
+      }
+      return m;
+    });
+    for (const [id, v] of msgs ?? []) byMsg.set(id, v);
+  }
+  const days = {}, from = new Date(since).toISOString().slice(0, 10);
+  let tools = 0, last = 0;
+  for (const v of byMsg.values()) {
+    const day = dayOf(v.at);
+    if (!day || day < from) continue;
+    addDay(days, day, v.part);
+    tools += v.tools;
+    last = Math.max(last, Date.parse(v.at) || 0);
+  }
+  return { days, tools, last };
+}
+// A Codex session logs a running total; each step's growth goes to the day it was logged on.
+async function codexHistory(since) {
+  const base = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
+  const days = {}, from = new Date(since).toISOString().slice(0, 10);
+  let tools = 0, last = 0;
+  for (const file of await recentLogs(base, 4, since)) {
+    const r = await readHistLog(file, lines => {
+      const steps = [];
+      let prev = null, calls = [];
+      for (const line of lines) {
+        try {
+          if (line.includes('"function_call"') || line.includes('"custom_tool_call"')) {
+            const d = JSON.parse(line);
+            if (/^(function_call|custom_tool_call)$/.test(d.payload?.type || '')) calls.push(d.timestamp);
+            continue;
+          }
+          if (!line.includes('"token_count"')) continue;
+          const d = JSON.parse(line), t = d.payload?.info?.total_token_usage;
+          if (typeof t?.total_tokens !== 'number') continue;
+          const cur = { input: t.input_tokens || 0, cached: t.cached_input_tokens || 0, output: (t.output_tokens || 0) + (t.reasoning_output_tokens || 0) };
+          if (prev) steps.push({ at: d.timestamp, input: Math.max(0, cur.input - cur.cached - (prev.input - prev.cached)), cacheRead: Math.max(0, cur.cached - prev.cached), output: Math.max(0, cur.output - prev.output) });
+          else steps.push({ at: d.timestamp, input: cur.input - cur.cached, cacheRead: cur.cached, output: cur.output });
+          prev = cur;
+        } catch { /* a line still being written */ }
+      }
+      return { steps, calls };
+    });
+    for (const s of r?.steps ?? []) {
+      const day = dayOf(s.at);
+      if (!day || day < from) continue;
+      addDay(days, day, { input: s.input, output: s.output, cacheRead: s.cacheRead });
+      last = Math.max(last, Date.parse(s.at) || 0);
+    }
+    tools += (r?.calls ?? []).filter(t => (dayOf(t) || '') >= from).length;
+  }
+  return { days, tools, last };
+}
+async function agentHistory() {
+  const since = Date.now() - (HISTORY_DAYS - 1) * 86_400_000;
+  const from = new Date(since).toISOString().slice(0, 10);
+  const s = loadState();
+  const out = {};
+  for (const [id, byDay] of Object.entries(s.usageDays || {})) {
+    const days = {};
+    for (const [d, n] of Object.entries(byDay)) if (d >= from) addDay(days, d, { other: n });
+    out[id] = { days, tools: 0, last: s.usageLast?.[id] || 0 };
+  }
+  // The logs cover Breeze's own runs of Claude and Codex too, so theirs replace Breeze's count.
+  const [claude, codex] = await Promise.all([claudeHistory(since).catch(() => null), codexHistory(since).catch(() => null)]);
+  if (claude) out.claude = claude;
+  if (codex) out.codex = codex;
+  return { from, days: HISTORY_DAYS, agents: out };
+}
+let historyJob = null;
+handle('agent:history', () => (historyJob ??= agentHistory().finally(() => { historyJob = null; })));
 handle('agent:stop', (_e, runId) => stopRun(runId));
 
 /* ----- Agent teams: one prompt split between several agents, each owning its own files ----- */

@@ -331,6 +331,8 @@ function renderDetection(): void {
   const summary = d.tools.filter(t => t.found || !t.optional).map(t => `${t.name.replace('.js', '').replace('C/C++', 'C')} ${t.found ? 'ready' : 'missing'}`).join(' · ');
   $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;
   renderAgentBar();
+  // Home's Agent tab, if it's showing, picks up agents the scan just found.
+  if (!$('.home-view[data-view="agent"]').classList.contains('hidden')) renderAgentDash();
 }
 $('#rescan').onclick = () => { detectTools(true).catch(() => { /* the agent card shows the error */ }); };
 
@@ -668,7 +670,183 @@ function showHomeView(view: string): void {
   });
   $$('.home-view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== view));
   $('.home-main').scrollTop = 0;
+  if (view === 'agent') loadAgentDash();
 }
+
+/* ----- Home → Agent: one agent's token use, and the other agents ----- */
+// The tabs pick the agent shown (the default first); the table lists the agents that aren't the default, and a row
+// shows that agent above. Numbers: this month's tokens (agent:usage) and the last 14 days by kind (agent:history).
+let dashAgent: string | null = null;
+let dashUsage: AgentUsage | null = null;
+let dashHistory: AgentHistory | null = null;
+let dashSeq = 0;
+const DASH_KINDS: [keyof TokenDay, string][] = [['input', 'Input'], ['cacheWrite', 'Cache write'], ['cacheRead', 'Cache read'], ['output', 'Output'], ['other', 'Tokens']];
+const compact = (n: number) => tokenCount.format(Math.round(n));
+const dayTotal = (d?: TokenDay) => (d ? d.input + d.output + d.cacheWrite + d.cacheRead + d.other : 0);
+// Every installed agent, the default first; an agent that isn't installed but has history still shows.
+function dashAgents(): DetectedAgent[] {
+  const all = appState.detect?.agents ?? [];
+  const used = new Set(Object.keys(dashHistory?.agents ?? {}));
+  const list = all.filter(a => a.found || used.has(a.id)).sort((a, b) => agentRank(a) - agentRank(b));
+  const def = list.findIndex(a => a.id === appState.agent);
+  if (def > 0) list.unshift(...list.splice(def, 1));
+  return list;
+}
+function loadAgentDash(): void {
+  renderAgentDash();
+  const seq = ++dashSeq;
+  background(Promise.all([api.agent.usage(), api.agent.history()]).then(([u, h]) => {
+    if (seq !== dashSeq) return;
+    dashUsage = u;
+    dashHistory = h;
+    renderAgentDash();
+  }));
+}
+function renderAgentDash(): void {
+  const agents = dashAgents();
+  if (!dashAgent || !agents.some(a => a.id === dashAgent)) dashAgent = agents[0]?.id ?? null;
+  const cur = agents.find(a => a.id === dashAgent) ?? null;
+  // Tabs: one per agent.
+  $('#adTabs').innerHTML = agents.length
+    ? agents.map(a => `<button class="ad-tab${a.id === dashAgent ? ' on' : ''}" role="tab" aria-selected="${a.id === dashAgent}" data-dash-agent="${escAttr(a.id)}">${brandMark('ad-mark', a.id, a.name[0])}<span>${esc(a.name)}</span>${a.id === appState.agent ? '<small>Default</small>' : ''}</button>`).join('')
+    : '<p class="ad-empty">No agents on this computer yet. Install one in Settings → Agents.</p>';
+  renderDashUsage(cur);
+  renderDashChart(cur);
+  renderDashTable(agents);
+}
+// The usage card: this month's tokens, how the last week compares with the week before, and a few facts.
+function renderDashUsage(a: DetectedAgent | null): void {
+  const h = a && dashHistory?.agents[a.id];
+  const month = a ? dashUsage?.usage[a.id] ?? 0 : 0;
+  $('#adBig').textContent = !a ? '—' : dashUsage ? compact(month) : '…';
+  const days = dashDays();
+  const sum = (from: number, to: number) => days.slice(from, to).reduce((n, d) => n + dayTotal(h?.days[d]), 0);
+  const last = sum(days.length - 7, days.length), prev = sum(days.length - 14, days.length - 7);
+  const trend = $('#adTrend');
+  if (h && prev > 0) {
+    const pct = Math.round((last - prev) / prev * 100);
+    trend.textContent = pct === 0 ? 'Same as the week before' : `${pct > 0 ? 'Up' : 'Down'} ${Math.abs(pct)}% from the week before`;
+    trend.dataset.dir = pct >= 0 ? 'up' : 'down';
+  } else { trend.textContent = h && last ? `${compact(last)} in the last 7 days` : ''; delete trend.dataset.dir; }
+  const facts: [string, string][] = [];
+  if (h) {
+    if (h.tools) facts.push(['Tool calls', h.tools.toLocaleString()]);
+    if (h.last) facts.push(['Last used', timeAgo(h.last)]);
+  }
+  const lim = a ? dashUsage?.limits[a.id]?.[0] : null;
+  if (lim) facts.push([`${lim.label} limit`, `${Math.round(100 - lim.used)}% left`]);
+  $('#adFacts').innerHTML = facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+}
+// The history's days, oldest first.
+function dashDays(): string[] {
+  const n = dashHistory?.days ?? 14, from = dashHistory ? Date.parse(`${dashHistory.from}T00:00:00Z`) : Date.now() - 13 * 86_400_000;
+  return Array.from({ length: n }, (_, i) => new Date(from + i * 86_400_000).toISOString().slice(0, 10));
+}
+const dashDayLabel = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+// A bar a day, stacked by kind of token; hovering one shows its numbers.
+function renderDashChart(a: DetectedAgent | null): void {
+  const h = a && dashHistory?.agents[a.id];
+  const days = dashDays();
+  const totals = days.map(d => dayTotal(h?.days[d]));
+  const max = Math.max(...totals, 0);
+  // A round top for the scale, so its labels read cleanly.
+  const step = max ? 10 ** Math.floor(Math.log10(max)) : 1;
+  const top = max ? Math.ceil(max / step) * step : 1;
+  const all = totals.reduce((x, y) => x + y, 0);
+  $('#adChartTotal').textContent = h ? `${compact(all)} over ${days.length} days` : '';
+  $('#adY').innerHTML = [top, top / 2, 0].map(v => `<span>${max ? compact(v) : ''}</span>`).join('');
+  const bars = $('#adBars');
+  bars.setAttribute('aria-label', a ? `${a.name}: ${compact(all)} tokens over the last ${days.length} days` : 'No agent');
+  bars.textContent = '';
+  days.forEach((d, i) => {
+    const col = document.createElement('div');
+    col.className = 'ad-bar';
+    col.dataset.day = d;
+    const day = h?.days[d];
+    for (const [k] of DASH_KINDS) {
+      const v = day?.[k] ?? 0;
+      if (!v) continue;
+      const seg = document.createElement('i');
+      seg.dataset.k = k;
+      seg.style.height = `${v / top * 100}%`; // set from script: the page's CSP blocks inline style attributes
+      col.append(seg);
+    }
+    if (!totals[i]) col.classList.add('empty');
+    bars.append(col);
+  });
+  // Every other day named under the bars (each one when there's room), the last always.
+  $('#adX').innerHTML = days.map((d, i) => `<span>${i % 2 === (days.length - 1) % 2 ? esc(dashDayLabel(d)) : ''}</span>`).join('');
+  // The legend shows only kinds this agent has, with their totals; an agent whose tokens aren't split by kind has
+  // just the total (a "Tokens" entry would only repeat it).
+  let sums = DASH_KINDS.map(([k, label]) => [k, label, days.reduce((n, d) => n + (h?.days[d]?.[k] ?? 0), 0)] as const).filter(([, , n]) => n > 0);
+  if (sums.length === 1 && sums[0][0] === 'other') sums = [];
+  $('#adLegend').innerHTML = h && all
+    ? `<span class="ad-leg-total">Total <b>${compact(all)}</b></span>${sums.map(([k, label, n]) => `<span><i data-k="${k}"></i>${esc(label)} <b>${compact(n)}</b></span>`).join('')}`
+    : `<span class="ad-leg-none">${a ? `${esc(a.name)} hasn't used any tokens in the last ${days.length} days.` : ''}</span>`;
+}
+function showDashTip(bar: HTMLElement): void {
+  const h = dashAgent ? dashHistory?.agents[dashAgent] : null;
+  const d = bar.dataset.day ?? '';
+  const day = h?.days[d];
+  const tip = $('#adTip');
+  const rows = DASH_KINDS.filter(([k]) => (day?.[k] ?? 0) > 0).map(([k, label]) => `<div><i data-k="${k}"></i>${esc(label)}<b>${compact(day![k])}</b></div>`).join('');
+  tip.innerHTML = `<div class="ad-tip-day">${esc(dashDayLabel(d))}</div>${rows || '<div class="ad-tip-none">No tokens</div>'}`;
+  tip.classList.remove('hidden');
+  const card = $('.ad-chart'), cr = card.getBoundingClientRect(), br = bar.getBoundingClientRect();
+  const left = Math.min(br.right - cr.left + 8, cr.width - tip.offsetWidth - 8);
+  tip.style.left = `${left < br.left - cr.left ? br.left - cr.left - tip.offsetWidth - 8 : left}px`;
+  tip.style.top = `${Math.max(8, br.top - cr.top)}px`;
+}
+// The other agents: everything but the default. Picking a row shows that agent above.
+function renderDashTable(agents: DetectedAgent[]): void {
+  const others = agents.filter(a => a.id !== appState.agent);
+  const days = dashDays();
+  const head = '<div class="ad-tr ad-th" role="row"><span role="columnheader">Agent</span><span role="columnheader">Status</span><span role="columnheader">Tool calls</span><span role="columnheader">Tokens</span><span role="columnheader">Last used</span><span role="columnheader"></span></div>';
+  const rows = others.map(a => {
+    const h = dashHistory?.agents[a.id];
+    const tokens = dashUsage?.usage[a.id] ?? 0;
+    const spark = h ? days.slice(-7).map(d => dayTotal(h.days[d])) : [];
+    const sparkMax = Math.max(...spark, 1);
+    const sparkHtml = spark.length ? `<span class="ad-spark" aria-hidden="true">${spark.map(v => `<i data-h="${Math.round(v / sparkMax * 100)}"></i>`).join('')}</span>` : '';
+    return `<div class="ad-tr${a.id === dashAgent ? ' on' : ''}" role="row" tabindex="0" data-dash-agent="${escAttr(a.id)}">
+      <span role="cell" class="ad-name">${brandMark('ad-mark', a.id, a.name[0])}${esc(a.name)}</span>
+      <span role="cell"><span class="ad-status" data-s="${a.found ? 'ready' : 'missing'}">${a.found ? 'Ready' : 'Not installed'}</span></span>
+      <span role="cell">${sparkHtml}${h?.tools ? h.tools.toLocaleString() : '—'}</span>
+      <span role="cell">${dashUsage ? compact(tokens) : '…'}</span>
+      <span role="cell">${h?.last ? esc(timeAgo(h.last)) : '—'}</span>
+      <span role="cell">${a.found ? `<button class="btn btn-sm" data-dash-default="${escAttr(a.id)}">Make default</button>` : ''}</span>
+    </div>`;
+  }).join('');
+  const el = $('#adTable');
+  el.innerHTML = others.length ? head + rows : '<p class="ad-empty">No other agents yet. Install more in Settings → Agents.</p>';
+  $$<HTMLElement>('.ad-spark i', el).forEach(i => i.style.height = `${Math.max(8, Number(i.dataset.h))}%`);
+  $('.ad-table-wrap').classList.toggle('hidden', !agents.length);
+}
+function pickDashAgent(id: string): void {
+  if (!id || id === dashAgent) return;
+  dashAgent = id;
+  renderAgentDash();
+}
+$('#adTabs').addEventListener('click', e => pickDashAgent((e.target as HTMLElement).closest<HTMLElement>('[data-dash-agent]')?.dataset.dashAgent ?? ''));
+$('#adTable').addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  const def = t.closest<HTMLElement>('[data-dash-default]');
+  if (def) {
+    const ag = appState.detect?.agents.find(a => a.id === def.dataset.dashDefault && a.found);
+    if (ag) { makeDefaultAgent(ag); dashAgent = ag.id; renderAgentDash(); toast(`${ag.name} is now the default agent`); }
+    return;
+  }
+  pickDashAgent(t.closest<HTMLElement>('[data-dash-agent]')?.dataset.dashAgent ?? '');
+});
+$('#adTable').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const row = (e.target as HTMLElement).closest<HTMLElement>('.ad-tr[data-dash-agent]');
+  if (!row || e.target !== row) return;
+  e.preventDefault();
+  pickDashAgent(row.dataset.dashAgent ?? '');
+});
+$('#adBars').addEventListener('pointerover', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('.ad-bar'); if (b) showDashTip(b); });
+$('#adBars').addEventListener('pointerleave', () => $('#adTip').classList.add('hidden'));
 $$<HTMLElement>('.home-rail [data-home-view]').forEach(b => b.onclick = () => showHomeView(b.dataset.homeView ?? 'session'));
 $('#homeSpace').onclick = () => enterMode('box');
 function renderHome(): void {

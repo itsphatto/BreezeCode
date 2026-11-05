@@ -100,6 +100,9 @@ interface DetectedAgent { id: string; name: string; vendor: string; url: string;
 // Tokens each agent used this month (counted by Breeze), and the plan windows the agent itself reports (percent used).
 interface LimitWindow { label: string; used: number; resetsAt: number | null; }
 interface AgentUsage { usage: Record<string, number>; limits: Record<string, LimitWindow[]>; notes: Record<string, string | null>; }
+// The last days of each agent's tokens by kind ("other" when the kind isn't known), its tool calls and last use (ms).
+interface TokenDay { input: number; output: number; cacheWrite: number; cacheRead: number; other: number; }
+interface AgentHistory { from: string; days: number; agents: Record<string, { days: Record<string, TokenDay>; tools: number; last: number }>; }
 interface Accounts { accounts: User[]; active: string | null; }
 // Workspace sync (main.js + sync.js). A failure comes back as { error, code } instead of throwing.
 interface SyncFail { error: string; code: string | null; }
@@ -243,6 +246,7 @@ interface BreezeApi {
     fullAccess(): Promise<boolean>;
     setFullAccess(on: boolean): Promise<boolean>;
     usage(): Promise<AgentUsage>;
+    history(): Promise<AgentHistory>;
     // One question to the user's agent, read-only; its reply as it came (no commit-message clean-up).
     ask(opts: { agent: string; prompt: string; model?: string; effort?: string }): Promise<string>;
     onEvent(cb: (runId: number, ev: AgentEvent) => void): () => void;

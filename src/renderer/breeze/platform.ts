@@ -400,6 +400,32 @@ function demoApi(): BreezeApi {
           notes: {},
         };
       },
+      // Browser preview: two weeks of made-up use, so Home's Agent tab can be seen without the desktop app.
+      async history() {
+        const days = 14, start = Date.now() - (days - 1) * 86_400_000;
+        let seed = 11;
+        const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+        const make = (scale: number, kinds: boolean) => {
+          const out: Record<string, TokenDay> = {};
+          for (let i = 0; i < days; i++) {
+            const day = new Date(start + i * 86_400_000).toISOString().slice(0, 10);
+            const busy = rand() < .75 ? rand() * scale : 0;
+            out[day] = kinds
+              ? { input: busy * .18, output: busy * .12, cacheWrite: busy * .2, cacheRead: busy * .5, other: 0 }
+              : { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, other: busy };
+          }
+          return out;
+        };
+        const ago = (h: number) => Date.now() - h * 3_600_000;
+        return {
+          from: new Date(start).toISOString().slice(0, 10), days,
+          agents: {
+            claude: { days: make(900_000, true), tools: 412, last: ago(.1) },
+            codex: { days: make(300_000, true), tools: 96, last: ago(5) },
+            ollama: { days: make(40_000, false), tools: 0, last: ago(50) },
+          },
+        };
+      },
       onEvent(cb) { agentListeners.push(cb); return () => { }; },
     },
     // MCP servers kept in the browser, so the preview can connect and remove them (nothing is started).

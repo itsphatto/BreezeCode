@@ -352,8 +352,35 @@
               </section>
             </div>
           </div>
-          <!-- Agent: nothing here yet. -->
-          <div class="home-view hidden" data-view="agent"></div>
+          <!-- Agent: one agent's token use (picked in the tabs or the table), and the other agents below (agentdash, setup.ts). -->
+          <div class="home-view hidden" data-view="agent">
+            <div class="agent-dash">
+              <div class="ad-tabs" id="adTabs" role="tablist" aria-label="Agents"></div>
+              <div class="ad-cards">
+                <section class="ad-card ad-usage" aria-labelledby="adUsageTitle">
+                  <header><span class="ad-dot"></span><h3 id="adUsageTitle">Token usage</h3></header>
+                  <div class="ad-big" id="adBig">—</div>
+                  <div class="ad-big-sub" id="adBigSub">tokens this month</div>
+                  <div class="ad-trend" id="adTrend"></div>
+                  <dl class="ad-facts" id="adFacts"></dl>
+                </section>
+                <section class="ad-card ad-chart" aria-labelledby="adChartTitle">
+                  <header><h3 id="adChartTitle">Tokens per day</h3><span class="ad-chart-total" id="adChartTotal"></span></header>
+                  <div class="ad-plot">
+                    <div class="ad-y" id="adY" aria-hidden="true"></div>
+                    <div class="ad-bars" id="adBars" role="img"></div>
+                  </div>
+                  <div class="ad-x" id="adX" aria-hidden="true"></div>
+                  <div class="ad-legend" id="adLegend"></div>
+                  <div class="ad-tip hidden" id="adTip" role="tooltip"></div>
+                </section>
+              </div>
+              <section class="ad-table-wrap" aria-labelledby="adOthersTitle">
+                <h3 id="adOthersTitle">Other agents</h3>
+                <div class="ad-table" id="adTable" role="table" aria-labelledby="adOthersTitle"></div>
+              </section>
+            </div>
+          </div>
         </main>
       </div>
     </section>
