@@ -14,6 +14,7 @@ const { findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuild
 const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
 const { AntigravityAgentService } = require('./antigravityAgentService.js');
 const { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } = require('./github');
+const { costOf } = require('./pricing');
 const prconflict = require('./prconflict');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
@@ -2004,11 +2005,12 @@ async function agentUsage() {
 }
 handle('agent:usage', () => (usageJob ??= agentUsage().finally(() => { usageJob = null; })));
 
-/* ----- Agent history: the last 14 days, a day at a time, for Home's Agent tab ----- */
-// Per agent: each day's tokens by kind (input, output, cache writes, cache reads; "other" where the kind isn't known),
-// how many tools it called and when it was last used. Claude and Codex from their own logs (any run, in Breeze or
-// not); other agents from Breeze's own runs (addUsage), which only know a total.
-const HISTORY_DAYS = 14;
+/* ----- Agent history: the last 30 days, a day at a time, for Home's Agent tab ----- */
+// Per agent: each day's tokens by kind (input, output, cache writes, cache reads; "other" where the kind isn't known)
+// and what they would cost at API prices (pricing.js), how many tools it called and when it was last used. Claude and
+// Codex from their own logs (any run, in Breeze or not), which name the model, so they are priced; other agents from
+// Breeze's own runs (addUsage), which only know a total. `unpriced`: tokens from a model with no known price.
+const HISTORY_DAYS = 30;
 const histCache = new Map(); // file -> { key, data }
 const dayOf = ts => (typeof ts === 'string' ? ts.slice(0, 10) : null);
 async function readHistLog(file, parse) {
@@ -2020,7 +2022,8 @@ async function readHistLog(file, parse) {
   histCache.set(file, { key, data });
   return data;
 }
-const emptyDay = () => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, other: 0 });
+const emptyDay = () => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, other: 0, cost: 0 });
+const partTokens = p => (p.input || 0) + (p.output || 0) + (p.cacheWrite || 0) + (p.cacheRead || 0);
 function addDay(days, date, part) {
   const d = days[date] ??= emptyDay();
   for (const k of Object.keys(part)) d[k] += part[k] || 0;
@@ -2039,10 +2042,9 @@ async function claudeHistory(since) {
           if (!u || !d.message.id || !d.timestamp) continue;
           const tools = Array.isArray(d.message.content) ? d.message.content.filter(c => c?.type === 'tool_use').length : 0;
           const prev = m.get(d.message.id);
-          m.set(d.message.id, {
-            at: d.timestamp, tools: Math.max(tools, prev?.tools || 0),
-            part: { input: u.input_tokens || 0, output: u.output_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0, cacheRead: u.cache_read_input_tokens || 0 },
-          });
+          const part = { input: u.input_tokens || 0, output: u.output_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0, cacheRead: u.cache_read_input_tokens || 0 };
+          const cost = costOf(d.message.model, { ...part, cacheWrite1h: u.cache_creation?.ephemeral_1h_input_tokens || 0 }, { fast: u.speed === 'fast' });
+          m.set(d.message.id, { at: d.timestamp, tools: Math.max(tools, prev?.tools || 0), part, cost });
         } catch { /* a line still being written */ }
       }
       return m;
@@ -2050,27 +2052,33 @@ async function claudeHistory(since) {
     for (const [id, v] of msgs ?? []) byMsg.set(id, v);
   }
   const days = {}, from = new Date(since).toISOString().slice(0, 10);
-  let tools = 0, last = 0;
+  let tools = 0, last = 0, unpriced = 0;
   for (const v of byMsg.values()) {
     const day = dayOf(v.at);
     if (!day || day < from) continue;
-    addDay(days, day, v.part);
+    addDay(days, day, { ...v.part, cost: v.cost ?? 0 });
+    if (v.cost === null) unpriced += partTokens(v.part);
     tools += v.tools;
     last = Math.max(last, Date.parse(v.at) || 0);
   }
-  return { days, tools, last };
+  return { days, tools, last, priced: true, unpriced };
 }
 // A Codex session logs a running total; each step's growth goes to the day it was logged on.
 async function codexHistory(since) {
   const base = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
   const days = {}, from = new Date(since).toISOString().slice(0, 10);
-  let tools = 0, last = 0;
+  let tools = 0, last = 0, unpriced = 0;
   for (const file of await recentLogs(base, 4, since)) {
     const r = await readHistLog(file, lines => {
       const steps = [];
-      let prev = null, calls = [];
+      let prev = null, calls = [], model = null;
       for (const line of lines) {
         try {
+          if (line.includes('"turn_context"')) {
+            const d = JSON.parse(line);
+            if (d.type === 'turn_context' && d.payload?.model) model = d.payload.model;
+            continue;
+          }
           if (line.includes('"function_call"') || line.includes('"custom_tool_call"')) {
             const d = JSON.parse(line);
             if (/^(function_call|custom_tool_call)$/.test(d.payload?.type || '')) calls.push(d.timestamp);
@@ -2080,8 +2088,11 @@ async function codexHistory(since) {
           const d = JSON.parse(line), t = d.payload?.info?.total_token_usage;
           if (typeof t?.total_tokens !== 'number') continue;
           const cur = { input: t.input_tokens || 0, cached: t.cached_input_tokens || 0, output: (t.output_tokens || 0) + (t.reasoning_output_tokens || 0) };
-          if (prev) steps.push({ at: d.timestamp, input: Math.max(0, cur.input - cur.cached - (prev.input - prev.cached)), cacheRead: Math.max(0, cur.cached - prev.cached), output: Math.max(0, cur.output - prev.output) });
-          else steps.push({ at: d.timestamp, input: cur.input - cur.cached, cacheRead: cur.cached, output: cur.output });
+          const step = prev
+            ? { at: d.timestamp, input: Math.max(0, cur.input - cur.cached - (prev.input - prev.cached)), cacheRead: Math.max(0, cur.cached - prev.cached), output: Math.max(0, cur.output - prev.output) }
+            : { at: d.timestamp, input: cur.input - cur.cached, cacheRead: cur.cached, output: cur.output };
+          step.cost = costOf(model, step);
+          steps.push(step);
           prev = cur;
         } catch { /* a line still being written */ }
       }
@@ -2090,12 +2101,13 @@ async function codexHistory(since) {
     for (const s of r?.steps ?? []) {
       const day = dayOf(s.at);
       if (!day || day < from) continue;
-      addDay(days, day, { input: s.input, output: s.output, cacheRead: s.cacheRead });
+      addDay(days, day, { input: s.input, output: s.output, cacheRead: s.cacheRead, cost: s.cost ?? 0 });
+      if (s.cost === null) unpriced += partTokens(s);
       last = Math.max(last, Date.parse(s.at) || 0);
     }
     tools += (r?.calls ?? []).filter(t => (dayOf(t) || '') >= from).length;
   }
-  return { days, tools, last };
+  return { days, tools, last, priced: true, unpriced };
 }
 async function agentHistory() {
   const since = Date.now() - (HISTORY_DAYS - 1) * 86_400_000;
@@ -2105,7 +2117,7 @@ async function agentHistory() {
   for (const [id, byDay] of Object.entries(s.usageDays || {})) {
     const days = {};
     for (const [d, n] of Object.entries(byDay)) if (d >= from) addDay(days, d, { other: n });
-    out[id] = { days, tools: 0, last: s.usageLast?.[id] || 0 };
+    out[id] = { days, tools: 0, last: s.usageLast?.[id] || 0, priced: false, unpriced: 0 };
   }
   // The logs cover Breeze's own runs of Claude and Codex too, so theirs replace Breeze's count.
   const [claude, codex] = await Promise.all([claudeHistory(since).catch(() => null), codexHistory(since).catch(() => null)]);

@@ -102,8 +102,10 @@ interface DetectedAgent { id: string; name: string; vendor: string; url: string;
 interface LimitWindow { label: string; used: number; resetsAt: number | null; }
 interface AgentUsage { usage: Record<string, number>; limits: Record<string, LimitWindow[]>; notes: Record<string, string | null>; }
 // The last days of each agent's tokens by kind ("other" when the kind isn't known), its tool calls and last use (ms).
-interface TokenDay { input: number; output: number; cacheWrite: number; cacheRead: number; other: number; }
-interface AgentHistory { from: string; days: number; agents: Record<string, { days: Record<string, TokenDay>; tools: number; last: number }>; }
+// cost: what the day's tokens would cost at API list prices (USD); 0 for an agent that isn't `priced`. unpriced: tokens
+// from a model with no known price, left out of the cost.
+interface TokenDay { input: number; output: number; cacheWrite: number; cacheRead: number; other: number; cost?: number; }
+interface AgentHistory { from: string; days: number; agents: Record<string, { days: Record<string, TokenDay>; tools: number; last: number; priced?: boolean; unpriced?: number }>; }
 interface Accounts { accounts: User[]; active: string | null; }
 // Workspace sync (main.js + sync.js). A failure comes back as { error, code } instead of throwing.
 interface SyncFail { error: string; code: string | null; }

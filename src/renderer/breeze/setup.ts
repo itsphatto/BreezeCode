@@ -670,7 +670,7 @@ function showHomeView(view: string): void {
   });
   $$('.home-view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== view));
   $('.home-main').scrollTop = 0;
-  if (view === 'agent') loadAgentDash();
+  if (view === 'agent') { dashDrawn = ''; loadAgentDash(); }
 }
 
 /* ----- Home → Agent: one agent's token use, and the other agents ----- */
@@ -680,6 +680,22 @@ let dashAgent: string | null = null;
 let dashUsage: AgentUsage | null = null;
 let dashHistory: AgentHistory | null = null;
 let dashSeq = 0;
+// What the chart last drew; the bars rise again only when that changes.
+let dashDrawn = '';
+// How many of the history's days the chart shows; kept between visits.
+const DASH_RANGES = [7, 14, 30];
+let dashRange = DASH_RANGES.includes(store.get('breeze.dashRange', 14)) ? store.get('breeze.dashRange', 14) : 14;
+// Dollars: cents under $100, whole dollars above; a tiny amount says so instead of showing $0.00.
+const usd2 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+const money = (n: number) => (n > 0 && n < 0.01 ? '< $0.01' : n >= 100 ? usd0.format(n) : usd2.format(n));
+const COST_NOTE = 'Estimated at API list prices. On a Claude or ChatGPT plan you pay for the plan, not per token.';
+// Restarts a CSS animation on these elements (class removed, a reflow, class back).
+function replayAnim(els: Element[]): void {
+  els.forEach(el => el.classList.remove('anim'));
+  void (els[0] as HTMLElement | undefined)?.offsetWidth;
+  els.forEach(el => el.classList.add('anim'));
+}
 const DASH_KINDS: [keyof TokenDay, string][] = [['input', 'Input'], ['cacheWrite', 'Cache write'], ['cacheRead', 'Cache read'], ['output', 'Output'], ['other', 'Tokens']];
 const compact = (n: number) => tokenCount.format(Math.round(n));
 const dayTotal = (d?: TokenDay) => (d ? d.input + d.output + d.cacheWrite + d.cacheRead + d.other : 0);
@@ -719,7 +735,7 @@ function renderDashUsage(a: DetectedAgent | null): void {
   const h = a && dashHistory?.agents[a.id];
   const month = a ? dashUsage?.usage[a.id] ?? 0 : 0;
   $('#adBig').textContent = !a ? '—' : dashUsage ? compact(month) : '…';
-  const days = dashDays();
+  const days = dashAllDays();
   const sum = (from: number, to: number) => days.slice(from, to).reduce((n, d) => n + dayTotal(h?.days[d]), 0);
   const last = sum(days.length - 7, days.length), prev = sum(days.length - 14, days.length - 7);
   const trend = $('#adTrend');
@@ -733,15 +749,42 @@ function renderDashUsage(a: DetectedAgent | null): void {
     if (h.tools) facts.push(['Tool calls', h.tools.toLocaleString()]);
     if (h.last) facts.push(['Last used', timeAgo(h.last)]);
   }
-  const lim = a ? dashUsage?.limits[a.id]?.[0] : null;
-  if (lim) facts.push([`${lim.label} limit`, `${Math.round(100 - lim.used)}% left`]);
   $('#adFacts').innerHTML = facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+  renderDashLimits(a ? dashUsage?.limits[a.id] ?? [] : []);
+}
+// When a limit lifts, from its reset time (epoch seconds): "in 42m" today, "in 5h 12m" within a day, else the day and time.
+function dashResetText(at: number | null): string {
+  if (!at) return '';
+  const ms = at * 1000 - Date.now();
+  if (ms <= 0) return 'Resets now';
+  const min = Math.ceil(ms / 60_000);
+  if (min < 60) return `Resets in ${min}m`;
+  if (min < 24 * 60) return `Resets in ${Math.floor(min / 60)}h ${min % 60}m`;
+  return `Resets ${new Date(at * 1000).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`;
+}
+// Every usage limit the agent reports (5-hour, weekly…): what is left, a bar of what is used, and when it resets.
+function renderDashLimits(limits: LimitWindow[]): void {
+  const el = $('#adLimits');
+  el.innerHTML = limits.map(l => {
+    const used = Math.round(l.used), left = 100 - used;
+    const level = used >= 90 ? 'hot' : used >= 75 ? 'warm' : '';
+    const reset = dashResetText(l.resetsAt);
+    return `<div class="ad-limit ${level}">
+      <div class="ad-limit-top"><span>${esc(l.label)} limit</span><b>${left}% left</b></div>
+      <div class="ad-meter" role="meter" aria-label="${escAttr(l.label)} limit used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}"><i data-used="${used}"></i></div>
+      ${reset ? `<div class="ad-limit-reset">${esc(reset)}</div>` : ''}
+    </div>`;
+  }).join('');
+  $$<HTMLElement>('.ad-meter i', el).forEach(i => i.style.width = `${Math.max(Number(i.dataset.used), 1)}%`);
+  el.classList.toggle('hidden', !limits.length);
 }
 // The history's days, oldest first.
-function dashDays(): string[] {
-  const n = dashHistory?.days ?? 14, from = dashHistory ? Date.parse(`${dashHistory.from}T00:00:00Z`) : Date.now() - 13 * 86_400_000;
+function dashAllDays(): string[] {
+  const n = dashHistory?.days ?? 30, from = dashHistory ? Date.parse(`${dashHistory.from}T00:00:00Z`) : Date.now() - (n - 1) * 86_400_000;
   return Array.from({ length: n }, (_, i) => new Date(from + i * 86_400_000).toISOString().slice(0, 10));
 }
+// The days the chart shows: the last of the range.
+const dashDays = (): string[] => dashAllDays().slice(-dashRange);
 const dashDayLabel = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 // A bar a day, stacked by kind of token; hovering one shows its numbers.
 function renderDashChart(a: DetectedAgent | null): void {
@@ -753,9 +796,17 @@ function renderDashChart(a: DetectedAgent | null): void {
   const step = max ? 10 ** Math.floor(Math.log10(max)) : 1;
   const top = max ? Math.ceil(max / step) * step : 1;
   const all = totals.reduce((x, y) => x + y, 0);
-  $('#adChartTotal').textContent = h ? `${compact(all)} over ${days.length} days` : '';
+  const priced = !!h?.priced;
+  const cost = priced ? days.reduce((n, d) => n + (h?.days[d]?.cost ?? 0), 0) : 0;
+  const costNote = COST_NOTE + (h?.unpriced ? ` ${compact(h.unpriced)} tokens from models without a known price aren't counted.` : '');
+  const total = $('#adChartTotal');
+  total.textContent = h ? `${compact(all)}${priced && all ? ` · ≈ ${money(cost)}` : ''} over ${days.length} days` : '';
+  total.title = priced ? costNote : '';
+  $$<HTMLElement>('#adRange [data-range]').forEach(b => { const on = Number(b.dataset.range) === dashRange; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
   $('#adY').innerHTML = [top, top / 2, 0].map(v => `<span>${max ? compact(v) : ''}</span>`).join('');
   const bars = $('#adBars');
+  bars.dataset.n = String(days.length);
+  $('#adX').dataset.n = String(days.length);
   bars.setAttribute('aria-label', a ? `${a.name}: ${compact(all)} tokens over the last ${days.length} days` : 'No agent');
   bars.textContent = '';
   days.forEach((d, i) => {
@@ -771,26 +822,35 @@ function renderDashChart(a: DetectedAgent | null): void {
       seg.style.height = `${v / top * 100}%`; // set from script: the page's CSP blocks inline style attributes
       col.append(seg);
     }
-    if (!totals[i]) col.classList.add('empty');
+    if (!totals[i]) col.classList.add('zero'); // not .empty: that is the app-wide empty-state class (padding, centring)
+    col.style.setProperty('--i', String(i));
     bars.append(col);
   });
-  // Every other day named under the bars (each one when there's room), the last always.
-  $('#adX').innerHTML = days.map((d, i) => `<span>${i % 2 === (days.length - 1) % 2 ? esc(dashDayLabel(d)) : ''}</span>`).join('');
+  // Days named under the bars counting back from the last, which is always named: each one for a week, every other
+  // one for two weeks, every fifth for a month.
+  const every = days.length <= 7 ? 1 : days.length <= 14 ? 2 : 5;
+  $('#adX').innerHTML = days.map((d, i) => `<span>${(days.length - 1 - i) % every === 0 ? esc(dashDayLabel(d)) : ''}</span>`).join('');
   // The legend shows only kinds this agent has, with their totals; an agent whose tokens aren't split by kind has
   // just the total (a "Tokens" entry would only repeat it).
   let sums = DASH_KINDS.map(([k, label]) => [k, label, days.reduce((n, d) => n + (h?.days[d]?.[k] ?? 0), 0)] as const).filter(([, , n]) => n > 0);
   if (sums.length === 1 && sums[0][0] === 'other') sums = [];
   $('#adLegend').innerHTML = h && all
-    ? `<span class="ad-leg-total">Total <b>${compact(all)}</b></span>${sums.map(([k, label, n]) => `<span><i data-k="${k}"></i>${esc(label)} <b>${compact(n)}</b></span>`).join('')}`
+    ? `<span class="ad-leg-total">Total <b>${compact(all)}</b></span>${priced ? `<span class="ad-leg-cost" title="${escAttr(costNote)}">Est. cost <b>≈ ${money(cost)}</b></span>` : ''}${sums.map(([k, label, n]) => `<span><i data-k="${k}"></i>${esc(label)} <b>${compact(n)}</b></span>`).join('')}`
     : `<span class="ad-leg-none">${a ? `${esc(a.name)} hasn't used any tokens in the last ${days.length} days.` : ''}</span>`;
+  const drawn = `${a?.id ?? ''}|${dashRange}|${totals.join(',')}`;
+  if (drawn !== dashDrawn && $('.home-view[data-view="agent"]:not(.hidden)')) {
+    dashDrawn = drawn;
+    replayAnim([bars, $('#adY'), $('#adX'), $('#adLegend')]);
+  }
 }
 function showDashTip(bar: HTMLElement): void {
   const h = dashAgent ? dashHistory?.agents[dashAgent] : null;
   const d = bar.dataset.day ?? '';
   const day = h?.days[d];
   const tip = $('#adTip');
-  const rows = DASH_KINDS.filter(([k]) => (day?.[k] ?? 0) > 0).map(([k, label]) => `<div><i data-k="${k}"></i>${esc(label)}<b>${compact(day![k])}</b></div>`).join('');
-  tip.innerHTML = `<div class="ad-tip-day">${esc(dashDayLabel(d))}</div>${rows || '<div class="ad-tip-none">No tokens</div>'}`;
+  const rows = DASH_KINDS.filter(([k]) => (day?.[k] ?? 0) > 0).map(([k, label]) => `<div><i data-k="${k}"></i>${esc(label)}<b>${compact(day![k] ?? 0)}</b></div>`).join('');
+  const cost = h?.priced && day ? `<div class="ad-tip-cost">Est. cost<b>≈ ${money(day.cost ?? 0)}</b></div>` : '';
+  tip.innerHTML = `<div class="ad-tip-day">${esc(dashDayLabel(d))}</div>${rows || '<div class="ad-tip-none">No tokens</div>'}${rows ? cost : ''}`;
   tip.classList.remove('hidden');
   const card = $('.ad-chart'), cr = card.getBoundingClientRect(), br = bar.getBoundingClientRect();
   const left = Math.min(br.right - cr.left + 8, cr.width - tip.offsetWidth - 8);
@@ -819,7 +879,8 @@ function renderDashTable(agents: DetectedAgent[]): void {
   }).join('');
   const el = $('#adTable');
   el.innerHTML = others.length ? head + rows : '<p class="ad-empty">No other agents yet. Install more in Settings → Agents.</p>';
-  $$<HTMLElement>('.ad-spark i', el).forEach(i => i.style.height = `${Math.max(8, Number(i.dataset.h))}%`);
+  $$<HTMLElement>('.ad-spark i', el).forEach((i, n) => { i.style.height = `${Math.max(8, Number(i.dataset.h))}%`; i.style.setProperty('--i', String(n % 7)); });
+  $$('.ad-spark', el).forEach(s => s.classList.add('anim'));
   $('.ad-table-wrap').classList.toggle('hidden', !agents.length);
 }
 function pickDashAgent(id: string): void {
@@ -844,6 +905,13 @@ $('#adTable').addEventListener('keydown', e => {
   if (!row || e.target !== row) return;
   e.preventDefault();
   pickDashAgent(row.dataset.dashAgent ?? '');
+});
+$('#adRange').addEventListener('click', e => {
+  const n = Number((e.target as HTMLElement).closest<HTMLElement>('[data-range]')?.dataset.range);
+  if (!DASH_RANGES.includes(n) || n === dashRange) return;
+  dashRange = n;
+  store.set('breeze.dashRange', n);
+  renderDashChart(dashAgents().find(a => a.id === dashAgent) ?? null);
 });
 $('#adBars').addEventListener('pointerover', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('.ad-bar'); if (b) showDashTip(b); });
 $('#adBars').addEventListener('pointerleave', () => $('#adTip').classList.add('hidden'));
@@ -870,6 +938,7 @@ function recentRowHtml(r: RecentFolder): string {
     <button class="recent-open" data-open="${escAttr(r.path)}" title="${escAttr(when ? `${r.path} · ${when}` : r.path)}">
       <span class="nm">${esc(r.name)}</span><span class="path">${esc(shortPath(parentDir(r.path)))}</span>
     </button>
+    <button class="recent-forget" data-forget="${escAttr(r.path)}" title="Remove from Recent" aria-label="Remove ${escAttr(r.name)} from Recent">${svgIcon('x', 12)}</button>
   </div>`;
 }
 // Ten at first; More shows the rest.
@@ -900,7 +969,7 @@ $('#logoHome').onclick = goHome;
 $('#boxLogoHome').onclick = goHome;
 async function openFromHome(dir: string, row: HTMLElement): Promise<void> {
   const r = homeRecent?.find(x => x.path === dir);
-  // A folder that's gone can't be opened; with no × on the list any more, picking it takes it off.
+  // A folder that's gone can't be opened, so picking it takes it off the list.
   if (r?.missing) {
     homeRecent = (homeRecent ?? []).filter(x => x.path !== dir);
     renderRecentList();
@@ -914,9 +983,24 @@ async function openFromHome(dir: string, row: HTMLElement): Promise<void> {
   }
   leaveHome();
 }
+// The × beside a project: off the list only; the folder itself is left alone.
+function forgetFromHome(dir: string): void {
+  const r = homeRecent?.find(x => x.path === dir);
+  if (!r) return;
+  const rows = $$('.recent-open', $('#homeRecent'));
+  const at = rows.findIndex(b => b.dataset.open === dir);
+  homeRecent = (homeRecent ?? []).filter(x => x.path !== dir);
+  renderRecentList();
+  // Keyboard focus moves to the next project (or the one before), not back to the top of the page.
+  const left = $$('.recent-open', $('#homeRecent'));
+  left[Math.min(at, left.length - 1)]?.focus();
+  background(api.fs.forgetRecent(dir).then(() => toast(`Removed ${r.name} from Recent`)));
+}
 $('#homeRecent').addEventListener('click', e => {
   const t = e.target as HTMLElement;
   if (t.closest('[data-more]')) { recentAll = true; renderRecentList(); return; }
+  const forget = t.closest<HTMLElement>('[data-forget]');
+  if (forget) { forgetFromHome(forget.dataset.forget ?? ''); return; }
   const open = t.closest<HTMLElement>('[data-open]');
   if (open) background(openFromHome(open.dataset.open ?? '', open.parentElement as HTMLElement));
 });
