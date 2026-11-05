@@ -176,6 +176,7 @@ function demoApi(): BreezeApi {
   const markOpened = () => store.set('breeze.demoOpenedAt', Date.now());
   return {
     fs: {
+      async stashAttachment() { throw new Error('No temp folder in the browser demo'); }, // the attachment keeps its data URL
       async importFile(dir, name, data) {
         needOpen();
         const dot = name.lastIndexOf('.');

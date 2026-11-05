@@ -863,6 +863,30 @@ handle('fs:import', async (_e, dirRel, name, data) => {
 
 
 
+// A pasted image has no file of its own for an agent to read. It is kept in the temp folder, never in the project, and
+// stashes older than a week are removed the next time one is made.
+const STASH_DIR = () => path.join(app.getPath('temp'), 'breeze-attachments');
+const STASH_TTL = 7 * 24 * 3600e3;
+async function pruneStash() {
+  let names = [];
+  try { names = await fsp.readdir(STASH_DIR()); } catch { return; }
+  await Promise.all(names.map(async n => {
+    const p = path.join(STASH_DIR(), n);
+    try { if (Date.now() - (await fsp.stat(p)).mtimeMs > STASH_TTL) await fsp.rm(p, { recursive: true, force: true }); } catch { /* in use or gone */ }
+  }));
+}
+handle('fs:stashAttachment', async (_e, name, data) => {
+  if (!(data instanceof Uint8Array)) throw new Error('Nothing to attach');
+  if (data.byteLength > IMPORT_MAX_BYTES) throw new Error(`${path.basename(String(name))} is larger than 50 MB`);
+  const safe = path.basename(String(name || 'attachment')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120) || 'attachment';
+  void pruneStash();
+  const dir = path.join(STASH_DIR(), crypto.randomUUID());
+  await fsp.mkdir(dir, { recursive: true });
+  const target = path.join(dir, safe);
+  await fsp.writeFile(target, data);
+  return { path: target, url: pathToFileURL(target).href };
+});
+
 handle('fs:listFiles', async () => (await listFiles(resolveIn(''))).map(toRel));
 
 handle('fs:search', (_e, query, matchCase) => searchProject(query, matchCase));

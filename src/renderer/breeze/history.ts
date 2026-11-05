@@ -326,7 +326,9 @@ function renderAttachments(s: Surface): void {
   });
 }
 
-async function addPastedImage(file: File, s: Surface, tab?: AgentTabState): Promise<void> {
+// Attaches an image without copying it into the project: a dropped file is used where it is on disk, and a pasted one
+// (no file of its own) is kept in the temp folder.
+async function addPastedImage(file: File, s: Surface, tab?: AgentTabState, diskPath = ''): Promise<void> {
   const targetTab = tab || getActiveTab(s);
   const dataUrl = await new Promise<string>((res, rej) => {
     const fr = new FileReader();
@@ -334,8 +336,6 @@ async function addPastedImage(file: File, s: Surface, tab?: AgentTabState): Prom
     fr.onerror = rej;
     fr.readAsDataURL(file);
   });
-  const buf = await file.arrayBuffer();
-  const bytes = new Uint8Array(buf);
   const extMap: Record<string, string> = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
   const ext = extMap[file.type] ?? 'png';
   const now = new Date();
@@ -343,11 +343,16 @@ async function addPastedImage(file: File, s: Surface, tab?: AgentTabState): Prom
   const name = file.name && file.name !== 'image.png' ? file.name : `image_${ts}.${ext}`;
   let fileRel: string | undefined;
   let fileUrl: string | undefined;
-  try {
-    fileRel = await api.fs.importFile('attachments', name, bytes);
-    if (fileRel) fileUrl = await api.fs.fileUrl(fileRel);
-  } catch {
-    // In browser demo or if import fails, keep dataUrl
+  if (diskPath) {
+    fileRel = diskPath;
+  } else {
+    try {
+      const stash = await api.fs.stashAttachment(name, new Uint8Array(await file.arrayBuffer()));
+      fileRel = stash.path;
+      fileUrl = stash.url;
+    } catch {
+      // In the browser demo, or if the temp folder can't be written: the data URL is still shown
+    }
   }
   const att: AgentAttachment = { id: crypto.randomUUID().slice(0, 8), name, kind: 'image', dataUrl, fileUrl, fileRel, path: fileRel };
   attachmentsMap[s.name].push(att);
@@ -454,7 +459,7 @@ async function handleAgentDroppedFiles(dt: DataTransfer, s: Surface, tab?: Agent
         await attachPathToAgent(folderPath, true, s, targetTab);
       } else if (entry.isFile) {
         if (file && (file.type.startsWith('image/') || IMAGE_FILE.test(file.name))) {
-          await addPastedImage(file, s, targetTab);
+          await addPastedImage(file, s, targetTab, rel || diskPath);
         } else {
           const filePath = rel || diskPath || entry.name;
           await attachPathToAgent(filePath, false, s, targetTab);
@@ -468,7 +473,7 @@ async function handleAgentDroppedFiles(dt: DataTransfer, s: Surface, tab?: Agent
     const diskPath = getDroppedFilePath(file);
     const rel = diskPath && rootInfo ? toRelProject(diskPath) : null;
     if (file.type.startsWith('image/') || IMAGE_FILE.test(file.name)) {
-      await addPastedImage(file, s, targetTab);
+      await addPastedImage(file, s, targetTab, rel || diskPath);
     } else {
       const filePath = rel || diskPath || file.name;
       await attachPathToAgent(filePath, false, s, targetTab);

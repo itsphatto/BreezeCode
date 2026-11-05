@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('breeze', {
     onChange: cb => listen('fs:changed', cb),
     onWatchLost: cb => listen('fs:watchLost', cb),
     importFile: (dir, name, bytes) => invoke('fs:import', dir, name, bytes),
+    stashAttachment: (name, bytes) => invoke('fs:stashAttachment', name, bytes),
   },
   lsp: {
     open: (rel, text) => invoke('lsp:open', rel, text),

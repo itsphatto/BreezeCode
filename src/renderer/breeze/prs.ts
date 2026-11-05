@@ -295,7 +295,7 @@ async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
 /* ----- Pull requests: closing without merging ----- */
 let prClosing = 0; // the pull request being closed now (0: none)
 function prCloseBtnHtml(pr: GhPull): string {
-  return `<button class="btn btn-sm" id="prClose"${prClosing || prMerging ? ' disabled' : ''}>${prClosing === pr.number ? 'Closing…' : 'Close'}</button>`;
+  return `<button class="btn btn-danger btn-sm" id="prClose"${prClosing || prMerging ? ' disabled' : ''}>${prClosing === pr.number ? 'Closing…' : 'Close'}</button>`;
 }
 function confirmClosePr(pr: GhPull): void {
   openModal(`<h3>Close pull request #${pr.number}?</h3>
@@ -388,7 +388,7 @@ function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, fi
   return `<div class="pr-head">
       <div class="pr-title"><h3>${esc(pr.title)}</h3><span class="pr-n">#${pr.number}</span>${pr.draft ? '<span class="pill">Draft</span>' : ''}</div>
       <div class="pr-meta"><span class="pr-st"><span class="pr-dot ${st}"></span>${PR_STATUS_LABEL[st]}</span><span class="pr-br">${esc(pr.head.label)} → ${esc(pr.base)}</span>${prAvatar(pr.author, pr.avatar)}<span>${esc(pr.author)}</span>${when ? `<span>${esc(when)}</span>` : ''}</div>
-      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${prCloseBtnHtml(pr)}${prMergeBtnHtml(pr)}</div>
+      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${prMergeBtnHtml(pr)}${prCloseBtnHtml(pr)}</div>
       <div class="pr-merge-note" id="prMergeNote" role="alert">${prMergeNoteHtml(pr.number)}</div>
     </div>
     <div class="pr-tabs" role="tablist">${tabs.map(([k, label, n]) => `<button class="pr-tab ${k === tab ? 'on' : ''}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n === null ? '' : ` <span class="count">${n}</span>`}</button>`).join('')}</div>
@@ -529,21 +529,25 @@ async function openPr(n: number): Promise<void> {
     input.value = ''; // picking the same file again still fires
     void addAttachments(picked);
   };
-  // Files dropped anywhere on the Comments tab are attached; the page-wide drop handling (opening files) never sees them.
-  const commentDrop = (e: DragEvent): boolean => tab === 'comments' && comments.ok && !!e.dataTransfer?.types.includes('Files') && !!view.querySelector('#prCommentBox');
+  // Files dropped anywhere on the pull request are attached to the comment (the Comments tab opens for them). They are
+  // only read: nothing is copied into the folder, and the page-wide drop handling never sees them.
+  const fileDrag = (e: DragEvent): boolean => !!e.dataTransfer?.types.includes('Files');
   const markDropBox = (on: boolean) => view.querySelector('#prCommentBox')?.classList.toggle('drag-over', on);
   view.ondragover = e => {
-    if (!commentDrop(e)) return;
+    if (!fileDrag(e)) return;
     e.preventDefault(); e.stopPropagation();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (e.dataTransfer) e.dataTransfer.dropEffect = comments.ok ? 'copy' : 'none';
     markDropBox(true);
   };
   view.ondragleave = e => { if (!view.contains(e.relatedTarget as Node | null)) markDropBox(false); };
   view.ondrop = e => {
-    if (!commentDrop(e)) return;
+    if (!fileDrag(e)) return;
     e.preventDefault(); e.stopPropagation();
     markDropBox(false);
-    if (e.dataTransfer?.files.length) void addAttachments(e.dataTransfer.files);
+    if (!comments.ok || !e.dataTransfer?.files.length) return;
+    const dropped = [...e.dataTransfer.files];
+    if (tab !== 'comments') { tab = 'comments'; paint(); }
+    void addAttachments(dropped);
   };
 
   view.onclick = e => {

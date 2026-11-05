@@ -472,7 +472,8 @@ document.addEventListener('click', e => {
   const img = target.closest<HTMLImageElement>('.chat-img, .attachment-thumb');
   if (img?.src && !img.closest('.attachment-icon')) {
     const full = img.dataset.full || img.src;
-    openModal(`<div class="img-modal-view"><img src="${escAttr(full)}" class="img-modal-img"><div class="row end w-full"><button class="btn btn-primary btn-sm" data-close>Close</button></div></div>`);
+    // Just the picture: no dialog panel or button. A click on it or beside it, or Esc, closes it.
+    openModal(`<div class="img-modal-view"><img src="${escAttr(full)}" class="img-modal-img" alt="" title="Click to close" data-close></div>`);
   }
 });
 

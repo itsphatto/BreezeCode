@@ -176,6 +176,8 @@ interface BreezeApi {
     onChange(cb: (paths: string[]) => void): () => void;
     onWatchLost(cb: (reason: string) => void): () => void;
     importFile(dir: string, name: string, data: Uint8Array): Promise<string>;
+    // Keeps a pasted attachment in the temp folder (outside the project) and says where.
+    stashAttachment(name: string, data: Uint8Array): Promise<{ path: string; url: string }>;
   };
   debug: {
     // Resolves once the program is running (or the attempt is over); failures arrive as `error` events.

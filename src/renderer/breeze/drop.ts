@@ -1621,6 +1621,8 @@ document.addEventListener('drop', e => {
   clearAgentDropMarks();
   clearTreeDropMarks();
   markDrop(null);
+  // Source Control's right side only ever attaches (a pull request's comment handles its own drops); never copy there.
+  if (target?.closest('#scmDetail')) return;
 
   const entries = [...(e.dataTransfer?.items ?? [])].map(i => i.webkitGetAsEntry()).filter((x): x is FileSystemEntry => !!x);
   if (!entries.length) return;
