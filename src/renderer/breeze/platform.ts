@@ -145,6 +145,9 @@ const demoPrCommits: Record<number, GhCommit[]> = {
     demoCommit('f9e8d7c6b5a4039281706f5e4d3c2b1a09876543', 'Show an error for a wrong password', 'maya', 50),
   ],
 };
+const demoPrComments: Record<number, GhComment[]> = {
+  48: [{ id: 1, author: 'maya', avatar: null, body: 'The new hero colour looks great. Could the footer hours use the same font size as the menu?', createdAt: new Date(Date.now() - 20 * 3600e3).toISOString(), url: '' }],
+};
 const demoPrFiles: Record<number, GhFile[]> = {
   48: [
     { path: 'styles.css', previous: null, status: 'modified', additions: 3, deletions: 2, patch: '@@ -1,5 +1,6 @@\n /* Cozy, warm palette */\n :root {\n-  --bean: #2b1d12;\n-  --cream: #f4ece1;\n+  --bean: #3a2615;\n+  --cream: #f8f0e4;\n+  --hero: #c8793a;\n }' },
@@ -593,6 +596,17 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
         if (i >= 0) demoPulls.splice(i, 1); // a merged pull request is no longer open
         return { ok: true, data: { merged: true, message: 'Merged' } };
       },
+      async comments(n) { return { ok: true, data: [...(demoPrComments[n] || [])] }; }, // a copy, as IPC would give
+      async comment(n, body) {
+        const c: GhComment = { id: Date.now(), author: current?.login || current?.name || 'you', avatar: null, body, createdAt: new Date().toISOString(), url: '' };
+        (demoPrComments[n] ||= []).push(c);
+        return { ok: true, data: c };
+      },
+      async close(n) {
+        const i = demoPulls.findIndex(p => p.number === n);
+        if (i >= 0) demoPulls.splice(i, 1);
+        return { ok: true, data: { closed: true } };
+      },
       // A made-up year, quiet early on and busier lately, so the graph can be seen without the desktop app.
       async contributions() {
         if (current?.provider !== 'GitHub') return { ok: false, error: 'not-github' };
@@ -729,6 +743,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   plus: [['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]],
   minus: [['path', { d: 'M5 12h14' }]],
   x: [['path', { d: 'M18 6 6 18' }], ['path', { d: 'm6 6 12 12' }]],
+  paperclip: [['path', { d: 'm16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551' }]],
   check: [['path', { d: 'M20 6 9 17l-5-5' }]],
   external: [['path', { d: 'M7 7h10v10' }], ['path', { d: 'M7 17 17 7' }]],
   rotateCcw: [['path', { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' }], ['path', { d: 'M3 3v5h5' }]],

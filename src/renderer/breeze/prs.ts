@@ -170,7 +170,7 @@ $('#scm').addEventListener('keydown', e => {
 });
 
 /* ----- Pull requests: the detail on the right ----- */
-type PrTab = 'commits' | 'files' | 'conflict';
+type PrTab = 'commits' | 'files' | 'comments' | 'conflict';
 const GH_ERROR_COPY: Record<string, string> = { reauth: 'Your GitHub sign-in expired', 'signed-out': 'Sign in with GitHub to see pull requests', 'not-github': 'This repository isn\'t on GitHub', 'no-remote': 'No origin remote' };
 // api.gh calls resolve to a GhResult, but a rejection (a broken IPC) must not leave a view on "Loading" for good.
 const ghSafe = <T>(p: Promise<GhResult<T>>): Promise<GhResult<T>> => p.catch((e: unknown) => ({ ok: false, error: 'http', message: errMsg(e) }) as GhResult<T>);
@@ -227,7 +227,7 @@ function prMergeBtnHtml(pr: GhPull): string {
   const st = prStatus(pr);
   if (st === 'draft') return '';
   const tip = PR_MERGE_TIP[st];
-  return `<button class="btn btn-primary btn-sm" id="prMerge" aria-haspopup="menu"${st !== 'ready' || prMerging ? ' disabled' : ''}${tip ? ` title="${escAttr(tip)}"` : ''}>${prMerging === pr.number ? 'Merging…' : 'Merge'}</button>`;
+  return `<button class="btn btn-primary btn-sm" id="prMerge" aria-haspopup="menu"${st !== 'ready' || prMerging || prClosing ? ' disabled' : ''}${tip ? ` title="${escAttr(tip)}"` : ''}>${prMerging === pr.number ? 'Merging…' : 'Merge'}</button>`;
 }
 function prMergeNoteHtml(n: number): string {
   const m = prMergeNote?.n === n ? prMergeNote : null;
@@ -238,6 +238,8 @@ function syncMergeUi(pr: GhPull): void {
   const view = document.querySelector(`#scmDetail .pr-view[data-n="${pr.number}"]`);
   const btn = view?.querySelector('#prMerge');
   if (btn) btn.outerHTML = prMergeBtnHtml(pr);
+  const close = view?.querySelector('#prClose'); // one at a time: closing waits for a merge, and the other way round
+  if (close) close.outerHTML = prCloseBtnHtml(pr);
   const note = view?.querySelector('#prMergeNote');
   if (note) note.innerHTML = prMergeNoteHtml(pr.number);
 }
@@ -290,15 +292,103 @@ async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
   }
 }
 
-function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, files: GhResult<GhFile[]>): string {
+/* ----- Pull requests: closing without merging ----- */
+let prClosing = 0; // the pull request being closed now (0: none)
+function prCloseBtnHtml(pr: GhPull): string {
+  return `<button class="btn btn-sm" id="prClose"${prClosing || prMerging ? ' disabled' : ''}>${prClosing === pr.number ? 'Closing…' : 'Close'}</button>`;
+}
+function confirmClosePr(pr: GhPull): void {
+  openModal(`<h3>Close pull request #${pr.number}?</h3>
+    <p class="sub">${esc(pr.title)} won't be merged. It can be reopened on GitHub.</p>
+    <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-danger" id="prCloseOk">Close pull request</button></div>`, m => {
+    $('#prCloseOk', m).onclick = () => { closeModal(); void closePr(pr); };
+  });
+}
+async function closePr(pr: GhPull): Promise<void> {
+  if (prClosing || prMerging) return;
+  const n = pr.number, gen = prOpenGen;
+  const shown = () => gen === prOpenGen && !!document.querySelector(`#scmDetail .pr-view[data-n="${n}"]`);
+  prClosing = n;
+  prMergeNote = null;
+  syncMergeUi(pr);
+  const res = await ghSafe(api.gh.close(n));
+  prClosing = 0;
+  if (!res.ok || !res.data.closed) {
+    const text = !res.ok && res.error === 'rate-limit' ? prRateLimitText(res.resetAt)
+      : !res.ok && res.error === 'forbidden' ? 'You don\'t have permission to close this pull request'
+      : (!res.ok && res.message) || 'Couldn\'t close this pull request';
+    if (shown()) prMergeNote = { n, text, reload: false }; else toast(text);
+    syncMergeUi(pr);
+    return;
+  }
+  toast(`Closed #${n}`);
+  if (shown()) scmEmptyDetail(); // it is no longer open
+  void refreshPrs(true);
+}
+
+/* ----- Pull requests: the conversation ----- */
+const PR_COMMENT_MAX = 65536; // GitHub's limit on a comment
+function prCommentHtml(c: GhComment): string {
+  const when = prAgo(c.createdAt);
+  return `<div class="pr-cm"><div class="pr-cm-head">${prAvatar(c.author, c.avatar)}<b>${esc(c.author)}</b>${when ? `<span>${esc(when)}</span>` : ''}</div><div class="pr-cm-body">${esc(c.body)}</div></div>`;
+}
+function prCommentsHtml(comments: GhComment[]): string {
+  const list = comments.length ? comments.map(prCommentHtml).join('') : '<p class="side-note pr-note">No comments yet</p>';
+  return `<div class="pr-cms">${list}</div>
+    <div class="pr-cm-dock"><div class="pr-cm-new" id="prCommentBox">
+      <textarea id="prCommentText" rows="1" maxlength="${PR_COMMENT_MAX}" placeholder="Leave a comment (Ctrl+Enter to send)" aria-label="Leave a comment"></textarea>
+      <div class="pr-cm-files" id="prCommentFiles"></div>
+      <div class="pr-cm-row"><button class="icon-btn" id="prCommentAttach" title="Attach a Markdown or text file" aria-label="Attach a Markdown or text file">${svgIcon('paperclip', 15)}</button><span class="pr-hint pr-cm-note" id="prCommentNote" role="alert"></span><button class="btn btn-primary btn-sm" id="prCommentSend" disabled>Comment</button></div>
+      <input type="file" id="prCommentPick" multiple hidden accept="text/*,.md,.markdown,.txt,.log,.json,.yaml,.yml,.csv,.toml,.ini,.xml">
+      <div class="pr-cm-drop" aria-hidden="true">Drop Markdown or text files to attach</div>
+    </div></div>`;
+}
+
+/* ----- Pull requests: attaching files to a comment ----- */
+// GitHub's API can't upload files to a comment, so only text goes: a Markdown file's contents are added to the comment as
+// they are, any other text file's in a code block. Images and binary files are refused.
+interface PrAttach { name: string; text: string; }
+const PR_ATTACH_MAX = 10;
+const PR_IMAGE_FILE = /\.(png|jpe?g|gif|webp|bmp|ico|svg|avif|heic|tiff?)$/i;
+const PR_MD_FILE = /\.(md|markdown|mdx)$/i;
+async function readPrAttachment(f: File): Promise<PrAttach | string> {
+  if (f.type.startsWith('image/') || PR_IMAGE_FILE.test(f.name)) return `${f.name}: images can't be attached, only Markdown and text files`;
+  if (f.size > PR_COMMENT_MAX * 4) return `${f.name} is too big for a GitHub comment`;
+  let text: string;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(await f.arrayBuffer()); } catch { return `${f.name} isn't a text file`; }
+  if (text.includes('\0')) return `${f.name} isn't a text file`;
+  return { name: f.name, text: text.replace(/^﻿/, '').replace(/\r\n/g, '\n') };
+}
+function prAttachMarkdown(a: PrAttach): string {
+  const title = `**${a.name.replace(/[\\`*_[\]<>#|]/g, '\\$&')}**`;
+  if (PR_MD_FILE.test(a.name)) return `${title}\n\n${a.text.trim()}`;
+  // A fence longer than any run of backticks inside, so the file can't end the block early.
+  const longest = Math.max(0, ...(a.text.match(/`+/g) ?? []).map(s => s.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  const lang = /\.([a-z0-9]+)$/i.exec(a.name)?.[1]?.toLowerCase() ?? '';
+  return `${title}\n\n${fence}${lang === 'txt' || lang === 'log' ? '' : lang}\n${a.text.replace(/\n+$/, '')}\n${fence}`;
+}
+const prCommentBody = (draft: string, atts: PrAttach[]): string => [draft.trim(), ...atts.map(prAttachMarkdown)].filter(Boolean).join('\n\n');
+function prAttachChipsHtml(atts: PrAttach[]): string {
+  return atts.map((a, i) => `<span class="pr-cm-chip" title="${escAttr(a.name)}"><span class="ico">${fileIcon(a.name)}</span><span class="nm">${esc(a.name)}</span><button class="icon-btn" data-unattach="${i}" title="Remove ${escAttr(a.name)}" aria-label="Remove ${escAttr(a.name)}">${svgIcon('x', 12)}</button></span>`).join('');
+}
+// The box grows with what is typed, up to a limit, then scrolls.
+function fitCommentBox(ta: HTMLTextAreaElement): void {
+  ta.style.height = 'auto';
+  const h = Math.min(ta.scrollHeight, 320);
+  ta.style.height = `${h}px`;
+  ta.style.overflowY = ta.scrollHeight > 320 ? 'auto' : 'hidden';
+}
+
+function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, files: GhResult<GhFile[]>, comments: GhResult<GhComment[]>): string {
   const st = prStatus(pr);
-  const tabs: [PrTab, string, number | null][] = [['commits', 'Commits', commits.ok ? commits.data.length : null], ['files', 'Files', files.ok ? files.data.length : null]];
+  const tabs: [PrTab, string, number | null][] = [['commits', 'Commits', commits.ok ? commits.data.length : null], ['files', 'Files', files.ok ? files.data.length : null], ['comments', 'Comments', comments.ok ? comments.data.length : null]];
   if (prHasConflict(pr)) tabs.push(['conflict', 'Conflict', null]); // a draft in conflict too; only Merge is hidden for drafts
   const when = prAgo(pr.createdAt);
   return `<div class="pr-head">
       <div class="pr-title"><h3>${esc(pr.title)}</h3><span class="pr-n">#${pr.number}</span>${pr.draft ? '<span class="pill">Draft</span>' : ''}</div>
       <div class="pr-meta"><span class="pr-st"><span class="pr-dot ${st}"></span>${PR_STATUS_LABEL[st]}</span><span class="pr-br">${esc(pr.head.label)} → ${esc(pr.base)}</span>${prAvatar(pr.author, pr.avatar)}<span>${esc(pr.author)}</span>${when ? `<span>${esc(when)}</span>` : ''}</div>
-      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${prMergeBtnHtml(pr)}</div>
+      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${prCloseBtnHtml(pr)}${prMergeBtnHtml(pr)}</div>
       <div class="pr-merge-note" id="prMergeNote" role="alert">${prMergeNoteHtml(pr.number)}</div>
     </div>
     <div class="pr-tabs" role="tablist">${tabs.map(([k, label, n]) => `<button class="pr-tab ${k === tab ? 'on' : ''}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n === null ? '' : ` <span class="count">${n}</span>`}</button>`).join('')}</div>
@@ -310,7 +400,7 @@ async function openPr(n: number): Promise<void> {
   prMergeNote = null; // opening it again (or Reload) starts clean
   const shown =() => gen === prOpenGen && !!document.querySelector(`#scmDetail .pr-view[data-n="${n}"]`);
   showScmDetail(`<div class="pr-view" data-n="${n}"><div class="pr-loading"><div class="spinner sm"></div>Loading pull request #${n}</div></div>`);
-  const [prRes, commits, files] = await Promise.all([ghSafe(api.gh.pr(n)), ghSafe(api.gh.prCommits(n)), ghSafe(api.gh.prFiles(n))]);
+  const [prRes, commits, files, comments] = await Promise.all([ghSafe(api.gh.pr(n)), ghSafe(api.gh.prCommits(n)), ghSafe(api.gh.prFiles(n)), ghSafe(api.gh.comments(n))]);
   if (!shown()) return; // another pull request, a file or the empty page took the right side meanwhile
   const view = document.querySelector<HTMLElement>('#scmDetail .pr-view') as HTMLElement;
   if (!prRes.ok) {
@@ -326,6 +416,29 @@ async function openPr(n: number): Promise<void> {
   let pr = prRes.data;
   let tab: PrTab = 'commits';
   const commitFiles = new Map<string, GhFile[]>();
+  let draft = ''; // the comment being written and its attachments, kept across tab switches
+  let atts: PrAttach[] = [];
+  let sending = false;
+  const commentBody = () => prCommentBody(draft, atts);
+  // Brings the attachment chips, the Comment button and the note up to date. `note` replaces the note when given.
+  const syncComposer = (note?: string): void => {
+    const files = view.querySelector('#prCommentFiles'), btn = view.querySelector<HTMLButtonElement>('#prCommentSend'), nt = view.querySelector('#prCommentNote');
+    if (files) files.innerHTML = prAttachChipsHtml(atts);
+    const body = commentBody(), over = body.length > PR_COMMENT_MAX;
+    if (btn) btn.disabled = sending || !body || over;
+    if (nt && note !== undefined) nt.textContent = note;
+    else if (nt && over) nt.textContent = 'This comment is too long for GitHub. Remove an attachment or shorten it';
+    else if (nt && nt.textContent?.startsWith('This comment is too long')) nt.textContent = '';
+  };
+  const addAttachments = async (list: FileList | File[]): Promise<void> => {
+    const problems: string[] = [];
+    for (const f of [...list]) {
+      if (atts.length >= PR_ATTACH_MAX) { problems.push(`At most ${PR_ATTACH_MAX} files can be attached`); break; }
+      const r = await readPrAttachment(f);
+      if (typeof r === 'string') problems.push(r); else atts.push(r);
+    }
+    if (shown()) syncComposer(problems.join('. '));
+  };
   const fail = (what: string) => `<p class="side-note pr-note">Couldn't load ${what}<button class="btn btn-sm" data-pr-view="retry">Retry</button></p>`;
 
   const paintBody = (): void => {
@@ -334,6 +447,15 @@ async function openPr(n: number): Promise<void> {
       if (!files.ok) { body.innerHTML = fail('files'); return; }
       body.innerHTML = '<div class="pr-files"></div>';
       mountPrFiles($('.pr-files', body), files.data, `${pr.url}/files`);
+    } else if (tab === 'comments') {
+      if (!comments.ok) { body.innerHTML = fail('comments'); return; }
+      body.classList.add('cm');
+      body.innerHTML = prCommentsHtml(comments.data);
+      const ta = $('#prCommentText', body) as HTMLTextAreaElement;
+      ta.value = draft;
+      fitCommentBox(ta);
+      syncComposer();
+      if (sending) { const b = $('#prCommentSend', body); b.textContent = 'Commenting…'; }
     } else if (tab === 'conflict') {
       const gone = pr.head.repo === null;
       body.innerHTML = `<div class="pr-conflict"><h4>This pull request has conflicts with ${esc(pr.base)}</h4><p>GitHub can't merge it until they are resolved.</p>
@@ -347,7 +469,7 @@ async function openPr(n: number): Promise<void> {
     }
   };
   const paint = (): void => {
-    view.innerHTML = prDetailShell(pr, tab, commits, files);
+    view.innerHTML = prDetailShell(pr, tab, commits, files, comments);
     paintBody();
   };
 
@@ -370,8 +492,68 @@ async function openPr(n: number): Promise<void> {
     box.dataset.loaded = '1';
   };
 
+  const sendComment = async (): Promise<void> => {
+    const text = commentBody();
+    if (sending || !text || text.length > PR_COMMENT_MAX || !comments.ok) return;
+    sending = true;
+    const btn0 = view.querySelector<HTMLButtonElement>('#prCommentSend');
+    if (btn0) { btn0.disabled = true; btn0.textContent = 'Commenting…'; }
+    syncComposer('');
+    const r = await ghSafe(api.gh.comment(n, text));
+    sending = false;
+    if (!shown()) { if (!r.ok) toast('Couldn\'t post your comment'); return; }
+    if (!r.ok) {
+      const btn = view.querySelector<HTMLButtonElement>('#prCommentSend'); // the tab may have been redrawn meanwhile
+      if (btn) btn.textContent = 'Comment';
+      const msg = r.error === 'rate-limit' ? prRateLimitText(r.resetAt) : GH_ERROR_COPY[r.error] ?? (r.message || 'Couldn\'t post your comment');
+      if (view.querySelector('#prCommentNote')) syncComposer(msg); else toast(msg);
+      return;
+    }
+    comments.data.push(r.data);
+    draft = '';
+    atts = [];
+    paint();
+    if (tab === 'comments') view.querySelector('.pr-cms > .pr-cm:last-child')?.scrollIntoView({ block: 'nearest' });
+  };
+  view.oninput = e => {
+    const ta = e.target as HTMLTextAreaElement;
+    if (ta.id !== 'prCommentText') return;
+    draft = ta.value;
+    fitCommentBox(ta);
+    syncComposer();
+  };
+  view.onchange = e => {
+    const input = e.target as HTMLInputElement;
+    if (input.id !== 'prCommentPick' || !input.files?.length) return;
+    const picked = [...input.files];
+    input.value = ''; // picking the same file again still fires
+    void addAttachments(picked);
+  };
+  // Files dropped anywhere on the Comments tab are attached; the page-wide drop handling (opening files) never sees them.
+  const commentDrop = (e: DragEvent): boolean => tab === 'comments' && comments.ok && !!e.dataTransfer?.types.includes('Files') && !!view.querySelector('#prCommentBox');
+  const markDropBox = (on: boolean) => view.querySelector('#prCommentBox')?.classList.toggle('drag-over', on);
+  view.ondragover = e => {
+    if (!commentDrop(e)) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    markDropBox(true);
+  };
+  view.ondragleave = e => { if (!view.contains(e.relatedTarget as Node | null)) markDropBox(false); };
+  view.ondrop = e => {
+    if (!commentDrop(e)) return;
+    e.preventDefault(); e.stopPropagation();
+    markDropBox(false);
+    if (e.dataTransfer?.files.length) void addAttachments(e.dataTransfer.files);
+  };
+
   view.onclick = e => {
     const t = e.target as HTMLElement;
+    if (t.closest('#prCommentSend')) { void sendComment(); return; }
+    if (t.closest('#prCommentAttach')) { view.querySelector<HTMLInputElement>('#prCommentPick')?.click(); return; }
+    const un = t.closest<HTMLElement>('[data-unattach]');
+    if (un) { atts.splice(Number(un.dataset.unattach), 1); syncComposer(''); return; }
+    const closeBtn = t.closest<HTMLElement>('#prClose');
+    if (closeBtn) { if (!closeBtn.hasAttribute('disabled')) confirmClosePr(pr); return; }
     const tabBtn = t.closest<HTMLElement>('[data-tab]');
     if (tabBtn) { tab = tabBtn.dataset.tab as PrTab; paint(); return; }
     if (t.closest('[data-pr-view="retry"]')) { void openPr(n); return; }
@@ -390,6 +572,10 @@ async function openPr(n: number): Promise<void> {
     if (commitHead) void toggleCommit(commitHead.parentElement as HTMLElement);
   };
   view.onkeydown = e => {
+    if ((e.target as HTMLElement).id === 'prCommentText') {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void sendComment(); }
+      return;
+    }
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const head = (e.target as HTMLElement).closest<HTMLElement>('.pr-file-head, .pr-commit-head');
     if (head) { e.preventDefault(); head.click(); }

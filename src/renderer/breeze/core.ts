@@ -59,6 +59,7 @@ interface GhPull {
   url: string; createdAt: string;
 }
 interface GhCommit { sha: string; message: string; author: string; avatar: string | null; date: string | null; }
+interface GhComment { id: number; author: string; avatar: string | null; body: string; createdAt: string | null; url: string; }
 interface GhFile { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null; }
 type GhResult<T> = { ok: true; data: T } | { ok: false; error: string; message?: string; resetAt?: number | null };
 // A year of GitHub contributions: weeks run Sunday to Saturday (the first and last can be short); level is 0–4.
@@ -301,6 +302,10 @@ interface BreezeApi {
     commit(sha: string): Promise<GhResult<GhFile[]>>;
     repo(): Promise<GhResult<{ allowMerge: boolean; allowSquash: boolean; allowRebase: boolean }>>;
     merge(n: number, method: 'merge' | 'squash' | 'rebase', sha: string): Promise<GhResult<{ merged: boolean; message: string }>>;
+    // The pull request's conversation (its issue comments), adding one, and closing it without merging.
+    comments(n: number): Promise<GhResult<GhComment[]>>;
+    comment(n: number, body: string): Promise<GhResult<GhComment>>;
+    close(n: number): Promise<GhResult<{ closed: boolean }>>;
     // The active account's last year of contributions; error 'not-github' when the active account isn't GitHub.
     contributions(): Promise<GhResult<GhContributions>>;
   };

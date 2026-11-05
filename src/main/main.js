@@ -13,7 +13,7 @@ const vm = require('node:vm');
 const { findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
 const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
 const { AntigravityAgentService } = require('./antigravityAgentService.js');
-const { parseGithubRemote, githubClient, GithubError, enrichPulls } = require('./github');
+const { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } = require('./github');
 const prconflict = require('./prconflict');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
@@ -3250,6 +3250,20 @@ handle('gh:merge', async (_e, n, method, sha) => {
     const out = await client.mergePull(owner, repo, n, { method, sha });
     // The merged pull request is gone from its base's list; drop this repository's cached lists (the base is part of the key).
     if (out.merged) for (const k of prCache.keys()) if (k.startsWith(`${owner}/${repo}/`)) prCache.delete(k);
+    return out;
+  });
+});
+handle('gh:comments', async (_e, n) => (prNumberOk(n) ? ghCall(({ client, owner, repo }) => client.listComments(owner, repo, n)) : GH_INVALID));
+handle('gh:comment', async (_e, n, body) => {
+  if (!prNumberOk(n) || typeof body !== 'string' || !body.trim() || body.length > MAX_COMMENT_LEN) return GH_INVALID;
+  return ghCall(({ client, owner, repo }) => client.addComment(owner, repo, n, body));
+});
+handle('gh:close', async (_e, n) => {
+  if (!prNumberOk(n)) return GH_INVALID;
+  return ghCall(async ({ client, owner, repo }) => {
+    const out = await client.closePull(owner, repo, n);
+    // A closed pull request is gone from its base's list, as a merged one is.
+    if (out.closed) for (const k of prCache.keys()) if (k.startsWith(`${owner}/${repo}/`)) prCache.delete(k);
     return out;
   });
 });

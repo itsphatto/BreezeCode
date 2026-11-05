@@ -3,6 +3,8 @@
 const API = 'https://api.github.com';
 const MAX_FILES = 3000; // the API itself stops listing a pull request's files here
 const MAX_COMMITS = 250;
+const MAX_COMMENTS = 250;
+const MAX_COMMENT_LEN = 65536; // GitHub's own limit on a comment's body
 
 // Reads owner/repo out of an https, scp-style or ssh GitHub remote. Anything else is null.
 function parseGithubRemote(url) {
@@ -72,6 +74,15 @@ const normalizeCommit = c => ({
   date: c.commit?.author?.date ?? null,
 });
 
+const normalizeComment = c => ({
+  id: c.id,
+  author: c.user?.login ?? '',
+  avatar: c.user?.avatar_url ?? null,
+  body: c.body ?? '',
+  createdAt: c.created_at ?? null,
+  url: c.html_url ?? '',
+});
+
 function githubClient({ token, fetch: f = fetch }) {
   const request = async (method, path, body) => {
     let res;
@@ -136,6 +147,19 @@ function githubClient({ token, fetch: f = fetch }) {
       const d = await request('PUT', `${rp(o, r)}/pulls/${n}/merge`, { merge_method: method, sha });
       return { merged: !!d?.merged, message: d?.message ?? '' };
     },
+    // A pull request's conversation is its issue's comments (review comments on lines are a separate list).
+    async listComments(o, r, n) {
+      return (await paged(`${rp(o, r)}/issues/${n}/comments`, MAX_COMMENTS)).map(normalizeComment);
+    },
+    async addComment(o, r, n, body) {
+      if (typeof body !== 'string' || !body.trim()) throw new Error('addComment needs a body');
+      if (body.length > MAX_COMMENT_LEN) throw new Error('That comment is too long for GitHub');
+      return normalizeComment(await request('POST', `${rp(o, r)}/issues/${n}/comments`, { body }));
+    },
+    async closePull(o, r, n) {
+      const d = await request('PATCH', `${rp(o, r)}/pulls/${n}`, { state: 'closed' });
+      return { closed: d?.state === 'closed' };
+    },
   };
 }
 
@@ -164,4 +188,4 @@ async function enrichPulls(client, owner, repo, pulls, limit = 6) {
   return { pulls: out, partial };
 }
 
-module.exports = { parseGithubRemote, githubClient, GithubError, enrichPulls };
+module.exports = { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN };

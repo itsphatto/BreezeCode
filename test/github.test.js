@@ -254,3 +254,32 @@ test('mergePull sends the method and head sha', async () => {
   assert.deepEqual(JSON.parse(f.calls[0].init.body), { merge_method: 'squash', sha: 'abc' });
   assert.deepEqual(out, { merged: true, message: 'Pull Request successfully merged' });
 });
+
+test('listComments reads the issue comments and normalizes them', async () => {
+  const f = fakeFetch({ json: [{ id: 3, user: { login: 'octo', avatar_url: 'https://a/o.png' }, body: 'Looks good', created_at: '2026-01-02T03:04:05Z', html_url: 'https://github.com/o/r/pull/7#issuecomment-3' }] });
+  const out = await githubClient({ token: 't', fetch: f }).listComments('o', 'r', 7);
+  assert.equal(f.calls[0].url, 'https://api.github.com/repos/o/r/issues/7/comments?per_page=100&page=1');
+  assert.deepEqual(out, [{ id: 3, author: 'octo', avatar: 'https://a/o.png', body: 'Looks good', createdAt: '2026-01-02T03:04:05Z', url: 'https://github.com/o/r/pull/7#issuecomment-3' }]);
+});
+
+test('addComment posts the body and refuses an empty one', async () => {
+  const f = fakeFetch({ status: 201, json: { id: 9, user: { login: 'me' }, body: 'Thanks!', created_at: 'x', html_url: 'u' } });
+  const client = githubClient({ token: 't', fetch: f });
+  await assert.rejects(client.addComment('o', 'r', 7, '   '), /body/);
+  const out = await client.addComment('o', 'r', 7, 'Thanks!');
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].url, 'https://api.github.com/repos/o/r/issues/7/comments');
+  assert.equal(f.calls[0].init.method, 'POST');
+  assert.deepEqual(JSON.parse(f.calls[0].init.body), { body: 'Thanks!' });
+  assert.equal(out.id, 9);
+  assert.equal(out.author, 'me');
+});
+
+test('closePull sets the state to closed', async () => {
+  const f = fakeFetch({ json: { state: 'closed' } });
+  const out = await githubClient({ token: 't', fetch: f }).closePull('o', 'r', 7);
+  assert.equal(f.calls[0].url, 'https://api.github.com/repos/o/r/pulls/7');
+  assert.equal(f.calls[0].init.method, 'PATCH');
+  assert.deepEqual(JSON.parse(f.calls[0].init.body), { state: 'closed' });
+  assert.deepEqual(out, { closed: true });
+});

@@ -184,6 +184,9 @@ contextBridge.exposeInMainWorld('breeze', {
     commit: sha => invoke('gh:commit', sha),
     repo: () => invoke('gh:repo'),
     merge: (n, method, sha) => invoke('gh:merge', n, method, sha),
+    comments: n => invoke('gh:comments', n),
+    comment: (n, body) => invoke('gh:comment', n, body),
+    close: n => invoke('gh:close', n),
     contributions: () => invoke('gh:contributions'),
   },
   auth: {
