@@ -211,6 +211,10 @@ class CodeSurface extends EventTarget {
   get clientWidth() { return this.root.clientWidth; }
   get scrollHeight() { return this.root.scrollHeight; }
   get scrollWidth() { return this.root.scrollWidth; }
+  // Unlike scrollWidth, this doesn't stop at the viewport's width when the text is narrower.
+  get contentWidth() { return this.widest * this.opts.charWidth() + this.opts.pad.left + this.opts.pad.right; }
+  get widestCols() { return this.widest; }
+  get pad() { return this.opts.pad; }
   get classList() { return this.root.classList; }
 
   focus(opts?: FocusOptions) { this.input.focus(opts); }
@@ -425,16 +429,24 @@ class CodeSurface extends EventTarget {
     d.x = e.clientX; d.y = e.clientY;
     if (!d.raf) this.dragStep(); // while auto-scrolling, the next frame picks up the new spot
   };
-  // Extend to the pointer, clamped to the viewport; outside it vertically, scroll by distance / 4 lines a frame.
+  // Extend to the pointer, clamped to the viewport; outside it vertically, scroll by distance / 4 lines a frame, and
+  // at its sides by dragScrollX.
   private dragStep = () => {
     const d = this.drag;
     if (!d) return;
     d.raf = 0;
-    const rect = this.root.getBoundingClientRect();
+    const r = this.root, rect = r.getBoundingClientRect();
     const dist = d.y < rect.top ? d.y - rect.top : d.y > rect.bottom ? d.y - rect.bottom : 0;
-    if (dist) this.root.scrollTop += (dist / 4) * this.opts.lineHeight;
-    this.dragTo(d.x, Math.max(rect.top, Math.min(d.y, rect.bottom - 1)));
-    if (dist) d.raf = requestAnimationFrame(this.dragStep);
+    const y = Math.max(rect.top, Math.min(d.y, rect.bottom - 1));
+    if (dist) r.scrollTop += (dist / 4) * this.opts.lineHeight;
+    let side = dragScrollX(d.x, rect.left, rect.right);
+    if (side > 0 && !d.box) { // only to the end of the pointer's line: a shorter line than the file's widest would scroll away
+      const line = this.cellAt(d.x, y).line, end = this.xOf(line, this.lineText(line).length) + this.opts.pad.right;
+      side = Math.min(side, Math.max(0, Math.ceil(end - r.clientWidth - r.scrollLeft)));
+    }
+    if (side) r.scrollLeft += side;
+    this.dragTo(Math.max(rect.left, Math.min(d.x, rect.right - 1)), y);
+    if (dist || side) d.raf = requestAnimationFrame(this.dragStep);
   };
   private endDrag = () => {
     if (!this.drag) return;
@@ -500,7 +512,7 @@ class CodeSurface extends EventTarget {
   private sizeSpacer() {
     const { lineHeight, pad } = this.opts;
     this.spacer.style.height = this.lines().length * lineHeight + pad.top + pad.bottom + 'px';
-    this.spacer.style.width = this.widest * this.opts.charWidth() + pad.left + pad.right + 'px';
+    this.spacer.style.width = this.contentWidth + 'px';
   }
 
   // Paint selection boxes and carets for the visible lines plus a 5-line margin; the input follows the primary always.

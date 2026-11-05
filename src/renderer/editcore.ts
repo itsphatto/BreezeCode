@@ -404,6 +404,14 @@ function splitPaste(clip: string, n: number): string[] {
   return Array.from({ length: n }, () => clip);
 }
 
+// How far a selection drag scrolls sideways this frame, in px: half the pointer's distance past the viewport's edge,
+// rounded away from 0 so a slow drag still moves. The right edge counts 12px early: an editor against the screen's
+// side leaves the pointer nowhere further to go.
+function dragScrollX(x: number, left: number, right: number): number {
+  const edge = right - 12, past = x < left ? x - left : x > edge ? x - edge : 0;
+  return Math.sign(past) * Math.ceil(Math.abs(past) / 2);
+}
+
 // The cursors of a box drag: one per line between the two corners, each from the `from` visual column to the `to`
 // one, cut short where a line is shorter. The anchor is on the `from` side, so a leftward drag selects backward.
 function columnSels(text: string, starts: number[], fromLine: number, fromVcol: number, toLine: number, toVcol: number): Sel[] {
@@ -414,4 +422,41 @@ function columnSels(text: string, starts: number[], fromLine: number, fromVcol: 
     out.push({ anchor: ls + colAtVisual(line, fromVcol), head: ls + colAtVisual(line, toVcol) });
   }
   return out;
+}
+
+// One axis of the minimap, in map px. `pos`, `view`, `overflow` and `pad` are the editor's scroll position, viewport,
+// furthest scroll and padding before the text; `scale` is map px per editor px, `full` the whole content on the map and
+// `box` the map itself. Content bigger than the map pans with the scroll (`offset`), so its far end arrives as the
+// scroll does; `start` and `size` are the shaded box, `perPx` the scroll px per map px of a box drag, and `centreOn`
+// the scroll that centres the view on a map spot. Nothing to scroll: the box fills the axis. A box with hardly any room
+// to travel can't track the pointer (a pixel would be the whole scroll), so its drag goes at the map's own scale.
+function mapAxis(pos: number, view: number, overflow: number, pad: number, scale: number, full: number, box: number) {
+  if (overflow <= 0) return { offset: 0, start: 0, size: box, perPx: 0, centreOn: (_at: number) => 0 };
+  const offset = Math.max(0, full - box) * pos / overflow;
+  const size = Math.min(box, Math.max(8, view * scale)); // 8: still big enough to grab
+  const travel = Math.min(full, box) - size;
+  return {
+    offset, size,
+    start: Math.max(0, Math.min(box - size, (pos - pad) * scale - offset)),
+    perPx: travel >= size / 4 ? overflow / travel : 1 / scale,
+    centreOn: (at: number) => (at + offset) / scale + pad - view / 2,
+  };
+}
+
+// Walks a line (offsets `at` to `end`) to visual column `first`, so tabs land on their stops: the offset and column reached.
+// shortcut: past 4096 chars a tab counts as one column to keep huge lines cheap, walk the whole line if that ever shows.
+function walkToCol(text: string, at: number, end: number, first: number): { at: number; col: number } {
+  let col = 0;
+  for (const stop = Math.min(end, at + 4096); at < stop && col < first; at++) col += text.charCodeAt(at) === 9 ? 4 - (col % 4) : 1;
+  return col < first ? { at: at + first - col, col: first } : { at, col };
+}
+
+// A cubic Bezier sampled at n + 1 evenly spaced t: keyframes along a curve (the setup screens' fly-ins).
+type CurvePoint = { x: number; y: number };
+function curveFrames(p0: CurvePoint, p1: CurvePoint, p2: CurvePoint, p3: CurvePoint, n: number): CurvePoint[] {
+  const at = (a: number, b: number, c: number, d: number, t: number) => {
+    const u = 1 - t;
+    return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+  };
+  return Array.from({ length: n + 1 }, (_, i) => ({ x: at(p0.x, p1.x, p2.x, p3.x, i / n), y: at(p0.y, p1.y, p2.y, p3.y, i / n) }));
 }

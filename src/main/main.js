@@ -280,14 +280,18 @@ function createSplash(bounds) {
   // No setIgnoreMouseEvents here: on Windows it turns the window into an opaque layered one and the desktop stops
   // showing through. The splash can't take focus, so a click on it simply does nothing.
   splash.webContents.on('will-navigate', e => e.preventDefault());
-  // On a holiday the intro takes the day's colours (launch.css). The page runs no scripts of its own, so the day is
-  // set from here, before its first frame shows.
+  // On a holiday the intro takes the day's colours, and after setup the dark themes open onto Home's night sky (launch.css).
+  // The page runs no scripts of its own, so both are set from here, before its first frame shows. Setup keeps the
+  // signature sky, since the welcome screen it hands over to is drawn on it. The theme is in the app page's storage.
   const day = holidayToday();
-  if (day) {
-    splash.webContents.once('dom-ready', () => {
-      splash?.webContents.executeJavaScript(`document.documentElement.dataset.holiday = ${JSON.stringify(day)}`).catch(logError('splash'));
-    });
-  }
+  splash.webContents.once('dom-ready', () => {
+    splash?.webContents.executeJavaScript(`(() => {
+      const root = document.documentElement;
+      const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
+      if (${JSON.stringify(day)}) root.dataset.holiday = ${JSON.stringify(day)};
+      if (read('breeze.app', {}).onboarded && read('breeze.theme', 'dark') !== 'light') root.dataset.sky = 'night';
+    })()`).catch(logError('splash'));
+  });
   splash.on('closed', () => { splash = null; });
   // The hand-off counts from when the intro first shows; a splash that never paints doesn't hold the app back.
   splashShown = new Promise(done => {

@@ -1,28 +1,48 @@
 /* ================= App state (survives reloads) ================= */
 type WorkMode = 'ide' | 'box';
 interface AppState {
-  onboarded: boolean; step: number; user: User | null; agent: string | null; detect: Detection | null;
+  onboarded: boolean; step: number; name: string | null; termsAcceptedAt: number | null;
+  user: User | null; agent: string | null; detect: Detection | null;
   vibeArmed: boolean; vibeSites: string[]; vibeSite: string | null; mode: WorkMode;
   discord: boolean; discordDetails: boolean; devMode: boolean;
 }
+const savedApp = store.get<Partial<AppState>>('breeze.app', {});
 const appState: AppState = {
-  onboarded: false, step: 0, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
+  onboarded: false, step: 0, name: null, termsAcceptedAt: null, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
   discord: false, discordDetails: true, devMode: false,
-  ...store.get<Partial<AppState>>('breeze.app', {}),
+  ...savedApp,
 };
+// A save from before the name screen has no `name` (every save since does) and counts the later steps one lower.
+if (savedApp.name === undefined && savedApp.step) appState.step++;
 const saveApp = () => store.set('breeze.app', appState);
 // The blue app icon, or in developer mode the flipped one (white tile, blue wind).
 const appIcon = () => `../../assets/brand/${appState.devMode ? 'IconDev' : 'Icon'}.png`;
 
-/* ================= Onboarding: welcome → login → preferences (and agent) → home ================= */
+/* ================= Onboarding: welcome → name → account → preferences (and agent) → home ================= */
 // Home is also where every later launch lands (see init.ts).
-const STEP = { welcome: 0, signIn: 1, agent: 2, home: 3 };
+const STEP = { welcome: 0, name: 1, signIn: 2, agent: 3, home: 4 };
 let step = Math.min(appState.step, STEP.home);
 let user: User | null = appState.user;
+// Who to greet: the name they gave us wins over the one their account came with.
+const displayName = () => appState.name || user?.name || null;
+const nameInput = $<HTMLInputElement>('#obName'), nameNext = $<HTMLButtonElement>('#obNameNext');
+const termsBox = $<HTMLInputElement>('#obTerms'), accountNext = $<HTMLButtonElement>('#obAccountNext');
+$$<HTMLImageElement>('.ob-icon').forEach(i => { i.src = appIcon(); });
 function goStep(n: number): void {
+  // Hidden sections can't be measured, so the logo's old spot is read before they swap (mid-flight: where it is on screen).
+  const prev = step, oldLogo = stepLogo(prev);
+  const from = oldLogo?.getClientRects().length ? oldLogo.getBoundingClientRect() : null;
+  stopObMotion();
   step = n; appState.step = n; saveApp();
   $$('.ob-step').forEach(s => s.classList.toggle('hidden', Number(s.dataset.step) !== n));
-  $$('.ob-dots span').forEach((d, i) => { d.classList.toggle('on', i === n); d.classList.toggle('back', i < n); });
+  $$('.ob-dots span').forEach((d, i) => {
+    d.classList.toggle('on', i === n); d.classList.toggle('back', i < n); d.tabIndex = i < n ? 0 : -1;
+    d.setAttribute('aria-disabled', String(i >= n));
+    if (i === n) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
+  });
+  if (n === STEP.name || n === STEP.signIn) $$<HTMLImageElement>('.ob-icon').forEach(i => { i.src = appIcon(); }); // developer mode may have flipped it
+  if (n === STEP.name) { nameInput.value = (displayName() ?? '').slice(0, 40).replace(/[\uD800-\uDBFF]$/, ''); syncNameNext(); } // the cut mustn't split an emoji
+  if (n === STEP.signIn) { renderConnected(); termsBox.checked = !!appState.termsAcceptedAt; syncAccountNext(); }
   if (n === STEP.agent) {
     renderObPrefs(); // settings.ts
     detectTools().catch(() => { /* the agent card shows the error */ });
@@ -30,10 +50,94 @@ function goStep(n: number): void {
   if (n === STEP.home) renderHome();
   // Once set up, Home is a screen of its own rather than a setup step, so the progress dots go.
   $('#onboard').classList.toggle('settled', appState.onboarded);
-  $('#homeProfile').classList.toggle('hidden', n !== STEP.home);
-  placeSignIn(false); // opening Home on a short window: already in place, no flight
+  playStep(prev, n, oldLogo, from);
 }
 $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
+
+/* ----- Motion between setup steps: going forward the heading or form flies in on a curve, the logo glides between
+   its spots on any change, going back everything else just fades. ----- */
+const OB_SOFT = 'cubic-bezier(.16, 1, .3, 1)';
+const OB_CURVE = 'cubic-bezier(.22, .72, .2, 1)'; // softer off the mark than OB_SOFT, or the curve is over before it's seen
+const stepEl = (n: number) => $(`.ob-step[data-step="${n}"]`);
+const stepLogo = (n: number) => stepEl(n).querySelector<HTMLImageElement>('.ob-logo, .ob-icon');
+const motionOff = () => document.documentElement.classList.contains('win-jump') || matchMedia('(prefers-reduced-motion: reduce)').matches;
+let obAnims: Animation[] = [], obGhost: HTMLElement | null = null;
+function stopObMotion(): void {
+  obAnims.forEach(a => a.cancel());
+  obAnims = [];
+  obGhost?.remove();
+  obGhost = null;
+  $('#onboard').classList.remove('ob-flying');
+}
+const obAnim = (el: Element, frames: Keyframe[], options: KeyframeAnimationOptions) => { obAnims.push(el.animate(frames, { fill: 'backwards', ...options })); };
+const riseIn = (el: Element, delay = 0) => obAnim(el, [{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }], { duration: 560, delay, easing: OB_SOFT });
+// Flies el into its place along a curve given relative to that place (the last point is always 0,0), fading in on the way.
+function curveIn(el: Element, p0: CurvePoint, p1: CurvePoint, p2: CurvePoint, duration: number): void {
+  const n = 40, pts = curveFrames(p0, p1, p2, { x: 0, y: 0 }, n);
+  obAnim(el, pts.map((p, i) => ({ transform: `translate(${p.x}px, ${p.y}px)`, opacity: Math.min(1, i / n * 2.2) })), { duration, easing: OB_CURVE });
+}
+// The logo travels from its old spot to its new one. When the picture differs, or there's no new spot, a copy of the old
+// one travels along and fades out over the new.
+function glideLogo(logo: HTMLImageElement | null, old: HTMLImageElement, from: DOMRect): void {
+  const to = logo?.getBoundingClientRect() ?? from, same = logo?.src === old.src;
+  const dx = from.left + from.width / 2 - to.left - to.width / 2, dy = from.top + from.height / 2 - to.top - to.height / 2, scale = from.width / to.width;
+  const timing = { duration: 760, easing: OB_SOFT };
+  if (logo) obAnim(logo, [{ transform: `translate(${dx}px, ${dy}px) scale(${scale})`, opacity: same ? 1 : 0 }, { transform: 'none', opacity: 1 }], timing);
+  if (same) return;
+  const ghost = obGhost = old.cloneNode() as HTMLImageElement;
+  ghost.className = 'ob-ghost';
+  ghost.alt = '';
+  Object.assign(ghost.style, { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px` });
+  $('#onboard').append(ghost);
+  ghost.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${-dx}px, ${-dy}px) scale(${1 / scale})`, opacity: 0 }], { ...timing, fill: 'forwards' })
+    .onfinish = () => ghost.remove();
+}
+function playStep(prev: number, n: number, oldLogo: HTMLImageElement | null, from: DOMRect | null): void {
+  const el = stepEl(n), logo = stepLogo(n);
+  const settled = () => {
+    $('#onboard').classList.remove('ob-flying');
+    syncDots();
+    if (n === STEP.name) { nameInput.focus({ preventScroll: true }); nameInput.setSelectionRange(nameInput.value.length, nameInput.value.length); }
+    // What had focus just went away with the old screen; a keyboard or screen reader user lands on the new one.
+    else if (!el.contains(document.activeElement)) el.querySelector<HTMLElement>('h1, h2')?.focus({ preventScroll: true });
+  };
+  if (prev !== n && !appState.onboarded && !motionOff()) {
+    $('#onboard').classList.add('ob-flying');
+    if (n !== STEP.home) el.getAnimations({ subtree: true }).forEach(a => a.cancel()); // coming back to the welcome replays its intro otherwise
+    if (oldLogo && from) glideLogo(logo, oldLogo, from);
+    else if (logo) obAnim(logo, [{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' }); // no logo on the screen it came from
+    if (n !== STEP.home) {
+      if (n < prev) {
+        // Each card fades itself: one fading inside a parent loses its blurred backdrop until the fade ends.
+        el.querySelectorAll(':scope > :not(.ob-logo, .ob-icon, .setup-grid), .setup-card').forEach(c => obAnim(c, [{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' }));
+      } else if (n === STEP.name) {
+        const h = $('h2', el), x = -(h.getBoundingClientRect().right + 40), y = Math.min(innerHeight * .22, 150);
+        curveIn(h, { x, y }, { x: x * .62, y: y * .38 }, { x: x * .28, y: 0 }, 860);
+        riseIn($('.ob-field', el), 240);
+        riseIn(nameNext, 320);
+      } else if (n === STEP.signIn) {
+        // Up from below the window, bowing out through the left gutter where it can be seen, then level into place.
+        const form = $('.ob-form', el), r = form.getBoundingClientRect(), x = -r.left;
+        curveIn(form, { x: x * .7, y: innerHeight - r.top }, { x: x * 1.05, y: innerHeight * .3 }, { x: x * .6, y: 0 }, 880);
+      } else {
+        el.querySelectorAll(':scope > :not(.setup-grid), .setup-card').forEach((c, i) => riseIn(c, i * 50));
+      }
+    }
+  }
+  if (obAnims.length) Promise.all(obAnims.map(a => a.finished)).then(settled, () => { /* a newer step took over */ });
+  else settled();
+}
+
+/* ----- Name ----- */
+function syncNameNext(): void { nameNext.disabled = !nameInput.value.trim(); }
+nameInput.oninput = syncNameNext;
+$('#obNameForm').onsubmit = e => {
+  e.preventDefault();
+  const name = nameInput.value.trim();
+  if (!name) return;
+  appState.name = name;
+  goStep(STEP.signIn);
+};
 // While the onboarding screen (and so Home) is up, the window buttons sit straight on its backdrop and draw light.
 function syncTitleBar(): void {
   const ob = $('#onboard');
@@ -46,15 +150,20 @@ syncTitleBar();
 // The dots before the current one take you back to that step.
 $$('.ob-dots span').forEach((d, i) => {
   d.onclick = () => { if (i < step) goStep(i); };
-  d.setAttribute('aria-label', `Step ${i + 1}`);
+  d.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); d.click(); } };
+  d.setAttribute('role', 'button');
+  d.setAttribute('aria-label', `Step ${i + 1}: ${['Welcome', 'Your name', 'Account', 'Make it yours', 'Home'][i]}`);
 });
+// Nothing here has a double-click, and the first click may have changed the screen: the second would land on whatever
+// is now under the pointer (a theme, a new file).
+$('#onboard').addEventListener('click', e => { if (e.detail > 1) { e.preventDefault(); e.stopPropagation(); } }, true);
 
 /* ----- Accounts ----- */
 function setUser(u: User | null): void {
   user = u; appState.user = u; saveApp();
   renderUser();
 }
-const initialsOf = (name: string) => name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+const initialsOf = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(w => [...w][0] ?? '').join('').toUpperCase(); // by code point: w[0] splits an emoji
 function avatarHtml(u: User | null, title: string): string {
   const name = u?.name ?? 'You';
   if (u?.avatar) return `<img class="avatar" src="${escAttr(u.avatar)}" alt="" title="${escAttr(title)}">`;
@@ -66,58 +175,36 @@ function renderUser(): void {
   $('#boxAvatar').innerHTML = avatarHtml(user, title);
   $('#userChip').textContent = user ? `● ${user.name} · ${user.provider}` : 'Not signed in';
   renderHomeProfile();
+  renderConnected();
 }
-// Home's account button (picture, name and provider, or an invitation to sign in) and its greeting.
+// Home's account button (picture, name and email, or an invitation to sign in) and its greeting.
+let homeProfileHtml = '';
 function renderHomeProfile(): void {
-  const first = user?.name.split(/\s+/)[0];
-  // "Welcome back, (picture) name": the picture is the account button, sitting inside the heading.
+  const who = displayName(), first = who?.split(/\s+/)[0];
   // Signed out there is no one to welcome back, so it invites them in instead.
   $('#homeGreet').textContent = (!appState.onboarded ? 'Ready when you are' : first ? 'Welcome Back' : 'Welcome to Breeze') + (first ? ',' : '');
   $('#homeLead').textContent = !appState.onboarded ? 'Open a project to start building.'
     : first ? timeGreeting()
     : 'Sign in to bring your name and picture along, or just open a project.';
   $('#homeName').textContent = first ?? '';
-  const btn = $('#homeProfile'), name = $('#homeName');
-  // Signed in it sits in the heading beside the name; signed out the Sign in button goes back to the bottom left.
-  // Moved only when it isn't there already: re-inserting it restarts its fade-in from nothing, and opening a project
-  // redraws the user, so the picture flashed out and back the moment Continue was clicked.
-  if (user && btn.nextSibling !== name) name.before(btn); // with the name, in one piece that wraps together
-  if (user) btn.classList.remove('corner');
-  else placeSignIn(false);
-  btn.innerHTML = user
-    ? avatarHtml(user, '')
-    : `<span class="hp-ico">${svgIcon('user', 15)}</span><span class="hp-txt"><span class="nm">Sign in</span></span>`;
-  // No hover tooltip; the label is kept for screen readers.
-  btn.removeAttribute('title');
-  btn.setAttribute('aria-label', user ? `${user.name} · ${user.provider}` : 'Sign in with GitHub or Google');
+  const btn = $('#homeProfile');
+  const pic = user?.avatar ? avatarHtml(user, '') : who ? `<span class="avatar tint-host">${esc(initialsOf(who))}</span>` : `<span class="hp-ico">${svgIcon('user', 15)}</span>`;
+  const sub = user ? user.email || user.provider : who ? 'Sign in' : '';
+  const html = `${pic}<span class="hp-txt"><span class="nm">${esc(who ?? 'Sign in')}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span>`;
+  // Opening a project redraws the user; redrawing the same picture flashed it out and back as Home left.
+  if (html !== homeProfileHtml) { homeProfileHtml = html; btn.innerHTML = html; }
+  btn.setAttribute('aria-label', user ? `${who} · ${user.provider}` : `${who ? `${who}. ` : ''}Sign in with GitHub or Google`);
   // Signed in it opens the account menu; signed out it goes straight to signing in.
   btn.setAttribute('aria-haspopup', user ? 'menu' : 'dialog');
 }
-// The Sign in button's corner is the gutter Home leaves under its cards. Once the window is too short for that gutter
-// Home scrolls and the button would sit on the cards, so it glides up to the heading's line, looking the same all the
-// way (and back when there's room). Hidden, nothing can be measured: it stays where it is.
-function placeSignIn(morph = true): void {
-  if (user) return;
-  const btn = $('#homeProfile'), ob = $('#onboard'), title = $('#homeTitle');
-  const shown = btn.getClientRects().length > 0;
-  const spot = (shown ? ob.scrollHeight > ob.clientHeight : btn.parentElement === title) ? title : ob;
-  if (btn.parentElement === spot) return;
-  const from = btn.getBoundingClientRect();
-  btn.getAnimations().forEach(a => a.cancel()); // from wherever a flight still running has it
-  spot.moveBefore(btn, null); // unlike appendChild, keeps its focus and doesn't restart its fade-in
-  btn.classList.toggle('corner', spot === ob);
-  if (!morph || !shown || document.documentElement.classList.contains('win-jump') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const to = btn.getBoundingClientRect();
-  btn.animate([
-    { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)` },
-    { transform: 'none' },
-  ], { duration: 480, easing: 'cubic-bezier(.4, 0, .2, 1)' });
-}
-new ResizeObserver(() => placeSignIn()).observe($('#onboard'));
-new ResizeObserver(() => placeSignIn()).observe($('.home-step'));
 // The progress dots sit in the gutter under a step. Once the window is too short for that gutter the step scrolls
 // under them, so they go. Every step is watched: each has its own height, and showing one resizes it from nothing.
-const fitDots = new ResizeObserver(() => { const ob = $('#onboard'); ob.classList.toggle('no-dots', ob.scrollHeight > ob.clientHeight); });
+// Mid-flight nothing can be measured, the flying piece counts as overflow; playStep checks again when it lands.
+function syncDots(): void {
+  const ob = $('#onboard');
+  if (!ob.classList.contains('ob-flying')) ob.classList.toggle('no-dots', ob.scrollHeight > ob.clientHeight);
+}
+const fitDots = new ResizeObserver(syncDots);
 [$('#onboard'), ...$$('.ob-step')].forEach(el => fitDots.observe(el));
 let accounts: Accounts = { accounts: [], active: null };
 const accountKey = (u: User) => `${u.provider}:${u.login ?? ''}`;
@@ -171,12 +258,7 @@ function openAccountMenu(anchor: HTMLElement): void {
   const m = $('#menuRoot .menu');
   if (m) {
     m.classList.add('account-menu');
-    if (anchor.id === 'homeProfile') {
-      // Home's button sits in the heading, so the menu drops down from its left edge.
-      m.style.left = `${Math.max(8, r.left)}px`;
-    } else {
-      m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
-    }
+    m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
   }
 }
 for (const id of ['#avatars', '#boxAvatar', '#homeProfile']) {
@@ -195,7 +277,7 @@ for (const id of ['#avatars', '#boxAvatar', '#homeProfile']) {
 // The onboarding step and the "Add account" dialog share this panel; signinRoot is the one in use.
 const SIGNIN_PANEL = `<div class="signin-btns" data-si="choices">
     <button class="btn" data-signin="GitHub"><svg width="18" height="18"><use href="#i-gh"/></svg>Continue with GitHub</button>
-    <button class="btn" data-signin="Google"><img src="../../assets/icons/google.png" width="18" height="18" alt="Google">Continue with Google</button>
+    <button class="btn" data-signin="Google"><img src="../../assets/icons/google.png" width="18" height="18" alt="">Continue with Google</button>
     <p class="signin-error hidden" data-si="error" role="alert"></p>
   </div>
   <div class="waiting hidden" data-si="wait">
@@ -207,9 +289,11 @@ const onboardSignin = $('#obSignin');
 let signinRoot = onboardSignin;
 const si = (part: string) => $(`[data-si="${part}"]`, signinRoot);
 function signinView(waiting: boolean): void {
+  const hadFocus = signinRoot.contains(document.activeElement); // the part that has it is about to hide
   si('choices').classList.toggle('hidden', waiting);
   si('wait').classList.toggle('hidden', !waiting);
   if (waiting) { si('error').classList.add('hidden'); si('code').classList.add('hidden'); }
+  if (hadFocus) (waiting ? si('cancel') : $('[data-signin]', signinRoot)).focus();
 }
 function signinError(text: string): void {
   signinView(false);
@@ -230,7 +314,29 @@ function bindSignin(root: HTMLElement): void {
   $('[data-si="copy"]', root).onclick = () => background(navigator.clipboard.writeText(si('codeText').textContent ?? '').then(() => toast('Code copied')));
 }
 bindSignin(onboardSignin);
-$('#signinSkip').onclick = () => goStep(STEP.agent);
+// Signed in, the account screen's buttons give way to who they're signed in as.
+function renderConnected(): void {
+  $('#obSignin').classList.toggle('hidden', !!user);
+  const row = $('#obConnected');
+  row.classList.toggle('hidden', !user);
+  if (user) row.innerHTML = `${avatarHtml(user, '')}<span class="ob-connected-txt"><span>Connected as <b>${esc(user.name)}</b></span><small>${esc(user.provider)}</small></span>`;
+}
+function syncAccountNext(): void { accountNext.disabled = !termsBox.checked; }
+termsBox.onchange = syncAccountNext;
+$$<HTMLAnchorElement>('.ob-terms a').forEach(a => a.onclick = e => { e.preventDefault(); background(api.sys.openExternal(a.href)); });
+// Both ways on need the box ticked, with or without an account. Leaving mid sign-in drops that sign-in.
+function leaveAccount(): void {
+  if (!termsBox.checked) {
+    termsBox.focus();
+    if (!motionOff()) termsBox.animate([{ transform: 'none' }, { transform: 'scale(1.4)' }, { transform: 'none' }], { duration: 360, easing: 'ease-out' });
+    return;
+  }
+  if (!si('wait').classList.contains('hidden')) { background(api.auth.cancel()); signinView(false); }
+  appState.termsAcceptedAt ??= Date.now();
+  goStep(STEP.agent);
+}
+$('#signinSkip').onclick = leaveAccount;
+accountNext.onclick = leaveAccount;
 function addAccount(): void {
   const intro = user
     ? '<h3>Add an account</h3><p class="sub">Sign in with another GitHub or Google account. Switch between accounts from your picture in the title bar.</p>'
@@ -255,10 +361,10 @@ api.auth.onEvent(ev => {
     setUser(ev.user);
     signinView(false);
     background(refreshAccounts());
-    toast(`Signed in as ${ev.user.name}`);
     background(afterSignIn());
-    if (signinRoot === onboardSignin) { if (!appState.onboarded && step === STEP.signIn) goStep(STEP.agent); }
-    else closeModal();
+    // On the account screen the row that replaces the buttons says it; the box to tick is what's next.
+    if (signinRoot === onboardSignin) { if (!appState.onboarded && step === STEP.signIn) termsBox.focus(); }
+    else { toast(`Signed in as ${ev.user.name}`); closeModal(); }
   } else if (ev.t === 'error') signinError(ev.text ?? 'Sign-in failed');
 });
 

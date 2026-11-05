@@ -268,7 +268,7 @@ const sfx = (() => {
     if (e.pointerType !== 'mouse' || performance.now() - movedAt > 120) return;
     const t = e.target as Element;
     // Home's tiles, cards and icon buttons too (Continue on its own, inside its card).
-    const btn = t.closest?.('.btn, #onboard :is(.icon-btn, .start-tile, .recent-go, .recent-open, .agent-row, .home-profile)');
+    const btn = t.closest?.('.btn, #onboard :is(.icon-btn, .start-tile, .recent-go, .recent-open, .agent-row, .home-profile, .home-nav button)');
     if (btn) { if (!btn.contains(e.relatedTarget as Node | null)) play('hover'); return; }
     const row = t.closest?.('.menu-item, [role="option"], .tree-item, .scm-row, .commit, .commit-detail-row');
     if (row && !row.contains(e.relatedTarget as Node | null)) play('rowHover');

@@ -740,10 +740,11 @@ const editorSlidersOnly = editorSliders($('#editor'), () => activeText()?.ta);
 const updateSliders = (ta?: CodeSurface): void => { editorSlidersOnly(ta); queueMinimap(); };
 
 /* ----- Minimap: the whole file zoomed out beside the right slider (Settings → General → Editor) ----- */
-// Each line is MM_LINE px tall and each character MM_CHAR px wide, drawn as a tiny glyph in its syntax colour. A
-// file taller than the map scrolls along with the editor, as the editor's scroll fraction. The shaded box is the
-// part on screen: drag it to scroll, or click anywhere on the map to jump there (and keep dragging).
-const MM_LINE = 3, MM_CHAR = 1, MM_COLS = 120, MM_SLIDER_LANE = 16, MM_FONT = 3;
+// Each line is MM_LINE px tall and MM_COLS columns fit its width, drawn as tiny glyphs in their syntax colours. A
+// file taller or wider than the map pans along with the editor, as the editor's scroll fraction. The shaded box is
+// the part on screen, on both axes: drag it to scroll, or click anywhere on the map to jump there (and keep dragging).
+// It only shows when the file is taller than the editor, and narrows (MM_WIDTH down to MM_MIN_WIDTH) for long lines.
+const MM_LINE = 3, MM_COLS = 120, MM_SLIDER_LANE = 16, MM_FONT = 3, MM_WIDTH = 130, MM_MIN_WIDTH = 56;
 let minimapOn = store.get<boolean>('breeze.minimap', true) !== false;
 const mmEl = document.createElement('div');
 mmEl.className = 'minimap';
@@ -779,25 +780,25 @@ function mmColor(kind: string | null): string {
   mmColors.set(key, c);
   return c;
 }
-// Where the map's first drawn pixel row sits in the file's full map (0 unless the map is taller than its box).
 function mmGeometry(ta: CodeSurface, lines: number) {
-  const h = mmEl.clientHeight;
-  const full = lines * MM_LINE;
-  const overflow = Math.max(0, ta.scrollHeight - ta.clientHeight);
-  const offset = full > h && overflow > 0 ? (full - h) * ta.scrollTop / overflow : 0;
-  const viewTop = ta.scrollTop / LINE_H * MM_LINE - offset;
-  const viewH = Math.max(8, ta.clientHeight / LINE_H * MM_LINE);
-  return { h, full, offset, viewTop, viewH, overflow };
+  const h = mmEl.clientHeight, w = mmEl.clientWidth - MM_SLIDER_LANE, colW = w / MM_COLS;
+  return {
+    h, w, colW,
+    x: mapAxis(ta.scrollLeft, ta.clientWidth, ta.scrollWidth - ta.clientWidth, ta.pad.left, colW / measureChar(), ta.widestCols * colW, w),
+    y: mapAxis(ta.scrollTop, ta.clientHeight, ta.scrollHeight - ta.clientHeight, ta.pad.top, MM_LINE / LINE_H, lines * MM_LINE, h),
+  };
 }
 function drawMinimap(): void {
   if (!booted) { queueMinimap(); return; } // notebook.ts (nbShown) and the first file aren't in yet
   const b = activeText();
-  const show = minimapOn && !!b && !nbShown(b);
-  $('#editor').classList.toggle('minimap-on', show);
-  if (!show || !b) return;
+  const show = minimapOn && !!b && !nbShown(b) && b.ta.scrollHeight > b.ta.clientHeight;
+  const editor = $('#editor'), code = b?.ta.root.parentElement;
+  editor.classList.toggle('minimap-on', show);
+  if (!show || !b || !code) return;
   const ta = b.ta, doc = highlighted(b), lines = doc.lines.length;
-  const w = mmEl.clientWidth - MM_SLIDER_LANE, dpr = devicePixelRatio || 1;
-  const g = mmGeometry(ta, lines);
+  editor.style.setProperty('--mm-width', `${clamp(editor.clientWidth - code.offsetLeft - ta.contentWidth, MM_MIN_WIDTH, MM_WIDTH)}px`);
+  const dpr = devicePixelRatio || 1;
+  const g = mmGeometry(ta, lines), w = g.w;
   if (!w || !g.h) return;
   if (mmCanvas.width !== Math.round(w * dpr) || mmCanvas.height !== Math.round(g.h * dpr)) {
     mmCanvas.width = Math.round(w * dpr); mmCanvas.height = Math.round(g.h * dpr);
@@ -808,22 +809,24 @@ function drawMinimap(): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, g.h);
   ctx.globalAlpha = .85;
-  // Glyphs are squeezed sideways so each one fills exactly MM_CHAR px, like a monospace grid.
+  // Glyphs are squeezed sideways so each one fills exactly one column, like a monospace grid.
   ctx.font = `${MM_FONT}px ${getComputedStyle($('#hl')).fontFamily || 'monospace'}`;
   ctx.textBaseline = 'top';
-  const sx = MM_CHAR / (ctx.measureText('M').width || MM_CHAR);
+  const cols = MM_COLS, charW = g.colW;
+  const sx = charW / (ctx.measureText('M').width || charW);
   ctx.setTransform(dpr * sx, 0, 0, dpr, 0, 0);
-  const cols = Math.min(MM_COLS, Math.floor(w / MM_CHAR));
-  const first = Math.floor(g.offset / MM_LINE), last = Math.min(lines, Math.ceil((g.offset + g.h) / MM_LINE));
+  const first = Math.floor(g.y.offset / MM_LINE), last = Math.min(lines, Math.ceil((g.y.offset + g.h) / MM_LINE));
+  const colFrom = Math.floor(g.x.offset / charW), colEnd = Math.ceil(g.x.offset / charW) + cols;
   const text = doc.text, starts = doc.starts, kinds = doc.kinds;
   const plain = mmColor(null);
   for (let i = first; i < last; i++) {
-    const from = doc.lines[i], to = Math.min(i + 1 < lines ? doc.lines[i + 1] - 1 : text.length, from + cols * 2);
-    const y = i * MM_LINE - g.offset;
+    const end = i + 1 < lines ? doc.lines[i + 1] - 1 : text.length;
+    const entry = walkToCol(text, doc.lines[i], end, colFrom), from = entry.at, to = Math.min(end, from + cols * 2);
+    const y = i * MM_LINE - g.y.offset;
     let k = starts.length ? lineOfOffset(starts, from) : -1;
-    let col = 0, runStart = -1, runColor = '', run = '';
-    const flush = () => { if (runStart >= 0) { ctx.fillStyle = runColor; ctx.fillText(run, runStart * MM_CHAR / sx, y); runStart = -1; run = ''; } };
-    for (let at = from; at < to && col < cols; at++) {
+    let col = entry.col, runStart = -1, runColor = '', run = '';
+    const flush = () => { if (runStart >= 0) { ctx.fillStyle = runColor; ctx.fillText(run, (runStart * charW - g.x.offset) / sx, y); runStart = -1; run = ''; } };
+    for (let at = from; at < to && col < colEnd; at++) {
       while (k >= 0 && k + 1 < starts.length && starts[k + 1] <= at) k++;
       const ch = text.charCodeAt(at);
       if (ch === 32 || ch === 9) { flush(); col += ch === 9 ? 4 - (col % 4) : 1; continue; } // tabs stop every 4 columns, as .hl draws them
@@ -835,8 +838,9 @@ function drawMinimap(): void {
     }
     flush();
   }
-  mmView.style.transform = `translateY(${g.viewTop}px)`;
-  mmView.style.height = `${g.viewH}px`;
+  mmView.style.transform = `translate(${g.x.start}px, ${g.y.start}px)`;
+  mmView.style.width = `${g.x.size}px`;
+  mmView.style.height = `${g.y.size}px`;
 }
 mmEl.addEventListener('pointerdown', e => {
   const b = activeText();
@@ -845,18 +849,23 @@ mmEl.addEventListener('pointerdown', e => {
   const ta = b.ta, lines = highlighted(b).lines.length;
   const r = mmEl.getBoundingClientRect();
   let g = mmGeometry(ta, lines);
-  // Off the box: centre the view on the clicked line first.
+  // Off the box: centre the view on the clicked spot first.
   if (e.target !== mmView) {
-    const line = (e.clientY - r.top + g.offset) / MM_LINE;
-    ta.scrollTop = clamp(line * LINE_H - ta.clientHeight / 2, 0, g.overflow);
+    ta.scrollLeft = g.x.centreOn(e.clientX - r.left);
+    ta.scrollTop = g.y.centreOn(e.clientY - r.top);
     g = mmGeometry(ta, lines);
   }
   // Then drag the box: its travel across the map maps onto the whole scroll.
-  const travel = Math.min(g.full, g.h) - g.viewH;
-  const startY = e.clientY, startTop = ta.scrollTop;
+  const startY = e.clientY, startLeft = ta.scrollLeft, startTop = ta.scrollTop;
+  let startX = e.clientX, sideways = false;
   mmEl.classList.add('drag');
   try { mmEl.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
-  const move = (ev: PointerEvent) => { if (travel > 0) ta.scrollTop = clamp(startTop + (ev.clientY - startY) * g.overflow / travel, 0, g.overflow); };
+  const move = (ev: PointerEvent) => {
+    // A drag straight down wobbles a pixel or two, and on a map this narrow that pixel is a long way sideways.
+    if (!sideways && Math.abs(ev.clientX - startX) >= 4) { sideways = true; startX = ev.clientX; }
+    if (sideways) ta.scrollLeft = startLeft + (ev.clientX - startX) * g.x.perPx;
+    ta.scrollTop = startTop + (ev.clientY - startY) * g.y.perPx;
+  };
   const up = () => {
     mmEl.classList.remove('drag');
     mmEl.removeEventListener('pointermove', move);

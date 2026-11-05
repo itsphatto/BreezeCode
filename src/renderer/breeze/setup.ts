@@ -116,6 +116,7 @@ function detectTools(force = false): Promise<Detection> {
   }).catch((e: unknown) => {
     $('#aiPill').className = 'pill warn'; swapText($('#aiPill'), 'Scan failed');
     $('#aiHint').textContent = errMsg(e);
+    if (!appState.detect) for (const id of ['#homeTools', '#homeAgents']) $(id).innerHTML = '<p class="muted">Could not check this computer. Breeze tries again when you come back to it.</p>';
     throw e;
   }).finally(() => { detecting = null; });
   return detecting;
@@ -332,6 +333,7 @@ function renderDetection(): void {
   $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;
   renderAgentBar();
   renderHomeAgent();
+  renderHomeTools();
 }
 $('#rescan').onclick = () => { detectTools(true).catch(() => { /* the agent card shows the error */ }); };
 
@@ -657,10 +659,30 @@ let homeSeq = 0;
 const projectHue = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 // Long paths keep their end, the part that tells two projects apart.
 const shortPath = (p: string, max = 52) => p.length > max ? `…${p.slice(-(max - 1))}` : p;
+// No Scan button: Home looks again as it opens and on each section (the cards redraw when the scan lands).
+function scanForHome(): void {
+  if (appState.detect) autoRescan();
+  else detectTools().catch(() => { /* the cards show the error */ });
+}
+// Home's sidebar switches its main area between these views.
+function showHomeView(view: string): void {
+  $$('.home-nav button').forEach(b => { b.ariaCurrent = b.dataset.homeView === view ? 'page' : null; });
+  $$('.home-view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== view));
+  $('.home-main').scrollTop = 0;
+}
+$$('.home-nav button').forEach(b => b.onclick = () => {
+  $('.home-step').classList.add('home-stay'); // a view shown again doesn't replay its rows' rise
+  showHomeView(b.dataset.homeView ?? 'session');
+  scanForHome();
+});
+$('#homeSpace').onclick = () => enterMode('box');
 function renderHome(): void {
+  $('.home-step').classList.remove('home-stay');
+  showHomeView('session');
   renderHomeProfile();
   renderHomeAgent();
-  autoRescan(); // no Scan button: Home looks for agents again as it opens (the card redraws when the scan lands)
+  renderHomeTools();
+  scanForHome();
   renderRecentList();
   const seq = ++homeSeq;
   background(api.fs.recent().catch(() => [] as RecentFolder[]).then(list => {
@@ -721,8 +743,7 @@ function homeAgentRowHtml(a: DetectedAgent): string {
     ${mark}<span class="start-txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(about)}</span></span>
   </div>`;
 }
-// When a resize reflows a container (Home's agent cards wrapping onto another row as the window is squeezed, Recent
-// projects dropping under the ways in), each block glides from where it stood to its new place and eases to its new
+// When a resize reflows a container (Home's agent cards wrapping onto another row as the window is squeezed), each block glides from where it stood to its new place and eases to its new
 // width, and the container eases to its new height, instead of all jumping there. Never scaled, so no text stretches.
 //  - Position: a transform, measured from layout (offsetLeft/Top), which no transform skews.
 //  - Width: margin-right. A grid item stretches to its column less its margin, so as the margin eases to nothing the
@@ -745,6 +766,7 @@ function glideOnReflow(container: HTMLElement): void {
   let height = container.offsetHeight;
   const restart = (el: HTMLElement) => { for (const a of el.getAnimations()) if (a.id === 'reflow-glide') a.cancel(); };
   new ResizeObserver(() => {
+    if (!container.offsetParent) return; // hidden, its view switched away: nothing moved, and it would ease back open on return
     // A maximize, restore or snap is instant (win-jump, platform.ts): everything just takes its new place.
     // Read live (not the shared reduceMotion constant): this can fire before mentions.js, which defines it, has run.
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('win-jump');
@@ -774,7 +796,6 @@ function glideOnReflow(container: HTMLElement): void {
   }).observe(container);
 }
 glideOnReflow($('#homeAgents'));
-glideOnReflow($('.home-grid'));
 let homeAgentsHtml = '';
 function renderHomeAgent(): void {
   const el = $('#homeAgents');
@@ -839,6 +860,23 @@ $('#homeAgents').addEventListener('keydown', e => {
   const rows = $$('.agent-row[role="radio"]', $('#homeAgents'));
   pickHomeAgent(rows[(rows.indexOf(row) + d + rows.length) % rows.length].dataset.agent ?? '');
 });
+// Git, Node.js and the compilers, in plain words. A missing one offers its download page when it has one.
+let homeToolsHtml = '';
+function renderHomeTools(): void {
+  const el = $('#homeTools');
+  if (!appState.detect) { homeToolsHtml = ''; el.innerHTML = skeletonRows(4); return; }
+  const html = appState.detect.tools.map(t => {
+    const state = t.found ? versionLabel(t.version) || 'Installed' : t.optional ? 'Optional' : 'Not installed';
+    const get = !t.found && t.url ? `<button class="btn btn-sm" data-get="${escAttr(t.url)}" aria-label="${escAttr(`Get ${t.name}`)}" title="${escAttr(`Opens the ${t.name} download page`)}">Get</button>` : '';
+    const ready = t.found ? '<span class="pill ok">Ready</span>' : '';
+    return `<div class="tool-row${t.found ? '' : ' missing'}" role="listitem"><span class="start-txt"><span class="nm">${esc(t.name)}</span><span class="sub">${esc(state)}</span></span>${ready}${get}</div>`;
+  }).join('');
+  // A rescan that found nothing new keeps the rows, and keyboard focus on them.
+  if (html === homeToolsHtml) return;
+  homeToolsHtml = html;
+  el.innerHTML = html;
+  bindToolButtons(el);
+}
 function leaveHome(): void {
   enterMode(appState.mode);
 }
@@ -848,6 +886,7 @@ function goHome(): void {
   goStep(STEP.home);
 }
 $('#logoHome').onclick = goHome;
+$('#boxLogoHome').onclick = goHome;
 async function openFromHome(dir: string, row: HTMLElement): Promise<void> {
   const r = homeRecent?.find(x => x.path === dir);
   if (r?.missing) { toast(`${r.name} was moved or deleted. Remove it with ×.`); return; }
@@ -990,8 +1029,8 @@ function swapScreen(to: string): void {
       prev.classList.add('screen-team');
       next.classList.add('screen-team');
     }
-    const climb = bigAnim && !still && prev?.id === 'ide' && next.id === 'box';
-    const fall = bigAnim && !still && prev?.id === 'box' && next.id === 'ide';
+    const climb = bigAnim && !still && (prev?.id === 'ide' || prev?.id === 'onboard') && next.id === 'box';
+    const fall = bigAnim && !still && prev?.id === 'box' && (next.id === 'ide' || next.id === 'onboard');
     next.classList.remove('screen-prep');
     if (climb || fall) flyBetween(next, fall); // space.ts
     // The terminal goes back to the IDE, on the way down once Space's contents have faded, so the conversation doesn't jump.

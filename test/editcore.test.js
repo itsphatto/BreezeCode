@@ -329,3 +329,65 @@ test('selIndexOf finds where a selection went after normalizing', () => {
   assert.equal(selIndexOf(sels, { anchor: 6, head: 6 }), 1); // a caret touching a range's end is its own
   assert.equal(selIndexOf(sels, { anchor: 30, head: 30 }), 0); // nowhere: the first
 });
+
+test('dragScrollX scrolls only near or past the sides, faster further out', () => {
+  const dragScrollX = vm.runInContext('dragScrollX', ctx);
+  assert.equal(dragScrollX(500, 100, 900), 0);
+  assert.equal(dragScrollX(100, 100, 900), 0);
+  assert.equal(dragScrollX(888, 100, 900), 0);
+  assert.equal(dragScrollX(889, 100, 900), 1); // the screen's edge can stop the pointer before the viewport's
+  assert.equal(dragScrollX(988, 100, 900), 50);
+  assert.equal(dragScrollX(99, 100, 900), -1);
+  assert.equal(dragScrollX(0, 100, 900), -50);
+});
+
+test('mapAxis keeps the box inside the map and pans content wider than it', () => {
+  const mapAxis = vm.runInContext('mapAxis', ctx);
+  // 1000 map px of content on a 100 px map, 0.5 map px per editor px, a 100 px viewport.
+  const at = pos => mapAxis(pos, 100, 2000, 4, .5, 1000, 100);
+  assert.equal(at(0).offset, 0);
+  assert.equal(at(0).start, 0);
+  assert.equal(at(0).size, 50);
+  assert.equal(at(2000).offset, 900);
+  assert.equal(at(2000).start, 50); // clamped to the map's end
+  assert.equal(at(1000).offset, 450);
+  assert.equal(at(1000).start, 48); // (1000 - 4) * .5 - 450
+  assert.equal(at(1000).perPx, 40); // 2000 scroll px over the 50 px the box can travel
+  assert.equal(at(1000).centreOn(50), 954); // map px 50 is editor px 1000, plus the pad, less half a view
+  // Content that fits the map doesn't pan.
+  const small = mapAxis(50, 100, 100, 0, .5, 70, 100);
+  assert.equal(small.offset, 0);
+  assert.equal(small.start, 25);
+  assert.equal(small.perPx, 5); // 100 scroll px over 70 - 50 of travel
+  // A viewport wider than the map: capped, and a drag still scrolls.
+  const wide = mapAxis(0, 1000, 500, 0, .5, 1000, 100);
+  assert.equal(wide.size, 100);
+  assert.equal(wide.perPx, 2);
+  // Almost the map's width: a pixel of drag must not throw the view across the whole overflow.
+  assert.equal(mapAxis(0, 990, 2000, 0, .04, 200, 40).perPx, 25);
+  // No overflow: the box fills the axis and nothing moves.
+  const none = mapAxis(0, 100, 0, 4, .5, 30, 100);
+  assert.deepEqual([none.offset, none.start, none.size, none.perPx, none.centreOn(70)], [0, 0, 100, 0, 0]);
+});
+
+test('walkToCol keeps tab stops, stops at the line end, and bounds huge lines', () => {
+  const walkToCol = vm.runInContext('walkToCol', ctx);
+  assert.deepEqual(plain(walkToCol('abcdef', 0, 6, 0)), { at: 0, col: 0 });
+  assert.deepEqual(plain(walkToCol('abcdef', 0, 6, 3)), { at: 3, col: 3 });
+  assert.deepEqual(plain(walkToCol('a\tbc', 0, 4, 4)), { at: 2, col: 4 }); // the tab ends on the stop
+  assert.deepEqual(plain(walkToCol('a\tbc', 0, 4, 2)), { at: 2, col: 4 }); // a window starting inside a tab: b still draws at 4
+  assert.deepEqual(plain(walkToCol('xa\tb', 1, 4, 4)), { at: 3, col: 4 }); // columns count from `at`, the line's start
+  assert.ok(walkToCol('ab', 0, 2, 50).at >= 2); // short line: past its end, nothing to draw
+  assert.deepEqual(plain(walkToCol('x'.repeat(1e6), 0, 1e6, 500000)), { at: 500000, col: 500000 });
+  assert.deepEqual(plain(walkToCol('\t'.repeat(5000), 0, 5000, 30000)), { at: 4096 + 30000 - 4096 * 4, col: 30000 }); // only 4096 chars walked
+});
+
+test('curveFrames samples a cubic Bezier from its first point to its last', () => {
+  const curveFrames = vm.runInContext('curveFrames', ctx);
+  const f = plain(curveFrames({ x: -100, y: 50 }, { x: -60, y: 20 }, { x: -20, y: 0 }, { x: 0, y: 0 }, 4));
+  assert.equal(f.length, 5);
+  assert.deepEqual(f[0], { x: -100, y: 50 });
+  assert.deepEqual(f[4], { x: 0, y: 0 });
+  assert.deepEqual(f[2], { x: -42.5, y: 13.75 }); // t = 1/2: (p0 + 3 p1 + 3 p2 + p3) / 8
+  for (let i = 1; i < f.length; i++) assert.ok(f[i].x > f[i - 1].x && f[i].y <= f[i - 1].y, 'always moving right and up');
+});
