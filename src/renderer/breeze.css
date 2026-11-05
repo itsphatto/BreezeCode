@@ -653,32 +653,10 @@ button {
   -webkit-app-region: drag;
 }
 
-/* Onboarding backdrop: the sky the launch animation opened (launch.css), behind every step. All of setup shows it
-   at full strength, so it reads as one place; on Home it is turned down, so the glassy cards and white text stay calm
-   on it. */
+/* Onboarding backdrop: the signature sky the launch animation opened (launch.css), behind every setup step, the same
+   in every theme. Home covers it with its own plain panel. */
 .ob-sky {
   pointer-events: none;
-  transition: filter .8s cubic-bezier(.65, 0, .35, 1);
-}
-
-.onboard:has(.home-step:not(.hidden)) .ob-sky {
-  filter: brightness(.5) saturate(1);
-}
-
-/* Both dark themes: Home's sky (--home-sky, launch.css), the one the intro opens onto. */
-:root:is([data-theme="dark"], [data-theme="contrast"]) .onboard:has(.home-step:not(.hidden)) .ob-sky {
-  --sky-drift-a: #000;
-  background: var(--home-sky);
-  filter: none;
-}
-
-/* Home's light drifts twice as fast as the launch's. */
-.onboard:has(.home-step:not(.hidden)) .ob-sky::before {
-  animation-duration: 2.5s;
-}
-
-.onboard:has(.home-step:not(.hidden)) .ob-sky::after {
-  animation-duration: 3s;
 }
 
 /* April Fools: everything on Home shows in inverted colours (the launch does too, launch.css). */
@@ -705,9 +683,8 @@ button {
   position: fixed;
 }
 
-/* Light theme: setup looks the same as in the dark themes; Home's sky and panels are where light mode shows. */
+/* Light theme: setup looks the same as in the dark themes. */
 :root[data-theme="light"] .onboard { background: #1d1d1f; }
-:root[data-theme="light"] .onboard:has(.home-step:not(.hidden)) .ob-sky { filter: brightness(.6) saturate(1.05); }
 
 /* Every step sits above the sky. */
 .ob-step {

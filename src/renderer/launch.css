@@ -64,28 +64,6 @@
   --glint-3: rgba(70, 90, 255, .25);
   --glint-bubble-a: rgba(140, 200, 255, .9);
   --glint-bubble-b: rgba(150, 110, 255, .75);
-  /* The dark themes' sky, on Home and in the intro: black corners on the colours at full strength. The black eases out
-     over several stops, since a straight fade to transparent shows an edge. */
-  --home-black-fade: #000 0%, rgb(0 0 0 / .88) 16%, rgb(0 0 0 / .62) 34%, rgb(0 0 0 / .32) 54%, rgb(0 0 0 / .1) 76%, transparent 100%;
-  --home-sky:
-    radial-gradient(80% 75% at 8% 4%, var(--home-black-fade)),
-    radial-gradient(75% 80% at 94% 98%, var(--home-black-fade)),
-    radial-gradient(55% 50% at 18% 92%, var(--sky-low) 0%, color-mix(in oklab, var(--sky-low) 55%, transparent) 38%, color-mix(in oklab, var(--sky-low) 15%, transparent) 72%, transparent 100%),
-    linear-gradient(125deg in oklab, var(--sky-2), var(--sky-3) 55%, var(--sky-4));
-}
-
-/* The splash window after setup, in a dark theme (main.js): Home's sky, drifting at Home's pace so the hand-off doesn't jump. */
-:root[data-sky="night"] .launch-sky {
-  --sky-drift-a: #000;
-  background: var(--home-sky);
-}
-
-:root[data-sky="night"] .launch-sky::before {
-  animation-duration: 2.5s;
-}
-
-:root[data-sky="night"] .launch-sky::after {
-  animation-duration: 3s;
 }
 
 /* Halloween: pumpkin orange and candle yellow. */
