@@ -131,6 +131,9 @@ const settingRow = (title: string, sub: string, control: string) =>
   `<div class="set-row"><div class="set-text"><div class="set-title">${title}</div>${sub ? `<div class="set-sub">${sub}</div>` : ''}</div><div class="set-ctl">${control}</div></div>`;
 const segHtml = (id: string, opts: [string, string][], cur: string) =>
   `<div class="seg set-seg" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
+//change from "Active" to "Developer"
+const DEVELOPER_EMAILS = new Set(['itsphatto@icloud.com', 'yell0wcircle12345@gmail.com']);
+
 
 // Settings → Appearance. Each card shows a small picture of the window in that theme.
 // The fourth field marks a description written as a (tongue-in-cheek) warning: it shows in red.
@@ -145,7 +148,7 @@ const LIGHT_WHO = ['Dracula', 'Darth Vader', 'Batman', 'Gollum', 'Gandalf', 'Shr
   'Maleficent', 'Voldemort', 'Sauron', 'The Grinch', 'Squidward', 'Garfield', 'Scooby-Doo', 'Nemo', 'Buzz Lightyear', 'Elsa',
   'Kylo Ren', 'Yoda', 'Neo', 'The Predator', 'Jack Skellington', 'Stitch', 'Megamind', 'Gru', 'Kevin the Minion', 'Pikachu',
   'Homer Simpson', 'Bugs Bunny', 'Wile E. Coyote', 'SpongeBob', 'Plankton', 'Shaggy', 'Mr. Burns', 'Simba', 'Scar', 'WALL-E',
-  'Olaf', 'Toothless'];
+  'Olaf', 'Toothless', '@itsphatto'];
 const LIGHT_WHAT = ['just squinted at this.', 'asked for sunglasses.', 'went back to the dark side.', 'filed a glare complaint.',
   'thinks this is a jump scare.', 'lost a staring contest to it.', 'says the bugs love it.', 'refuses to code in this.',
   'turned it off in two seconds.', 'needs a nap after one look.', 'now codes in a cave.', 'would rather face a dragon.',
@@ -153,7 +156,9 @@ const LIGHT_WHAT = ['just squinted at this.', 'asked for sunglasses.', 'went bac
   'approves, blindfolded.', 'just saw every bug at once.', 'calls this a flashbang.', 'is still seeing spots.',
   'booked an eye exam.', 'says bugs come for the light.', 'only uses it at high noon.', 'hissed at the screen.',
   'asked who turned the sun on.'];
+  
 const LIGHT_JOKES = LIGHT_WHO.flatMap(who => LIGHT_WHAT.map(what => `${who} ${what}`));
+
 let lightJoke = '';
 const themeCardHtml = ([id, name, sub, warn]: [Theme, string, string, boolean?]) =>
   `<button class="set-theme ${id === theme ? 'on' : ''}" data-theme-pick="${id}" aria-pressed="${id === theme}">
@@ -176,7 +181,7 @@ function setTheme(t: Theme): void {
 // The account card sits at the top of General.
 function accountHtml(): string {
   const others = accounts.accounts.map(a => `<div class="set-row"><div class="set-text"><div class="set-title">${esc(a.name)}</div><div class="set-sub">${esc(a.email ?? a.provider)}</div></div>
-      <div class="set-ctl set-acct-ctl">${accountKey(a) === accounts.active ? '<span class="pill ok set-active">Active</span>' : `<button class="btn btn-sm" data-switch-acct="${escAttr(accountKey(a))}">Switch</button>`}</div></div>`).join('');
+      <div class="set-ctl set-acct-ctl">${accountKey(a) === accounts.active ? `<span class="pill ok set-active">${DEVELOPER_EMAILS.has(a.email?.toLowerCase() ?? '') ? 'Developer' : 'Active'}</span>` : `<button class="btn btn-sm" data-switch-acct="${escAttr(accountKey(a))}">Switch</button>`}</div></div>`).join('');
   // Signed in: name with its provider beside it, and the email used to sign in under it. Signed out: a Sign in button.
   const who = user
     ? `<div class="set-title set-user-name"><span class="set-user-display">${esc(user.name)}</span><span class="set-user-provider">${esc(user.provider)}</span></div><div class="set-sub">${esc(user.email ?? user.login ?? '')}</div>`
