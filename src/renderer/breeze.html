@@ -309,6 +309,12 @@
         <nav class="activity home-rail" aria-label="Home">
           <button class="act-btn on" data-home-view="session" aria-current="page" title="Home" aria-label="Home"><svg data-i="home" data-size="20"></svg></button>
           <button class="act-btn" data-home-view="agent" title="Agent" aria-label="Agent"><svg data-i="sparkles" data-size="20"></svg></button>
+          <span class="flex-1"></span>
+          <button class="act-btn" title="Settings" id="homeSettings" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false"><svg
+              width="20" height="20">
+              <use href="#i-gear" />
+            </svg></button>
+          <div class="act-indicator" aria-hidden="true"></div>
         </nav>
         <main class="home-main">
           <div class="home-view" data-view="session">
@@ -328,11 +334,11 @@
               <div class="home-cols">
                 <section class="home-start" aria-labelledby="homeStartTitle">
                   <h3 id="homeStartTitle">Start</h3>
-                  <button class="home-link" id="createFile" aria-keyshortcuts="Control+N" title="Ctrl+N"><svg data-i="filePlus" data-size="16"></svg>New File</button>
-                  <button class="home-link" id="pickFile" aria-keyshortcuts="Control+K" title="Ctrl+K"><svg data-i="file" data-size="16"></svg>Open File</button>
-                  <button class="home-link" id="pickFolder" aria-keyshortcuts="Control+O" title="Ctrl+O"><svg data-i="folder" data-size="16"></svg>Open Folder</button>
-                  <button class="home-link" id="createFolder" aria-keyshortcuts="Control+Shift+N" title="Ctrl+Shift+N"><svg data-i="folderPlus" data-size="16"></svg>Create Folder</button>
-                  <button class="home-link" id="cloneRepo" aria-controls="homeClone"><svg data-i="gitBranch" data-size="16"></svg>Clone Repository</button>
+                  <button class="home-link" id="createFile" aria-keyshortcuts="Control+N" title="Ctrl+N"><svg data-i="filePlus" data-size="16"></svg><span class="get-label">New File</span></button>
+                  <button class="home-link" id="pickFile" aria-keyshortcuts="Control+K" title="Ctrl+K"><svg data-i="file" data-size="16"></svg><span class="get-label">Open File</span></button>
+                  <button class="home-link" id="pickFolder" aria-keyshortcuts="Control+O" title="Ctrl+O"><svg data-i="folder" data-size="16"></svg><span class="get-label">Open Folder</span></button>
+                  <button class="home-link" id="createFolder" aria-keyshortcuts="Control+Shift+N" title="Ctrl+Shift+N"><svg data-i="folderPlus" data-size="16"></svg><span class="get-label">Create Folder</span></button>
+                  <button class="home-link" id="cloneRepo" aria-controls="homeClone"><svg data-i="gitBranch" data-size="16"></svg><span class="get-label">Clone Repository</span></button>
                 </section>
                 <section class="home-recent" aria-labelledby="homeRecentTitle">
                   <h3 id="homeRecentTitle">Recent</h3>
@@ -345,7 +351,7 @@
                 <div class="contrib-box">
                   <div class="contrib-scroll"><div class="contrib-graph" id="homeContribGraph" role="img"></div></div>
                   <div class="contrib-foot">
-                    <button class="home-link contrib-open" id="homeContribOpen" type="button">View on GitHub</button>
+                    <button class="home-link contrib-open" id="homeContribOpen" type="button"><span class="get-label">View on GitHub</span></button>
                     <span class="contrib-legend" aria-hidden="true">Less<i data-l="0"></i><i data-l="1"></i><i data-l="2"></i><i data-l="3"></i><i data-l="4"></i>More</span>
                   </div>
                 </div>
@@ -358,7 +364,7 @@
               <div class="ad-tabs" id="adTabs" role="tablist" aria-label="Agents"></div>
               <div class="ad-cards">
                 <section class="ad-card ad-usage" aria-labelledby="adUsageTitle">
-                  <header><span class="ad-dot"></span><h3 id="adUsageTitle">Token usage</h3></header>
+                  <header><h3 id="adUsageTitle">Token usage</h3></header>
                   <div class="ad-big" id="adBig">—</div>
                   <div class="ad-big-sub" id="adBigSub">tokens this month</div>
                   <div class="ad-trend" id="adTrend"></div>

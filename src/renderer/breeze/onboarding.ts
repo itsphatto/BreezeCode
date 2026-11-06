@@ -287,7 +287,8 @@ function drawContrib(c: GhContributions): void {
       const cell = document.createElement('i');
       cell.className = 'cg-day';
       cell.dataset.l = String(d.level);
-      cell.title = `${d.count ? `${d.count} contribution${d.count === 1 ? '' : 's'}` : 'No contributions'} on ${day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}`;
+      // Only days with something on them get a tip (ui.ts shows it); the graph is one image to screen readers.
+      if (d.count) cell.dataset.tooltip = `${d.count} contribution${d.count === 1 ? '' : 's'} on ${day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}`;
       put(cell, w + 2, day.getDay() + 2);
     }
   });

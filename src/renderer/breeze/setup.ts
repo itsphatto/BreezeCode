@@ -667,10 +667,13 @@ function showHomeView(view: string): void {
     const on = b.dataset.homeView === view;
     b.classList.toggle('on', on);
     b.ariaCurrent = on ? 'page' : null;
+    // Hidden, nothing can be measured: the indicator goes back to its CSS place, the first view's.
+    if (on) $('.home-rail .act-indicator').style.transform = b.offsetParent ? `translateY(${b.offsetTop + (b.offsetHeight - 20) / 2}px)` : '';
   });
   $$('.home-view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== view));
   $('.home-main').scrollTop = 0;
-  if (view === 'agent') { dashDrawn = ''; loadAgentDash(); }
+  // Coming to the page, the bars rise in afresh rather than morph from the last visit's.
+  if (view === 'agent') { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
 }
 
 /* ----- Home → Agent: one agent's token use, and the other agents ----- */
@@ -703,13 +706,22 @@ const dayTotal = (d?: TokenDay) => (d ? d.input + d.output + d.cacheWrite + d.ca
 function dashAgents(): DetectedAgent[] {
   const all = appState.detect?.agents ?? [];
   const used = new Set(Object.keys(dashHistory?.agents ?? {}));
-  const list = all.filter(a => a.found || used.has(a.id)).sort((a, b) => agentRank(a) - agentRank(b));
+  // Antigravity is left off this page, even as the default agent.
+  const list = all.filter(a => a.id !== 'antigravity' && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
   const def = list.findIndex(a => a.id === appState.agent);
   if (def > 0) list.unshift(...list.splice(def, 1));
   return list;
 }
 function loadAgentDash(): void {
   renderAgentDash();
+  refreshAgentDash();
+}
+// Main reads the agents' logs afresh on each ask (only changed logs are re-read), so a page left open asks again every
+// 15 seconds, like Settings' usage, while it is on screen and the window is shown.
+setInterval(() => {
+  if (document.visibilityState === 'visible' && $('.home-view[data-view="agent"]:not(.hidden)')?.offsetParent) refreshAgentDash();
+}, 15_000);
+function refreshAgentDash(): void {
   const seq = ++dashSeq;
   background(Promise.all([api.agent.usage(), api.agent.history()]).then(([u, h]) => {
     if (seq !== dashSeq) return;
@@ -718,10 +730,117 @@ function loadAgentDash(): void {
     renderAgentDash();
   }));
 }
+/* ----- Agent page: whatever changes between two draws animates ----- */
+// Everything is redrawn from HTML, so the page is noted just before a draw (shootDash) and compared just after, in the
+// same task, before any paint (playDash). Blocks (tabs, table rows, facts, limits, legend entries) are matched by what
+// they are: one new grows in, one that moved slides from where it was, one whose colours changed (picked) blends.
+// Texts are matched by their place in their block (or in the nearest element with an id): one new there grows in,
+// a number that changed scrambles, any other changed text fades in.
+// A token count not read yet: the app's loading bar (.skel-row) in its place.
+const DASH_SKEL = '<span class="skel-row ad-skel" role="img" aria-label="Loading"></span>';
+const DASH_BLOCKS = '.ad-tab, .ad-tr, .ad-facts > div, .ad-limit, .ad-legend > span, .ad-empty';
+const DASH_EASE = 'cubic-bezier(.65, 0, .35, 1)';
+const DASH_GROW: Keyframe[] = [{ opacity: 0, transform: 'scale(.96)', filter: 'blur(2px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }];
+type DashShot = { blocks: Map<string, { r: DOMRect; bg: string; bd: string; fg: string }>; texts: Map<string, string>; sparks: Map<string, string[]> };
+function dashBlockKey(el: HTMLElement): string {
+  if (el.matches('.ad-tab, .ad-tr')) return `${el.classList[0]}:${el.dataset.dashAgent ?? 'head'}`;
+  if (el.matches('.ad-facts > div')) return `fact:${el.querySelector('dt')?.textContent}`;
+  if (el.matches('.ad-limit')) return `limit:${el.querySelector('.ad-limit-top span')?.textContent}`;
+  if (el.matches('.ad-legend > span')) return `leg:${el.querySelector('i')?.dataset.k ?? el.className}`;
+  return `empty:${el.parentElement?.id}`;
+}
+const dashShown = (el: HTMLElement) => el.getClientRects().length > 0;
+function dashBlocks(): Map<string, HTMLElement> {
+  return new Map($$<HTMLElement>(DASH_BLOCKS, $('.agent-dash')).filter(dashShown).map(el => [dashBlockKey(el), el]));
+}
+// The elements holding text of their own; the bars, their dates and the tip have their own animations.
+function dashTexts(): Map<string, HTMLElement> {
+  const out = new Map<string, HTMLElement>(), count = new Map<string, number>();
+  for (const el of $$<HTMLElement>('*', $('.agent-dash'))) {
+    if (!Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim())) continue;
+    if (el.closest('#adBars, #adX, #adTip') || !dashShown(el)) continue;
+    const block = el.closest<HTMLElement>(DASH_BLOCKS);
+    const scope = block ? dashBlockKey(block) : `#${el.closest('[id]')?.id}`;
+    const n = count.get(scope) ?? 0;
+    count.set(scope, n + 1);
+    out.set(`${scope}|${n}`, el);
+  }
+  return out;
+}
+// A scramble still running counts as the value it is heading for.
+const dashText = (el: HTMLElement) => el.dataset.to ?? el.textContent ?? '';
+function shootDash(): DashShot | null {
+  if (!$('.home-view[data-view="agent"]:not(.hidden)') || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+  const blocks: DashShot['blocks'] = new Map(), sparks: DashShot['sparks'] = new Map();
+  for (const [k, el] of dashBlocks()) {
+    const cs = getComputedStyle(el);
+    blocks.set(k, { r: el.getBoundingClientRect(), bg: cs.backgroundColor, bd: cs.borderColor, fg: cs.color });
+    if (el.matches('.ad-tr')) sparks.set(k, $$<HTMLElement>('.ad-spark i', el).map(i => i.style.height));
+  }
+  return { blocks, texts: new Map(Array.from(dashTexts(), ([k, el]) => [k, dashText(el)])), sparks };
+}
+function playDash(shot: DashShot | null): void {
+  if (!shot) return;
+  const grown = new Set<HTMLElement>();
+  for (const [k, el] of dashBlocks()) {
+    const was = shot.blocks.get(k);
+    if (!was) { grown.add(el); el.animate(DASH_GROW, { duration: 300, easing: 'cubic-bezier(.23, 1, .32, 1)' }); continue; }
+    const r = el.getBoundingClientRect(), dx = was.r.left - r.left, dy = was.r.top - r.top;
+    if (Math.abs(dx) > .5 || Math.abs(dy) > .5) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 450, easing: DASH_EASE });
+    const cs = getComputedStyle(el);
+    if (was.bg !== cs.backgroundColor || was.bd !== cs.borderColor || was.fg !== cs.color) {
+      el.animate([{ backgroundColor: was.bg, borderColor: was.bd, color: was.fg }, { backgroundColor: cs.backgroundColor, borderColor: cs.borderColor, color: cs.color }], { duration: 220, easing: 'ease' });
+    }
+    // A row that stays keeps its sparkline: its days ease to their new heights instead of rising in again.
+    const old = shot.sparks.get(k);
+    if (!old?.length) continue;
+    el.querySelector('.ad-spark')?.classList.remove('anim');
+    $$<HTMLElement>('.ad-spark i', el).forEach((i, n) => {
+      if (old[n] && old[n] !== i.style.height) i.animate([{ height: old[n] }, { height: i.style.height }], { duration: 450, easing: DASH_EASE });
+    });
+  }
+  // "216.1M" and "13.4M" read the same but for their numbers; "1m ago" and "6d ago" don't.
+  const shape = (t: string) => t.replace(/\d[\d.,]*[KMBT]?/g, '#');
+  for (const [k, el] of dashTexts()) {
+    const block = el.closest<HTMLElement>(DASH_BLOCKS);
+    if (block && grown.has(block)) continue;
+    const was = shot.texts.get(k), now = el.textContent ?? '';
+    if (was === undefined) el.animate(DASH_GROW, { duration: 300, easing: 'cubic-bezier(.23, 1, .32, 1)' });
+    else if (was === now) continue;
+    else if (!el.children.length && /\d/.test(now) && shape(was) === shape(now)) scrambleText(el);
+    else el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease' });
+  }
+}
+const scrambling = new WeakMap<HTMLElement, number>();
+// Its digits flicker at random and settle left to right; everything else in the text stays put.
+function scrambleText(el: HTMLElement): void {
+  const to = el.textContent ?? '';
+  cancelAnimationFrame(scrambling.get(el) ?? 0);
+  el.dataset.to = to;
+  const start = performance.now(), dur = 450;
+  const tick = (now: number) => {
+    const p = Math.min((now - start) / dur, 1), settled = Math.floor(p * to.length);
+    el.textContent = p < 1 ? [...to].map((ch, i) => i < settled || !/\d/.test(ch) ? ch : String(Math.floor(Math.random() * 10))).join('') : to;
+    if (p < 1) scrambling.set(el, requestAnimationFrame(tick));
+    else delete el.dataset.to;
+  };
+  scrambling.set(el, requestAnimationFrame(tick));
+}
 function renderAgentDash(): void {
   const agents = dashAgents();
   if (!dashAgent || !agents.some(a => a.id === dashAgent)) dashAgent = agents[0]?.id ?? null;
   const cur = agents.find(a => a.id === dashAgent) ?? null;
+  const shot = shootDash();
+  // Every agent's usage card drawn once, unseen (no paint between), so the row stays the tallest one's height whichever
+  // is picked. In em: it grows with the page's font size.
+  // shortcut: measures the usage card only; a chart legend that wraps for one agent can still move the row.
+  const row = $('.ad-cards');
+  if (row.offsetParent) {
+    row.style.minHeight = '';
+    let tall = 0;
+    for (const x of agents) { renderDashUsage(x); tall = Math.max(tall, row.offsetHeight); }
+    row.style.minHeight = `${tall / parseFloat(getComputedStyle(row).fontSize)}em`;
+  }
   // Tabs: one per agent.
   $('#adTabs').innerHTML = agents.length
     ? agents.map(a => `<button class="ad-tab${a.id === dashAgent ? ' on' : ''}" role="tab" aria-selected="${a.id === dashAgent}" data-dash-agent="${escAttr(a.id)}">${brandMark('ad-mark', a.id, a.name[0])}<span>${esc(a.name)}</span>${a.id === appState.agent ? '<small>Default</small>' : ''}</button>`).join('')
@@ -729,12 +848,14 @@ function renderAgentDash(): void {
   renderDashUsage(cur);
   renderDashChart(cur);
   renderDashTable(agents);
+  playDash(shot);
 }
 // The usage card: this month's tokens, how the last week compares with the week before, and a few facts.
 function renderDashUsage(a: DetectedAgent | null): void {
   const h = a && dashHistory?.agents[a.id];
   const month = a ? dashUsage?.usage[a.id] ?? 0 : 0;
-  $('#adBig').textContent = !a ? '—' : dashUsage ? compact(month) : '…';
+  if (a && !dashUsage) $('#adBig').innerHTML = DASH_SKEL;
+  else $('#adBig').textContent = a ? compact(month) : '—';
   const days = dashAllDays();
   const sum = (from: number, to: number) => days.slice(from, to).reduce((n, d) => n + dayTotal(h?.days[d]), 0);
   const last = sum(days.length - 7, days.length), prev = sum(days.length - 14, days.length - 7);
@@ -800,7 +921,8 @@ function renderDashChart(a: DetectedAgent | null): void {
   const cost = priced ? days.reduce((n, d) => n + (h?.days[d]?.cost ?? 0), 0) : 0;
   const costNote = COST_NOTE + (h?.unpriced ? ` ${compact(h.unpriced)} tokens from models without a known price aren't counted.` : '');
   const total = $('#adChartTotal');
-  total.textContent = h ? `${compact(all)}${priced && all ? ` · ≈ ${money(cost)}` : ''} over ${days.length} days` : '';
+  if (a && !dashHistory) total.innerHTML = DASH_SKEL;
+  else total.textContent = h ? `${compact(all)}${priced && all ? ` · ≈ ${money(cost)}` : ''} over ${days.length} days` : '';
   total.title = priced ? costNote : '';
   $$<HTMLElement>('#adRange [data-range]').forEach(b => { const on = Number(b.dataset.range) === dashRange; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
   $('#adY').innerHTML = [top, top / 2, 0].map(v => `<span>${max ? compact(v) : ''}</span>`).join('');
@@ -808,23 +930,27 @@ function renderDashChart(a: DetectedAgent | null): void {
   bars.dataset.n = String(days.length);
   $('#adX').dataset.n = String(days.length);
   bars.setAttribute('aria-label', a ? `${a.name}: ${compact(all)} tokens over the last ${days.length} days` : 'No agent');
-  bars.textContent = '';
+  // The same number of days as drawn: the bars stay and ease to their new heights (a CSS transition); another number
+  // draws them afresh, rising in. A bar has a segment for every kind, an unused one at no height, so each can morph.
+  const morph = bars.children.length === days.length;
+  if (!morph) {
+    bars.textContent = '';
+    for (let i = 0; i < days.length; i++) {
+      const col = document.createElement('div');
+      col.className = 'ad-bar';
+      for (const [k] of DASH_KINDS) { const seg = document.createElement('i'); seg.dataset.k = k; col.append(seg); }
+      bars.append(col);
+    }
+  }
   days.forEach((d, i) => {
-    const col = document.createElement('div');
-    col.className = 'ad-bar';
+    const col = bars.children[i] as HTMLElement;
     col.dataset.day = d;
     const day = h?.days[d];
-    for (const [k] of DASH_KINDS) {
-      const v = day?.[k] ?? 0;
-      if (!v) continue;
-      const seg = document.createElement('i');
-      seg.dataset.k = k;
-      seg.style.height = `${v / top * 100}%`; // set from script: the page's CSP blocks inline style attributes
-      col.append(seg);
-    }
-    if (!totals[i]) col.classList.add('zero'); // not .empty: that is the app-wide empty-state class (padding, centring)
+    // Set from script: the page's CSP blocks inline style attributes.
+    DASH_KINDS.forEach(([k], j) => { (col.children[j] as HTMLElement).style.height = totals[i] ? `${(day?.[k] ?? 0) / totals[i] * 100}%` : '0%'; });
+    col.style.height = totals[i] ? `${totals[i] / top * 100}%` : '';
+    col.classList.toggle('zero', !totals[i]); // not .empty: that is the app-wide empty-state class (padding, centring)
     col.style.setProperty('--i', String(i));
-    bars.append(col);
   });
   // Days named under the bars counting back from the last, which is always named: each one for a week, every other
   // one for two weeks, every fifth for a month.
@@ -834,13 +960,14 @@ function renderDashChart(a: DetectedAgent | null): void {
   // just the total (a "Tokens" entry would only repeat it).
   let sums = DASH_KINDS.map(([k, label]) => [k, label, days.reduce((n, d) => n + (h?.days[d]?.[k] ?? 0), 0)] as const).filter(([, , n]) => n > 0);
   if (sums.length === 1 && sums[0][0] === 'other') sums = [];
-  $('#adLegend').innerHTML = h && all
+  $('#adLegend').innerHTML = a && !dashHistory ? DASH_SKEL : h && all
     ? `<span class="ad-leg-total">Total <b>${compact(all)}</b></span>${priced ? `<span class="ad-leg-cost" title="${escAttr(costNote)}">Est. cost <b>≈ ${money(cost)}</b></span>` : ''}${sums.map(([k, label, n]) => `<span><i data-k="${k}"></i>${esc(label)} <b>${compact(n)}</b></span>`).join('')}`
     : `<span class="ad-leg-none">${a ? `${esc(a.name)} hasn't used any tokens in the last ${days.length} days.` : ''}</span>`;
   const drawn = `${a?.id ?? ''}|${dashRange}|${totals.join(',')}`;
   if (drawn !== dashDrawn && $('.home-view[data-view="agent"]:not(.hidden)')) {
     dashDrawn = drawn;
-    replayAnim([bars, $('#adY'), $('#adX'), $('#adLegend')]);
+    // Morphing bars keep their axes and legend; what changes on them animates on its own (playDash).
+    if (!morph) replayAnim([bars, $('#adY'), $('#adX'), $('#adLegend')]);
   }
 }
 function showDashTip(bar: HTMLElement): void {
@@ -848,6 +975,10 @@ function showDashTip(bar: HTMLElement): void {
   const d = bar.dataset.day ?? '';
   const day = h?.days[d];
   const tip = $('#adTip');
+  // Already showing another bar's: it slides and resizes from there and its text blurs in, like the app tooltip
+  // (morphTooltip). Measured before the last morph is dropped, so a quick sweep across bars carries on from mid-way.
+  const from = tip.classList.contains('hidden') ? null : tip.getBoundingClientRect();
+  tip.getAnimations().forEach(a => { if (a.id === 'tip') a.cancel(); });
   const rows = DASH_KINDS.filter(([k]) => (day?.[k] ?? 0) > 0).map(([k, label]) => `<div><i data-k="${k}"></i>${esc(label)}<b>${compact(day![k] ?? 0)}</b></div>`).join('');
   const cost = h?.priced && day ? `<div class="ad-tip-cost">Est. cost<b>≈ ${money(day.cost ?? 0)}</b></div>` : '';
   tip.innerHTML = `<div class="ad-tip-day">${esc(dashDayLabel(d))}</div>${rows || '<div class="ad-tip-none">No tokens</div>'}${rows ? cost : ''}`;
@@ -855,7 +986,13 @@ function showDashTip(bar: HTMLElement): void {
   const card = $('.ad-chart'), cr = card.getBoundingClientRect(), br = bar.getBoundingClientRect();
   const left = Math.min(br.right - cr.left + 8, cr.width - tip.offsetWidth - 8);
   tip.style.left = `${left < br.left - cr.left ? br.left - cr.left - tip.offsetWidth - 8 : left}px`;
-  tip.style.top = `${Math.max(8, br.top - cr.top)}px`;
+  tip.style.top = `${Math.max(8, Math.min(br.top - cr.top, cr.height - tip.offsetHeight - 8))}px`;
+  if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const to = tip.getBoundingClientRect();
+  const ease = 'cubic-bezier(.32, .72, 0, 1)';
+  tip.animate([{ transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`, width: `${from.width}px`, height: `${from.height}px` },
+    { transform: 'none', width: `${to.width}px`, height: `${to.height}px` }], { duration: 260, easing: ease }).id = 'tip';
+  for (const row of Array.from(tip.children)) row.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
 }
 // The other agents: everything but the default. Picking a row shows that agent above.
 function renderDashTable(agents: DetectedAgent[]): void {
@@ -870,9 +1007,9 @@ function renderDashTable(agents: DetectedAgent[]): void {
     const sparkHtml = spark.length ? `<span class="ad-spark" aria-hidden="true">${spark.map(v => `<i data-h="${Math.round(v / sparkMax * 100)}"></i>`).join('')}</span>` : '';
     return `<div class="ad-tr${a.id === dashAgent ? ' on' : ''}" role="row" tabindex="0" data-dash-agent="${escAttr(a.id)}">
       <span role="cell" class="ad-name">${brandMark('ad-mark', a.id, a.name[0])}${esc(a.name)}</span>
-      <span role="cell"><span class="ad-status" data-s="${a.found ? 'ready' : 'missing'}">${a.found ? 'Ready' : 'Not installed'}</span></span>
-      <span role="cell">${sparkHtml}${h?.tools ? h.tools.toLocaleString() : '—'}</span>
-      <span role="cell">${dashUsage ? compact(tokens) : '…'}</span>
+      <span role="cell"><span class="pill${a.found ? ' ok' : ''}">${a.found ? 'Ready' : 'Not installed'}</span></span>
+      <span role="cell">${sparkHtml}<span>${h?.tools ? h.tools.toLocaleString() : '—'}</span></span>
+      <span role="cell">${dashUsage ? compact(tokens) : DASH_SKEL}</span>
       <span role="cell">${h?.last ? esc(timeAgo(h.last)) : '—'}</span>
       <span role="cell">${a.found ? `<button class="btn btn-sm" data-dash-default="${escAttr(a.id)}">Make default</button>` : ''}</span>
     </div>`;
@@ -911,10 +1048,30 @@ $('#adRange').addEventListener('click', e => {
   if (!DASH_RANGES.includes(n) || n === dashRange) return;
   dashRange = n;
   store.set('breeze.dashRange', n);
+  const shot = shootDash();
   renderDashChart(dashAgents().find(a => a.id === dashAgent) ?? null);
+  playDash(shot);
 });
-$('#adBars').addEventListener('pointerover', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('.ad-bar'); if (b) showDashTip(b); });
-$('#adBars').addEventListener('pointerleave', () => $('#adTip').classList.add('hidden'));
+// Off a bar the tip goes after a beat, so crossing the gap to the next bar moves it instead of popping it in again.
+// Leaving, it sinks and fades the way it came in, then hides; pointing at a bar meanwhile keeps it.
+let dashTipHide = 0;
+let dashTipOut: Animation | null = null;
+const hideDashTip = () => {
+  clearTimeout(dashTipHide);
+  dashTipHide = window.setTimeout(() => {
+    const tip = $('#adTip');
+    if (tip.classList.contains('hidden') || dashTipOut) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { tip.classList.add('hidden'); return; }
+    dashTipOut = tip.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(6px) scale(.94)' }],
+      { duration: 150, easing: 'cubic-bezier(.4, 0, 1, 1)' });
+    dashTipOut.onfinish = () => { tip.classList.add('hidden'); dashTipOut = null; };
+  }, 70);
+};
+$('#adBars').addEventListener('pointerover', e => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('.ad-bar');
+  if (b) { clearTimeout(dashTipHide); dashTipOut?.cancel(); dashTipOut = null; showDashTip(b); } else hideDashTip();
+});
+$('#adBars').addEventListener('pointerleave', hideDashTip);
 $$<HTMLElement>('.home-rail [data-home-view]').forEach(b => b.onclick = () => showHomeView(b.dataset.homeView ?? 'session'));
 $('#homeSpace').onclick = () => enterMode('box');
 function renderHome(): void {
@@ -938,7 +1095,7 @@ function recentRowHtml(r: RecentFolder): string {
     <button class="recent-open" data-open="${escAttr(r.path)}" title="${escAttr(when ? `${r.path} · ${when}` : r.path)}">
       <span class="nm">${esc(r.name)}</span><span class="path">${esc(shortPath(parentDir(r.path)))}</span>
     </button>
-    <button class="recent-forget" data-forget="${escAttr(r.path)}" title="Remove from Recent" aria-label="Remove ${escAttr(r.name)} from Recent">${svgIcon('x', 12)}</button>
+    <button class="recent-forget" data-forget="${escAttr(r.path)}" title="Remove from Recent" aria-label="Remove ${escAttr(r.name)} from Recent">${TAB_CLOSE_SVG}</button>
   </div>`;
 }
 // Ten at first; More shows the rest.
@@ -948,7 +1105,7 @@ function renderRecentList(): void {
   const list = homeRecent;
   const el = $('#homeRecent');
   const shown = list && !recentAll ? list.slice(0, RECENT_SHOWN) : list;
-  const more = list && shown && list.length > shown.length ? '<button class="home-link recent-more" data-more>More</button>' : '';
+  const more = list && shown && list.length > shown.length ? '<button class="home-link recent-more" data-more><span class="get-label">More</span></button>' : '';
   const html = !list || !shown ? skeletonRows(4)
     : list.length ? shown.map(recentRowHtml).join('') + more
     : '<div class="recent-empty">Folders you open show up here.</div>';

@@ -82,7 +82,7 @@ function settleSwitch(el: HTMLElement, ms: number): void {
     delete el.dataset.dragging;
     if (!el.classList.contains('liquid-toggle')) delete el.dataset.active;
     el.style.removeProperty('--delta');
-    if (!moved) { if (el.classList.contains('liquid-toggle')) settleSwitch(el, 350); return; }
+    if (!moved) { if (el.classList.contains('liquid-toggle')) settleSwitch(el, 200); return; }
     const at = Number.parseFloat(el.style.getPropertyValue('--complete')) || 0;
     if (el.classList.contains('liquid-toggle')) { el.dataset.dropped = 'true'; settleSwitch(el, 100); }
     el.style.removeProperty('--complete');   // eases from where the knob was let go
@@ -103,7 +103,7 @@ function settleSwitch(el: HTMLElement, ms: number): void {
     const el = e.target instanceof HTMLElement ? e.target.closest<HTMLButtonElement>('button.switch.liquid-toggle') : null;
     if (!el || el.disabled || (e.key !== 'Enter' && e.key !== ' ')) return;
     el.dataset.active = 'true'; el.dataset.pressed = 'true';
-    settleSwitch(el, 350);
+    settleSwitch(el, 200);
   });
   document.addEventListener('pointermove', e => {
     if (!drag) return;
@@ -495,8 +495,7 @@ document.addEventListener('pointerdown', e => {
 
 // The side tab, top to bottom: who you are, a search box, then the sections in groups.
 const SETTINGS_GROUPS: [string, SettingsTab[]][] = [
-  ['', ['general', 'appearance', 'controls']],
-  ['Agents', ['agents']],
+  ['', ['general', 'appearance', 'controls', 'agents']],
   ['Apps', ['discord', 'misc']],
   ['Support', ['help', 'dev']],
 ];
@@ -571,7 +570,7 @@ function bindSettings(m: HTMLElement): void {
   const prevSwitch = new Map<string, string>();
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => prevSwitch.set(s.id, getComputedStyle(s).getPropertyValue('--complete')));
   // Held switches and how long their bubble stays up: 0.1s after a drag is let go, a tap's whole slide otherwise.
-  const prevHeld = new Map([...pane.querySelectorAll<HTMLElement>('.switch[data-active]')].map(s => [s.id, s.dataset.dropped ? 100 : 350]));
+  const prevHeld = new Map([...pane.querySelectorAll<HTMLElement>('.switch[data-active]')].map(s => [s.id, s.dataset.dropped ? 100 : 200]));
   if (pane.dataset.tab !== settingsTab) lightJoke = ''; // a fresh joke for each visit
   // A part greyed out by its switch (Discord presence, Vibe Code Mode's feeds) fades there and back. The pane is
   // rebuilt below, so the new copy takes over from exactly how the old one looked, even mid-fade: turning presence on
@@ -582,7 +581,17 @@ function bindSettings(m: HTMLElement): void {
     const el = pane.querySelector(s);
     return el ? { opacity: getComputedStyle(el).opacity, filter: getComputedStyle(el).filter } : null;
   }) : [];
+  // Each row's description, by its title, so one that a redraw changes (Full access's On/Off) blurs in.
+  const rowText = () => new Map($$<HTMLElement>('.set-row', pane).map(r => [r.querySelector('.set-title')?.textContent ?? '', r.querySelector<HTMLElement>('.set-sub')]));
+  const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, el]) => [k, el?.textContent ?? ''])) : null;
   pane.innerHTML = settingsBody(settingsTab);
+  if (wasText && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    for (const [k, el] of rowText()) {
+      if (el && wasText.has(k) && wasText.get(k) !== el.textContent) {
+        el.animate([{ opacity: 0, filter: 'blur(2px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+      }
+    }
+  }
   DIMMABLE.forEach((s, i) => {
     const el = pane.querySelector<HTMLElement>(s), from = was[i];
     if (!el || !from) return;
@@ -612,20 +621,25 @@ function bindSettings(m: HTMLElement): void {
       { duration: 420, delay: 120, easing: 'cubic-bezier(.32, .72, 0, 1)', fill: 'backwards' });
     $$('[data-switch-acct]', pane).forEach(b => b.animate([{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 300, delay: 120, easing: 'ease-out', fill: 'backwards' }));
   }
-  // A CSS transition can't be relied on for a freshly built element (it never starts if its style was resolved
-  // already), so the slide from the old place is played as a Web Animation of --complete instead.
+  // A rebuilt switch starts where the old knob was (mid-drag or mid-slide too) and slides on with its own CSS
+  // transition, so it moves exactly as fast as a switch that was never rebuilt (the composer's Full access).
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => {
     const was = Number.parseFloat(prevSwitch.get(s.id) ?? '');
     const to = s.classList.contains('on') ? 100 : 0;
-    // A liquid switch held as it flipped keeps its bubble up on the rebuilt one, and slides as a tap does.
-    const liquid = !classicSwitch;
+    // A liquid switch held as it flipped keeps its bubble up on the rebuilt one, and slides as a tap (or a drop) does.
     const held = prevHeld.get(s.id);
-    if (liquid && held) { s.dataset.active = 'true'; s.dataset.pressed = 'true'; settleSwitch(s, held); }
-    if (Number.isNaN(was) || Math.abs(was - to) < .5 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    s.animate([{ '--complete': String(was) }, { '--complete': String(to) }],
-      liquid && held === 100 ? { duration: 150, easing: 'ease-out' }
-        : liquid ? { duration: 120 * Math.abs(to - was) / 100, delay: 180, easing: 'ease-out', fill: 'backwards' }
-        : { duration: 220 * Math.abs(to - was) / 100, easing: 'cubic-bezier(.65, 0, .35, 1)' });
+    if (!classicSwitch && held) {
+      s.dataset.active = 'true'; s.dataset.pressed = 'true';
+      if (held === 100) s.dataset.dropped = 'true';
+      settleSwitch(s, held);
+    }
+    if (Number.isNaN(was) || Math.abs(was - to) < .5) return;
+    // Pinned there with no transition (the pane's earlier style reads may have placed it at the end already), then let go.
+    s.style.transition = 'none';
+    s.style.setProperty('--complete', String(was));
+    void getComputedStyle(s).getPropertyValue('--complete');
+    s.style.transition = '';
+    s.style.removeProperty('--complete');
   });
   renderSettingsNav(m);
   const on = (id: string, fn: (el: HTMLElement) => void) => { const el = $(`#${id}`, pane); if (el) el.onclick = () => fn(el); };
@@ -864,13 +878,14 @@ function renderAccessSwitches(): void {
     b.closest('.composer-access')?.classList.toggle('on', agentFullAccess);
   });
 }
+// The switch flips at once instead of after main answers; main's answer only corrects it, and a failure flips it back.
 function setFullAccess(on: boolean): void {
+  const show = (v: boolean) => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); refreshSettings(); } };
+  show(on);
   background(api.agent.setFullAccess(on).then(v => {
-    agentFullAccess = v;
+    show(v);
     toast(v ? 'Full access on: agents can run anything in build mode' : 'Full access off');
-    renderAccessSwitches();
-    refreshSettings();
-  }));
+  }, (e: unknown) => { show(!on); throw e; }));
 }
 $$<HTMLButtonElement>('[data-full-access]').forEach(b => b.onclick = () => setFullAccess(!agentFullAccess));
 background(api.agent.fullAccess().then(v => { agentFullAccess = v; renderAccessSwitches(); }));
@@ -880,7 +895,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; refreshSettings(); renderAccessSwitches(); } }));
   closeMenu();
   if (tab) settingsTab = tab;
-  const gears = [$('#settingsBtn'), $('#boxSettings')];
+  const gears = [$('#settingsBtn'), $('#boxSettings'), $('#homeSettings')];
   gears.forEach(g => { g.classList.add('open'); g.setAttribute('aria-expanded', 'true'); });
   openModal(`<div class="settings-modal" aria-label="Settings">
       <nav class="set-nav" aria-label="Settings sections">${settingsNavHeadHtml()}</nav>
@@ -934,6 +949,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
 commands['settings.open'] = () => openSettings($('#settingsBtn'));
 $('#settingsBtn').onclick = e => openSettings(e.currentTarget as HTMLElement);
 $('#boxSettings').onclick = e => openSettings(e.currentTarget as HTMLElement);
+$('#homeSettings').onclick = e => openSettings(e.currentTarget as HTMLElement);
 
 // Buttons with data-act anywhere in the page run the matching command.
 document.addEventListener('click', e => {

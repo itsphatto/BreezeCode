@@ -1024,10 +1024,6 @@ button {
   cursor: pointer;
 }
 
-.ob-link:hover {
-  text-decoration: underline;
-}
-
 .ob-link:focus-visible {
   outline: 2px solid #1f4dff;
   outline-offset: 2px;
@@ -1231,11 +1227,6 @@ button {
   color: #1f4dff;
   font-weight: 500;
   text-decoration: none;
-}
-
-.ob-terms a:hover,
-.ob-terms a:focus-visible {
-  text-decoration: underline;
 }
 
 /* Compact and centered under the column, like the reference. */
@@ -1583,14 +1574,22 @@ textarea:focus-visible {
   transform: scale(0.95);
 }
 
-.agent-opt .get .get-label {
+.agent-opt .get .get-label,
+.home-link .get-label {
   position: relative;
   display: inline-block;
   line-height: 1.2;
 }
 
-/* Animated active underline with smooth sweep and gradient flow */
-.agent-opt .get .get-label::after {
+/* Animated active underline with smooth sweep and gradient flow: Get Ollama's, and every link that underlines on
+   hover (Home's links, onboarding's, the Recent names, Settings' email, the debugger's). */
+:is(.ob-link, .ob-terms a, .home-recent .recent-open .nm, .set-profile-edit, .dbg-link) {
+  position: relative;
+}
+
+.agent-opt .get .get-label::after,
+.home-link .get-label::after,
+:is(.ob-link, .ob-terms a, .home-recent .recent-open .nm, .set-profile-edit, .dbg-link)::after {
   content: "";
   position: absolute;
   left: 0;
@@ -1607,7 +1606,9 @@ textarea:focus-visible {
               opacity .2s ease;
 }
 
-.agent-opt .get:hover .get-label::after {
+.agent-opt .get:hover .get-label::after,
+.home-link:hover .get-label::after,
+:is(.ob-link:hover, .ob-terms a:is(:hover, :focus-visible), .home-recent .recent-open:hover .nm, .set-profile-edit:hover, .dbg-link:hover)::after {
   transform: scaleX(1);
   opacity: 1;
   animation: underlineShimmer 1.8s ease-in-out infinite;
@@ -1644,6 +1645,11 @@ textarea:focus-visible {
   transform: scaleX(1);
   opacity: 1;
   animation: underlineShimmer 1.8s ease-in-out infinite;
+}
+
+/* These cut their text with "…" (overflow hidden), which would clip a line drawn below the box. */
+:is(.home-recent .recent-open .nm, .set-profile-mail)::after {
+  bottom: 0;
 }
 
 @keyframes underlineShimmer {
@@ -2309,16 +2315,16 @@ body.resizing-h iframe {
 }
 
 /* The gear turns while its menu is open and turns back when it closes. */
-#settingsBtn svg {
+:is(#settingsBtn, #homeSettings) svg {
   transition: transform .5s cubic-bezier(.3, 1.3, .5, 1);
 }
 
-#settingsBtn.open {
+:is(#settingsBtn, #homeSettings).open {
   color: var(--text);
   background: var(--bg-3);
 }
 
-#settingsBtn.open svg {
+:is(#settingsBtn, #homeSettings).open svg {
   transform: rotate(180deg);
 }
 
@@ -4476,7 +4482,8 @@ svg.ico-svg:active {
   flex: 1 1 auto;
 }
 
-.term-tab-close {
+.term-tab-close,
+.home-recent .recent-forget {
   /* Mirrors the agent tab X; its size comes from the shared tab X rule below the agent tabs. */
   flex: 0 0 auto;
   display: inline-grid;
@@ -4497,7 +4504,8 @@ svg.ico-svg:active {
               margin .22s cubic-bezier(.16, 1, .3, 1);
 }
 
-.term-tab-close .tab-close-icon {
+.term-tab-close .tab-close-icon,
+.home-recent .recent-forget .tab-close-icon {
   display: block;
   pointer-events: none;
 }
@@ -6255,7 +6263,8 @@ body.vibing .ide {
 }
 
 [data-panel]:not(.hidden)>.side-body,
-[data-panel]:not(.hidden)>.search-box {
+[data-panel]:not(.hidden)>.search-box,
+.home-view:not(.hidden) {
   animation: fade .18s;
 }
 
@@ -7690,16 +7699,10 @@ body.vibing .ide {
   outline-offset: -2px;
 }
 
-/* The lit view gets the IDE's blue edge on the left. */
-.home-rail .act-btn.on::after {
-  content: "";
-  position: absolute;
-  left: -4px;
-  top: 8px;
-  bottom: 8px;
-  width: 2.5px;
-  border-radius: 0 2px 2px 0;
-  background: var(--blue);
+/* The lit view gets the IDE's blue edge, sliding between views like the activity bar's. Its default place (14px) is
+   the first view's. */
+.home-rail .act-indicator {
+  opacity: 1;
 }
 
 .home-main {
@@ -7720,7 +7723,7 @@ body.vibing .ide {
   box-sizing: border-box;
   width: min(64em, 100%);
   margin: 0 auto;
-  padding: clamp(40px, 14vh, 160px) 3em 3em;
+  padding: clamp(28px, 9vh, 110px) 3em 3em;
   font-size: clamp(14px, .55vw + 7px, 19px);
 }
 
@@ -7855,10 +7858,6 @@ body.vibing .ide {
   height: 1.15em;
 }
 
-.home-link:hover {
-  text-decoration: underline;
-}
-
 .home-link:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 1px;
@@ -7904,40 +7903,21 @@ body.vibing .ide {
   text-overflow: ellipsis;
 }
 
-.home-recent .recent-open:hover .nm {
-  text-decoration: underline;
-}
-
 .home-recent .recent-open:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 1px;
 }
 
-/* Remove from Recent: just the cross, faint until pointed at, red on hover. */
+/* Remove from Recent: the terminal tab's close button (its rules list this one too), shown while its row is pointed at. */
 .home-recent .recent-forget {
-  display: inline-grid;
-  place-items: center;
-  flex: none;
   width: 1.4em;
   height: 1.4em;
   margin-left: .3em;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text-3);
-  cursor: pointer;
-  transition: color .12s ease;
-}
-
-.home-recent .recent-forget:hover,
-.home-recent .recent-forget:focus-visible {
-  color: var(--err);
 }
 
 .home-recent .recent-forget:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 1px;
-  border-radius: 4px;
 }
 
 .home-recent .recent-row.missing .nm {
@@ -8185,11 +8165,27 @@ body.vibing .ide {
   letter-spacing: -.005em;
 }
 
-.ad-dot {
-  width: .6em;
-  height: .6em;
-  border-radius: 50%;
-  background: var(--ok);
+/* A token count still loading: the app's shimmering bar (.skel-row), sized to the text it stands for. */
+.skel-row.ad-skel {
+  display: inline-block;
+  width: 4em;
+  height: .9em;
+  vertical-align: middle;
+  animation: skelShimmer 1.6s ease-in-out infinite, skelIn .25s ease .15s backwards;
+}
+
+.ad-big .ad-skel {
+  width: 3.4em;
+  height: .8em;
+  border-radius: 8px;
+}
+
+.ad-chart-total .ad-skel {
+  width: 11em;
+}
+
+.ad-legend .ad-skel {
+  width: 24em;
 }
 
 .ad-big {
@@ -8391,11 +8387,14 @@ body.vibing .ide {
   background: repeating-linear-gradient(to bottom, transparent 0 calc(50% - 1px), rgba(var(--ink), .06) calc(50% - 1px) 50%);
 }
 
+/* As tall as its tokens (set from script), so only the bar itself is pointed at; a day without any is its 3px stub.
+   Redrawn for another agent, it and its segments ease to their new heights. */
 .ad-bar {
   display: flex;
   flex: 1;
   flex-direction: column-reverse;
-  height: 100%;
+  height: 3px;
+  transition: height .45s cubic-bezier(.65, 0, .35, 1);
   min-width: 0;
   border-radius: 3px 3px 0 0;
   overflow: hidden;
@@ -8403,12 +8402,8 @@ body.vibing .ide {
 }
 
 .ad-bars.anim .ad-bar {
-  animation: ad-rise .7s cubic-bezier(.16, 1, .3, 1) both;
+  animation: ad-rise .7s cubic-bezier(.65, 0, .35, 1) both;
   animation-delay: calc(var(--i, 0) * 35ms);
-}
-
-.ad-bars.anim .ad-bar.zero {
-  animation-name: ad-fade;
 }
 
 :is(.ad-y, .ad-x, .ad-legend).anim {
@@ -8442,7 +8437,12 @@ body.vibing .ide {
 .ad-bar i {
   display: block;
   flex: none;
-  transition: filter .12s ease;
+  transition: filter .12s ease, height .45s cubic-bezier(.65, 0, .35, 1);
+}
+
+/* Even digits, so a number scrambling (setup.ts) keeps its width. */
+:is(.ad-big, .ad-facts dd, .ad-limit-top b, .ad-chart-total, .ad-y span, .ad-legend b, .ad-tr [role="cell"]) {
+  font-variant-numeric: tabular-nums;
 }
 
 .ad-bar:hover i {
@@ -8507,9 +8507,20 @@ body.vibing .ide {
   color: var(--text-3);
 }
 
+.ad-tip:not(.hidden) {
+  animation: ad-tip-in .25s cubic-bezier(.16, 1, .3, 1);
+}
+
+/* The app tooltip's entrance (.breeze-tooltip). */
+@keyframes ad-tip-in {
+  from { opacity: 0; transform: translateY(6px) scale(.94); }
+}
+
 .ad-tip {
   position: absolute;
   z-index: 3;
+  box-sizing: border-box; /* the morph between bars animates the outer box */
+  overflow: hidden;
   min-width: 11em;
   padding: .6em .75em;
   border: 1px solid var(--line);
@@ -8598,24 +8609,6 @@ body.vibing .ide {
   gap: .6em;
   color: var(--text);
   font-weight: 500;
-}
-
-.ad-status {
-  display: inline-flex;
-  align-items: center;
-  gap: .45em;
-}
-
-.ad-status::before {
-  content: "";
-  width: .5em;
-  height: .5em;
-  border-radius: 50%;
-  background: var(--ok);
-}
-
-.ad-status[data-s="missing"]::before {
-  background: var(--text-3);
 }
 
 .ad-tr > span:last-child {
@@ -11880,7 +11873,8 @@ body.layout-animating #previewPane {
 }
 
 .agent-tab .tab-close .tab-close-icon,
-.term-tab .term-tab-close .tab-close-icon {
+.term-tab .term-tab-close .tab-close-icon,
+.home-recent .recent-forget .tab-close-icon {
   width: 62.5%;
   height: 62.5%;
 }
@@ -11888,19 +11882,23 @@ body.layout-animating #previewPane {
 .agent-tab.closable:hover .tab-close,
 .agent-tab.closable.active .tab-close,
 .term-tab:hover .term-tab-close,
-.term-tab.active .term-tab-close {
+.term-tab.active .term-tab-close,
+.home-recent .recent-row:hover .recent-forget,
+.home-recent .recent-forget:focus-visible {
   opacity: .75;
   transform: none;
 }
 
 .agent-tab.closable .tab-close:hover,
-.term-tab .term-tab-close:hover {
+.term-tab .term-tab-close:hover,
+.home-recent .recent-forget:hover {
   opacity: 1;
   transform: none;
 }
 
 .agent-tab.closable .tab-close:active,
-.term-tab .term-tab-close:active {
+.term-tab .term-tab-close:active,
+.home-recent .recent-forget:active {
   transform: scale(.92);
 }
 
@@ -12140,7 +12138,6 @@ body.layout-animating #previewPane {
 
 .set-profile-edit:hover {
   color: var(--text);
-  text-decoration: underline;
 }
 
 .set-search {
@@ -12156,10 +12153,6 @@ body.layout-animating #previewPane {
   color: var(--text-3);
   cursor: text;
   transition: border-color .15s ease;
-}
-
-.set-search:focus-within {
-  border-color: var(--blue);
 }
 
 .set-search input {
@@ -12888,7 +12881,7 @@ body.layout-animating #previewPane {
   box-shadow: none;
   outline-offset: 2px;
   /* tap: hold the bubble up first, then slide; a dropped drag just settles */
-  transition: --complete .12s ease-out .18s, outline var(--transition) var(--ease);
+  transition: --complete .1s ease-out .08s, outline var(--transition) var(--ease);
 
   &.switch-sm {
     zoom: .25;
@@ -12899,11 +12892,11 @@ body.layout-animating #previewPane {
   }
 
   &[data-dropped] {
-    transition: --complete .15s ease-out, outline var(--transition) var(--ease);
+    transition: --complete .12s ease-out, outline var(--transition) var(--ease);
   }
 
   &:is(:active, [data-pressed]) {
-    --transition: 0.6s;
+    --transition: 0.35s;
     --ease: linear(0 0%, 0.6091 3.69%, 1.0259 7.24%, 1.1733 9.05%, 1.283 10.92%, 1.3562 12.87%, 1.3948 14.95%,
         1.4014 16.03%, 1.3999 17.16%, 1.3731 19.64%, 1.3202 22.27%, 1.1394 29.39%, 1.0582 33.17%, 0.9943 37.45%,
         0.9734 39.64%, 0.9593 41.92%, 0.9505 45.08%, 0.9517 48.7%, 0.9924 63.02%, 1.0046 71.2%, 1.0061 78.24%, 1 100%);
@@ -13636,6 +13629,7 @@ body.layout-animating #previewPane {
 .tab-close:hover,
 .agent-tab.closable .tab-close:hover,
 .term-tab .term-tab-close:hover,
+.home-recent .recent-forget:hover,
 #findClose:hover,
 #splitClose:hover,
 .preview-bar [data-act="view.togglePreview"]:hover,
@@ -14270,6 +14264,7 @@ body.layout-animating #previewPane {
 
 /* The two settings gears by name too, so they turn even where the generic match above misses them. */
 #settingsBtn:hover svg,
+#homeSettings:hover svg,
 #boxSettings:hover svg {
   transform: rotate(180deg) scale(1.14);
 }
@@ -14895,10 +14890,6 @@ body.layout-animating #previewPane {
   background: none;
   color: var(--blue-text);
   font-size: 11.5px;
-}
-
-.dbg-link:hover {
-  text-decoration: underline;
 }
 
 .dbg-exc {
