@@ -1,20 +1,24 @@
 /* ================= Layout: resizable, collapsible panels ================= */
-interface Layout { side: number; agents: number; term: number; preview: number; scmLeft: number; sideOpen: boolean; agentsOpen: boolean; termOpen: boolean; previewOpen: boolean; view: string; }
+// termDock: the IDE's terminal under the editor ('bottom') or beside it as a side bar ('side', termW wide).
+interface Layout { side: number; agents: number; term: number; termW: number; termDock: 'bottom' | 'side'; preview: number; scmLeft: number; sideOpen: boolean; agentsOpen: boolean; termOpen: boolean; previewOpen: boolean; view: string; }
 type SashKind = 'side' | 'agents' | 'preview' | 'term' | 'scm';
-const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, preview: 460, scmLeft: 320, sideOpen: true, agentsOpen: true, termOpen: false, previewOpen: true, view: 'files' };
+const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, termW: 420, termDock: 'bottom', preview: 460, scmLeft: 320, sideOpen: true, agentsOpen: true, termOpen: false, previewOpen: true, view: 'files' };
 const layout: Layout = { ...DEFAULT_LAYOUT, ...store.get<Partial<Layout>>('breeze.layout', {}) };
+// The terminal's own window while it is popped out (popOutTerminal, below).
+let termPopup: Window | null = null;
+function termPopped(): boolean { return !!termPopup && !termPopup.closed; }
 // One terminal panel, shown in the IDE or in Breeze Space. Moving it keeps its sessions and what they've printed.
 const termHome = $('#terminal').parentElement as HTMLElement;
 function terminalTo(parent: HTMLElement): void {
   const t = $('#terminal');
-  if (t.parentElement === parent) return;
+  if (t.parentElement === parent || termPopped()) return; // a popped-out terminal stays in its window until it closes
   parent.append(t);
   // It arrives closed and laid out, so opening slides it in even if it was open where it came from.
   t.classList.remove('open');
   void t.offsetWidth;
 }
 function terminalBack(): void {
-  if ($('#terminal').parentElement === termHome) return;
+  if ($('#terminal').parentElement === termHome || termPopped()) return;
   terminalTo(termHome);
   applyLayout();
 }
@@ -39,7 +43,9 @@ function applyLayout(): void {
     work.classList.toggle('no-preview', !layout.previewOpen);
   }
   t.style.setProperty('--term-h', `${clamp(layout.term, 80, Math.max(80, innerHeight - 220))}px`);
-  t.classList.toggle('open', layout.termOpen);
+  termHome.classList.toggle('term-side', layout.termDock === 'side');
+  termHome.style.setProperty('--term-w', `${clamp(layout.termW, 260, Math.max(260, innerWidth - 560))}px`);
+  t.classList.toggle('open', layout.termOpen || termPopped());
   void setIcon($('#termTitle'), layout.termOpen ? 'chevronDown' : 'chevronRight');
   const icon = (id: string, sym: string, on: boolean) => $(`#${id} use`).setAttribute('href', `#i-${sym}${on ? '-on' : ''}`);
   icon('tglSide', 'left', layout.sideOpen); icon('tglTerm', 'bottom', layout.termOpen); icon('tglAgents', 'right', layout.agentsOpen);
@@ -66,7 +72,10 @@ const SASH_DRAG: Record<SashKind, (start: Layout, dx: number, dy: number) => voi
   agents: (start, dx) => { const w = start.agents - dx; layout.agentsOpen = w >= 180; if (layout.agentsOpen) layout.agents = clamp(w, 260, 720); },
   preview: (start, dx) => { const w = start.preview - dx; layout.previewOpen = w >= 140; if (layout.previewOpen) layout.preview = clamp(w, 220, $('#work').clientWidth - 220); },
   scm: (start, dx) => { layout.scmLeft = clamp(start.scmLeft + dx, 240, 560); },
-  term: (start, _dx, dy) => { const h = start.term - dy; layout.termOpen = h >= 60; if (layout.termOpen) layout.term = clamp(h, 80, innerHeight - 220); },
+  term: (start, dx, dy) => {
+    if (layout.termDock === 'side') { const w = start.termW - dx; layout.termOpen = w >= 160; if (layout.termOpen) layout.termW = clamp(w, 260, innerWidth - 560); return; }
+    const h = start.term - dy; layout.termOpen = h >= 60; if (layout.termOpen) layout.term = clamp(h, 80, innerHeight - 220);
+  },
 };
 // Sashes sit in the middle of the gap between two cards: both the grab area and the line it lights.
 // The cards clip their contents, so the sashes are lifted out into one fixed layer and placed from their card's box.
@@ -82,14 +91,14 @@ function sashGap(sash: HTMLElement): [number, number, number, number] | null {
   const cardEl = sashCards.get(sash);
   if (!cardEl?.offsetParent) return null;
   const kind = sash.dataset.sash;
-  if (kind === 'term' && (!cardEl.classList.contains('open') || cardEl.parentElement?.id === 'box')) return null; // it sets the height, which Breeze Space's side bar doesn't use
+  if (kind === 'term' && (!cardEl.classList.contains('open') || cardEl.parentElement?.id === 'box' || termPopped())) return null; // it sets the height, which Breeze Space's side bar doesn't use
   // A closed preview keeps its (zero-width) card in the layout; its sash would sit on the editor's edge and resize
   // nothing useful, since the editor and agents already share the sash beside the agents panel.
   if (kind === 'preview' && !layout.previewOpen) return null;
   if (kind === 'side' && $('#main').classList.contains('scm-page')) return null; // the page replaces the side bar
   const card = cardEl.getBoundingClientRect();
   const half = (Number.parseFloat(getComputedStyle($('#main')).getPropertyValue('--gap')) || 6) / 2;
-  return kind === 'term'
+  return kind === 'term' && layout.termDock !== 'side'
     ? [card.left, card.top - half, card.width, 0]
     : [kind === 'side' || kind === 'scm' ? card.right + half : card.left - half, card.top, 0, card.height];
 }
@@ -125,7 +134,7 @@ function placeSashLine(sash: HTMLElement | null): void {
 function startSashDrag(sash: HTMLElement, kind: SashKind, e: PointerEvent): void {
   const sx = e.clientX, sy = e.clientY, start = { ...layout };
   if (kind === 'preview') start.preview = $('#previewPane').getBoundingClientRect().width;
-  document.body.classList.add(kind === 'term' ? 'resizing-h' : 'resizing');
+  document.body.classList.add(kind === 'term' && layout.termDock !== 'side' ? 'resizing-h' : 'resizing');
   sash.classList.add('active');
   placeSashLine(sash);
   const move = (ev: PointerEvent) => { SASH_DRAG[kind](start, ev.clientX - sx, ev.clientY - sy); applyLayout(); placeSashes(); placeSashLine(sash); };
@@ -133,7 +142,7 @@ function startSashDrag(sash: HTMLElement, kind: SashKind, e: PointerEvent): void
     removeEventListener('pointermove', move); removeEventListener('pointerup', up);
     document.body.classList.remove('resizing', 'resizing-h'); sash.classList.remove('active');
     placeSashLine((ev.target as HTMLElement)?.closest?.<HTMLElement>('[data-sash]') === sash ? sash : null);
-    if (layout.side !== start.side || layout.agents !== start.agents || layout.preview !== start.preview || layout.scmLeft !== start.scmLeft || layout.term !== start.term || layout.sideOpen !== start.sideOpen || layout.agentsOpen !== start.agentsOpen || layout.previewOpen !== start.previewOpen || layout.termOpen !== start.termOpen) {
+    if (layout.side !== start.side || layout.agents !== start.agents || layout.preview !== start.preview || layout.scmLeft !== start.scmLeft || layout.term !== start.term || layout.termW !== start.termW || layout.sideOpen !== start.sideOpen || layout.agentsOpen !== start.agentsOpen || layout.previewOpen !== start.previewOpen || layout.termOpen !== start.termOpen) {
       pushAppAction({ type: 'layout', prev: start, next: { ...layout } });
     }
   };
@@ -150,7 +159,7 @@ $$<HTMLElement>('[data-sash]').forEach(sash => {
   sash.addEventListener('pointerleave', () => { if (!sash.classList.contains('active')) placeSashLine(null); });
   sash.addEventListener('dblclick', () => {
     const prev = { ...layout };
-    const key = kind === 'scm' ? 'scmLeft' : kind;
+    const key = kind === 'scm' ? 'scmLeft' : kind === 'term' && layout.termDock === 'side' ? 'termW' : kind;
     layout[key] = DEFAULT_LAYOUT[key];
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
     applyLayoutAnimated();
@@ -172,3 +181,122 @@ function renderUpdate(u: UpdateState): void {
 api.update.onState(renderUpdate);
 api.update.get().then(renderUpdate, () => {});
 
+
+/* ----- The terminal's "..." menu: under the editor, beside it, or in a window of its own ----- */
+// Popping out moves the terminal itself (its sessions, what they've printed, the running commands) into a blank
+// window the IDE opens (main.js allows just this one). It comes back to the IDE when that window closes.
+// The window wears the IDE's stylesheets and theme, and keeps the theme in step while it is open.
+function syncPopupLook(d: Document): void {
+  const src = document.documentElement;
+  for (const a of [...d.documentElement.attributes]) if (!src.hasAttribute(a.name)) d.documentElement.removeAttribute(a.name);
+  for (const a of [...src.attributes]) d.documentElement.setAttribute(a.name, a.value);
+  d.body.className = `${document.body.className} term-popout`;
+}
+let popupLookWatch: MutationObserver | null = null;
+function popOutTerminal(): void {
+  if (termPopped()) { termPopup?.focus(); return; }
+  const w = window.open('about:blank', 'breeze-terminal');
+  if (!w) { toast('Couldn\'t open a window for the terminal'); return; }
+  termPopup = w;
+  const d = w.document;
+  d.title = 'Terminal - Breeze Code';
+  for (const el of document.head.querySelectorAll('link[rel="stylesheet"], style')) {
+    const copy = d.importNode(el, true);
+    if (el instanceof HTMLLinkElement) (copy as HTMLLinkElement).href = el.href; // absolute: about:blank has no folder
+    d.head.append(copy);
+  }
+  syncPopupLook(d);
+  popupLookWatch = new MutationObserver(() => { if (termPopped()) syncPopupLook(d); });
+  popupLookWatch.observe(document.documentElement, { attributes: true });
+  popupLookWatch.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  elsewhere.push(d);
+  const t = $('#terminal');
+  d.body.append(t);
+  t.classList.add('open');
+  w.addEventListener('pagehide', dockTerminalBack, { once: true });
+  layout.termOpen = false; // nothing is left of it in the IDE
+  applyLayoutAnimated();
+  w.focus();
+  termInput.focus();
+}
+function dockTerminalBack(): void {
+  const w = termPopup;
+  if (!w) return;
+  termPopup = null;
+  popupLookWatch?.disconnect();
+  popupLookWatch = null;
+  const i = elsewhere.indexOf(w.document);
+  if (i >= 0) elsewhere.splice(i, 1);
+  const t = w.document.getElementById('terminal');
+  if (t) { termHome.append(t); t.classList.remove('open'); void t.offsetWidth; }
+  if (!w.closed) w.close();
+  terminalHere();
+  layout.termOpen = true;
+  applyLayoutAnimated();
+  termInput.focus();
+}
+function dockTerminal(dock: Layout['termDock']): void {
+  const prev = { ...layout };
+  layout.termDock = dock;
+  if (termPopped()) { dockTerminalBack(); return; }
+  terminalBack();
+  layout.termOpen = true;
+  pushAppAction({ type: 'layout', prev, next: { ...layout } });
+  applyLayoutAnimated();
+  termInput.focus();
+}
+const TERM_DOCKS: [Layout['termDock'] | 'window', string][] = [['bottom', 'Panel Below the Editor'], ['side', 'Side Bar Beside the Editor'], ['window', 'New Window']];
+function termMoreItems(): MenuItem[] {
+  const where = termPopped() ? 'window' : layout.termDock;
+  return [
+    ...TERM_DOCKS.map(([dock, label]): MenuItem => ({
+      label, checked: () => where === dock,
+      run: () => (dock === 'window' ? popOutTerminal() : dockTerminal(dock)),
+    })),
+    { sep: true },
+    { label: 'Toggle Terminal', act: 'term.toggle', key: 'Ctrl+`' },
+  ];
+}
+// In the popped-out window the IDE's menus (drawn on the IDE's own page) can't show, so it gets a small one of its own.
+function termWindowMenu(btn: HTMLElement): void {
+  const d = btn.ownerDocument;
+  const open = d.querySelector('.menu.term-win-menu');
+  if (open) { open.remove(); return; }
+  const items = termMoreItems().filter(it => !it.act && !it.sep);
+  const m = d.createElement('div');
+  m.className = 'menu term-win-menu';
+  m.setAttribute('role', 'menu');
+  for (const it of items) {
+    const b = d.createElement('button');
+    b.className = `menu-item${it.checked?.() ? ' checked' : ''}`;
+    b.setAttribute('role', 'menuitem');
+    b.innerHTML = `${it.checked?.() ? `<span class="menu-check">${svgIcon('check', 12)}</span>` : ''}<span>${esc(it.label ?? '')}</span>`;
+    b.onclick = () => { close(); it.run?.(); };
+    m.append(b);
+  }
+  const view = d.defaultView as Window;
+  d.body.append(m);
+  const r = btn.getBoundingClientRect();
+  m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, view.innerWidth - m.offsetWidth - 8))}px`;
+  m.style.top = `${r.bottom + 4}px`;
+  btn.setAttribute('aria-expanded', 'true');
+  const outside = (e: Event) => { if (!m.contains(e.target as Node) && !btn.contains(e.target as Node)) close(); };
+  const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+  function close(): void {
+    m.remove();
+    btn.setAttribute('aria-expanded', 'false');
+    d.removeEventListener('mousedown', outside, true);
+    d.removeEventListener('keydown', key, true);
+  }
+  d.addEventListener('mousedown', outside, true);
+  d.addEventListener('keydown', key, true);
+}
+$('#termMore').onclick = e => {
+  e.stopPropagation();
+  const btn = e.currentTarget as HTMLElement;
+  if (btn.ownerDocument !== document) { termWindowMenu(btn); return; }
+  if (btn.classList.contains('open') || (justClosedTrigger === btn && Date.now() - justClosedAt < 350)) { closeMenu(); return; }
+  closeMenu();
+  const r = btn.getBoundingClientRect();
+  popupMenu(Math.max(8, r.right - 230), r.bottom + 4, termMoreItems(), undefined, btn);
+};

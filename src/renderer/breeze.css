@@ -1170,8 +1170,7 @@ button {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: rgba(34, 50, 84, .05);
-  opacity: 0;
+  opacity: 0; /* no grey halo behind the tick; only the keyboard focus ring below uses this circle */
   transition: opacity .2s ease;
 }
 
@@ -1196,10 +1195,6 @@ button {
 .ob-terms .check polyline {
   stroke-dasharray: 22;
   stroke-dashoffset: 66;
-}
-
-.ob-terms:hover .check::before {
-  opacity: 1;
 }
 
 .ob-terms:hover .check svg,
@@ -4264,9 +4259,26 @@ svg.ico-svg:active {
 /* ---------- terminal ---------- */
 .terminal {
   --term-h: 180px;
+  /* The editor's palette: the same background, and colours taken from its syntax highlighting. */
+  --term-red: #f87171;
+  --term-green: #86efac;
+  --term-yellow: #fdba74;
+  --term-blue: var(--blue-text);
+  --term-magenta: #c4b5fd;
+  --term-cyan: #7dd3fc;
+  --term-pink: #f9a8d4;
   position: relative;
   border-top: 1px solid var(--line);
-  background: var(--bg-1);
+  background: var(--bg);
+}
+
+:root[data-theme="light"] .terminal {
+  --term-red: #b91c1c;
+  --term-green: #137036;
+  --term-yellow: #a8380a;
+  --term-magenta: #6d28d9;
+  --term-cyan: #0369a1;
+  --term-pink: #be185d;
 }
 
 .terminal:not(.open) .sash {
@@ -4533,7 +4545,7 @@ svg.ico-svg:active {
   height: var(--term-h);
   overflow: auto;
   padding: 6px 14px;
-  font: 12px/1.6 var(--font-code);
+  font: var(--code-size, 13px)/1.6 var(--font-code);
   color: var(--text-2);
   border-top: 1px solid var(--line);
   cursor: text;
@@ -4545,25 +4557,25 @@ body.resizing-h .term-body {
 }
 
 /* ---------- Terminal ANSI Colors, Powerline Prompt & CLI Highlights ---------- */
-.ansi-fg-black { color: #414868; }
-.ansi-fg-red { color: #f87171; }
-.ansi-fg-green { color: #4ade80; }
-.ansi-fg-yellow { color: #eab308; }
-.ansi-fg-blue { color: #60a5fa; }
-.ansi-fg-magenta { color: #c084fc; }
-.ansi-fg-cyan { color: #38bdf8; }
-.ansi-fg-white { color: #f5f5f7; }
+.ansi-fg-black { color: var(--text-3); }
+.ansi-fg-red { color: var(--term-red); }
+.ansi-fg-green { color: var(--term-green); }
+.ansi-fg-yellow { color: var(--term-yellow); }
+.ansi-fg-blue { color: var(--term-blue); }
+.ansi-fg-magenta { color: var(--term-magenta); }
+.ansi-fg-cyan { color: var(--term-cyan); }
+.ansi-fg-white { color: var(--text); }
 
-.ansi-fg-bright-black { color: #71717a; }
-.ansi-fg-bright-red { color: #f87171; }
-.ansi-fg-bright-green { color: #4ade80; }
-.ansi-fg-bright-yellow { color: #facc15; }
-.ansi-fg-bright-blue { color: #38bdf8; }
-.ansi-fg-bright-magenta { color: #e879f9; }
-.ansi-fg-bright-cyan { color: #22d3ee; }
-.ansi-fg-bright-white { color: #f5f5f7; }
+.ansi-fg-bright-black { color: var(--text-3); }
+.ansi-fg-bright-red { color: var(--term-red); }
+.ansi-fg-bright-green { color: var(--term-green); }
+.ansi-fg-bright-yellow { color: var(--term-yellow); }
+.ansi-fg-bright-blue { color: var(--term-blue); }
+.ansi-fg-bright-magenta { color: var(--term-pink); }
+.ansi-fg-bright-cyan { color: var(--term-cyan); }
+.ansi-fg-bright-white { color: var(--text); }
 
-.ansi-bg-black { background-color: #1a1b26; }
+.ansi-bg-black { background-color: var(--bg-2); }
 .ansi-bg-red { background-color: rgba(247, 118, 142, 0.25); border-radius: 2px; }
 .ansi-bg-green { background-color: rgba(115, 218, 202, 0.22); border-radius: 2px; }
 .ansi-bg-yellow { background-color: rgba(234, 179, 8, 0.22); border-radius: 2px; }
@@ -4572,7 +4584,7 @@ body.resizing-h .term-body {
 .ansi-bg-cyan { background-color: rgba(56, 189, 248, 0.22); border-radius: 2px; }
 .ansi-bg-white { background-color: rgba(var(--ink), 0.22); border-radius: 2px; }
 
-.ansi-bg-bright-black { background-color: #24283b; border-radius: 2px; }
+.ansi-bg-bright-black { background-color: var(--bg-3); border-radius: 2px; }
 .ansi-bg-bright-red { background-color: rgba(255, 137, 157, 0.25); border-radius: 2px; }
 .ansi-bg-bright-green { background-color: rgba(158, 206, 106, 0.22); border-radius: 2px; }
 .ansi-bg-bright-yellow { background-color: rgba(250, 204, 21, 0.22); border-radius: 2px; }
@@ -4592,59 +4604,59 @@ body.resizing-h .term-body {
   font-weight: 700;
 }
 .term-kw-error {
-  color: #f87171;
+  color: var(--term-red);
   font-weight: 600;
 }
 .term-kw-warning {
-  color: #eab308;
+  color: var(--term-yellow);
   font-weight: 600;
 }
 .term-kw-cyan {
-  color: #38bdf8;
+  color: var(--term-cyan);
   font-weight: 500;
 }
 .term-kw-success {
-  color: #4ade80;
+  color: var(--term-green);
   font-weight: 600;
 }
 .term-kw-info {
-  color: #38bdf8;
+  color: var(--term-cyan);
   font-weight: 500;
 }
 .term-url {
-  color: #38bdf8;
+  color: var(--term-cyan);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
   transition: color 0.15s ease;
 }
 .term-url:hover {
-  color: #7dd3fc;
+  color: var(--term-blue);
 }
 
 .term-exit-ok {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #4ade80;
+  color: var(--term-green);
   font-size: 11px;
   padding: 1px 7px;
   margin: 3px 0;
   border-radius: 4px;
-  background: rgba(74, 222, 128, 0.1);
-  border: 1px solid rgba(74, 222, 128, 0.22);
+  background: color-mix(in srgb, var(--term-green) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--term-green) 22%, transparent);
 }
 .term-exit-err {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #f87171;
+  color: var(--term-red);
   font-size: 11px;
   padding: 1px 7px;
   margin: 3px 0;
   border-radius: 4px;
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.22);
+  background: color-mix(in srgb, var(--term-red) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--term-red) 22%, transparent);
 }
 
 /* Windows Terminal PowerShell Prompt */
@@ -4664,7 +4676,7 @@ body.resizing-h .term-body {
 }
 
 .term-body .ps .ps-dot {
-  color: #06b6d4;
+  color: var(--term-cyan);
   margin-right: 7px;
   font-size: 11px;
   line-height: 1;
@@ -4682,7 +4694,7 @@ body.resizing-h .term-body {
 }
 
 .term-body .ps .ps-branch {
-  color: #c084fc;
+  color: var(--term-magenta);
   font-weight: 500;
   margin-left: 6px;
 }
@@ -4708,7 +4720,7 @@ body.resizing-h .term-body {
 }
 
 .term-out-pane .err {
-  color: #ff899d;
+  color: var(--term-red);
 }
 
 .term-out-pane .term-ref {
@@ -4720,7 +4732,7 @@ body.resizing-h .term-body {
 }
 
 .term-out-pane .term-ref:hover {
-  color: #89b4fa;
+  color: var(--term-cyan);
 }
 
 .term-line {
@@ -5700,27 +5712,23 @@ textarea:not(:placeholder-shown) + .ph-rot {
   animation: modalGrow .5s cubic-bezier(.32, .72, 0, 1);
 }
 
-/* Sign-in wears the same night-blue glass as the Home cards behind it (same tint, border, corners and buttons).
-   The blur is what keeps Home's blue (Continue, the default agent) from showing through as patches. */
+/* Sign-in (from Home, not onboarding) wears Home's own panel: the same background, edge and buttons, in every theme. */
 .modal:has(.signin-modal) {
-  /* White text in every theme: the glass stays dark, so the light theme's dark text would vanish into it. */
-  color-scheme: dark;
-  --text: #f5f5f7;
-  --text-2: rgba(255, 255, 255, .72);
-  --text-3: rgba(255, 255, 255, .6);
-  --ink: 255, 255, 255;
-  color: var(--text);
-  background: color-mix(in srgb, rgb(28, 31, 46) 78%, transparent);
-  border-color: rgba(255, 255, 255, .1);
+  background: var(--bg-1);
+  border-color: var(--line);
   border-radius: 14px;
-  backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: none;
 }
 
 .modal:has(.signin-modal) .signin-btns .btn {
-  background: rgba(38, 42, 60, .96);
-  border: 1px solid rgba(255, 255, 255, .1);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
   border-radius: 12px;
   color: var(--text);
+}
+
+.modal:has(.signin-modal) .signin-btns .btn:hover {
+  background: var(--bg-3);
 }
 
 /* Modals open by unrolling downward as their parts arrive (a strip at the top first, the full panel last),
@@ -7671,8 +7679,8 @@ body.vibing .ide {
 }
 
 #homeProfile .avatar {
-  width: 22px;
-  height: 22px;
+  width: 23.5px;
+  height: 23.5px;
   font-size: 9.5px;
 }
 
@@ -7715,6 +7723,16 @@ body.vibing .ide {
 
 .home-view {
   min-height: 100%;
+}
+
+/* No contribution graph (not signed in with GitHub): the greeting, Start and Recent sit in the middle of the panel. */
+.home-view[data-view="session"]:has(#homeContrib.hidden) {
+  display: flex;
+  align-items: center;
+}
+
+.home-view[data-view="session"]:has(#homeContrib.hidden) .home-welcome {
+  padding-bottom: clamp(28px, 9vh, 110px);
 }
 
 /* Everything on the start page is sized in em from this one font size, which grows with the window (14px at about
@@ -10776,6 +10794,78 @@ body:is(.resizing, .resizing-h) .sash-line.on {
 
 .terminal>.sash-h {
   top: 0;
+}
+
+/* Terminal → ... → Side Bar Beside the Editor: the panel stands at the editor's right, full height, termW wide
+   (layout.ts). Closed, it takes no room at all; Ctrl+` brings it back. */
+.center.term-side {
+  grid-template-columns: minmax(0, 1fr) var(--term-w, 420px);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.center.term-side:not(:has(> .terminal.open)) {
+  grid-template-columns: minmax(0, 1fr) 0px;
+}
+
+.center.term-side > .terminal {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0 0 0 var(--gap);
+}
+
+.center.term-side > .terminal:not(.open) {
+  margin: 0;
+  border-width: 0;
+  visibility: hidden;
+}
+
+.center.term-side > .terminal .term-body {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  transition: none;
+}
+
+/* Terminal → ... → New Window: the same terminal, moved into a window of its own (popOutTerminal, layout.ts). */
+body.term-popout {
+  display: flex;
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+body.term-popout > .terminal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+body.term-popout > .terminal .term-head {
+  cursor: default;
+}
+
+body.term-popout > .terminal .term-body {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  transition: none;
+}
+
+body.term-popout #termTitle > svg {
+  display: none; /* nothing to fold away in its own window */
+}
+
+.menu.term-win-menu {
+  min-width: 220px;
 }
 
 .statusbar {

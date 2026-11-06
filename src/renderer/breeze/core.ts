@@ -350,11 +350,18 @@ interface BreezeApi {
 interface Window { breeze?: BreezeApi; }
 
 /* ================= Helpers ================= */
+// Pages of windows the IDE has moved some of its own elements into (the popped-out terminal, terminal.ts). Looking
+// something up on the page also looks there, so code keeps finding those elements by id wherever they are.
+const elsewhere: Document[] = [];
 function $<T extends HTMLElement = HTMLElement>(s: string, r: ParentNode = document): T {
-  return r.querySelector(s) as T;
+  let el = r.querySelector(s);
+  if (!el && r === document) for (const d of elsewhere) if ((el = d.querySelector(s))) break;
+  return el as T;
 }
 function $$<T extends HTMLElement = HTMLElement>(s: string, r: ParentNode = document): T[] {
-  return [...r.querySelectorAll<T>(s)];
+  const all = [...r.querySelectorAll<T>(s)];
+  if (r === document) for (const d of elsewhere) all.push(...d.querySelectorAll<T>(s));
+  return all;
 }
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' };
 const esc = (s: string): string => s.replaceAll(/[&<>]/g, c => ESCAPES[c]);

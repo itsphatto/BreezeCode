@@ -149,6 +149,7 @@ const commands: Record<string, () => unknown> = {
     } catch (e) { toast(errMsg(e)); }
   })()),
   'term.toggle': () => {
+    if (termPopped()) { termPopup?.focus(); termInput.focus(); return; } // it lives in its own window: bring that up
     const prev = { ...layout };
     // Open back in the IDE but not brought over yet, Breeze Space's button shows it rather than closing it unseen.
     const showing = layout.termOpen && (appState.mode !== 'box' || $('#terminal').parentElement === $('#box'));
@@ -160,7 +161,7 @@ const commands: Record<string, () => unknown> = {
     if (layout.termOpen) termInput.focus();
     else if (appState.mode === 'box') SURFACES.box.prompt.focus();
   },
-  'term.focus': () => { terminalHere(); layout.termOpen = true; applyLayoutAnimated(); termInput.focus(); },
+  'term.focus': () => { if (termPopped()) termPopup?.focus(); terminalHere(); layout.termOpen = true; applyLayoutAnimated(); termInput.focus(); },
   'term.new': () => {
     terminalHere();
     layout.termOpen = true;

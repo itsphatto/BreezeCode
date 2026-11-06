@@ -882,6 +882,7 @@ api.term.onExit((id, code) => {
     if (code) showRunErrors(session.refs);
   }
 });
-$('#termBody').addEventListener('mouseup', () => { if (!getSelection()?.toString()) termInput.focus(); });
+// The terminal may be in its own window (popOutTerminal, layout.ts): the selection to check is that window's.
+$('#termBody').addEventListener('mouseup', e => { if (!(e.currentTarget as HTMLElement).ownerDocument.getSelection()?.toString()) termInput.focus(); });
 $('#termToggle').addEventListener('click', e => { if (!(e.target as HTMLElement).closest('button, .term-tabs, .term-tab')) run('term.toggle'); });
 

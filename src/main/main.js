@@ -377,10 +377,29 @@ function createWindow() {
   // Maximizing by any route (the button, a double-click on the title bar, Win+Up, a snap) swaps the button's icon.
   for (const ev of ['maximize', 'unmaximize']) win.on(ev, () => win?.webContents.send('win:maximized', win.isMaximized()));
 
-  // Open external links in the system browser, never inside the app.
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  // Open external links in the system browser, never inside the app. The one window the page may open itself is the
+  // terminal popped out of the IDE (popOutTerminal, terminal.ts): a blank page the IDE moves its own terminal into, so
+  // the same sessions keep running and printing there.
+  win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (url === 'about:blank' && frameName === 'breeze-terminal') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 900, height: 560, minWidth: 420, minHeight: 240,
+          title: 'Terminal - Breeze Code', icon: APP_ICON, backgroundColor: '#1d1d1f', autoHideMenuBar: true,
+        },
+      };
+    }
     openInBrowser(url);
     return { action: 'deny' };
+  });
+  win.webContents.on('did-create-window', child => {
+    child.setMenu(null);
+    showTaskbarIcon(child);
+    child.webContents.setWindowOpenHandler(({ url }) => { openInBrowser(url); return { action: 'deny' }; });
+    child.webContents.on('will-navigate', e => e.preventDefault());
+    const closeChild = () => { if (!child.isDestroyed()) child.close(); };
+    win?.once('closed', closeChild);
   });
   win.webContents.on('will-navigate', (e, url) => {
     if (!isFileUrl(url, APP_PAGE)) e.preventDefault();
@@ -727,7 +746,7 @@ handle('fs:clone', async (_e, url) => {
   if (/^https:\/\/github\.com\//i.test(url)) {
     const { accounts, active } = accountsState();
     const acct = accounts.find(a => accountId(a) === active && a.provider === 'GitHub') || accounts.find(a => a.provider === 'GitHub');
-    const token = acct && getSecret(`token:${accountId(acct)}`);
+    const token = acct && await githubToken(accountId(acct));
     if (token) {
       const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
       Object.assign(env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}` });
@@ -3201,7 +3220,7 @@ async function githubFor() {
   if (!remote) return { error: 'not-github' };
   const { accounts, active } = accountsState();
   const acct = accounts.find(a => accountId(a) === active && a.provider === 'GitHub') || accounts.find(a => a.provider === 'GitHub');
-  const token = acct && getSecret(`token:${accountId(acct)}`);
+  const token = acct && await githubToken(accountId(acct));
   if (!token) return { error: 'signed-out' };
   return { client: githubClient({ token, fetch }), url, ...remote };
 }
@@ -3237,7 +3256,7 @@ handle('gh:contributions', async () => {
   const id = accountId(acct);
   const hit = contribCache.get(id);
   if (hit && Date.now() - hit.at < 10 * 60 * 1000) return { ok: true, data: hit.data };
-  const token = getSecret(`token:${id}`);
+  const token = await githubToken(id);
   if (!token) return { ok: false, error: 'signed-out' };
   const query = 'query { viewer { login contributionsCollection { contributionCalendar { totalContributions weeks { contributionDays { date contributionCount contributionLevel } } } } } }';
   try {
@@ -3669,6 +3688,48 @@ function addAccount(user) {
   const { accounts } = accountsState();
   saveState({ user, accounts: [...accounts.filter(a => accountId(a) !== accountId(user)), user] });
 }
+// A saved sign-in and, for GitHub, its renewal details.
+function forgetSignIn(id) {
+  setSecret(`token:${id}`, null);
+  setSecret(`ghrefresh:${id}`, null);
+}
+// GitHub can hand out user tokens that expire after eight hours, with a refresh token (good for six months) to get
+// the next one. Both are kept, so the sign-in lasts as long as Breeze is used at least every six months.
+function saveGithubToken(id, tok) {
+  setSecret(`token:${id}`, tok.access_token);
+  setSecret(`ghrefresh:${id}`, tok.refresh_token ? JSON.stringify({
+    refresh: tok.refresh_token,
+    expiresAt: tok.expires_in ? Date.now() + tok.expires_in * 1000 : null,
+  }) : null);
+}
+// The GitHub account's token, renewed first when it has expired or is about to. One renewal at a time per account:
+// a refresh token works only once.
+const ghRefreshing = new Map();
+async function githubToken(id) {
+  const token = getSecret(`token:${id}`);
+  let meta = null;
+  try { meta = JSON.parse(getSecret(`ghrefresh:${id}`) || 'null'); } catch { /* none saved */ }
+  if (!meta?.refresh || (meta.expiresAt && meta.expiresAt > Date.now() + 5 * 60 * 1000)) return token;
+  if (!ghRefreshing.has(id)) {
+    const { clientId } = authConfig().github; // a device-flow token renews without the client secret
+    ghRefreshing.set(id, (async () => {
+      try {
+        const r = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, grant_type: 'refresh_token', refresh_token: meta.refresh }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const t = await r.json();
+        if (t.access_token) { saveGithubToken(id, t); return t.access_token; }
+        // The refresh token itself is gone (unused for six months, or revoked): a new sign-in is needed.
+        if (t.error === 'bad_refresh_token') { forgetSignIn(id); return null; }
+        return token; // GitHub didn't answer properly: try the old token, and renew again next time
+      } catch { return token; } finally { ghRefreshing.delete(id); }
+    })());
+  }
+  return ghRefreshing.get(id);
+}
 handle('auth:user', () => loadState().user || null);
 // /user only shows a public email; /user/emails (the user:email scope) has the primary one even when it's private.
 async function githubEmail(token, signal) {
@@ -3689,7 +3750,7 @@ async function fillAccountEmails() {
   const found = new Map();
   await Promise.all(missing.map(async a => {
     emailLookedUp.add(accountId(a));
-    const token = getSecret(`token:${accountId(a)}`);
+    const token = await githubToken(accountId(a));
     const email = token && await githubEmail(token);
     if (email) found.set(accountId(a), email);
   }));
@@ -3708,7 +3769,7 @@ handle('auth:switch', (_e, id) => {
 // Signs the active account out and switches to the next one, if any.
 handle('auth:signOut', () => {
   const { accounts, active } = accountsState();
-  if (active) setSecret(`token:${active}`, null);
+  if (active) forgetSignIn(active);
   const rest = accounts.filter(a => accountId(a) !== active);
   const user = rest[0] || null;
   saveState({ accounts: rest, user });
@@ -3718,7 +3779,7 @@ handle('auth:signOut', () => {
 handle('auth:remove', (_e, id) => {
   const { accounts, active } = accountsState();
   if (!accounts.some(a => accountId(a) === id)) throw new Error('That account is no longer signed in');
-  setSecret(`token:${id}`, null);
+  forgetSignIn(id);
   const rest = accounts.filter(a => accountId(a) !== id);
   const user = id === active ? rest[0] || null : loadState().user || null;
   saveState({ accounts: rest, user });
@@ -3758,19 +3819,20 @@ async function githubSignIn({ clientId }, signal) {
     const t = await post('https://github.com/login/oauth/access_token', {
       client_id: clientId, device_code: dc.device_code, grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
     });
-    if (t.access_token) return t.access_token;
+    if (t.access_token) return t;
     if (t.error === 'slow_down') return poll(interval + 5000);
     if (t.error === 'authorization_pending') return poll(interval);
     throw new Error(t.error_description || t.error);
   };
-  const token = await poll((dc.interval || 5) * 1000);
+  const tok = await poll((dc.interval || 5) * 1000);
+  const token = tok.access_token;
   const ur = await fetch('https://api.github.com/user', {
     signal, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'Breeze-IDE' },
   });
   if (!ur.ok) throw new Error('GitHub signed you in but did not share your profile. Try again.');
   const u = await ur.json();
   const user = { provider: 'GitHub', name: u.name || u.login, login: u.login, email: u.email || await githubEmail(token, signal), avatar: u.avatar_url || null };
-  setSecret(`token:${accountId(user)}`, token);
+  saveGithubToken(accountId(user), tok);
   return user;
 }
 
@@ -3906,7 +3968,7 @@ async function syncStore() {
   const user = loadState().user;
   if (!user) throw new syncEngine.SyncError('Sign in to sync your workspaces.', 'signed-out');
   const acct = accountId(user);
-  const secret = getSecret(`token:${acct}`);
+  const secret = user.provider === 'GitHub' ? await githubToken(acct) : getSecret(`token:${acct}`);
   if (!secret) throw new syncEngine.SyncError(`Sign in to ${user.provider} again to let Breeze sync your workspaces.`, 'reauth');
   if (user.provider === 'GitHub') return { acct, store: syncEngine.githubStore({ token: secret, login: user.login }) };
   const accessToken = await syncEngine.googleAccessToken({ ...authConfig().google, refreshToken: secret });
