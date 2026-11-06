@@ -15,7 +15,7 @@ then watch Claude Code, Codex, Antigravity or a local model build it, live, righ
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.6.5-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.6.9-007AFF?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows_10_%26_11-64--bit-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![Price](https://img.shields.io/badge/price-free-1d1d1f?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-1d1d1f?style=for-the-badge)
@@ -127,7 +127,9 @@ First launch looks for coding agents, Git and Node.js. Pick one, or point Breeze
 
 ### Save points, thanks to Git
 
-Stage, discard, commit and push from Source Control, with a graph of every checkpoint and branch. Files an agent is touching get flagged in the explorer and tabs.
+Stage, discard, commit and push from a full-page Source Control, with a graph of every checkpoint and branch. Files an agent is touching get flagged in the explorer and tabs.
+
+Pull requests live there too: read, comment on, merge or close them on GitHub. Merge conflicts get resolved in a separate worktree, so your checkout is never touched, and **Conflict Duel** has an agent argue for each side before a judge proposes a merged block you can accept, edit or reject.
 
 </td>
 <td width="50%"><img src="docs/screenshots/source-control.jpg" alt="Source Control with staged, changed and incoming files and a graph of checkpoints"></td>
@@ -164,8 +166,15 @@ While an agent works, the IDE fades out and an Instagram or Facebook feed rolls.
 | **Command Palette** | Ctrl+Shift+P or F1 finds any command by typing a few letters, and lists the ones you used last first |
 | **Multi-cursor** | Alt+Click adds a cursor. Ctrl+D picks the next match, Ctrl+Shift+L picks them all, Shift+Alt+drag selects a column |
 | **Emmet** | Type `ul>li*3` in HTML, JSX or CSS and press Tab to expand it |
-| **Live preview** | Pop `index.html` open beside your code and refresh as you go |
-| **Built-in terminal** | Run Node and whatever else without leaving the editor |
+| **Home** | New File, Open Folder or Clone Repository, your recent projects, GitHub contributions, and an Agent tab with 30 days of token use and what it would have cost at API prices |
+| **Language servers** | Completions, hover, go to definition, references, rename and as-you-type errors. JavaScript and TypeScript work out of the box; Python, Rust, Go and C/C++ use pyright, rust-analyzer, gopls or clangd when they're installed |
+| **Skills and MCP** | Browse the skills and plugins your agents load, share skills across agents, and connect MCP servers for Claude Code without touching its own config |
+| **Workspace sync** | Carry workspaces between computers signed in to the same account, kept in a private GitHub repo or Google Drive's hidden app folder |
+| **Live preview** | Pop `index.html` open beside your code and refresh as you go. Right-click an element to inspect its tag, id and classes |
+| **Editor comforts** | Minimap, auto save and split editors |
+| **Themes** | Dark, light and high contrast, with the window chrome to match |
+| **Built-in terminal** | Run Node and whatever else without leaving the editor, or pop it out into its own window with the same sessions still running |
+| **Image attachments** | Drop or paste images into a prompt. Dropped files are used where they are and pasted ones go to a temp folder, so nothing lands in your project |
 | **Big files, no sweat** | Only the lines on screen get drawn, so huge files stay snappy |
 | **Local LLM, token-wise** | A project map, ranged file reads and snippet edits keep requests small |
 | **Accounts** | Sign in with GitHub or Google, with several accounts |
@@ -281,6 +290,14 @@ flowchart TB
 | `src/main/antigravityAgentService.ts` | Talks to Antigravity's agent service |
 | `src/main/preload.js` | Bridge between the main process and the UI |
 | `src/main/toolchains.js` | Compiler and tool detection for Run |
+| `src/main/lsp.js` | Language servers for completions, hover, rename and problems |
+| `src/main/debug*.js`, `dap.js`, `cdp.js`, `jdwp.js` | Debugger backends (Python, Node, GDB, .NET, Java) |
+| `src/main/kernel.js` | Python kernels for notebooks |
+| `src/main/github.js`, `prconflict.js` | Pull request client and conflict resolution in a throwaway worktree |
+| `src/main/skills.js`, `mcp.js` | Skills, plugins and MCP servers for the Skills view |
+| `src/main/sync.js` | Workspace sync over GitHub or Google Drive |
+| `src/main/previewServer.js`, `previewInspector.js` | Serving the live preview and its element inspector |
+| `src/main/pricing.js` | API-price cost estimates for Home's Agent tab |
 | `src/main/discord.js` | Discord Rich Presence client |
 | `src/main/guard.js`, `pathguard.js` | Path and command safety checks |
 | `src/renderer/breeze.html`, `breeze.css` | UI |
@@ -295,13 +312,12 @@ flowchart TB
 
 ## Team
 
-| Member |
+| Member | Role |
 | --- | --- |
-| [@itsphatto](https://github.com/itsphatto) | Founder and Lead Software Engineer: |
-| [@sapfire151](https://github.com/sapfire151) | Lead Front End Developer and UI/UX Designer: |
-| [@LangZab](https://github.com/LangZab) | UI/UX Designer: |
+| [@itsphatto](https://github.com/itsphatto) | Founder and Lead Software Engineer |
+| [@sapfire151](https://github.com/sapfire151) | Lead Front End Developer and UI/UX Designer |
+| [@LangZab](https://github.com/LangZab) | UI/UX Designer |
 | [@esrazti](https://github.com/esrazti) | Contributor |
-
 
 
 ## License
