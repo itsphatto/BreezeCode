@@ -866,7 +866,7 @@ document.addEventListener('mousedown', e => {
       closeMenu();
       return;
     }
-    if (!target.closest('.menu, .menubar, #settingsBtn, #boxSettings, .avatars, .dd-btn, #chatHistory,#boxModel, #boxFolder, [data-act="git.more"]')) {
+    if (!target.closest('.menu, .menubar, #settingsBtn, #boxSettings, #homeSettings, .avatars, .dd-btn, #chatHistory,#boxModel, #boxFolder, [data-act="git.more"]')) {
       closeMenu();
     }
   }

@@ -230,11 +230,11 @@ function initTooltip(): void {
       return;
     }
 
-    // Tips only show in the file manager (the Explorer's buttons and file tree) and on the debugger's toolbar, whose
-    // icon-only buttons need them. Anywhere else the title is taken off so the system tip doesn't pop up either; an
-    // icon-only control keeps it as its aria-label so it still has a name.
+    // Tips only show in the file manager (the Explorer's buttons and file tree), on the debugger's toolbar, whose
+    // icon-only buttons need them, and on Home's contribution graph. Anywhere else the title is taken off so the
+    // system tip doesn't pop up either; an icon-only control keeps it as its aria-label so it still has a name.
     // Iframe titles stay: they name the frame for screen readers and never show a tip.
-    if (!target.closest('[data-panel="files"], .dbg-tools')) {
+    if (!target.closest('[data-panel="files"], .dbg-tools, .contrib-graph')) {
       if (target.hasAttribute('title') && target.tagName !== 'IFRAME') {
         const val = target.getAttribute('title')?.trim() ?? '';
         target.removeAttribute('title');

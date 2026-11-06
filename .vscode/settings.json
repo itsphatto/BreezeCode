@@ -3,5 +3,6 @@
     "sonarlint.connectedMode.project": {
         "connectionId": "sapfire151",
         "projectKey": "Sapfire151_BreezeIDE-Web"
-    }
+    },
+    "python.terminal.useEnvFile": true
 }
