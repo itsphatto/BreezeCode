@@ -193,22 +193,32 @@ function syncPopupLook(d: Document): void {
   d.body.className = `${document.body.className} term-popout`;
 }
 let popupLookWatch: MutationObserver | null = null;
-function popOutTerminal(): void {
+async function popOutTerminal(): Promise<void> {
   if (termPopped()) { termPopup?.focus(); return; }
   const w = window.open('about:blank', 'breeze-terminal');
   if (!w) { toast('Couldn\'t open a window for the terminal'); return; }
   termPopup = w;
   const d = w.document;
-  d.title = 'Terminal - Breeze Code';
+  // A standards-mode page (about:blank has no doctype), so the IDE's styles lay it out as they do the IDE.
+  d.open();
+  d.write('<!doctype html><html><head><meta charset="utf-8"><title>Terminal - Breeze Code</title></head><body></body></html>');
+  d.close();
+  const loads: Promise<unknown>[] = [];
   for (const el of document.head.querySelectorAll('link[rel="stylesheet"], style')) {
     const copy = d.importNode(el, true);
-    if (el instanceof HTMLLinkElement) (copy as HTMLLinkElement).href = el.href; // absolute: about:blank has no folder
+    if (el instanceof HTMLLinkElement) {
+      (copy as HTMLLinkElement).href = el.href; // absolute: about:blank has no folder
+      loads.push(new Promise(done => { copy.addEventListener('load', done, { once: true }); copy.addEventListener('error', done, { once: true }); }));
+    }
     d.head.append(copy);
   }
   syncPopupLook(d);
   popupLookWatch = new MutationObserver(() => { if (termPopped()) syncPopupLook(d); });
   popupLookWatch.observe(document.documentElement, { attributes: true });
   popupLookWatch.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  // The terminal moves over once the styles are in, so it never shows unstyled.
+  await Promise.race([Promise.all(loads), wait(1500)]);
+  if (w.closed) { termPopup = null; popupLookWatch?.disconnect(); return; }
   elsewhere.push(d);
   const t = $('#terminal');
   d.body.append(t);
@@ -245,13 +255,13 @@ function dockTerminal(dock: Layout['termDock']): void {
   applyLayoutAnimated();
   termInput.focus();
 }
-const TERM_DOCKS: [Layout['termDock'] | 'window', string][] = [['bottom', 'Panel Below the Editor'], ['side', 'Side Bar Beside the Editor'], ['window', 'New Window']];
+const TERM_DOCKS: [Layout['termDock'] | 'window', string][] = [['bottom', 'Panel Below the Editor'], ['side', 'Side Bar Beside the Editor'], ['window', 'Pop out Terminal']];
 function termMoreItems(): MenuItem[] {
   const where = termPopped() ? 'window' : layout.termDock;
   return [
     ...TERM_DOCKS.map(([dock, label]): MenuItem => ({
       label, checked: () => where === dock,
-      run: () => (dock === 'window' ? popOutTerminal() : dockTerminal(dock)),
+      run: () => (dock === 'window' ? background(popOutTerminal()) : dockTerminal(dock)),
     })),
     { sep: true },
     { label: 'Toggle Terminal', act: 'term.toggle', key: 'Ctrl+`' },
