@@ -1,6 +1,7 @@
-MIT License
+Breeze Code Source-Available License
+Version 1.0, November 7, 2026
 
-Copyright (c) 2026 Breeze Code authors
+Copyright (c) 2026 Breeze Code authors. All rights reserved.
 
 Founder and Lead Software Engineer:
   Sataphat Phanichawong (@itsphatto) - https://github.com/itsphatto
@@ -8,27 +9,135 @@ Founder and Lead Software Engineer:
 Lead Front End Developer and UI/UX Designer:
   Poonyapat Aroonrueangsirilert (@sapfire151) - https://github.com/sapfire151
 
-UI/UX Designer:
+Contributor:
   Pitchayuth Sanglawan (@LangZab) - https://github.com/LangZab
-  
-Contributor: 
   Kantanat Boonchuay (@esrazti) - https://github.com/esrazti
 
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+IN SHORT (this summary is not part of the license; the terms below govern)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+  You CAN    view and read the source code.
+  You CAN    use Breeze Code for any purpose, including commercial work.
+  You CAN'T  copy the source code, or any part of it, into anything else.
+  You CAN'T  redistribute Breeze Code or its source code, changed or not.
+
+
+1. DEFINITIONS
+
+"Software" means Breeze Code: its source code, compiled builds, installers,
+documentation, artwork, icons, sounds and other files in this repository or
+published by the Licensor.
+
+"Licensor" means the Breeze Code authors named above.
+
+"You" means the person or organization exercising the rights in this license.
+
+"Your Work" means the code, files, prompts and other material you create,
+open or edit with the Software.
+
+
+2. WHAT YOU MAY DO
+
+2.1 View. You may view and read the Software's source code, including on the
+    website where the Licensor hosts it, to learn how it works, review it,
+    audit its security or report problems.
+
+2.2 Use. You may install and run the Software, as published by the Licensor,
+    on any number of computers you own or control, for any lawful purpose,
+    including personal, educational and commercial purposes. Using the
+    Software at work, in a business, or to build products you sell is allowed.
+
+2.3 Build for yourself. You may download the source code and build and run it
+    on computers you own or control, solely to use it under section 2.2, to
+    evaluate it, or to prepare a contribution under section 5. Copies made
+    only for these purposes must stay on those computers.
+
+2.4 Your Work is yours. This license gives the Licensor no rights in Your
+    Work, and puts no limits on what you do with it.
+
+
+3. WHAT YOU MAY NOT DO
+
+Except as section 2 allows, or with the Licensor's prior written permission,
+you may not:
+
+3.1 Copy the Software, or any part of its source code, artwork or other
+    files, into any other software, product, project or publication, whether
+    word for word or substantially similar;
+
+3.2 Redistribute the Software, changed or unchanged, in source or compiled
+    form, including by publishing, uploading, mirroring, sharing, selling,
+    renting, leasing, lending or bundling it;
+
+3.3 Sublicense the Software, or offer it, or a modified version of it, to
+    others as a hosted or online service;
+
+3.4 Create or distribute a fork, port or other work derived from the
+    Software, except a contribution under section 5;
+
+3.5 Remove, change or hide any copyright, license or attribution notice in
+    the Software; or
+
+3.6 Use the Breeze Code name, logo or other brand features in a way that
+    suggests that you or your product are Breeze Code, or are endorsed by the
+    Licensor.
+
+Quoting a short excerpt of the source code for commentary, review, a bug
+report or teaching, with credit to Breeze Code, is not prohibited by this
+section to the extent the law allows it.
+
+
+4. THIRD-PARTY COMPONENTS
+
+Parts of the Software come from third parties under their own licenses (for
+example, packages under node_modules and other bundled open source
+components). Those parts are governed by their own licenses, not this one,
+and nothing in this license limits the rights those licenses give you.
+
+
+5. CONTRIBUTIONS
+
+If you send the Licensor a contribution, such as a pull request, patch or
+suggested change, you grant the Licensor a perpetual, worldwide,
+non-exclusive, royalty-free, irrevocable license to use, copy, modify,
+distribute and sublicense it as part of the Software under any terms, and you
+confirm that you have the right to grant that license.
+
+
+6. TERMINATION
+
+Your rights under this license end automatically if you break any of its
+terms. If you stop the breach within 30 days of first learning of it, your
+rights are restored, unless the Licensor has already told you in writing
+that they are ended. When your rights end, you must stop using the Software
+and delete any copies you made under section 2.3.
+
+
+7. NO WARRANTY
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+
+8. LIMITATION OF LIABILITY
+
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+9. EARLIER VERSIONS
+
+Copies of the Software that the Licensor published before November 7, 2026
+under the MIT License stay under the MIT License for those copies. This
+license applies to all versions published on or after that date.
+
+
+10. GENERAL
+
+All rights not expressly granted in this license are reserved by the
+Licensor. If any part of this license cannot be enforced, the rest still
+applies. For permission beyond this license, contact the Licensor at
+itsphatto@icloud.com.

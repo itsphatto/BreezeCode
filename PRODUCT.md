@@ -60,7 +60,7 @@ These four points are equally weighted and should not be traded against each oth
 - Name: **Breeze Code**. Sub-surface names in use: Breeze IDE, Breeze Space, Vibe Mode, Planner, Builder.
 - Brand assets: `assets/brand/` (Icon, BreezeCode wordmark, BreezeSpace, Agent).
 - Voice (inferred from the README and in-app copy, not confirmed by the owner): plain words, short sentences, friendly but not cute, with no jargon a beginner would trip on.
-- Open source under the MIT license, © Sataphat Phanichawong (@itsphatto).
+- Source available under the Breeze Code Source-Available License (view and use, including commercially; no copying or redistribution), © Breeze Code authors. Versions before November 7, 2026 were MIT.
 
 ## Evidence on Hand
 

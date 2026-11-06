@@ -18,7 +18,7 @@ then watch Claude Code, Codex, Antigravity or a local model build it, live, righ
 ![Version](https://img.shields.io/badge/version-0.6.9-007AFF?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows_10_%26_11-64--bit-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![Price](https://img.shields.io/badge/price-free-1d1d1f?style=for-the-badge)
-![License](https://img.shields.io/badge/license-MIT-1d1d1f?style=for-the-badge)
+![License](https://img.shields.io/badge/license-source--available-1d1d1f?style=for-the-badge)
 <br>
 ![Electron](https://img.shields.io/badge/Electron-44-1d1d1f?style=flat-square&logo=electron&logoColor=9feaf9)
 ![TypeScript](https://img.shields.io/badge/TypeScript-7-1d1d1f?style=flat-square&logo=typescript&logoColor=3178c6)
@@ -316,16 +316,16 @@ flowchart TB
 | --- | --- |
 | [@itsphatto](https://github.com/itsphatto) | Founder and Lead Software Engineer |
 | [@sapfire151](https://github.com/sapfire151) | Lead Front End Developer and UI/UX Designer |
-| [@LangZab](https://github.com/LangZab) | UI/UX Designer |
+| [@LangZab](https://github.com/LangZab) | Contributor |
 | [@esrazti](https://github.com/esrazti) | Contributor |
 
 
 ## License
 
-Breeze Code is free and open source software, released under the [MIT License](LICENSE). You may use, copy, change and share it, including for commercial work, as long as the copyright and license notice stay with it.
+Breeze Code is free, source-available software under the [Breeze Code Source-Available License](LICENSE). You can read the source and use Breeze Code for anything, including commercial work. You can't copy its code into other projects or redistribute it, changed or not. Versions published before November 7, 2026 stay under the MIT License.
 
 <br>
 
 <div align="center">
-<sub>Free and open source · MIT licensed</sub>
+<sub>Free · Source available</sub>
 </div>

@@ -4,6 +4,7 @@
   "version": "0.6.9",
   "description": "Blazing Fast Muti Agent IDE",
   "author": "itsphatto",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "src/main/main.js",
   "scripts": {
     "start": "tsc && electron .",
