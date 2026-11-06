@@ -8701,6 +8701,34 @@ body.vibing .box {
   pointer-events: none;
 }
 
+/* Vibe Mode from Breeze Space: no blur; the feed gets a column of its own on the right, under the title bar (which
+   spans it, so its buttons stay where they are), and the chat narrows beside it. At most half the window. */
+body.vibe-side {
+  --vibe-h: min(78vh, calc(100vh - 235px), calc((50vw - 58px) * 16 / 9));
+  --vibe-col: calc(var(--vibe-h) * 9 / 16 + 58px);
+}
+
+body.vibing.vibe-side .box {
+  grid-template-columns: auto minmax(0, 1fr) auto auto var(--vibe-col);
+  filter: none;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* Top and bottom (vibe.ts fitVibeSide) line it up with the chat's first line and the message box's bottom edge. */
+body.vibe-side .vibe-stage {
+  inset: var(--vibe-top, 45px) 0 var(--vibe-bottom, 16px) auto;
+  width: var(--vibe-col);
+  padding: 0 16px 0 0;
+  place-items: start center;
+  --vf-h: var(--vibe-h);
+}
+
+body.vibe-side .vibe-panel {
+  margin: 0 auto;
+}
+
 /* Deep space behind the stars (space.ts), with two faint nebulae. The light theme keeps its paper. */
 :root:not([data-theme="light"]) .box {
   background:
