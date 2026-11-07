@@ -705,8 +705,10 @@ function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
   }
   const paint = (i: number, at = i / last) => {
     row.style.setProperty('--pos', String(at));
+    // The top step (Extra) turns the fill red and races the bubbles.
+    row.classList.toggle('max', i === last);
     // More effort, faster bubbles; updatePlaybackRate keeps each bubble where it is instead of jumping.
-    for (const a of bubbles) a.updatePlaybackRate(.6 + at * 2.4);
+    for (const a of bubbles) a.updatePlaybackRate(i === last ? 6 : .6 + at * 2.4);
     swapText(row.querySelector('.ms-val') as HTMLElement, sl.steps[i]);
     const hint = row.querySelector<HTMLElement>('.ms-hint');
     if (hint && sl.hint) swapText(hint, sl.hint(i));

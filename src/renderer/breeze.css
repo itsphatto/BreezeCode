@@ -2057,6 +2057,11 @@ textarea:focus-visible {
   color: var(--blue-text);
   font-size: 14px;
   font-weight: 600;
+  transition: color .25s ease;
+}
+
+.menu-slider.max .ms-val {
+  color: var(--err);
 }
 
 .ms-hint {
@@ -2120,6 +2125,21 @@ textarea:focus-visible {
   to { background-position-x: var(--band); }
 }
 
+/* At the top step a red band of the same shape fades in over the blue (gradients can't transition themselves). */
+.ms-fill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg in oklab, #ffb08f, #ff3b2f 22%, #e8141f 42%, #ff5c7a 58%, #ff4a3d 78%, #ffb08f) 0 0 / var(--band) 100% repeat-x;
+  opacity: 0;
+  transition: opacity .25s ease;
+  animation: ms-sky 2.5s linear infinite;
+}
+
+.menu-slider.max .ms-fill::before {
+  opacity: 1;
+}
+
 /* Bubbles (made and moved in bindMenuSlider, faster as the effort goes up). */
 .ms-bubble {
   position: absolute;
@@ -2159,6 +2179,7 @@ textarea:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .menu-slider :is(.ms-fill, .ms-thumb) { transition: none; animation: none; }
+  .ms-fill::before { transition: none; animation: none; }
 }
 
 /* ---------- layout ---------- */
@@ -12605,8 +12626,21 @@ body.layout-animating #previewPane {
   }
 }
 
-.set-pane {
+.set-pane,
+.set-dash {
   animation: setPaneFadeIn .22s cubic-bezier(.16, 1, .3, 1);
+}
+
+/* Home's agent page, shown under Settings → Agents: as wide as the pane, without the page's own padding. */
+.set-dash {
+  max-width: 800px;
+  margin: 24px auto 0;
+}
+
+.set-dash .agent-dash {
+  width: 100%;
+  padding: 0;
+  font-size: 13px;
 }
 
 .set-pane h4 {
@@ -15415,6 +15449,32 @@ input.dbg-edit.bad:focus-visible {
   flex: 1;
   flex-direction: column;
   min-height: 0;
+}
+
+/* Switching tabs slides the new pane in from the side its tab sits on. */
+.dbg-pane.slide-in {
+  animation: dbg-pane-in .18s cubic-bezier(.2, .8, .2, 1);
+}
+
+#dbgOutputPane {
+  --dbg-slide: -24px;
+}
+
+#dbgConsolePane {
+  --dbg-slide: 24px;
+}
+
+@keyframes dbg-pane-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--dbg-slide));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dbg-pane.slide-in {
+    animation: none;
+  }
 }
 
 .dbg-log {

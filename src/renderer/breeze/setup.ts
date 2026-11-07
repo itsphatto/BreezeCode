@@ -332,7 +332,7 @@ function renderDetection(): void {
   $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;
   renderAgentBar();
   // Home's Agent tab, if it's showing, picks up agents the scan just found.
-  if (!$('.home-view[data-view="agent"]').classList.contains('hidden')) renderAgentDash();
+  if (dashOnScreen()) renderAgentDash();
 }
 $('#rescan').onclick = () => { detectTools(true).catch(() => { /* the agent card shows the error */ }); };
 
@@ -716,10 +716,21 @@ function loadAgentDash(): void {
   renderAgentDash();
   refreshAgentDash();
 }
+// The page is on screen, on Home or in Settings → Agents.
+function dashOnScreen(): boolean {
+  return !!$('.agent-dash').offsetParent;
+}
+// Settings → Agents shows this same page: its one copy moves into Settings' slot (null: back to Home), drawn afresh.
+function mountAgentDash(slot: HTMLElement | null): void {
+  const dash = $('.agent-dash'), to = slot ?? $('.home-view[data-view="agent"]');
+  if (dash.parentElement === to) return;
+  to.append(dash);
+  if (dashOnScreen()) { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
+}
 // Main reads the agents' logs afresh on each ask (only changed logs are re-read), so a page left open asks again every
 // 15 seconds, like Settings' usage, while it is on screen and the window is shown.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && $('.home-view[data-view="agent"]:not(.hidden)')?.offsetParent) refreshAgentDash();
+  if (document.visibilityState === 'visible' && dashOnScreen()) refreshAgentDash();
 }, 15_000);
 function refreshAgentDash(): void {
   const seq = ++dashSeq;
@@ -770,7 +781,7 @@ function dashTexts(): Map<string, HTMLElement> {
 // A scramble still running counts as the value it is heading for.
 const dashText = (el: HTMLElement) => el.dataset.to ?? el.textContent ?? '';
 function shootDash(): DashShot | null {
-  if (!$('.home-view[data-view="agent"]:not(.hidden)') || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+  if (!dashOnScreen() || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
   const blocks: DashShot['blocks'] = new Map(), sparks: DashShot['sparks'] = new Map();
   for (const [k, el] of dashBlocks()) {
     const cs = getComputedStyle(el);
@@ -964,7 +975,7 @@ function renderDashChart(a: DetectedAgent | null): void {
     ? `<span class="ad-leg-total">Total <b>${compact(all)}</b></span>${priced ? `<span class="ad-leg-cost" title="${escAttr(costNote)}">Est. cost <b>≈ ${money(cost)}</b></span>` : ''}${sums.map(([k, label, n]) => `<span><i data-k="${k}"></i>${esc(label)} <b>${compact(n)}</b></span>`).join('')}`
     : `<span class="ad-leg-none">${a ? `${esc(a.name)} hasn't used any tokens in the last ${days.length} days.` : ''}</span>`;
   const drawn = `${a?.id ?? ''}|${dashRange}|${totals.join(',')}`;
-  if (drawn !== dashDrawn && $('.home-view[data-view="agent"]:not(.hidden)')) {
+  if (drawn !== dashDrawn && dashOnScreen()) {
     dashDrawn = drawn;
     // Morphing bars keep their axes and legend; what changes on them animates on its own (playDash).
     if (!morph) replayAnim([bars, $('#adY'), $('#adX'), $('#adLegend')]);

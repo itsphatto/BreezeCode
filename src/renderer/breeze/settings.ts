@@ -745,6 +745,12 @@ function bindSettings(m: HTMLElement): void {
     // Kept current while it's on screen; the timer ends once this pane is redrawn or closed.
     const tick = setInterval(() => { if (usageEl.isConnected) updateUsage(usageEl); else clearInterval(tick); }, 15_000);
   }
+  // Home's agent page sits under the Agents pane, outside it, so the pane's redraws leave it be.
+  const dashSlot = m.querySelector<HTMLElement>('.set-dash');
+  if (dashSlot) {
+    dashSlot.classList.toggle('hidden', settingsTab !== 'agents');
+    if (settingsTab === 'agents') mountAgentDash(dashSlot);
+  }
   if (settingsTab === 'agents' || settingsTab === 'help') autoRescan();
   if (settingsTab === 'help') bindToolButtons(pane);
   // Vibe
@@ -904,7 +910,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   gears.forEach(g => { g.classList.add('open'); g.setAttribute('aria-expanded', 'true'); });
   openModal(`<div class="settings-modal" aria-label="Settings">
       <nav class="set-nav" aria-label="Settings sections">${settingsNavHeadHtml()}</nav>
-      <div class="set-main"><button class="set-close tab-close" data-close title="Close (Esc)" aria-label="Close"><svg class="tab-close-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><div class="set-pane"></div></div>
+      <div class="set-main"><button class="set-close tab-close" data-close title="Close (Esc)" aria-label="Close"><svg class="tab-close-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><div class="set-pane"></div><div class="set-dash hidden"></div></div>
     </div>`, m => {
     m.classList.add('settings-shell');
     const root = $('.settings-modal', m);
@@ -949,7 +955,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
     background(refreshAccounts().then(refreshSettings));
     bindSettings(root);
     gear.blur();
-  }, () => gears.forEach(g => { g.classList.remove('open'); g.setAttribute('aria-expanded', 'false'); }));
+  }, () => { gears.forEach(g => { g.classList.remove('open'); g.setAttribute('aria-expanded', 'false'); }); mountAgentDash(null); });
 }
 commands['settings.open'] = () => openSettings($('#settingsBtn'));
 $('#settingsBtn').onclick = e => openSettings(e.currentTarget as HTMLElement);
