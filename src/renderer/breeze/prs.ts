@@ -48,7 +48,17 @@ function scmEmptyDetail(): void {
   showScmDetail(`<div class="empty scm-empty"><div>${svgIcon('gitBranch', 36)}<h4>Select a change or a pull request</h4></div></div>`);
 }
 
-$('#scmClose').onclick = () => closeScmPage();
+$('#scmClose').onclick = () => scmFade(() => closeScmPage());
+
+// Going to or from the Source Control page fades: the editor and side bar out, then the page in (and the other way back).
+// A view transition (.scm-fade, breeze.css), so `change` runs once the old look has been captured.
+function scmFade(change: () => void): void {
+  const root = document.documentElement;
+  if (!document.startViewTransition || root.classList.contains('term-morph')) { change(); return; }
+  root.classList.add('scm-fade');
+  const done = () => root.classList.remove('scm-fade');
+  document.startViewTransition(change).finished.then(done, done);
+}
 
 /* ----- Pull requests: the list in the left column ----- */
 type PrList = GhResult<GhPullList>;

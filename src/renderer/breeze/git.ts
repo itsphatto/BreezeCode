@@ -211,7 +211,7 @@ function fitScmMsgEased(msg: HTMLTextAreaElement): void {
   scmMsgAnim?.cancel(); // measure the new height without it
   autoResizeScmMsg(msg);
   const toH = msg.offsetHeight;
-  if (Math.abs(toH - fromH) < 1 || reduceMotion.matches) return;
+  if (Math.abs(toH - fromH) < 1) return;
   scmMsgAnim = msg.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
 }
 
@@ -242,8 +242,7 @@ function updateScmGenBtn(): void {
 let scmTypeRun = 0;
 function typeScmMsg(text: string): void {
   const run = ++scmTypeRun;
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const step = reduce ? text.length : Math.max(1, Math.ceil(text.length / 90)); // about 1.5 s at most
+  const step = Math.max(1, Math.ceil(text.length / 90)); // about 1.5 s at most
   let i = 0, frames = 0, shown = '';
   const tick = () => {
     const msg = $<HTMLTextAreaElement>('#scmMsg'); // the panel may have redrawn the box meanwhile

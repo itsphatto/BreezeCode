@@ -41,7 +41,6 @@ function fallSpeck(p: SpaceSpeck, by: number): void {
 }
 // One frame of stars and dust. k is this frame's length in 60fps frames; warp eases them back as they streak.
 function paintSpace(ctx: CanvasRenderingContext2D, w: number, h: number, stars: SpaceSpeck[], dust: SpaceSpeck[], t: number, speed: number, k: number, warp: number): void {
-  const still = reduceMotion.matches;
   ctx.clearRect(0, 0, w, h);
   const ink = document.documentElement.dataset.theme === 'light';
   const dim = (ink ? .45 : .85) * (1 - warp * .35); // streaks ease back a little, so the reply over them stays easy to read
@@ -50,9 +49,9 @@ function paintSpace(ctx: CanvasRenderingContext2D, w: number, h: number, stars: 
   ctx.lineCap = 'round';
   for (const s of stars) {
     const pace = .25 + s.near * .75;
-    if (!still) fallSpeck(s, speed * pace * k);
+    fallSpeck(s, speed * pace * k);
     const x = s.x * w, y = s.y * h, size = .6 + s.near * 1.6;
-    ctx.globalAlpha = (.35 + s.near * .65) * dim * (still ? .8 : .7 + .3 * Math.sin(t * .0015 + s.phase));
+    ctx.globalAlpha = (.35 + s.near * .65) * dim * (.7 + .3 * Math.sin(t * .0015 + s.phase));
     // Always the same line: slow, its length is next to nothing and the round cap makes it a dot, so a star stretches
     // into a streak and back without ever changing shape.
     ctx.lineWidth = size;
@@ -62,8 +61,8 @@ function paintSpace(ctx: CanvasRenderingContext2D, w: number, h: number, stars: 
   const mote = ink ? dustInk : dustLight;
   for (const d of dust) {
     const pace = 1.2 + d.near * .8;
-    if (!still) fallSpeck(d, speed * pace * k);
-    const size = 3 + d.near * 7, x = d.x * w + (still ? 0 : Math.sin(t * .0004 + d.phase) * 8), y = d.y * h;
+    fallSpeck(d, speed * pace * k);
+    const size = 3 + d.near * 7, x = d.x * w + Math.sin(t * .0004 + d.phase) * 8, y = d.y * h;
     ctx.globalAlpha = (.08 + d.near * .22) * dim;
     ctx.drawImage(mote, x - size / 2, y - size / 2 - Math.max(streak, 0) * pace, size, size + Math.abs(streak) * pace);
   }
@@ -87,11 +86,10 @@ function startSpace(): void {
   const step = (t: number) => {
     frame = 0;
     if (!showing()) { last = 0; spaceSpeed = SPACE_IDLE; return; } // the watcher below starts it again; the last picture stays for the way back
-    const still = reduceMotion.matches;
     const target = surfaceTabs.box.some(tabBusy) ? SPACE_BUSY : SPACE_IDLE;
     const warp = (Math.abs(spaceSpeed) - SPACE_IDLE) / (SPACE_BUSY - SPACE_IDLE);
     // Idling takes every other frame: it runs for hours, and the drift is too slow to tell.
-    if (!still && !spaceRush && warp < .02 && target === SPACE_IDLE && last && t - last < 30) { frame = requestAnimationFrame(step); return; }
+    if (!spaceRush &&warp < .02 && target === SPACE_IDLE && last && t - last < 30) { frame = requestAnimationFrame(step); return; }
     if (canvas.clientWidth !== w || canvas.clientHeight !== h) fit();
     const dt = last ? t - last : 16.7;
     const k = Math.min(3, dt / 16.7); // in 60fps frames, so a slow frame doesn't slow the climb
@@ -99,9 +97,9 @@ function startSpace(): void {
     if (spaceRush) spaceSpeed = rushSpeed(spaceRush, t);
     else spaceSpeed += (target - spaceSpeed) * (1 - Math.exp(-dt / 450)); // eases into the new speed over about a second
     paintSpace(ctx, w, h, stars, dust, t, spaceSpeed, k, warp);
-    if (!still) frame = requestAnimationFrame(step);
+    frame = requestAnimationFrame(step);
   };
-  // Starts the climb whenever the screen comes up (and, with reduced motion, keeps the still picture fitted).
+  // Starts the climb whenever the screen comes up.
   setInterval(() => { if (!frame && showing()) frame = requestAnimationFrame(step); }, 500);
 }
 startSpace();
@@ -127,7 +125,7 @@ for (const btn of $$<HTMLElement>('.space-btn')) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     paintSpace(ctx, w, h, stars, dust, t, SPACE_BTN_SPEED, last ? Math.min(3, (t - last) / 16.7) : 1, 0);
     last = t;
-    if (!reduceMotion.matches && Math.random() < SHINE_CHANCE) shines.push({ star: stars[Math.floor(Math.random() * stars.length)], at: t });
+    if (Math.random() < SHINE_CHANCE) shines.push({ star: stars[Math.floor(Math.random() * stars.length)], at: t });
     shines = shines.filter(s => t - s.at < SHINE_MS);
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = .6;
@@ -138,7 +136,7 @@ for (const btn of $$<HTMLElement>('.space-btn')) {
       ctx.beginPath(); ctx.moveTo(x - reach, y); ctx.lineTo(x + reach, y); ctx.moveTo(x, y - reach); ctx.lineTo(x, y + reach); ctx.stroke();
     }
     ctx.globalAlpha = 1;
-    if (!reduceMotion.matches) frame = requestAnimationFrame(draw);
+    frame = requestAnimationFrame(draw);
   };
   const start = () => { if (!frame) frame = requestAnimationFrame(draw); };
   const stop = () => { cancelAnimationFrame(frame); frame = 0; last = 0; }; // the last picture stays for the fade out

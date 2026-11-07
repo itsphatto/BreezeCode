@@ -213,7 +213,7 @@ function renderPromptModels(): void {
       const fromH = composer?.getBoundingClientRect().height ?? 0;
       el.remove();
       syncPromptHl();
-      if (!composer || reduceMotion.matches) return;
+      if (!composer) return;
       const toH = composer.getBoundingClientRect().height;
       if (Math.abs(toH - fromH) < 1) return;
       const frame = { boxSizing: 'border-box', overflow: 'hidden' };
@@ -275,11 +275,10 @@ function fitPrompt(): void {
 // A new line eases the prompt to its new height. Only the text box animates: the box grows around it and the
 // send button, pinned to the bottom, never moves.
 let promptAnim: Animation | null = null;
-const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 function animatePromptHeight(ta: HTMLTextAreaElement, fromH: number): void {
   promptAnim?.cancel(); // read the end height without it (the start was read with it)
   const toH = ta.offsetHeight;
-  if (Math.abs(toH - fromH) < 1 || reduceMotion.matches) return;
+  if (Math.abs(toH - fromH) < 1) return;
   promptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
 }
 /* ----- Grow: when a panel is squeezed or widened and text rewraps, blocks ease to their new height instead of
@@ -319,7 +318,7 @@ const growRO = new ResizeObserver(entries => {
     return { ...p, to: r.height, onScreen: r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw };
   });
   // While the window itself resizes (layout.ts), everything takes its new height at once.
-  let budget = reduceMotion.matches || document.documentElement.classList.contains('win-resizing') ? 0 : GROW_PER_FRAME;
+  let budget = document.documentElement.classList.contains('win-resizing') ? 0 : GROW_PER_FRAME;
   // Border-box and clipped for the moment it runs, so padding counts and rewrapped text doesn't spill out.
   const frame = { boxSizing: 'border-box', overflow: 'hidden' };
   for (const p of sized) {

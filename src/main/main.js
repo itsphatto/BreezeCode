@@ -387,14 +387,20 @@ function createWindow() {
         overrideBrowserWindowOptions: {
           width: 900, height: 560, minWidth: 420, minHeight: 240,
           title: 'Terminal - Breeze Code', icon: APP_ICON, backgroundColor: '#1d1d1f', autoHideMenuBar: true,
+          titleBarStyle: 'hidden', // the IDE draws its window buttons into the terminal's header (layout.ts)
         },
       };
     }
     openInBrowser(url);
     return { action: 'deny' };
   });
-  win.webContents.on('did-create-window', child => {
+  win.webContents.on('did-create-window', (child, { frameName }) => {
     child.setMenu(null);
+    if (frameName === 'breeze-terminal') {
+      termPopupWin = child;
+      for (const ev of ['maximize', 'unmaximize']) child.on(ev, () => win?.webContents.send('win:termMaximized', child.isMaximized()));
+      child.on('closed', () => { if (termPopupWin === child) termPopupWin = null; });
+    }
     showTaskbarIcon(child);
     child.webContents.setWindowOpenHandler(({ url }) => { openInBrowser(url); return { action: 'deny' }; });
     child.webContents.on('will-navigate', e => e.preventDefault());
@@ -1710,6 +1716,14 @@ handle('win:minimize', () => win?.minimize());
 handle('win:toggleMaximize', () => { if (win) win.isMaximized() ? win.unmaximize() : win.maximize(); });
 handle('win:close', () => win?.close());
 handle('win:isMaximized', () => !!win?.isMaximized());
+// The same buttons on the popped-out terminal's window (Terminal → ... → Pop out Terminal), which the IDE's page draws.
+let termPopupWin = null;
+handle('win:termPopup', (_e, action) => {
+  const w = termPopupWin;
+  if (!w || w.isDestroyed()) return;
+  if (action === 'minimize') w.minimize();
+  else if (action === 'toggleMaximize') w.isMaximized() ? w.unmaximize() : w.maximize();
+});
 handle('win:edit', (_e, role) => {
   const wc = win?.webContents;
   if (wc && ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'].includes(role)) wc[role]();
@@ -3883,7 +3897,6 @@ function googleRedirectPage(ok) {
   @keyframes glowTone { from { --glow: ${tone.glowFrom}; } to { --glow: ${tone.glowTo}; } }
   @keyframes sway { from { --gx: 34%; --gy: -14%; } to { --gx: 66%; --gy: 2%; } }
   @keyframes draw { to { stroke-dashoffset: 0; } }
-  @media (prefers-reduced-motion: reduce) { body, .badge, .badge path { animation: none; } .badge path { stroke-dashoffset: 0; } .badge { background: ${tone.to}; } }
 </style></head><body>
 <main class="card">
   <div class="badge"><svg width="30" height="30" viewBox="0 0 24 24">${ok ? PAGE_ICON.ok : PAGE_ICON.fail}</svg></div>

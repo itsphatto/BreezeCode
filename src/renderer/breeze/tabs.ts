@@ -36,6 +36,7 @@ async function openFileInSplit(path: string): Promise<void> {
 function setActive(path: string | null): void {
   const changed = active !== path;
   if (changed && autoSave === 'focus') autoSaveNow();
+  if (changed && path) ghostEditor();
   active = path;
   if (changed && path) sfx.play('tab');
   renderTabs(); renderEditor(); renderTree(); saveSession();
@@ -43,10 +44,56 @@ function setActive(path: string | null): void {
   if (changed) fadeInEditor();
   if (running && path && /\.(html?|css|js)$/i.test(path)) $('#urlText').title = path;
 }
-// Another file's code fades in rather than snapping in place of the last one.
+// Switching files cross-fades: ghostEditor (just before the switch) leaves an opaque copy of what was on screen where
+// it was, and fadeInEditor (just after) fades one layer only, so the two files never show through each other. New
+// code is drawn under the copy, which fades away off it; a new image or note sits above the copy and fades in over it.
+let editorGhosts: HTMLElement[] = [];
 function fadeInEditor(): void {
-  if (!activeBuf() || activeBuf()?.kind !== 'text') return;
-  for (const el of [$('#hl'), $('#gutter')]) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+  const ghosts = editorGhosts;
+  editorGhosts = [];
+  const gone = () => ghosts.forEach(g => g.remove());
+  const b = activeBuf();
+  const empty = $('#editorEmpty');
+  const over = !empty.classList.contains('hidden') ? [empty] : !ghosts.length && b?.kind === 'text' ? [$('#hl'), $('#gutter')] : [];
+  const ease: KeyframeAnimationOptions = { duration: 220, easing: 'ease-out' };
+  if (over.length || !ghosts.length) {
+    for (const el of over) el.animate([{ opacity: 0 }, { opacity: 1 }], ease);
+    setTimeout(gone, 240);
+    return;
+  }
+  for (const g of ghosts) g.animate([{ opacity: 1 }, { opacity: 0 }], { ...ease, fill: 'forwards' }).finished.then(() => g.remove(), () => g.remove());
+  setTimeout(gone, 400); // a hidden window pauses animations
+}
+// A video or an embedded PDF isn't copied (the copy would load it again); the new file just fades in then.
+function ghostEditor(): void {
+  for (const g of editorGhosts) g.remove(); // a switch made before the last one finished
+  editorGhosts = [];
+  if (!activeBuf()) return;
+  const copy = (src: HTMLElement): HTMLElement => {
+    const g = src.cloneNode(true) as HTMLElement;
+    g.removeAttribute('id');
+    g.classList.remove('enter', 'editor-blur-out');
+    g.classList.add('editor-xfade'); // not .editor-ghost: that's the autofill suggestion (autofill.ts)
+    g.setAttribute('aria-hidden', 'true');
+    return g;
+  };
+  const ghosts: HTMLElement[] = [];
+  const empty = $('#editorEmpty');
+  if (!empty.classList.contains('hidden')) {
+    if (empty.querySelector('video, iframe, embed, object')) return;
+    const g = copy(empty);
+    empty.before(g); // under the pane, so a new image or note covers it as it fades in
+    ghosts.push(g);
+  } else if (activeBuf()?.kind === 'text') {
+    const hl = $('#hl'), gut = $('#gutter');
+    const h = copy(hl);
+    hl.after(h);
+    const g = copy(gut); // the gutter is laid out in the editor's row, so its copy is placed over it by hand
+    Object.assign(g.style, { position: 'absolute', left: `${gut.offsetLeft}px`, top: `${gut.offsetTop}px`, width: `${gut.offsetWidth}px`, height: `${gut.offsetHeight}px` });
+    $('#editor').append(g);
+    ghosts.push(h, g);
+  }
+  editorGhosts = ghosts;
 }
 const seenTabs = new Set<string>();
 function tabHtml(n: string): string {
@@ -138,8 +185,6 @@ function fitTabRunBtn(): void {
   btn.classList.toggle('compact', compact);
   followTabRunFold();
 }
-// Read live (not the shared reduceMotion constant): tabs can render before that line of the script has run.
-const tabMotionOff = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 // Grow, not pop: the button's width opens from nothing (or closes to nothing) and the tabs beside it make room as it
 // does, with no scaling or overshoot.
 // An even ease-in-out: a strong ease-out opened most of the width in the first frame, so the grow read as a pop.
@@ -152,14 +197,12 @@ function tabRunBox(btn: HTMLElement): Keyframe {
 // leaves the button where it was measured and it snaps when the animation ends.
 const TAB_RUN_SHUT: Keyframe = { width: '0px', paddingLeft: '0px', paddingRight: '0px', borderLeftWidth: '0px', borderRightWidth: '0px' };
 function growTabRun(btn: HTMLElement): void {
-  if (tabMotionOff()) return;
   const open = tabRunBox(btn);
   btn.animate([{ ...TAB_RUN_SHUT, overflow: 'hidden', boxSizing: 'border-box' }, { ...open, overflow: 'hidden', boxSizing: 'border-box' }], TAB_RUN_GROW);
   followTabRunFold();
 }
 // The old button stays in the strip, in its place before the split button, and narrows shut.
 function narrowAway(strip: HTMLElement, btn: HTMLElement): void {
-  if (tabMotionOff()) return;
   btn.setAttribute('aria-hidden', 'true');
   btn.removeAttribute('data-run-file'); btn.removeAttribute('data-preview-file');
   btn.classList.add('ghost'); // still styled as the button, but skipped wherever the live one is looked up
@@ -291,8 +334,11 @@ function closeTabs(paths: string[]): void {
       }
       setTimeout(() => {
         $$('#editor .gutter, #editor .code, #editorEmpty').forEach(el => el.classList.remove('editor-blur-out'));
+        const switching = !isClosingAll && !!active && paths.includes(active);
+        if (switching) ghostEditor();
         for (const p of paths) dropTab(p);
         renderTabs(); renderEditor(); renderTree(); saveSession();
+        if (switching) fadeInEditor();
       }, 190);
     } else {
       for (const p of paths) dropTab(p);
@@ -427,6 +473,7 @@ function closeTab(path: string): void {
       // The next file shows (and fades in) right away; the tab itself folds away meanwhile.
       if (!isLastTab && active === path) {
         const i = openTabs.indexOf(path);
+        ghostEditor();
         active = openTabs[i + 1] ?? openTabs[i - 1] ?? null;
         renderEditor();
         fadeInEditor();
@@ -448,6 +495,7 @@ function closeTab(path: string): void {
       }, 190);
     } else {
       const wasActive = active === path;
+      if (wasActive) ghostEditor();
       dropTab(path);
       renderTabs(); renderEditor(); renderTree(); saveSession();
       if (wasActive) fadeInEditor();

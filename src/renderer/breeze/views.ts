@@ -33,7 +33,7 @@ function morphSideHead(from: HTMLElement, to: HTMLElement): void {
   // A tab with fewer tools: the old ones it lacks (the leftmost) stay a moment as copies that shrink away and close
   // their gap, instead of vanishing. Tools sit at the right, so the closing gap moves nothing else.
   const actions = $('.side-head .head-actions', to);
-  if (!actions || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!actions) return;
   for (const b of icons(from).slice(icons(to).length)) {
     const ghost = b.cloneNode(true) as HTMLElement;
     ghost.removeAttribute('id');
@@ -69,8 +69,10 @@ function showView(v: string, reveal = false, morph = false): void {
 // Clicking the active view's icon again collapses the side bar, like VS Code. For Source Control, the page, it closes it.
 $$('.act-btn[data-view]').forEach(b => b.onclick = () => {
   const v = b.dataset.view as string;
-  if (v === 'git' && scmPageOpen) closeScmPage();
-  else if (v === layout.view && layout.sideOpen && v !== 'git') { layout.sideOpen = false; applyLayout(); } else showView(v, true, true);
+  if (v === 'git' && scmPageOpen) scmFade(() => closeScmPage());
+  else if (v === layout.view && layout.sideOpen && v !== 'git') { layout.sideOpen = false; applyLayout(); }
+  else if (v === 'git' || scmPageOpen) scmFade(() => showView(v, true, true)); // into or out of the page
+  else showView(v, true, true);
 });
 
 /* ================= Breeze Space (chat only) ================= */
