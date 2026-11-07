@@ -173,7 +173,7 @@ function setTheme(t: Theme): void {
   // A view transition cross-fades a snapshot of the window, so it costs the same however big the editor is
   // (easing every element's colours made big files lag behind the click).
   const apply = () => { document.documentElement.dataset.theme = t; };
-  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(apply);
+  if (document.startViewTransition) document.startViewTransition(apply);
   else apply();
   background(api.win.theme(t));
 }
@@ -230,7 +230,6 @@ const fillUsageBars = (root: ParentNode) => $$('.usage-bar', root).forEach(b => 
 // A changed number counts from its old value to the new one, easing in and out.
 function countTo(el: HTMLElement, from: number, to: number): void {
   const show = (n: number) => { el.textContent = el.dataset.fmt === 'tokens' ? tokenCount.format(n) : String(n); };
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { show(to); return; }
   const t0 = performance.now(), ms = 700;
   const step = (now: number) => {
     const t = Math.min(1, (now - t0) / ms), e = t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
@@ -248,10 +247,8 @@ function usageArrive(el: HTMLElement): void {
     // Dropped once it's in, so later refreshes slide the bars without the entrance delay.
     a.addEventListener('animationend', () => a.classList.remove('usage-in'), { once: true });
   });
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    void el.offsetWidth; // lay the bars out empty first, so setting their width below slides them
-    $$<HTMLElement>('[data-n]', el).forEach(n => countTo(n, 0, Number(n.dataset.n)));
-  }
+  void el.offsetWidth; // lay the bars out empty first, so setting their width below slides them
+  $$<HTMLElement>('[data-n]', el).forEach(n => countTo(n, 0, Number(n.dataset.n)));
   fillUsageBars(el);
 }
 // Same agents and windows as on screen: numbers count, bars slide (their width transitions) and other text rolls in.
@@ -565,7 +562,7 @@ function showSettingsPart(m: HTMLElement, i: number): void {
   const main = $('.set-main', m);
   if (!h || !main) return;
   const top = h.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop - 16;
-  main.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  main.scrollTo({ top, behavior: 'smooth' });
 }
 
 function bindSettings(m: HTMLElement): void {
@@ -590,7 +587,7 @@ function bindSettings(m: HTMLElement): void {
   const rowText = () => new Map($$<HTMLElement>('.set-row', pane).map(r => [r.querySelector('.set-title')?.textContent ?? '', r.querySelector<HTMLElement>('.set-sub')]));
   const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, el]) => [k, el?.textContent ?? ''])) : null;
   pane.innerHTML = settingsBody(settingsTab);
-  if (wasText && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (wasText) {
     for (const [k, el] of rowText()) {
       if (el && wasText.has(k) && wasText.get(k) !== el.textContent) {
         el.animate([{ opacity: 0, filter: 'blur(2px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
@@ -745,6 +742,12 @@ function bindSettings(m: HTMLElement): void {
     // Kept current while it's on screen; the timer ends once this pane is redrawn or closed.
     const tick = setInterval(() => { if (usageEl.isConnected) updateUsage(usageEl); else clearInterval(tick); }, 15_000);
   }
+  // Home's agent page sits under the Agents pane, outside it, so the pane's redraws leave it be.
+  const dashSlot = m.querySelector<HTMLElement>('.set-dash');
+  if (dashSlot) {
+    dashSlot.classList.toggle('hidden', settingsTab !== 'agents');
+    if (settingsTab === 'agents') mountAgentDash(dashSlot);
+  }
   if (settingsTab === 'agents' || settingsTab === 'help') autoRescan();
   if (settingsTab === 'help') bindToolButtons(pane);
   // Vibe
@@ -787,7 +790,7 @@ function bindSettings(m: HTMLElement): void {
     // The picture crossfades: the old one, laid over the new, fades and shrinks away while the new one grows in and
     // the Breeze badge pops into its corner.
     const art = $('.dc-art-box', pane);
-    if (!art || !oldArt || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!art || !oldArt) return;
     oldArt.classList.add('dc-art-old');
     oldArt.setAttribute('aria-hidden', 'true');
     art.append(oldArt);
@@ -904,7 +907,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   gears.forEach(g => { g.classList.add('open'); g.setAttribute('aria-expanded', 'true'); });
   openModal(`<div class="settings-modal" aria-label="Settings">
       <nav class="set-nav" aria-label="Settings sections">${settingsNavHeadHtml()}</nav>
-      <div class="set-main"><button class="set-close tab-close" data-close title="Close (Esc)" aria-label="Close"><svg class="tab-close-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><div class="set-pane"></div></div>
+      <div class="set-main"><button class="set-close tab-close" data-close title="Close (Esc)" aria-label="Close"><svg class="tab-close-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><div class="set-pane"></div><div class="set-dash hidden"></div></div>
     </div>`, m => {
     m.classList.add('settings-shell');
     const root = $('.settings-modal', m);
@@ -949,7 +952,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
     background(refreshAccounts().then(refreshSettings));
     bindSettings(root);
     gear.blur();
-  }, () => gears.forEach(g => { g.classList.remove('open'); g.setAttribute('aria-expanded', 'false'); }));
+  }, () => { gears.forEach(g => { g.classList.remove('open'); g.setAttribute('aria-expanded', 'false'); }); mountAgentDash(null); });
 }
 commands['settings.open'] = () => openSettings($('#settingsBtn'));
 $('#settingsBtn').onclick = e => openSettings(e.currentTarget as HTMLElement);

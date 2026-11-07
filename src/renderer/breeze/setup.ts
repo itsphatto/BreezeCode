@@ -332,7 +332,7 @@ function renderDetection(): void {
   $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;
   renderAgentBar();
   // Home's Agent tab, if it's showing, picks up agents the scan just found.
-  if (!$('.home-view[data-view="agent"]').classList.contains('hidden')) renderAgentDash();
+  if (dashOnScreen()) renderAgentDash();
 }
 $('#rescan').onclick = () => { detectTools(true).catch(() => { /* the agent card shows the error */ }); };
 
@@ -484,7 +484,7 @@ function fitAgentBar(): void {
   const rest = bar.querySelector<HTMLElement>('.chip-rest');
   const restCount = rest ? nowFolded.size : 0;
   // Not while the window itself resizes (layout.ts): the chips just take their places as the screen grows.
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches && bar.offsetParent && !document.documentElement.classList.contains('win-resizing')) {
+  if (bar.offsetParent && !document.documentElement.classList.contains('win-resizing')) {
     const grow = { duration: 260, easing: 'cubic-bezier(.175, .885, .32, 1.275)' };
     for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
       if (agentBarFolded.has(c.dataset.agent as string)) c.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
@@ -575,7 +575,7 @@ function renderAgentBar(): void {
     on.addEventListener('animationend', () => on.classList.remove('agent-swap'), { once: true });
   }
   fitAgentBar();
-  if (prev !== bar.dataset.current && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (prev !== bar.dataset.current) {
     for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
       const x = before.get(c.dataset.agent);
       const dx = x == null ? 0 : x - c.getBoundingClientRect().left;
@@ -716,10 +716,21 @@ function loadAgentDash(): void {
   renderAgentDash();
   refreshAgentDash();
 }
+// The page is on screen, on Home or in Settings → Agents.
+function dashOnScreen(): boolean {
+  return !!$('.agent-dash').offsetParent;
+}
+// Settings → Agents shows this same page: its one copy moves into Settings' slot (null: back to Home), drawn afresh.
+function mountAgentDash(slot: HTMLElement | null): void {
+  const dash = $('.agent-dash'), to = slot ?? $('.home-view[data-view="agent"]');
+  if (dash.parentElement === to) return;
+  to.append(dash);
+  if (dashOnScreen()) { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
+}
 // Main reads the agents' logs afresh on each ask (only changed logs are re-read), so a page left open asks again every
 // 15 seconds, like Settings' usage, while it is on screen and the window is shown.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && $('.home-view[data-view="agent"]:not(.hidden)')?.offsetParent) refreshAgentDash();
+  if (document.visibilityState === 'visible' && dashOnScreen()) refreshAgentDash();
 }, 15_000);
 function refreshAgentDash(): void {
   const seq = ++dashSeq;
@@ -770,7 +781,7 @@ function dashTexts(): Map<string, HTMLElement> {
 // A scramble still running counts as the value it is heading for.
 const dashText = (el: HTMLElement) => el.dataset.to ?? el.textContent ?? '';
 function shootDash(): DashShot | null {
-  if (!$('.home-view[data-view="agent"]:not(.hidden)') || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+  if (!dashOnScreen()) return null;
   const blocks: DashShot['blocks'] = new Map(), sparks: DashShot['sparks'] = new Map();
   for (const [k, el] of dashBlocks()) {
     const cs = getComputedStyle(el);
@@ -964,7 +975,7 @@ function renderDashChart(a: DetectedAgent | null): void {
     ? `<span class="ad-leg-total">Total <b>${compact(all)}</b></span>${priced ? `<span class="ad-leg-cost" title="${escAttr(costNote)}">Est. cost <b>≈ ${money(cost)}</b></span>` : ''}${sums.map(([k, label, n]) => `<span><i data-k="${k}"></i>${esc(label)} <b>${compact(n)}</b></span>`).join('')}`
     : `<span class="ad-leg-none">${a ? `${esc(a.name)} hasn't used any tokens in the last ${days.length} days.` : ''}</span>`;
   const drawn = `${a?.id ?? ''}|${dashRange}|${totals.join(',')}`;
-  if (drawn !== dashDrawn && $('.home-view[data-view="agent"]:not(.hidden)')) {
+  if (drawn !== dashDrawn && dashOnScreen()) {
     dashDrawn = drawn;
     // Morphing bars keep their axes and legend; what changes on them animates on its own (playDash).
     if (!morph) replayAnim([bars, $('#adY'), $('#adX'), $('#adLegend')]);
@@ -987,7 +998,7 @@ function showDashTip(bar: HTMLElement): void {
   const left = Math.min(br.right - cr.left + 8, cr.width - tip.offsetWidth - 8);
   tip.style.left = `${left < br.left - cr.left ? br.left - cr.left - tip.offsetWidth - 8 : left}px`;
   tip.style.top = `${Math.max(8, Math.min(br.top - cr.top, cr.height - tip.offsetHeight - 8))}px`;
-  if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!from) return;
   const to = tip.getBoundingClientRect();
   const ease = 'cubic-bezier(.32, .72, 0, 1)';
   tip.animate([{ transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`, width: `${from.width}px`, height: `${from.height}px` },
@@ -1061,7 +1072,6 @@ const hideDashTip = () => {
   dashTipHide = window.setTimeout(() => {
     const tip = $('#adTip');
     if (tip.classList.contains('hidden') || dashTipOut) return;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { tip.classList.add('hidden'); return; }
     dashTipOut = tip.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(6px) scale(.94)' }],
       { duration: 150, easing: 'cubic-bezier(.4, 0, 1, 1)' });
     dashTipOut.onfinish = () => { tip.classList.add('hidden'); dashTipOut = null; };
@@ -1325,18 +1335,17 @@ function swapScreen(to: string): void {
   next.classList.add('screen-prep');
   void settleFrames(700).then(() => {
     if (seq !== swapSeq) return; // switched again meanwhile
-    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
     // Into or out of the debugger. Exaggerated: the debugger takes over panel by panel (teamswap.ts). Otherwise the
     // two pages, whose title and activity bars match, cross-fade in place, so it reads as one window changing page.
     const debugSwap = !!prev && (prev.id === 'debug' || next.id === 'debug');
-    const team = debugSwap && bigAnim && !still;
+    const team = debugSwap && bigAnim;
     const soft = debugSwap && !team;
     if (team) { // teamswap.ts
       prev.classList.add('screen-team');
       next.classList.add('screen-team');
     }
-    const climb = bigAnim && !still && (prev?.id === 'ide' || prev?.id === 'onboard') && next.id === 'box';
-    const fall = bigAnim && !still && prev?.id === 'box' && (next.id === 'ide' || next.id === 'onboard');
+    const climb = bigAnim && (prev?.id === 'ide' || prev?.id === 'onboard') && next.id === 'box';
+    const fall = bigAnim && prev?.id === 'box' && (next.id === 'ide' || next.id === 'onboard');
     next.classList.remove('screen-prep');
     if (climb || fall) flyBetween(next, fall); // space.ts
     // The terminal goes back to the IDE, on the way down once Space's contents have faded, so the conversation doesn't jump.

@@ -321,9 +321,3 @@ body.focused .tw-caret {
 .a-d { opacity: .65; }
 .a-i { font-style: italic; }
 .a-u { text-decoration: underline; }
-
-@media (prefers-reduced-motion: reduce) {
-  body.focused .tw-caret {
-    animation: none;
-  }
-}

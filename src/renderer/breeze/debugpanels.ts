@@ -365,19 +365,23 @@ type DbgTab = 'output' | 'console';
 let dbgTab: DbgTab = 'output';
 const dbgTabEl = (t: DbgTab) => $(t === 'output' ? '#dbgTabOutput' : '#dbgTabConsole');
 function showDbgTab(t: DbgTab): void {
+  const changed = t !== dbgTab;
   dbgTab = t;
   for (const x of ['output', 'console'] as const) {
-    const on = x === t, tab = dbgTabEl(x);
+    const on = x === t, tab = dbgTabEl(x), pane = $(x === 'output' ? '#dbgOutputPane' : '#dbgConsolePane');
     tab.classList.toggle('on', on);
     tab.setAttribute('aria-selected', String(on));
     tab.tabIndex = on ? 0 : -1;
-    $(x === 'output' ? '#dbgOutputPane' : '#dbgConsolePane').classList.toggle('hidden', !on);
+    pane.classList.toggle('hidden', !on);
+    pane.classList.toggle('slide-in', on && changed);
   }
   dbgTabEl(t).classList.remove('has-new');
   dbgStickScroll(t === 'output' ? dbgOut : dbgCon);
 }
 // A tab not in front gets a dot when something new arrives in it.
 const dbgNoteNew = (t: DbgTab) => { if (dbgTab !== t) dbgTabEl(t).classList.add('has-new'); };
+// Drop the slide once it has played, so re-showing the debug view doesn't replay it.
+$('#dbgBottom').addEventListener('animationend', e => (e.target as HTMLElement).classList.remove('slide-in'));
 $('#dbgBottom .dbg-tabs').addEventListener('click', e => {
   const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-dbg-tab]');
   if (tab) showDbgTab(tab.dataset.dbgTab as DbgTab);

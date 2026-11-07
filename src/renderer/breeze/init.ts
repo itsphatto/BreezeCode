@@ -95,7 +95,7 @@ async function boot(): Promise<void> {
   // The welcome's logo parks exactly where the launch left the swirl (middle of the window, launch.css's size and glow);
   // play() then morphs it into its place on the page. null when Home is up, or for reduced motion: there's nothing to morph.
   const parkLogo = (): Animation | null => {
-    if (!welcome.getClientRects().length || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+    if (!welcome.getClientRects().length) return null;
     const logo = $('.ob-logo', welcome), r = logo.getBoundingClientRect();
     const morph = logo.animate([
       {

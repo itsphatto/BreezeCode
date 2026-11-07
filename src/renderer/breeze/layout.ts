@@ -46,7 +46,8 @@ function applyLayout(): void {
   termHome.classList.toggle('term-side', layout.termDock === 'side');
   termHome.style.setProperty('--term-w', `${clamp(layout.termW, 260, Math.max(260, innerWidth - 560))}px`);
   t.classList.toggle('open', layout.termOpen || termPopped());
-  void setIcon($('#termTitle'), layout.termOpen ? 'chevronDown' : 'chevronRight');
+  // Beside the editor it points right, the way the panel folds away; below it, down when open.
+  void setIcon($('#termTitle'), layout.termOpen && !(layout.termDock === 'side' && t.parentElement === termHome) ? 'chevronDown' : 'chevronRight');
   const icon = (id: string, sym: string, on: boolean) => $(`#${id} use`).setAttribute('href', `#i-${sym}${on ? '-on' : ''}`);
   icon('tglSide', 'left', layout.sideOpen); icon('tglTerm', 'bottom', layout.termOpen); icon('tglAgents', 'right', layout.agentsOpen);
   store.set('breeze.layout', layout);
@@ -221,13 +222,50 @@ async function popOutTerminal(): Promise<void> {
   if (w.closed) { termPopup = null; popupLookWatch?.disconnect(); return; }
   elsewhere.push(d);
   const t = $('#terminal');
-  d.body.append(t);
-  t.classList.add('open');
   w.addEventListener('pagehide', dockTerminalBack, { once: true });
   layout.termOpen = false; // nothing is left of it in the IDE
-  applyLayoutAnimated();
-  w.focus();
-  termInput.focus();
+  morphTerminal(() => {
+    d.body.append(t);
+    t.classList.add('open');
+    if (document.documentElement.classList.contains('own-win-controls')) $('#termToggle').append(popupWinControls(d));
+    closeBlankTerms();
+    t.animate([{ opacity: 0, transform: 'translateY(8px) scale(.97)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 340, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+    w.focus();
+    termInput.focus();
+  });
+}
+// The popped-out window has no title bar of its own (main.js): the IDE's minimize, maximize and close buttons sit at the
+// end of the terminal's header, which drags the window.
+function popupWinControls(d: Document): HTMLElement {
+  const box = d.createElement('div');
+  box.className = 'win-controls term-win-controls';
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', 'Window');
+  box.innerHTML = `<button class="win-btn" type="button" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M0 5.5h10" /></svg></button>`
+    + `<button class="win-btn win-max" type="button" title="Maximize" aria-label="Maximize">${svgIcon('winMaximize', 10)}</button>`
+    + `<button class="win-btn win-close" type="button" title="Close" aria-label="Close"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M.5.5l9 9M9.5.5l-9 9" /></svg></button>`;
+  const [min, max, close] = [...box.children] as HTMLElement[];
+  min.onclick = () => background(api.win.termPopup('minimize'));
+  max.onclick = () => background(api.win.termPopup('toggleMaximize'));
+  close.onclick = () => termPopup?.close();
+  return box;
+}
+api.win.onTermMaximized(on => {
+  const max = termPopup?.document.querySelector<HTMLElement>('.term-win-controls .win-max');
+  if (!max) return;
+  max.innerHTML = svgIcon(on ? 'winRestore' : 'winMaximize', 10);
+  max.title = on ? 'Restore' : 'Maximize';
+  max.setAttribute('aria-label', max.title);
+});
+// Moving the terminal (below or beside the editor, out to its own window and back) morphs it from where it was to where
+// it lands: a view transition of the panel and the editor next to it (.term-morph, breeze.css). Layout changes are made
+// by the caller first; `change` moves the panel and runs once the old look has been captured.
+function morphTerminal(change: () => void): void {
+  if (!document.startViewTransition) { change(); applyLayoutAnimated(); return; }
+  const root = document.documentElement;
+  root.classList.add('term-morph');
+  const done = () => root.classList.remove('term-morph');
+  document.startViewTransition(() => { change(); applyLayout(); }).finished.then(done, done);
 }
 function dockTerminalBack(): void {
   const w = termPopup;
@@ -237,23 +275,25 @@ function dockTerminalBack(): void {
   popupLookWatch = null;
   const i = elsewhere.indexOf(w.document);
   if (i >= 0) elsewhere.splice(i, 1);
+  // Brought home now, while its window still exists, but kept out of sight until the morph has captured the IDE without it.
   const t = w.document.getElementById('terminal');
-  if (t) { termHome.append(t); t.classList.remove('open'); void t.offsetWidth; }
+  if (t) { t.querySelector('.term-win-controls')?.remove(); t.getAnimations().forEach(a => a.cancel()); termHome.append(t); t.classList.remove('open'); t.style.display = 'none'; }
   if (!w.closed) w.close();
-  terminalHere();
   layout.termOpen = true;
-  applyLayoutAnimated();
-  termInput.focus();
+  morphTerminal(() => {
+    if (t) t.style.display = '';
+    terminalHere();
+    closeBlankTerms();
+    termInput.focus();
+  });
 }
 function dockTerminal(dock: Layout['termDock']): void {
   const prev = { ...layout };
   layout.termDock = dock;
   if (termPopped()) { dockTerminalBack(); return; }
-  terminalBack();
   layout.termOpen = true;
   pushAppAction({ type: 'layout', prev, next: { ...layout } });
-  applyLayoutAnimated();
-  termInput.focus();
+  morphTerminal(() => { terminalBack(); closeBlankTerms(); termInput.focus(); });
 }
 const TERM_DOCKS: [Layout['termDock'] | 'window', string][] = [['bottom', 'Panel Below the Editor'], ['side', 'Side Bar Beside the Editor'], ['window', 'Pop out Terminal']];
 function termMoreItems(): MenuItem[] {

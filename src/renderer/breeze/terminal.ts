@@ -171,7 +171,7 @@ function closeTermSession(id: number, e?: MouseEvent): void {
   renderTermTabs(); // the tab starts folding away now
 
   // The closed terminal's output fades and sinks away first, then the next one fades up in its place.
-  const shown = wasActive && pane && pane.offsetParent !== null && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const shown = wasActive && pane && pane.offsetParent !== null;
   const out = shown ? pane.animate([{ opacity: 1, transform: 'none', filter: 'blur(0)' }, { opacity: 0, transform: 'translateY(6px)', filter: 'blur(2px)' }], { duration: 170, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' }) : null;
   let done = false;
   const finish = () => {
@@ -188,6 +188,16 @@ function closeTermSession(id: number, e?: MouseEvent): void {
     }
   };
   if (out) { out.finished.then(finish, finish); setTimeout(finish, 260); } else finish(); // a hidden window pauses animations
+}
+
+// Nothing printed, nothing running, nothing typed.
+function termBlank(s: TermSession): boolean {
+  return s.proc == null && !s.paneEl?.hasChildNodes() && !(s === activeTermSession ? termInput.value : s.inputVal);
+}
+// Moving the terminal to another view (below, beside the editor, its own window) closes the blank tabs left behind;
+// the one being looked at stays, blank or not.
+function closeBlankTerms(): void {
+  for (const s of termSessions.filter(s => s !== activeTermSession && termBlank(s))) closeTermSession(s.id);
 }
 
 const TERM_TAB_ANIM_MS = 220;
@@ -884,5 +894,15 @@ api.term.onExit((id, code) => {
 });
 // The terminal may be in its own window (popOutTerminal, layout.ts): the selection to check is that window's.
 $('#termBody').addEventListener('mouseup', e => { if (!(e.currentTarget as HTMLElement).ownerDocument.getSelection()?.toString()) termInput.focus(); });
+// The panel's own buttons (+, clear, stop) run their commands wherever it is: the page-wide data-act listener
+// (settings.ts) can't hear clicks once the terminal has moved into its own window.
+$('#terminal').addEventListener('click', e => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-act]');
+  if (!b) return;
+  e.stopPropagation();
+  // The + in the popped-out window adds the tab there; Terminal → New Terminal in the IDE brings the terminal back.
+  if (b.dataset.act === 'term.new' && termPopped()) { createTermSession(); termInput.focus(); return; }
+  run(b.dataset.act as string);
+});
 $('#termToggle').addEventListener('click', e => { if (!(e.target as HTMLElement).closest('button, .term-tabs, .term-tab')) run('term.toggle'); });
 

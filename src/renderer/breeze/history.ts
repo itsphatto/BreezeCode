@@ -119,7 +119,11 @@ function showHistory(s: Surface, anchor: HTMLElement): void {
   const r = anchor.getBoundingClientRect();
   anchor.classList.add('open');
   popupMenu(r.right - 300, r.bottom + 4, items, () => anchor.classList.remove('open'), anchor);
-  $('#menuRoot .menu')?.classList.add('history-menu');
+  const m = $('#menuRoot .menu');
+  if (!m) return;
+  m.classList.add('history-menu');
+  // Re-place once the class sets its width: it was clamped while long titles still made it wide.
+  m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
 }
 $('#chatHistory').onclick = e => showHistory(SURFACES.ide, e.currentTarget as HTMLElement);
 commands['chat.history'] = () => {
