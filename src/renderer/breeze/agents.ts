@@ -700,7 +700,7 @@ function pickOther(list: string[], current: string): string {
 // Blurs the old text away, then the new text in.
 function blurSwap(el: HTMLElement, text: string): void {
   if (el.textContent === text) return;
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !el.isConnected) { el.textContent = text; return; }
+  if (!el.isConnected) { el.textContent = text; return; }
   el.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); });
   const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: 'blur(6px)', transform: 'translateY(-3px)' }], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
   out.id = 'blurSwap';

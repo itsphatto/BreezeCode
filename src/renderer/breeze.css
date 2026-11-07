@@ -1990,9 +1990,6 @@ textarea:focus-visible {
 .menu.kb-on:has(.menu-item:hover:not(:disabled))::before {
   opacity: 0;
 }
-@media (prefers-reduced-motion: reduce) {
-  .menu.kb-slide::before { transition: none; }
-}
 
 /* A little space between rows, so two lit rows never run together. */
 .menu-item + .menu-item {
@@ -2175,11 +2172,6 @@ textarea:focus-visible {
 /* Settling on a step eases; dragging follows the pointer straight. */
 .menu-slider:not(.dragging) :is(.ms-fill, .ms-thumb) {
   transition: width .18s cubic-bezier(.2, .8, .2, 1), left .18s cubic-bezier(.2, .8, .2, 1), opacity .18s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .menu-slider :is(.ms-fill, .ms-thumb) { transition: none; animation: none; }
-  .ms-fill::before { transition: none; animation: none; }
 }
 
 /* ---------- layout ---------- */
@@ -2541,13 +2533,6 @@ body.resizing-h iframe {
   overflow: hidden;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .skill-group-body,
-  .plugin-skills {
-    transition: none !important;
-  }
-}
-
 .skill-row {
   display: flex;
   align-items: center;
@@ -2722,10 +2707,6 @@ body.resizing-h iframe {
 
 @keyframes mcp-slide {
   from { opacity: 0; transform: translateX(var(--from)); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mcp-form.switched [data-mcp-for] { animation: none; }
 }
 
 .mcp-type {
@@ -3348,11 +3329,6 @@ svg.ico-svg:active {
   transition: transform .22s cubic-bezier(.16, 1, .3, 1);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .split-drop-hint::after { transform: translate(-50%, -50%); transition: none; }
-  .split-drop-hint.on::before { animation: none; }
-}
-
 .editor-row>.editor {
   min-width: 0;
 }
@@ -3398,14 +3374,6 @@ svg.ico-svg:active {
   to {
     opacity: 1;
     transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  .split.opening,
-  .split.closing {
-    animation: none;
   }
 }
 
@@ -3835,10 +3803,6 @@ svg.ico-svg:active {
   from { opacity: 0; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .type-hand { animation: none; }
-}
-
 /* Scope guides: a hairline from a tag's or block's opening line down to where it ends. */
 .guide {
   position: absolute;
@@ -3930,6 +3894,13 @@ svg.ico-svg:active {
   z-index: 2;
   background: var(--bg);
   font: 13px/1.5 var(--font-ui);
+}
+
+/* What was showing, left over (or under) the next file for a moment while they cross-fade (ghostEditor, tabs.ts).
+   Opaque, so the two files' text never shows through each other. */
+.editor-xfade {
+  background: var(--bg);
+  pointer-events: none !important;
 }
 
 .editor-blur-out {
@@ -4171,8 +4142,9 @@ svg.ico-svg:active {
   color: #86efac;
 }
 
+/* Comments in every language: a faint grey that reads on every theme, so the code around them stands out. */
 .tk-com {
-  color: var(--text-3);
+  color: rgb(140 140 140 / .55);
   font-style: italic;
 }
 
@@ -4428,9 +4400,10 @@ svg.ico-svg:active {
   min-width: 46px;
   padding-left: 6px;
 }
-.term-tabs.no-morph .term-tab,
-.term-tabs.no-morph .term-tab-dot,
-.term-tabs.no-morph .term-tab-close {
+/* A closing tab keeps its collapse even when the strip settles its tight state in the same frame */
+.term-tabs.no-morph .term-tab:not(.leaving),
+.term-tabs.no-morph .term-tab:not(.leaving) .term-tab-dot,
+.term-tabs.no-morph .term-tab:not(.leaving) .term-tab-close {
   transition: none !important;
 }
 
@@ -5264,10 +5237,8 @@ textarea:not(:placeholder-shown) + .ph-rot {
   pointer-events: none;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  :is(#send, #boxSend) {
-    transition: background-color .15s ease, border-color .15s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
-  }
+:is(#send, #boxSend) {
+  transition: background-color .15s ease, border-color .15s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
 }
 
 /* The IDE composer's send button is one text line tall, so it lines up with the prompt. */
@@ -6154,16 +6125,6 @@ body.vibing .ide {
 
 .ob-morph>.ob-start {
   animation-delay: .54s;
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-  }
 }
 
 
@@ -7836,10 +7797,6 @@ body.vibing .ide {
   color: var(--err);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .home-clone { animation: none; }
-}
-
 .home-head h2 {
   margin: 0;
   font-size: 1.85em;
@@ -8388,10 +8345,6 @@ body.vibing .ide {
   from { transform: scaleX(0); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ad-meter i { animation: none; }
-}
-
 /* The plot: a scale on the left, a stacked bar a day. */
 .ad-plot {
   display: grid;
@@ -8465,12 +8418,6 @@ body.vibing .ide {
 .ad-spark.anim i {
   animation: ad-rise .5s cubic-bezier(.16, 1, .3, 1) both;
   animation-delay: calc(var(--i, 0) * 30ms);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ad-bars.anim .ad-bar,
-  .ad-spark.anim i,
-  :is(.ad-y, .ad-x, .ad-legend).anim { animation: none; }
 }
 
 .ad-bar i {
@@ -8871,13 +8818,6 @@ body.layout-animating .box > .terminal.open {
   transition: width .28s cubic-bezier(.16, 1, .3, 1), margin .28s cubic-bezier(.16, 1, .3, 1), opacity .28s cubic-bezier(.16, 1, .3, 1), border-color .28s ease;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  body.layout-animating .box > .terminal,
-  body.layout-animating .box > .terminal.open {
-    transition: opacity .18s ease;
-  }
-}
-
 /* ----- Breeze Space live file: the one file an agent is editing, as it's written ----- */
 .box-live {
   --live-w: clamp(320px, 34vw, 560px);
@@ -9055,10 +8995,6 @@ body.layout-animating .box > .terminal.open {
   50% { opacity: 0; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .box-live-at .type-caret { animation: none; }
-}
-
 .box-live-more {
   padding: 8px 14px;
   font: 11.5px var(--font-code);
@@ -9076,11 +9012,6 @@ body.layout-animating .box > .terminal.open {
   text-align: center;
   font-size: 12.5px;
   color: var(--text-3);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .box-live.writing .box-live-status::before { animation: none; }
-  .box-live { transition: opacity .18s ease; }
 }
 
 /* ----- Breeze Space side bar: New chat, Search, then chats grouped by folder ----- */
@@ -9503,10 +9434,6 @@ body.layout-animating .box > .terminal.open {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .lsp-hover { animation: none; }
-}
-
 .qo-item .ref-text {
   font-family: var(--font-code);
 }
@@ -9706,13 +9633,6 @@ body.layout-animating .box > .terminal.open {
 .tabs .tab-run.compact span {
   max-width: 0;
   transform: scale(.5);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tabs .tab-run,
-  .tabs .tab-run * {
-    transition: none !important;
-  }
 }
 
 .tabs .tab-run.compact .ico-svg {
@@ -10005,13 +9925,6 @@ body.layout-animating .box > .terminal.open {
   -webkit-background-clip: text;
   background-clip: text;
   animation: shimmer 1.8s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shimmer-text {
-    animation: none;
-    -webkit-text-fill-color: var(--text-3);
-  }
 }
 
 /* A light sweeps along the composer while the agent works. */
@@ -10350,15 +10263,6 @@ body.layout-animating .box > .terminal.open {
   gap: 6px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .menu.stagger,
-  .menu.stagger > *,
-  .stagger-item {
-    animation-duration: 0s !important;
-    animation-delay: 0s !important;
-  }
-}
-
 /* ================= Chat history ================= */
 .menu.history-menu {
   width: 300px;
@@ -10630,7 +10534,7 @@ body.layout-animating .box > .terminal.open {
   opacity: 0;
 }
 
-@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+@media (hover: hover) and (pointer: fine) {
   .box :is(.btn, .icon-btn, .pill-btn, .avatars, .chat-file-chip, .chat-img-wrap, #boxSend),
   .space-btn {
     transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .18s ease, opacity .2s ease,
@@ -10850,6 +10754,17 @@ body:is(.resizing, .resizing-h) .sash-line.on {
   transition: none;
 }
 
+/* Opening and closing beside the editor slides like it does below it, on the width instead of the height: the column
+   eases open or shut, and the panel's contents keep their full width meanwhile, so they're uncovered or cut off at the
+   edge rather than rewrapping. */
+body.layout-animating .center.term-side {
+  transition: grid-template-columns .28s cubic-bezier(.16, 1, .3, 1);
+}
+
+body.layout-animating .center.term-side > .terminal > :is(.term-head, .term-body) {
+  min-width: calc(var(--term-w, 420px) - var(--gap, 6px) - 2px);
+}
+
 /* Terminal → ... → New Window: the same terminal, moved into a window of its own (popOutTerminal, layout.ts). */
 body.term-popout {
   display: flex;
@@ -10883,6 +10798,80 @@ body.term-popout > .terminal .term-body {
 
 body.term-popout #termTitle > svg {
   display: none; /* nothing to fold away in its own window */
+}
+
+/* The window has no title bar of its own (main.js): the header drags it and ends in the IDE's window buttons. */
+body.term-popout > .terminal .term-head {
+  height: 38px;
+  -webkit-app-region: drag;
+}
+
+body.term-popout > .terminal .term-head :is(button, .term-tabs) {
+  -webkit-app-region: no-drag;
+}
+
+:root:not(.own-win-controls) body.term-popout > .terminal .term-head {
+  padding-left: 78px; /* past macOS's traffic lights */
+}
+
+body.term-popout .term-win-controls {
+  color: var(--text); /* white on the dark themes, not the IDE's dimmer grey */
+  position: static;
+  flex: none;
+  align-self: stretch;
+  margin-right: -10px; /* flush with the window's corner, past the header's padding */
+}
+
+body.term-popout .term-win-controls .win-btn {
+  height: 100%;
+}
+
+body.term-popout .term-win-controls .win-btn::before {
+  inset: 5px 9px; /* the same 28px square as the IDE's */
+}
+
+/* Moving the terminal (below or beside the editor, out to its own window and back) morphs it from its old box to its
+   new one, with the editor giving up or taking back the room in step (morphTerminal, layout.ts). The snapshots keep
+   their size and are clipped by the morphing box rather than stretched, so the text never squashes. */
+:root.term-morph #terminal {
+  view-transition-name: term-panel;
+}
+
+:root.term-morph #work {
+  view-transition-name: term-work;
+}
+
+::view-transition-group(term-panel),
+::view-transition-group(term-work) {
+  animation-duration: .4s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+::view-transition-old(term-panel),
+::view-transition-new(term-panel),
+::view-transition-old(term-work),
+::view-transition-new(term-work) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+  animation-duration: .3s;
+}
+
+/* Out to its own window: the panel lifts away. Back from it: it settles into place. */
+::view-transition-old(term-panel):only-child {
+  animation: term-pop-out .26s cubic-bezier(.4, 0, 1, 1) both;
+}
+
+::view-transition-new(term-panel):only-child {
+  animation: term-pop-in .38s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes term-pop-out {
+  to { opacity: 0; transform: translateY(-10px) scale(.96); filter: blur(4px); }
+}
+
+@keyframes term-pop-in {
+  from { opacity: 0; transform: translateY(10px) scale(.96); filter: blur(4px); }
 }
 
 .menu.term-win-menu {
@@ -10927,12 +10916,6 @@ body.term-popout #termTitle > svg {
   pointer-events: none;
   z-index: 1;
   transition: transform .32s cubic-bezier(.2, .8, .2, 1), width .32s cubic-bezier(.2, .8, .2, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab-ink {
-    transition: none;
-  }
 }
 
 /* Feed picker: one row per feed, logo · name and status · button. */
@@ -11270,15 +11253,13 @@ body.term-popout #termTitle > svg {
 
 /* Hovering an account's trash lifts its lid (the icon's 1st and 3rd paths) on a hinge at its right end; leaving
    sets it back down. */
-@media (prefers-reduced-motion: no-preference) {
-  .set-acct-ctl .br-del .ico-svg path:is(:nth-child(1), :nth-child(3)) {
-    transform-origin: 21px 6px;
-    transition: transform .28s cubic-bezier(.34, 1.56, .64, 1);
-  }
+.set-acct-ctl .br-del .ico-svg path:is(:nth-child(1), :nth-child(3)) {
+  transform-origin: 21px 6px;
+  transition: transform .28s cubic-bezier(.34, 1.56, .64, 1);
+}
 
-  .set-acct-ctl .br-del:is(:hover, :focus-visible) .ico-svg path:is(:nth-child(1), :nth-child(3)) {
-    transform: translateY(-1.5px) rotate(14deg);
-  }
+.set-acct-ctl .br-del:is(:hover, :focus-visible) .ico-svg path:is(:nth-child(1), :nth-child(3)) {
+  transform: translateY(-1.5px) rotate(14deg);
 }
 
 .set-row:hover .br-del,
@@ -11402,7 +11383,6 @@ button.pill:active, .pill-btn:active {
 .prompt-model.leaving { animation: promptModelOut .26s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; transform-origin: left center; }
 @keyframes promptModelIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
 @keyframes promptModelOut { to { opacity: 0; transform: scale(.82) translateX(-8px); filter: blur(4px); } }
-@media (prefers-reduced-motion: reduce) { .prompt-model, .prompt-model.leaving { animation-duration: .01ms; } }
 
 /* Composer attachments */
 .composer-attachments { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
@@ -12512,11 +12492,6 @@ body.layout-animating #previewPane {
   100% { transform: rotate(0) scale(1.14); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .set-nav .set-item:hover svg,
-  .set-nav .set-item:hover svg circle { animation: none !important; }
-}
-
 .set-main {
   position: relative;
   overflow-y: auto;
@@ -12882,10 +12857,6 @@ body.layout-animating #previewPane {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .kb-key.kb-swap { animation: none; }
-}
-
 .kb-reset {
   color: var(--text-3);
 }
@@ -12994,13 +12965,6 @@ body.layout-animating #previewPane {
 
 .composer-access.on {
   color: var(--warn);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .switch,
-  .switch * {
-    transition-duration: 0s !important;
-  }
 }
 
 /* Liquid switch: Jhey Tompkins' liquid toggle (codepen), in Breeze blue. settings.ts adds the parts below into
@@ -14662,19 +14626,17 @@ body.layout-animating #previewPane {
 .theme-swatch .sw-main b:nth-child(4) { width: 70%; }
 
 /* Opening Appearance: each picture's code lines grow from the left, line by line, one card after another. */
-@media (prefers-reduced-motion: no-preference) {
-  .set-themes.grow .theme-swatch b {
-    transform-origin: left center;
-    animation: swLineGrow .55s cubic-bezier(.2, .8, .2, 1) both;
-    animation-delay: calc(180ms + var(--card, 0) * 90ms + var(--line, 0) * 55ms);
-  }
-
-  .set-themes.grow .set-theme:nth-child(2) { --card: 1; }
-  .set-themes.grow .set-theme:nth-child(3) { --card: 2; }
-  .set-themes.grow .theme-swatch b:nth-child(2) { --line: 1; }
-  .set-themes.grow .theme-swatch b:nth-child(3) { --line: 2; }
-  .set-themes.grow .theme-swatch b:nth-child(4) { --line: 3; }
+.set-themes.grow .theme-swatch b {
+  transform-origin: left center;
+  animation: swLineGrow .55s cubic-bezier(.2, .8, .2, 1) both;
+  animation-delay: calc(180ms + var(--card, 0) * 90ms + var(--line, 0) * 55ms);
 }
+
+.set-themes.grow .set-theme:nth-child(2) { --card: 1; }
+.set-themes.grow .set-theme:nth-child(3) { --card: 2; }
+.set-themes.grow .theme-swatch b:nth-child(2) { --line: 1; }
+.set-themes.grow .theme-swatch b:nth-child(3) { --line: 2; }
+.set-themes.grow .theme-swatch b:nth-child(4) { --line: 3; }
 
 @keyframes swLineGrow {
   from { transform: scaleX(0); }
@@ -15471,12 +15433,6 @@ input.dbg-edit.bad:focus-visible {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .dbg-pane.slide-in {
-    animation: none;
-  }
-}
-
 .dbg-log {
   flex: 1;
   min-height: 0;
@@ -15574,10 +15530,6 @@ input.dbg-edit.bad:focus-visible {
 
 .dbg-hover small {
   color: var(--text-3);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dbg-var.changed .dbg-val { animation: none; }
 }
 
 :root[data-theme="light"] :is(.dbg-panel, .dbg-src-head) {
@@ -15924,6 +15876,60 @@ input.dbg-edit.bad:focus-visible {
 }
 
 /* ================= Source Control page ================= */
+/* Going to or from the page (scmFade, prs.ts): what was showing (the editor and side bar, or the page) fades out, then
+   what replaces it fades up. The rest of the window (agents, terminal) stays as it is. */
+:root.scm-fade #work {
+  view-transition-name: scm-work;
+}
+
+:root.scm-fade #scmPage {
+  view-transition-name: scm-page;
+}
+
+:root.scm-fade #sidebar {
+  view-transition-name: scm-side;
+}
+
+:root.scm-fade::view-transition-old(root),
+:root.scm-fade::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(scm-work),
+::view-transition-group(scm-page),
+::view-transition-group(scm-side) {
+  animation-duration: .32s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+/* The side bar's column closes to nothing: its picture is cut off by the narrowing box, not squeezed. */
+::view-transition-old(scm-side),
+::view-transition-new(scm-side) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+
+::view-transition-old(scm-work),
+::view-transition-old(scm-page),
+::view-transition-old(scm-side) {
+  animation: scm-out .16s ease-in both;
+}
+
+::view-transition-new(scm-work),
+::view-transition-new(scm-page),
+::view-transition-new(scm-side) {
+  animation: scm-in .28s cubic-bezier(.16, 1, .3, 1) .1s both;
+}
+
+@keyframes scm-out {
+  to { opacity: 0; filter: blur(3px); }
+}
+
+@keyframes scm-in {
+  from { opacity: 0; transform: translateY(6px); filter: blur(3px); }
+}
+
 /* While it's open (prs.ts) the page stands in for the editor, preview and side bar. The side bar's column closes to
    nothing like a collapsed side bar, the agents panel stays, and `layout` itself is untouched. */
 .scm-view {

@@ -280,15 +280,6 @@
 }
 
 /* Reduced motion: no glint or spreading light, just the sky and swirl, then a plain fade. */
-@media (prefers-reduced-motion: reduce) {
-  .launch-glint { display: none; }
-  .launch-sky { --open: 300vmax; animation: none; }
-  .launch-sky::before,
-  .launch-sky::after,
-  .launch-logo,
-  .launch.done .launch-logo { animation: none; }
-  .launch.done { animation: launch-fade .3s ease forwards; }
-}
 
 @keyframes launch-fade {
   to { opacity: 0; visibility: hidden; }

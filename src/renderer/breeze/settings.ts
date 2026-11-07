@@ -173,7 +173,7 @@ function setTheme(t: Theme): void {
   // A view transition cross-fades a snapshot of the window, so it costs the same however big the editor is
   // (easing every element's colours made big files lag behind the click).
   const apply = () => { document.documentElement.dataset.theme = t; };
-  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(apply);
+  if (document.startViewTransition) document.startViewTransition(apply);
   else apply();
   background(api.win.theme(t));
 }
@@ -230,7 +230,6 @@ const fillUsageBars = (root: ParentNode) => $$('.usage-bar', root).forEach(b => 
 // A changed number counts from its old value to the new one, easing in and out.
 function countTo(el: HTMLElement, from: number, to: number): void {
   const show = (n: number) => { el.textContent = el.dataset.fmt === 'tokens' ? tokenCount.format(n) : String(n); };
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { show(to); return; }
   const t0 = performance.now(), ms = 700;
   const step = (now: number) => {
     const t = Math.min(1, (now - t0) / ms), e = t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
@@ -248,10 +247,8 @@ function usageArrive(el: HTMLElement): void {
     // Dropped once it's in, so later refreshes slide the bars without the entrance delay.
     a.addEventListener('animationend', () => a.classList.remove('usage-in'), { once: true });
   });
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    void el.offsetWidth; // lay the bars out empty first, so setting their width below slides them
-    $$<HTMLElement>('[data-n]', el).forEach(n => countTo(n, 0, Number(n.dataset.n)));
-  }
+  void el.offsetWidth; // lay the bars out empty first, so setting their width below slides them
+  $$<HTMLElement>('[data-n]', el).forEach(n => countTo(n, 0, Number(n.dataset.n)));
   fillUsageBars(el);
 }
 // Same agents and windows as on screen: numbers count, bars slide (their width transitions) and other text rolls in.
@@ -565,7 +562,7 @@ function showSettingsPart(m: HTMLElement, i: number): void {
   const main = $('.set-main', m);
   if (!h || !main) return;
   const top = h.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop - 16;
-  main.scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  main.scrollTo({ top, behavior: 'smooth' });
 }
 
 function bindSettings(m: HTMLElement): void {
@@ -590,7 +587,7 @@ function bindSettings(m: HTMLElement): void {
   const rowText = () => new Map($$<HTMLElement>('.set-row', pane).map(r => [r.querySelector('.set-title')?.textContent ?? '', r.querySelector<HTMLElement>('.set-sub')]));
   const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, el]) => [k, el?.textContent ?? ''])) : null;
   pane.innerHTML = settingsBody(settingsTab);
-  if (wasText && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (wasText) {
     for (const [k, el] of rowText()) {
       if (el && wasText.has(k) && wasText.get(k) !== el.textContent) {
         el.animate([{ opacity: 0, filter: 'blur(2px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
@@ -793,7 +790,7 @@ function bindSettings(m: HTMLElement): void {
     // The picture crossfades: the old one, laid over the new, fades and shrinks away while the new one grows in and
     // the Breeze badge pops into its corner.
     const art = $('.dc-art-box', pane);
-    if (!art || !oldArt || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!art || !oldArt) return;
     oldArt.classList.add('dc-art-old');
     oldArt.setAttribute('aria-hidden', 'true');
     art.append(oldArt);

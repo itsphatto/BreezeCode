@@ -58,11 +58,23 @@ const yamlValue = (p: RegExp) => new RegExp(String.raw`(?<=(?:[:[,]|(?:^|\n)[ \t
 const LINE_COMMENT = /\/\/[^\n]*/;
 const BLOCK_COMMENT = /\/\*[\s\S]*?(?:\*\/|$)/;
 const QUOTED = /"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?/;
-const BACKTICKED = /`(?:\\[\s\S]|[^`\\])*`?/;
+// A /regex/ literal, coloured as a string, so the quotes and backticks inside one (/[`'"]/) don't open strings that
+// run on through the file. A / starts one only where a value can (after an operator, bracket, comma or keyword such
+// as return); after a name, number or ) it divides.
+const REGEX_LITERAL = /(?<=(?:^|[=(,:;!&|?{}[+\-*%~^]|=>|\b(?:return|typeof|case|in|of|delete|void|throw|new|yield|await|else|do))[ \t]*)\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+\/[dgimsuvy]*/;
+// A template literal with its ${…} parts, so a template inside one (`${xs.map(x => `<li>${x}</li>`)}`) stays inside it:
+// ending at the inner backtick swapped code and strings for the rest of the file. Built for templates four deep; the
+// ${…} parts allow strings, regexes and one level of { } (an object, a block) besides nested templates.
+const template = (depth: number): string => {
+  const inner = depth ? template(depth - 1) : String.raw`\`(?:\\[\s\S]|[^\`\\])*\``;
+  const expr = String.raw`\$\{(?:${REGEX_LITERAL.source}|[^{}\`'"]|${QUOTED.source}|\{(?:[^{}\`]|${inner})*\}|${inner})*\}`;
+  return String.raw`\`(?:\\[\s\S]|[^\`\\$]|\$(?!\{)|${expr})*\``;
+};
+const BACKTICKED = new RegExp(`${template(3).slice(0, -1)}\`?`);
 const NUMBER = either(/\b0[xX][\da-fA-F]+\b/, /\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?\b/);
 const CALL = /\b[A-Za-z_$][\w$]*(?=\()/;
 const LEXERS: Record<string, RegExp> = {
-  js: lexer([['com', either(LINE_COMMENT, BLOCK_COMMENT)], ['str', either(QUOTED, BACKTICKED)], ['num', NUMBER], ['kw', keywords(JS_KW)], ['prop', CALL]]),
+  js: lexer([['com', either(LINE_COMMENT, BLOCK_COMMENT)], ['str', either(QUOTED, BACKTICKED, REGEX_LITERAL)], ['num', NUMBER], ['kw', keywords(JS_KW)], ['prop', CALL]]),
   css: lexer([
     ['com', BLOCK_COMMENT], ['str', QUOTED], ['kw', /@[\w-]+|!important/],
     // A property is a name followed by ':' and a value ending in ';' or '}' (a:hover { … } reaches '{' first, so it stays a selector).

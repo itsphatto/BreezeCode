@@ -65,7 +65,7 @@ const commands: Record<string, () => unknown> = {
   'view.paletteF1': () => openPalette(),
   'view.files': () => showView('files', true),
   'view.search': searchSelection,
-  'view.git': () => showView('git', true),
+  'view.git': () => (scmPageOpen ? showView('git', true) : scmFade(() => showView('git', true))),
   'view.toggleSide': () => {
     closeScmPage(); // the side bar is hidden behind the Source Control page: go back to what it holds, then toggle it
     const prev = { ...layout };
@@ -157,12 +157,20 @@ const commands: Record<string, () => unknown> = {
     layout.termOpen = !showing;
     sfx.play('whoosh');
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
-    applyLayoutAnimated();
+    applyLayoutAnimated(); // below the editor it slides its height; beside it, its width (breeze.css)
     if (layout.termOpen) termInput.focus();
     else if (appState.mode === 'box') SURFACES.box.prompt.focus();
   },
   'term.focus': () => { if (termPopped()) termPopup?.focus(); terminalHere(); layout.termOpen = true; applyLayoutAnimated(); termInput.focus(); },
   'term.new': () => {
+    // Asked for from the IDE while the terminal is in its own window: it docks back below the editor with everything
+    // it holds, the window closes, and the new tab opens there, unless the terminal on show is still blank.
+    if (termPopped()) {
+      dockTerminal('bottom');
+      if (!termBlank(activeTermSession)) createTermSession();
+      termInput.focus();
+      return;
+    }
     terminalHere();
     layout.termOpen = true;
     applyLayoutAnimated();
@@ -690,7 +698,7 @@ function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
   // and started part-way through its trip so they don't set off together.
   const bubbles: Animation[] = [];
   const fill = row.querySelector<HTMLElement>('.ms-fill');
-  if (fill && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (fill) {
     const w = track.offsetWidth;
     for (let k = 0; k < 16; k++) {
       const b = document.createElement('span');

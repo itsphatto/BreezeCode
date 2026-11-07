@@ -32,7 +32,7 @@ function staggerIn(items: Iterable<Element>, from = 0): void {
 // before the list was redrawn) onto the new one, which keeps its plain look until the highlight lands.
 function slideSelected(el: HTMLElement | null, from: DOMRect | undefined): void {
   const list = el?.parentElement;
-  if (!el || !list || !from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!el || !list || !from) return;
   const to = el.getBoundingClientRect();
   if (Math.abs(to.top - from.top) < 1 && Math.abs(to.left - from.left) < 1) return;
   // The glide is placed inside the list, so the list must be what it is positioned against.
@@ -160,7 +160,6 @@ function bindToasts(root: ParentNode = document): void {
 function morphTooltip(el: HTMLElement, text: string): void {
   const from = el.getBoundingClientRect();
   el.textContent = text;
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const to = el.getBoundingClientRect();
   el.getAnimations().forEach(a => { if (a.id === 'tip') a.cancel(); });
   const size = el.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], { duration: 260, easing: 'cubic-bezier(.32, .72, 0, 1)' });

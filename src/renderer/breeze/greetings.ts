@@ -908,4 +908,4 @@ function startFireworks(): void {
   // Starts the show whenever Home comes up; it stops itself when Home goes.
   setInterval(() => { if (!frame && onHome()) frame = requestAnimationFrame(step); }, 500);
 }
-if (holiday === 'newyear' && !matchMedia('(prefers-reduced-motion: reduce)').matches) startFireworks();
+if (holiday === 'newyear') startFireworks();
