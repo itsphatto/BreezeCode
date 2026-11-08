@@ -573,6 +573,30 @@ async function callWithRetry(attempt, renew) {
   }
 }
 
+// Failures that come back the same however often they are tried (the account's email is unverified, or belongs to the
+// person's other sign-in, or the sign-in itself is dead) are held per account for 5 minutes, so polls and presence
+// don't keep asking Firebase. check(acct) is the held FriendsError or null; note(acct, err) holds err when it is one of
+// those (and says whether it did); clear() forgets every account, as a sign-in or account change does.
+const HOLD_MS = 5 * 60 * 1000;
+const HOLD_CODES = new Set(['unverified', 'linked', 'reauth']);
+function failureHold({ now = Date.now, ms = HOLD_MS } = {}) {
+  const held = new Map();
+  return {
+    check(acct) {
+      const h = held.get(acct);
+      if (!h) return null;
+      if (now() >= h.until) { held.delete(acct); return null; }
+      return h.err;
+    },
+    note(acct, err) {
+      if (!(err instanceof FriendsError) || !HOLD_CODES.has(err.code)) return false;
+      held.set(acct, { err, until: now() + ms });
+      return true;
+    },
+    clear() { held.clear(); },
+  };
+}
+
 // What the renderer gets for a failure: { error, code }, or null when `e` is not a FriendsError (a real bug, left to throw).
 // IPC drops an error's code, so it travels in the reply. A reauth names the account's provider ("GitHub" / "Google").
 function friendsReply(e, provider) {
@@ -581,4 +605,4 @@ function friendsReply(e, provider) {
   return { error, code: e.code };
 }
 
-module.exports = { callWithRetry, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
+module.exports = { callWithRetry, failureHold, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };

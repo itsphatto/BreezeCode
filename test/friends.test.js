@@ -930,6 +930,30 @@ test('callWithRetry renews and retries once on reauth only', async () => {
   await assert.rejects(callWithRetry(async () => { throw new TypeError('bug'); }, async () => {}), TypeError);
 });
 
+test('failureHold keeps unverified, linked and reauth for 5 minutes per account, and clear() forgets them', () => {
+  const { failureHold } = require('../src/main/friends');
+  let t = 0;
+  const hold = failureHold({ now: () => t });
+  for (const code of ['network', 'denied', 'gone', 'signed-out']) assert.equal(hold.note('a', new FriendsError(code)), false);
+  assert.equal(hold.note('a', new Error('bug')), false);
+  assert.equal(hold.check('a'), null);
+  const err = new FriendsError('linked');
+  assert.equal(hold.note('a', err), true);
+  assert.equal(hold.check('a'), err);
+  assert.equal(hold.check('b'), null); // another account is not held
+  for (const code of ['unverified', 'reauth']) assert.equal(hold.note('b', new FriendsError(code)), true);
+  assert.equal(hold.check('b').code, 'reauth');
+  t = 5 * 60 * 1000 - 1;
+  assert.equal(hold.check('a'), err);
+  t = 5 * 60 * 1000;
+  assert.equal(hold.check('a'), null);
+  assert.equal(hold.check('b'), null);
+  hold.note('a', err);
+  hold.clear();
+  assert.equal(hold.check('a'), null);
+  assert.deepEqual(friendsReply(err, 'GitHub'), { error: 'This email is already used by your other sign-in. Switch to that account to use Friends.', code: 'linked' });
+});
+
 test('friendsReply names the provider for reauth and leaves other copy alone', () => {
   assert.deepEqual(friendsReply(new FriendsError('reauth'), 'GitHub'), { error: 'Sign in to GitHub again to use Friends.', code: 'reauth' });
   assert.deepEqual(friendsReply(new FriendsError('reauth', 'Sign in to Google again to use Friends.'), 'Google'), { error: 'Sign in to Google again to use Friends.', code: 'reauth' });

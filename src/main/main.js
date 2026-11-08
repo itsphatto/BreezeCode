@@ -4327,19 +4327,30 @@ function friendsCache() {
 // The profile is written the first time each account gets a session in this run.
 // `expect` is the account a long-lived caller (the presence throttle) was made for: if another account is active by now,
 // nothing is sent, so a late write can never go out as the wrong person.
+// A failure that would come back the same next time (unverified, linked, or reauth after the retry) is held for that
+// account for 5 minutes: calls get it straight back without asking Firebase, and its presence stops. Signing in or
+// changing account clears it (friendsSwitching).
 const friendsProfiled = new Set();
+const friendsHeld = friends.failureHold();
 async function friendsRun(fn, expect) {
   const cfg = friendsConfig();
   if (!cfg.configured) throw new friends.FriendsError('not-configured');
   const user = loadState().user;
   if (!user || (expect && accountId(user) !== expect)) throw new friends.FriendsError('signed-out');
   const acct = accountId(user), cache = friendsCache();
-  return friends.callWithRetry(async () => {
-    const session = await cache.get(acct);
-    const api = friends.friendsApi({ projectId: cfg.projectId, session, fetch: friendsFetch, me: { name: user.name, avatar: user.avatar } });
-    if (!friendsProfiled.has(acct)) { await api.upsertProfile(); friendsProfiled.add(acct); }
-    return fn(api, session);
-  }, () => cache.drop());
+  const held = friendsHeld.check(acct);
+  if (held) throw held;
+  try {
+    return await friends.callWithRetry(async () => {
+      const session = await cache.get(acct);
+      const api = friends.friendsApi({ projectId: cfg.projectId, session, fetch: friendsFetch, me: { name: user.name, avatar: user.avatar } });
+      if (!friendsProfiled.has(acct)) { await api.upsertProfile(); friendsProfiled.add(acct); }
+      return fn(api, session);
+    }, () => cache.drop());
+  } catch (err) {
+    if (friendsHeld.note(acct, err) && friendsThrottleAcct === acct) void friendsStop(); // its "offline" is refused too
+    throw err;
+  }
 }
 // IPC drops an error's code, so Friends failures come back as { error, code } for the renderer to act on.
 function friendsFail(err) {
@@ -4372,6 +4383,7 @@ async function friendsSwitching(change) {
   try {
     await friendsStop();
     friendsSessions?.drop();
+    friendsHeld.clear(); // a new sign-in or another account: worth asking Firebase again
     return await change();
   } finally { friendsSwitchDepth--; }
 }
@@ -4400,6 +4412,8 @@ handle('friends:presence', async (_e, p) => {
   if (!friendsConfig().configured) return friendsFail(new friends.FriendsError('not-configured'));
   if (!user) return friendsFail(new friends.FriendsError('signed-out'));
   const acct = accountId(user);
+  const held = friendsHeld.check(acct);
+  if (held) return friendsFail(held); // a held failure: no throttle, nothing sent
   if (friendsThrottle && friendsThrottleAcct !== acct) await friendsSwitching(() => {}); // the account changed some other way
   if (!friendsThrottle) {
     friendsThrottleAcct = acct;
