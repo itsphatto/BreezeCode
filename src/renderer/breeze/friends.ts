@@ -51,13 +51,19 @@ const sortFriends = (list: Friend[]): Friend[] =>
   [...list].sort((a, b) => FRIEND_RANK[a.state] - FRIEND_RANK[b.state] || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
 /* ----- Drawing ----- */
-// A picture, or the first letter of the name (or email) on the host tint; a friend's carries their status dot.
+const FRIEND_STATE_LABEL: Record<FriendState, string> = { online: 'Online', away: 'Away', offline: 'Offline' };
+// Only a web picture goes in <img src>; anything else (javascript:, data:, file:, …) gets the initial instead.
+const friendPicOk = (url: string | null): url is string => !!url && /^https?:\/\/\S+$/i.test(url);
+const friendInitialHtml = (initial: string) => `<span class="friends-pic tint-host">${esc(initial)}</span>`;
+// A picture, or the first letter of the name (or email) on the host tint; a friend's carries their status dot, which
+// also says its state in words for screen readers.
 function friendAvatarHtml(name: string | null, email: string, avatar: string | null, state?: FriendState): string {
-  const label = (name || email).trim();
-  const pic = avatar
-    ? `<img class="friends-pic" src="${escAttr(avatar)}" alt="" draggable="false">`
-    : `<span class="friends-pic tint-host">${esc(([...label][0] ?? '?').toUpperCase())}</span>`;
-  return `<span class="friends-av">${pic}${state ? `<span class="friends-dot" data-state="${state}"></span>` : ''}</span>`;
+  const initial = ([...(name || email).trim()][0] ?? '?').toUpperCase();
+  const pic = friendPicOk(avatar)
+    ? `<img class="friends-pic" src="${escAttr(avatar)}" alt="" draggable="false" data-initial="${escAttr(initial)}">`
+    : friendInitialHtml(initial);
+  const dot = state ? `<span class="friends-dot" data-state="${state}" role="img" aria-label="${FRIEND_STATE_LABEL[state]}" title="${FRIEND_STATE_LABEL[state]}"></span>` : '';
+  return `<span class="friends-av">${pic}${dot}</span>`;
 }
 function friendsStateHtml(g: FriendsFail): string {
   if (g.code === 'network') return `<p class="friends-retry">${esc(FRIENDS_COPY.network)}</p>`;
@@ -214,12 +220,28 @@ $('#friendsAdd').onsubmit = e => {
     void refreshFriends();
   });
 };
+const friendsView = () => $('.home-view[data-view="friends"]');
+const friendsButtons = (act: string) => $$<HTMLButtonElement>(`[data-friend-act="${act}"]`, friendsView());
+// The rows are redrawn, so the button that had focus is gone: focus goes to the same kind of button in the row that
+// took its place (or the one above), else the email field. Only when focus was lost, or is still in the view.
+function friendsRefocus(act: string, index: number): void {
+  const at = document.activeElement;
+  if (at && at !== document.body && !friendsView().contains(at)) return;
+  if (!friendsView().getClientRects().length) return;
+  const same = friendsButtons(act).filter(b => !b.disabled);
+  const target = same[Math.min(index, same.length - 1)] ?? $<HTMLInputElement>('#friendsEmail');
+  if (target.getClientRects().length) target.focus();
+}
 async function friendsAct(kind: 'accept' | 'decline' | 'cancel' | 'remove', id: string, btn?: HTMLButtonElement): Promise<void> {
+  // Remove starts from the row's "…" button (through its menu and the confirm); the others from their own button.
+  const act = kind === 'remove' ? 'more' : kind;
+  const index = Math.max(0, friendsButtons(act).findIndex(b => b.dataset.id === id));
   if (btn) btn.disabled = true;
   const r = await api.friends[kind](id).catch(friendsFailOf);
   if (isFriendsFail(r)) toast(r.error);
   await refreshFriends();
   if (btn?.isConnected) btn.disabled = false;
+  friendsRefocus(act, index);
 }
 // Removing is the app's usual confirm dialog: Cancel, and the red button that does it.
 function confirmRemoveFriend(f: Friend): void {
@@ -234,7 +256,12 @@ function openFriendMenu(anchor: HTMLElement, f: Friend): void {
   const r = anchor.getBoundingClientRect();
   popupMenu(r.left, r.bottom + 4, [{ label: 'Remove', run: () => confirmRemoveFriend(f) }], undefined, anchor);
 }
-$('.home-view[data-view="friends"]').addEventListener('click', e => {
+// A picture that fails to load (expired, offline) becomes the initial rather than a broken-image glyph.
+friendsView().addEventListener('error', e => {
+  const img = e.target;
+  if (img instanceof HTMLImageElement && img.classList.contains('friends-pic')) img.outerHTML = friendInitialHtml(img.dataset.initial ?? '?');
+}, true);
+friendsView().addEventListener('click', e => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-friend-act]');
   if (!b) return;
   const act = b.dataset.friendAct, id = b.dataset.id ?? '';

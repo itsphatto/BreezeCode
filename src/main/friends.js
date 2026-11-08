@@ -239,7 +239,8 @@ const clipProject = p => clipText(p, PROJECT_MAX);
 // A display name, at most 80 characters.
 const clipName = n => clipText(n, NAME_MAX);
 // An avatar URL. A cut URL points nowhere, so one that is too long is dropped instead.
-const safeAvatar = a => (typeof a === 'string' && a && a.length <= AVATAR_MAX ? a : null);
+// Only a web picture: an http(s) URL of sane length. Anything else (javascript:, data:, file:, …) is dropped.
+const safeAvatar = a => (typeof a === 'string' && a.length <= AVATAR_MAX && /^https?:\/\/[^\s]+$/i.test(a) ? a : null);
 
 // Everything the signed-in user can do with friends. `session` is { uid, idToken, email } from SessionCache; the caller
 // gets a new api whenever the session changes. A 401 throws reauth (a 403 is `denied`, or `gone` where a call says so); main refreshes the session and retries once.
@@ -320,7 +321,7 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
   }
 
   const asReq = (r, who) => (who === 'from'
-    ? { id: r.id, email: normEmail(r.fromEmail) || String(r.fromEmail || ''), name: r.fromName || null, avatar: r.fromAvatar || null, createdAt: r.createdAt ?? null }
+    ? { id: r.id, email: normEmail(r.fromEmail) || String(r.fromEmail || ''), name: r.fromName || null, avatar: safeAvatar(r.fromAvatar), createdAt: r.createdAt ?? null }
     : { id: r.id, email: String(r.toEmail || ''), name: null, avatar: null, createdAt: r.createdAt ?? null });
 
   return {
@@ -444,7 +445,7 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
           const updatedAt = p && Number.isFinite(p.updatedAt) ? p.updatedAt : null;
           const live = p && STATES.has(p.state) && p.state !== 'offline' && updatedAt !== null && readTime - updatedAt <= STALE_MS;
           return {
-            uid: f.id, email: f.email, name: f.name || f.email, avatar: f.avatar || null,
+            uid: f.id, email: f.email, name: f.name || f.email, avatar: safeAvatar(f.avatar),
             state: live ? p.state : 'offline',
             project: live ? clipProject(p.project) : null,
             activity: live && ACTIVITIES.has(p.activity) ? p.activity : 'idle',

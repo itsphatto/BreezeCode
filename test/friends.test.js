@@ -60,6 +60,18 @@ test('clipName keeps names to 80 characters without splitting an emoji; safeAvat
   assert.equal(safeAvatar(42), null);
 });
 
+test('safeAvatar keeps only http(s) URLs', () => {
+  assert.equal(safeAvatar('https://avatars.githubusercontent.com/u/1'), 'https://avatars.githubusercontent.com/u/1');
+  assert.equal(safeAvatar('http://example.com/a.png'), 'http://example.com/a.png');
+  assert.equal(safeAvatar('HTTPS://example.com/a.png'), 'HTTPS://example.com/a.png');
+  assert.equal(safeAvatar('javascript:alert(1)'), null);
+  assert.equal(safeAvatar('JavaScript:alert(1)'), null);
+  assert.equal(safeAvatar('data:image/png;base64,AAAA'), null);
+  assert.equal(safeAvatar('file:///C:/Windows/win.ini'), null);
+  assert.equal(safeAvatar(' https://example.com/a.png'), null);
+  assert.equal(safeAvatar('https://'), null);
+});
+
 test('sha256hex matches node crypto', () => {
   assert.equal(sha256hex('a@b.co'), crypto.createHash('sha256').update('a@b.co').digest('hex'));
 });
@@ -583,6 +595,14 @@ test('list marks presence older than 180s before readTime offline, using readTim
     assert.equal(fresh.state, 'online');
     assert.equal(fresh.project, 'my-app');
   } finally { Date.now = realNow; }
+});
+
+test('list drops a non-http(s) avatar on an incoming request', async () => {
+  const f = fakeStore({
+    incoming: [reqDoc(`u5_${hashOf('me@x.com')}`, { fromUid: 'u5', fromEmail: 'eve@x.com', fromName: 'Eve', fromAvatar: 'javascript:alert(1)', toEmail: 'me@x.com' })],
+  });
+  const out = await apiFor(f).list();
+  assert.equal(out.incoming[0].avatar, null);
 });
 
 test('list returns incoming and outgoing requests', async () => {
