@@ -4422,13 +4422,11 @@ handle('friends:verify', async () => {
   } catch (err) {
     if (!(err instanceof friends.FriendsError) || err.code !== 'unverified' || !err.idToken) return friendsFail(err);
     try {
-      // GitHub keeps a private email from Firebase: give the account the one Breeze read from GitHub at sign-in.
-      let idToken = err.idToken, email = err.email;
-      if (!email) {
-        email = friends.normEmail(user.email);
-        if (!email) return friendsFail(new friends.FriendsError('unverified', "This account has no email Friends can use."));
-        idToken = await friends.setAccountEmail({ apiKey: cfg.apiKey, idToken, email, fetch: friendsFetch });
-      }
+      // A GitHub account's email can sit only on its GitHub link (or be hidden by GitHub altogether), and the link is
+      // sent to the account's own email. So set it first: the one Firebase saw, else the one Breeze read from GitHub.
+      const email = err.email || friends.normEmail(user.email);
+      if (!email) return friendsFail(new friends.FriendsError('unverified', "This account has no email Friends can use."));
+      const idToken = await friends.setAccountEmail({ apiKey: cfg.apiKey, idToken: err.idToken, email, fetch: friendsFetch });
       await friends.sendVerifyEmail({ apiKey: cfg.apiKey, idToken, fetch: friendsFetch });
       return { sent: true, email };
     } catch (e) { return friendsFail(e); }
