@@ -145,6 +145,13 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
   });
   // A 200 without a session: the email already belongs to another Firebase account (the person's other provider) and
   // the project links one account per email, so Firebase asks for a confirmation Breeze can't give.
+  if (process.env.BREEZE_FRIENDS_DEBUG) {
+    // What Firebase made of the sign-in, minus every token: is there an email, is it verified, which account.
+    const { idToken, refreshToken, oauthAccessToken, oauthIdToken, rawUserInfo, ...seen } = body;
+    let raw = null;
+    try { const r = JSON.parse(rawUserInfo || 'null'); raw = r && { email: r.email ?? null, login: r.login ?? null }; } catch { /* none */ }
+    console.log('[friends] signInWithIdp:', JSON.stringify({ ...seen, rawUserInfo: raw }));
+  }
   if (!body.idToken || !body.localId || body.needConfirmation || body.errorMessage) throw new FriendsError('linked');
   // Identity is the verified email; an account whose email is unverified cannot be matched safely. Firebase doesn't take
   // GitHub's word for an email, so a GitHub account lands here until the person clicks a link Firebase emails them
@@ -165,10 +172,10 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
 }
 
 // Has Firebase email the account a link that verifies `email`. `idToken` is from the unverified sign-in.
-// Plain VERIFY_EMAIL first: it works whenever the account has an email. A GitHub account's email may sit only on its
-// GitHub link (or be hidden by GitHub), so the account itself has none and Firebase answers EMAIL_NOT_FOUND; then
-// VERIFY_AND_CHANGE_EMAIL, whose link sets the account's email and verifies it (projects with email enumeration
-// protection won't set an email any other way).
+// Plain VERIFY_EMAIL first: it works whenever the account has an email. A GitHub account's email sits only on its
+// GitHub link, so the account itself has none and Firebase answers MISSING_EMAIL; then the email is set on the account
+// (accounts:update) and VERIFY_EMAIL sent. Projects with email enumeration protection refuse that update; the last
+// resort is VERIFY_AND_CHANGE_EMAIL, whose link sets and verifies the email (but has proved unreliable).
 // A failure Breeze has no words for carries Firebase's codes, e.g. "Couldn't send the email (EMAIL_NOT_FOUND, …)."
 const OOB_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode';
 const oobCode = msg => (String(msg).match(/^[A-Z_]+/) || ['UNKNOWN'])[0];
@@ -179,16 +186,32 @@ async function sendVerifyEmail({ apiKey, idToken, email, fetch: fetchFn = global
   }, onFail);
   const tooMany = msg => (/TOO_MANY_ATTEMPTS/i.test(msg) ? new FriendsError('network', 'Too many emails were sent. Wait a few minutes and try again.') : null);
   const failed = (...codes) => new FriendsError('network', `Couldn't send the email (${codes.join(', ')}). Try again.`);
+  const debug = text => { if (process.env.BREEZE_FRIENDS_DEBUG) console.log(`[friends] ${text}`); };
+  const verify = token => send({ requestType: 'VERIFY_EMAIL', idToken: token }, msg => tooMany(msg) || Object.assign(failed(oobCode(msg)), { firebase: oobCode(msg) }));
   let first;
-  try {
-    await send({ requestType: 'VERIFY_EMAIL', idToken }, msg => tooMany(msg) || Object.assign(failed(oobCode(msg)), { firebase: oobCode(msg) }));
-    return;
-  } catch (e) {
-    if (!e.firebase || !email) throw e; // the network, too many emails, or nothing to set: the change would fail too
+  try { await verify(idToken); return; } catch (e) {
+    if (!e.firebase || !email) throw e; // the network, too many emails, or nothing to set: the rest would fail too
     first = e.firebase;
+    debug(`VERIFY_EMAIL refused: ${first}; setting the account's email`);
   }
-  await send({ requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken, newEmail: email }, msg => tooMany(msg) || failed(first, oobCode(msg)));
+  // The account has no email of its own: set it (projects with email enumeration protection refuse this), then verify.
+  let updated;
+  try {
+    const body = await postJson(fetchFn, `${UPDATE_URL}?key=${encodeURIComponent(apiKey)}`, {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, email, returnSecureToken: true }),
+    }, msg => Object.assign(failed(first, oobCode(msg)), { firebase: oobCode(msg) }));
+    updated = body.idToken || idToken;
+  } catch (e) {
+    if (!e.firebase) throw e;
+    debug(`accounts:update refused: ${e.firebase}; trying VERIFY_AND_CHANGE_EMAIL`);
+    await send({ requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken, newEmail: email }, msg => tooMany(msg) || failed(first, e.firebase, oobCode(msg)));
+    return;
+  }
+  debug('email set on the account; sending VERIFY_EMAIL');
+  await send({ requestType: 'VERIFY_EMAIL', idToken: updated }, msg => tooMany(msg) || failed(first, 'SET', oobCode(msg)));
 }
+const UPDATE_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:update';
 
 // Trades a saved refresh token for a new session. The refresh reply has no email, so it is read from the id token
 // (or kept from `email`, which the caller may pass from the session it is replacing).

@@ -156,22 +156,39 @@ test('sendVerifyEmail asks for plain VERIFY_EMAIL first', async () => {
   assert.deepEqual(JSON.parse(f.calls[0].body), { requestType: 'VERIFY_EMAIL', idToken: 'ID' });
 });
 
-test('sendVerifyEmail sets and verifies the email with VERIFY_AND_CHANGE_EMAIL when the account has none', async () => {
+test('sendVerifyEmail sets the email on an account that has none, then sends VERIFY_EMAIL', async () => {
   const { sendVerifyEmail } = require('../src/main/friends');
-  const f = fakeFetch((url, body) => (JSON.parse(body).requestType === 'VERIFY_EMAIL'
-    ? reply(400, { error: { message: 'EMAIL_NOT_FOUND' } }) : reply(200, {})));
+  let set = false;
+  const f = fakeFetch((url, body) => {
+    if (url.includes('accounts:update')) { set = true; return reply(200, { idToken: 'ID2' }); }
+    return set ? reply(200, {}) : reply(400, { error: { message: 'MISSING_EMAIL' } });
+  });
   await sendVerifyEmail({ apiKey: 'K', idToken: 'ID', email: 'bob@x.com', fetch: f });
-  assert.deepEqual(f.calls.map(c => JSON.parse(c.body)), [
-    { requestType: 'VERIFY_EMAIL', idToken: 'ID' },
-    { requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken: 'ID', newEmail: 'bob@x.com' },
+  assert.deepEqual(f.calls.map(c => [c.url.split('accounts:')[1].split('?')[0], JSON.parse(c.body)]), [
+    ['sendOobCode', { requestType: 'VERIFY_EMAIL', idToken: 'ID' }],
+    ['update', { idToken: 'ID', email: 'bob@x.com', returnSecureToken: true }],
+    ['sendOobCode', { requestType: 'VERIFY_EMAIL', idToken: 'ID2' }],
   ]);
 });
 
-test('sendVerifyEmail names both Firebase codes when neither request works', async () => {
+test('sendVerifyEmail falls back to VERIFY_AND_CHANGE_EMAIL when the email cannot be set', async () => {
   const { sendVerifyEmail } = require('../src/main/friends');
-  const f = fakeFetch((url, body) => reply(400, { error: { message: JSON.parse(body).requestType === 'VERIFY_EMAIL' ? 'EMAIL_NOT_FOUND' : 'OPERATION_NOT_ALLOWED : nope' } }));
+  const f = fakeFetch((url, body) => {
+    if (url.includes('accounts:update')) return reply(400, { error: { message: 'OPERATION_NOT_ALLOWED : protected' } });
+    return JSON.parse(body).requestType === 'VERIFY_EMAIL' ? reply(400, { error: { message: 'MISSING_EMAIL' } }) : reply(200, {});
+  });
+  await sendVerifyEmail({ apiKey: 'K', idToken: 'ID', email: 'bob@x.com', fetch: f });
+  assert.deepEqual(JSON.parse(f.calls.at(-1).body), { requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken: 'ID', newEmail: 'bob@x.com' });
+});
+
+test('sendVerifyEmail names every Firebase code when nothing works', async () => {
+  const { sendVerifyEmail } = require('../src/main/friends');
+  const f = fakeFetch((url, body) => {
+    if (url.includes('accounts:update')) return reply(400, { error: { message: 'OPERATION_NOT_ALLOWED : protected' } });
+    return reply(400, { error: { message: JSON.parse(body).requestType === 'VERIFY_EMAIL' ? 'MISSING_EMAIL' : 'INVALID_NEW_EMAIL' } });
+  });
   await assert.rejects(sendVerifyEmail({ apiKey: 'K', idToken: 'ID', email: 'bob@x.com', fetch: f }),
-    e => e instanceof FriendsError && e.message === "Couldn't send the email (EMAIL_NOT_FOUND, OPERATION_NOT_ALLOWED). Try again.");
+    e => e instanceof FriendsError && e.message === "Couldn't send the email (MISSING_EMAIL, OPERATION_NOT_ALLOWED, INVALID_NEW_EMAIL). Try again.");
 });
 
 test('sendVerifyEmail stops at too many attempts without a second request', async () => {
