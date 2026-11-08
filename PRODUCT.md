@@ -25,39 +25,47 @@ Breeze Code is a lightweight desktop development environment where AI agents pla
 
 These four points are equally weighted and should not be traded against each other:
 
-1. **Plan → approve → build.** A Planner proposes a numbered plan and you approve it or ask for changes. A Builder then carries it out, and every file read, edit and command streams into the agents panel as it happens.
-2. **Bring your own agent.** Breeze detects Codex and Antigravity on the machine, or connects to a local model through Ollama, LM Studio or any OpenAI-compatible server. You can switch at any time.
-3. **Light and local.** It is meant to have a small footprint. Files stay on the machine, API keys are encrypted with the OS keychain, and with a local model nothing leaves the computer.
-4. **Fun while you wait.** Vibe Mode, sound effects and personality are part of the product's character, not decoration.
+1. **Plan → approve → build.** A prompt runs in one of three modes. Ask: an Assistant answers without changing files. Build: a Builder makes the changes. Plan: a Planner proposes a numbered plan, you approve it or ask for changes, and a Builder carries it out. Every file read, edit and command streams into the agents panel as it happens, and each role wears the name and logo of the agent doing the work.
+2. **Bring your own agent.** Breeze detects Claude Code, Codex and Antigravity on the machine and signs in with their own accounts, or connects to a local model through Ollama, LM Studio or any OpenAI-compatible server. You can switch at any time, and @mention several agents in one prompt: each claims its files first, you settle any overlap, and they build side by side with every line tagged. If one touches another agent's file, Breeze puts it back and says so.
+3. **Light, local and free.** It is meant to have a small footprint. There are no plans or credits; you only pay if you pick a paid agent. Files stay on the machine, API keys are encrypted with the OS keychain, and with a local model nothing leaves the computer.
+4. **Fun while you wait.** Vibe Code Mode, sound effects and personality are part of the product's character, not decoration.
 
 ## Operating Context
 
 - Windows 10/11 64-bit desktop. The unsigned NSIS installer is about 110 MB, so SmartScreen shows a warning on first install.
 - First-run setup scans for coding agents, Git and Node.js, and offers to use a local LLM with an API key.
 - Main surfaces:
-  - **Breeze IDE:** explorer, tabbed editor, terminal, live preview, Source Control, and an agents panel with agent cards.
-  - **Breeze Space:** prompt and chat only, with no editor. Code in a reply becomes an artifact card you can copy or download.
-  - **Vibe Mode:** the IDE fades and an Instagram or Facebook feed plays while the agents work, and a card announces when the code is ready.
-  - **Settings**, plus sign-in with GitHub or Google (more than one account is supported).
+  - **Home:** New File, Open Folder or Clone Repository, recent projects, GitHub contributions, and an Agent tab with 30 days of token use and what it would have cost at API prices (an estimate).
+  - **Breeze Code:** explorer, tabbed and split editor, terminal (can pop out into its own window with the same sessions), live preview, full-page Source Control, and an agents panel with agent cards.
+  - **Breeze Space:** prompt and chat only, with no editor (a terminal can open beside the chat). Code in a reply becomes an artifact card you can copy or download. Chats can be named without a folder open. With Extra animation on, the view flies through the clouds between the IDE and Space.
+  - **Vibe Code Mode:** the IDE fades and an Instagram or Facebook feed plays while the agents work, and a card announces when the code is ready. It works in Breeze Space too.
+  - **Skills:** browse the skills and plugins the agents load, share skills across agents, and connect MCP servers for Claude Code without editing its own config.
+  - **Settings:** themes (dark, light, high contrast, with matching window chrome), agents with each one's plan usage (Claude Code: tokens this month plus live 5-hour and weekly limits; Codex: tokens plus its plan window; Antigravity reports none) and a full access switch, sounds with a volume slider. Sign-in with GitHub or Google, with more than one account.
+- Ctrl+R reloads any Breeze window.
 - Agents run for minutes at a time, so waiting, progress and "it's done" moments are core states.
 
 ## Capabilities and Constraints
 
-- Editor: reorderable tabs, go to file or line, find, and JS/TS syntax checking. Errors and warnings from the file's language server are underlined as you type (red and amber).
+- Editor: reorderable tabs, split editors, minimap, auto save, go to file or line, and find. Only the lines on screen are drawn, so huge files stay fast.
+- Language servers: completions, hover, go to definition, references, rename, and errors and warnings underlined as you type (red and amber). JavaScript and TypeScript work out of the box; Python, Rust, Go and C/C++ use pyright, rust-analyzer, gopls or clangd when installed.
 - Jupyter notebooks: a `.ipynb` file opens as cells. Code cells run in a Python kernel Breeze ships (standard library only, so no Jupyter install), with text, tables, images and matplotlib plots as outputs; Markdown cells show formatted. View → Notebook View switches to the JSON.
-- Run with F5: C, C++, C# (.NET SDK), Python, Java (JDK 11+) and Rust (rustc, or cargo inside a Cargo project), using compilers Breeze finds on the machine. It explains how to install anything that's missing. JavaScript runs on Node in the terminal, and HTML/CSS get a live preview.
+- Run with F5: C, C++, C# (.NET SDK), Python, Java (JDK 11+) and Rust (rustc, or cargo inside a Cargo project), using compilers Breeze finds on the machine. It explains how to install anything that's missing. JavaScript runs on Node in the terminal.
+- Live preview: HTML/CSS open beside the code and refresh as you go; right-click an element to inspect its tag, id and classes. Markdown files preview as rendered pages.
 - Debugger: step through Python, JavaScript, TypeScript, C, C++, C#, Rust and Java in a full-page view with breakpoints, a call stack, variables, a watch list and your program's output (and input). Python needs the free `debugpy` helper (Breeze offers to install it) and TypeScript needs Node 22.18 or newer. C, C++ and Rust need GCC and GDB 14+ (MinGW-w64 from MSYS2 or WinLibs). C# needs the .NET SDK (10+ for a lone .cs file) and netcoredbg, which Breeze downloads on request (a pinned release, checked by hash) into its data folder. Java needs a JDK; its console and watch list read variables and fields (`p.x`, `items[0]`) but can't evaluate other expressions, and its breakpoints can't have conditions. One debug session runs at a time, and it stops when you close the folder.
-- Command Palette (Ctrl+Shift+P or F1): type a few letters to find any menu command.
-- Multi-cursor editing (Alt+Click, Ctrl+D, Ctrl+Shift+L) and Emmet shortcuts (press Tab on something like `ul>li*3` in HTML, JSX or CSS). Emmet is off while several cursors are active.
-- Git: stage, discard, commit and push, with a graph of checkpoints and branches. Files an agent is editing are marked in the explorer and tabs.
-- Local LLM loop is token-efficient (project map, ranged reads, snippet edits). It assumes a 4k-token context on Ollama and 8k elsewhere.
-- Discord Rich Presence. Auto-updates via electron-updater, which asks before downloading.
+- Command Palette (Ctrl+Shift+P or F1): type a few letters to find any menu command; recently used commands come first.
+- Multi-cursor editing (Alt+Click, Ctrl+D, Ctrl+Shift+L, Shift+Alt+drag for a column) and Emmet shortcuts (press Tab on something like `ul>li*3` in HTML, JSX or CSS). Emmet is off while several cursors are active.
+- Git: a full-page Source Control to stage, discard, commit and push, with a graph of checkpoints and branches. Files an agent is editing are marked in the explorer and tabs.
+- Pull requests: read, comment on, merge or close GitHub PRs from Source Control. Merge conflicts are resolved in a separate worktree so the user's checkout is never touched. **Conflict Duel** has an agent argue for each side, then a judge proposes a merged block you accept, edit or reject.
+- Workspace sync: carry workspaces between computers signed in to the same account, stored in a private GitHub repo or Google Drive's hidden app folder. Deleting a cloud workspace leaves local files alone.
+- Image attachments: drop or paste images into a prompt. Dropped files are used where they are and pasted ones go to a temp folder, so nothing lands in the project.
+- Local LLM loop is token-efficient (project map, ranged reads, snippet edits). It assumes a 4k-token context on Ollama and 8k elsewhere (`llmContext` in saved state overrides it).
+- Discord Rich Presence. Small synthesized sounds for clicks, typing and agents. Auto-updates via electron-updater, which asks before downloading. API keys and sign-in tokens are encrypted with the Windows keychain; expiring GitHub tokens renew themselves.
 - The agents are optional: the editor, terminal, Git and preview all work without one.
-- Stack: Electron 44, TypeScript (`src/renderer/breeze/*.ts`, one file per feature, compiled to JS), and plain HTML/CSS. Windows is the only platform for now.
+- Stack: Electron 44, TypeScript 7 (`src/renderer/breeze/*.ts`, one file per feature, plus `editcore.ts` and `codeview.ts` for the editor, compiled to JS), and plain HTML/CSS. Current version 0.6.9. Windows is the only platform for now.
 
 ## Brand Commitments
 
-- Name: **Breeze Code**. Sub-surface names in use: Breeze IDE, Breeze Space, Vibe Mode, Planner, Builder.
+- Name: **Breeze Code**. Sub-surface names in use: Breeze Code, Breeze Space, Vibe Code Mode, Home, Planner, Builder, Assistant, Conflict Duel.
 - Brand assets: `assets/brand/` (Icon, BreezeCode wordmark, BreezeSpace, Agent).
 - Voice (inferred from the README and in-app copy, not confirmed by the owner): plain words, short sentences, friendly but not cute, with no jargon a beginner would trip on.
 - Source available under the Breeze Code Source-Available License (view and use, including commercially; no copying or redistribution), © Breeze Code authors. Versions before November 7, 2026 were MIT.

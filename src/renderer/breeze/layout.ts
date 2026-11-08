@@ -30,13 +30,14 @@ function applyLayout(): void {
   $('#boxTerm').setAttribute('aria-pressed', String(inSpace));
   main.style.setProperty('--side-w', layout.sideOpen ? `${layout.side}px` : '0px');
   main.style.setProperty('--agents-w', layout.agentsOpen ? `${layout.agents}px` : '0px');
-  // The Source Control page's left column (prs.ts); a layout saved before it existed has no scmLeft.
-  $('#scmPage').style.setProperty('--scm-left', `${clamp(layout.scmLeft, 240, 560)}px`);
+  // The Source Control page's left column (prs.ts); the editor beside it is pushed over by as much. A layout saved
+  // before it existed has no scmLeft.
+  main.style.setProperty('--scm-left', `${clamp(layout.scmLeft, 240, 560)}px`);
   main.classList.toggle('no-side', !layout.sideOpen);
   main.classList.toggle('no-agents', !layout.agentsOpen);
-  // The work area is hidden while the Source Control page is open, so it has no width to size the preview from; it's
-  // sized again when the page closes (an unclamped width left in it would squeeze the editor out when it came back).
-  if (!main.classList.contains('scm-page')) {
+  // The work area is hidden while the Source Control page shows a diff or pull request, so it has no width to size the
+  // preview from; it's sized again once it shows (an unclamped width left in it would squeeze the editor out).
+  if (!main.classList.contains('scm-detail-on')) {
     const maxPreview = work.clientWidth ? work.clientWidth - 220 : layout.preview;
     // The inline width beats the .no-preview rule, so a closed preview has to be zeroed here or its column stays as a blank gap.
     work.style.setProperty('--preview-w', layout.previewOpen ? `${clamp(layout.preview, 220, Math.max(220, maxPreview))}px` : '0px');

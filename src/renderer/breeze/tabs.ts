@@ -11,7 +11,7 @@ function openFile(path: string, at?: Spot): void {
 async function actuallyOpen(path: string, at?: Spot): Promise<void> {
   const b = await loadBuffer(path);
   if (!b) return;
-  closeScmPage(); // the editor is hidden behind the Source Control page; a file opened from anywhere else (chat, Ctrl+P) must show
+  if (scmPageOpen) scmEmptyDetail(); // a diff or pull request on the Source Control page covers the editor: the file must show
   if (!openTabs.includes(path)) openTabs.push(path);
   setActive(path);
   if (at && b.ta) {
@@ -42,7 +42,7 @@ function setActive(path: string | null): void {
   renderTabs(); renderEditor(); renderTree(); saveSession();
   if (changed) queueDiscord();
   if (changed) fadeInEditor();
-  if (running && path && /\.(html?|css|js)$/i.test(path)) $('#urlText').title = path;
+  if (running && path && /\.(html?|css|js|md|markdown)$/i.test(path)) $('#urlText').title = path;
 }
 // Switching files cross-fades: ghostEditor (just before the switch) leaves an opaque copy of what was on screen where
 // it was, and fadeInEditor (just after) fades one layer only, so the two files never show through each other. New
@@ -125,7 +125,7 @@ function renderTabs(): void {
     if (runnable(active)) {
       runKind = 'run';
       runBtn = `<button class="tab-run${tabRunCompact ? ' compact' : ''}" data-run-file="1" data-kind="run" title="Run File (F5)">${svgIcon('play', 12)}<span>Run</span></button>`;
-    } else if (isHtml(active)) {
+    } else if (isPage(active)) {
       runKind = 'preview';
       runBtn = `<button class="tab-run tab-preview${tabRunCompact ? ' compact' : ''}" data-preview-file="1" data-kind="preview" title="Preview this page (F5)">${svgIcon('play', 12)}<span>Preview</span></button>`;
     }

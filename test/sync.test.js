@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { blobSha, scanDir, planSync, conflictName, syncWorkspace, workspaceStatus, listWorkspaces, syncSettings, githubStore } = require('../src/main/sync');
+const { blobSha, scanDir, planSync, conflictName, syncWorkspace, deleteWorkspace, workspaceStatus, listWorkspaces, syncSettings, githubStore } = require('../src/main/sync');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-sync-'));
 const write = (dir, rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
@@ -196,4 +196,23 @@ test('githubStore makes a private repo and commits through the git data API', as
   await store.commit({ puts: [{ path: 'index.json', data: Buffer.from('{}') }], removes: [], message: 'm' });
   assert.ok(calls.includes('POST /user/repos'));
   assert.ok(calls.includes('PATCH /repos/me/breeze-sync/git/refs/heads/main'));
+});
+
+test('deleting a cloud workspace removes its files, and a folder still linked to it keeps its own', async () => {
+  const cloud = memoryStore();
+  const laptop1 = tmp(), laptop2 = tmp();
+  write(laptop1, 'a.txt', 'a');
+  write(laptop2, 'b.txt', 'b');
+  const one = await syncWorkspace({ store: cloud, dir: laptop1, link: null, device: 'Laptop1', name: 'One' });
+  await syncWorkspace({ store: cloud, dir: laptop2, link: null, device: 'Laptop2', name: 'Two' });
+  await deleteWorkspace(cloud, one.link.id);
+  assert.deepEqual((await listWorkspaces(cloud)).map(w => w.name), ['Two']);
+  assert.ok(![...cloud.files.keys()].some(p => p.startsWith(`ws/${one.link.id}/`)));
+  await assert.rejects(deleteWorkspace(cloud, one.link.id), /no longer in the cloud/);
+  await assert.rejects(deleteWorkspace(cloud, '__proto__'), /no longer in the cloud/);
+  // Laptop1 syncs again with its old link: nothing local is deleted, its files go back up.
+  const again = await syncWorkspace({ store: cloud, dir: laptop1, link: one.link, device: 'Laptop1', name: 'One' });
+  assert.equal(read(laptop1, 'a.txt'), 'a');
+  assert.equal(again.summary.uploaded, 1);
+  assert.equal(again.summary.removed, 0);
 });

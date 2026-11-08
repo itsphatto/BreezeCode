@@ -125,6 +125,7 @@ interface AgentTabState {
   id: string;
   surfaceName: WorkMode;
   title: string;
+  titleAuto?: boolean;        // the name came from the first request (or the agent): the agent may still rename it
   panel: HTMLElement;
   runId: number | null;
   run: Run | null;
@@ -298,6 +299,7 @@ function renderAgentTabs(s: Surface): void {
     }
   });
 
+  let prev: HTMLElement | null = null;
   list.forEach(t => {
     const isActive = t.id === curId;
     const isRunning = tabBusy(t);
@@ -329,6 +331,16 @@ function renderAgentTabs(s: Surface): void {
         if (target.closest('[data-close-tab]') || newEl.classList.contains('leaving')) return;
         switchAgentTab(s, t.id);
       };
+      newEl.ondblclick = (e) => {
+        if (!(e.target as HTMLElement).closest('[data-close-tab]')) renameAgentTab(s, t);
+      };
+      newEl.oncontextmenu = (e) => {
+        e.preventDefault();
+        popupMenu(e.clientX, e.clientY, [
+          { label: 'Rename chat', run: () => renameAgentTab(s, t) },
+          { label: 'Close chat', run: () => closeAgentTab(s, t.id) },
+        ]);
+      };
 
       const closeBtn = newEl.querySelector<HTMLButtonElement>('[data-close-tab]');
       if (closeBtn) {
@@ -339,6 +351,7 @@ function renderAgentTabs(s: Surface): void {
       }
 
       tabsList.appendChild(newEl);
+      prev = newEl;
     } else {
       el.classList.toggle('active', isActive);
       el.classList.toggle('running', isRunning);
@@ -356,13 +369,66 @@ function renderAgentTabs(s: Surface): void {
       if (statusSpan) {
         statusSpan.title = isRunning ? 'Working' : '';
       }
-      tabsList.appendChild(el);
+      // Moved only when out of place: moving it would take focus from a name being typed in it.
+      const want = prev ? prev.nextElementSibling : tabsList.firstElementChild;
+      if (want !== el) tabsList.insertBefore(el, prev ? prev.nextSibling : tabsList.firstChild);
+      prev = el;
     }
   });
 
   placeAgentTabInk(s);
   // Box shows its chats in a side bar (history.ts, which loads after this file) rather than in the tab bar.
   if (s.name === 'box' && typeof renderBoxSide === 'function') renderBoxSide();
+}
+
+// Swaps a name for a text box: Enter or clicking away keeps what was typed, Escape the old name (done gets null).
+function renameInline(el: HTMLElement, value: string, done: (name: string | null) => void): void {
+  const input = document.createElement('input');
+  input.className = 'rename-input';
+  input.value = value;
+  input.maxLength = 64;
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'Chat name');
+  el.style.display = 'none';
+  el.after(input);
+  let ended = false;
+  const end = (keep: boolean) => {
+    if (ended) return;
+    ended = true;
+    const name = input.value.trim().replaceAll(/\s+/g, ' ');
+    input.remove();
+    el.style.display = '';
+    done(keep && name && name !== value ? name : null);
+  };
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); end(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); end(false); }
+  });
+  input.addEventListener('blur', () => end(true));
+  for (const ev of ['click', 'dblclick', 'mousedown', 'contextmenu']) input.addEventListener(ev, e => e.stopPropagation());
+  input.focus();
+  input.select();
+}
+function renameAgentTab(s: Surface, t: AgentTabState): void {
+  const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
+  const span = tabsList?.querySelector<HTMLElement>(`[data-agent-tab="${t.id}"] .tab-title`);
+  if (span && !span.nextElementSibling?.matches('.rename-input')) renameInline(span, t.title, name => { if (name) setChatTitle(t, name); });
+}
+// A chat's name, on its tab and in its history entry (the Breeze Space side bar).
+function setChatTitle(t: AgentTabState, name: string, auto = false): void {
+  t.title = name;
+  t.titleAuto = auto;
+  if (t.historyId) renameChatEntry(SURFACES[t.surfaceName], t.historyId, name);
+  renderAgentTabs(SURFACES[t.surfaceName]);
+}
+// The agent names the chat from its first request in a few words; a name the person gave meanwhile wins.
+async function nameChat(t: AgentTabState, text: string, agentId: string): Promise<void> {
+  const prompt = `Write a short title (2 to 5 words) for a chat that starts with the request below. Reply with the title only: no quotes, no trailing punctuation. Do not use any tools.\n\nRequest:\n${text.slice(0, 2000)}`;
+  const reply = await api.agent.ask({ agent: agentId, prompt }).catch(() => '');
+  const line = String(reply || '').split('\n').map(l => l.trim()).find(Boolean) ?? '';
+  const name = line.replace(/^(title:)?[\s"'`*#]*/i, '').replace(/[\s"'`*.]+$/, '').slice(0, 64);
+  if (name && t.titleAuto && surfaceTabs[t.surfaceName].includes(t)) setChatTitle(t, name, true);
 }
 
 function switchAgentTab(s: Surface, tid: string): void {

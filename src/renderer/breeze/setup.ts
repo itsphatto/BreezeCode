@@ -743,18 +743,18 @@ function refreshAgentDash(): void {
 }
 /* ----- Agent page: whatever changes between two draws animates ----- */
 // Everything is redrawn from HTML, so the page is noted just before a draw (shootDash) and compared just after, in the
-// same task, before any paint (playDash). Blocks (tabs, table rows, facts, limits, legend entries) are matched by what
+// same task, before any paint (playDash). Blocks (tabs, facts, limits, legend entries) are matched by what
 // they are: one new grows in, one that moved slides from where it was, one whose colours changed (picked) blends.
 // Texts are matched by their place in their block (or in the nearest element with an id): one new there grows in,
 // a number that changed scrambles, any other changed text fades in.
 // A token count not read yet: the app's loading bar (.skel-row) in its place.
 const DASH_SKEL = '<span class="skel-row ad-skel" role="img" aria-label="Loading"></span>';
-const DASH_BLOCKS = '.ad-tab, .ad-tr, .ad-facts > div, .ad-limit, .ad-legend > span, .ad-empty';
+const DASH_BLOCKS = '.ad-tab, .ad-facts > div, .ad-limit, .ad-legend > span, .ad-empty';
 const DASH_EASE = 'cubic-bezier(.65, 0, .35, 1)';
 const DASH_GROW: Keyframe[] = [{ opacity: 0, transform: 'scale(.96)', filter: 'blur(2px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }];
-type DashShot = { blocks: Map<string, { r: DOMRect; bg: string; bd: string; fg: string }>; texts: Map<string, string>; sparks: Map<string, string[]> };
+type DashShot = { blocks: Map<string, { r: DOMRect; bg: string; bd: string; fg: string }>; texts: Map<string, string> };
 function dashBlockKey(el: HTMLElement): string {
-  if (el.matches('.ad-tab, .ad-tr')) return `${el.classList[0]}:${el.dataset.dashAgent ?? 'head'}`;
+  if (el.matches('.ad-tab')) return `${el.classList[0]}:${el.dataset.dashAgent ?? 'head'}`;
   if (el.matches('.ad-facts > div')) return `fact:${el.querySelector('dt')?.textContent}`;
   if (el.matches('.ad-limit')) return `limit:${el.querySelector('.ad-limit-top span')?.textContent}`;
   if (el.matches('.ad-legend > span')) return `leg:${el.querySelector('i')?.dataset.k ?? el.className}`;
@@ -782,13 +782,12 @@ function dashTexts(): Map<string, HTMLElement> {
 const dashText = (el: HTMLElement) => el.dataset.to ?? el.textContent ?? '';
 function shootDash(): DashShot | null {
   if (!dashOnScreen()) return null;
-  const blocks: DashShot['blocks'] = new Map(), sparks: DashShot['sparks'] = new Map();
+  const blocks: DashShot['blocks'] = new Map();
   for (const [k, el] of dashBlocks()) {
     const cs = getComputedStyle(el);
     blocks.set(k, { r: el.getBoundingClientRect(), bg: cs.backgroundColor, bd: cs.borderColor, fg: cs.color });
-    if (el.matches('.ad-tr')) sparks.set(k, $$<HTMLElement>('.ad-spark i', el).map(i => i.style.height));
   }
-  return { blocks, texts: new Map(Array.from(dashTexts(), ([k, el]) => [k, dashText(el)])), sparks };
+  return { blocks, texts: new Map(Array.from(dashTexts(), ([k, el]) => [k, dashText(el)])) };
 }
 function playDash(shot: DashShot | null): void {
   if (!shot) return;
@@ -802,13 +801,6 @@ function playDash(shot: DashShot | null): void {
     if (was.bg !== cs.backgroundColor || was.bd !== cs.borderColor || was.fg !== cs.color) {
       el.animate([{ backgroundColor: was.bg, borderColor: was.bd, color: was.fg }, { backgroundColor: cs.backgroundColor, borderColor: cs.borderColor, color: cs.color }], { duration: 220, easing: 'ease' });
     }
-    // A row that stays keeps its sparkline: its days ease to their new heights instead of rising in again.
-    const old = shot.sparks.get(k);
-    if (!old?.length) continue;
-    el.querySelector('.ad-spark')?.classList.remove('anim');
-    $$<HTMLElement>('.ad-spark i', el).forEach((i, n) => {
-      if (old[n] && old[n] !== i.style.height) i.animate([{ height: old[n] }, { height: i.style.height }], { duration: 450, easing: DASH_EASE });
-    });
   }
   // "216.1M" and "13.4M" read the same but for their numbers; "1m ago" and "6d ago" don't.
   const shape = (t: string) => t.replace(/\d[\d.,]*[KMBT]?/g, '#');
@@ -858,7 +850,6 @@ function renderAgentDash(): void {
     : '<p class="ad-empty">No agents on this computer yet. Install one in Settings → Agents.</p>';
   renderDashUsage(cur);
   renderDashChart(cur);
-  renderDashTable(agents);
   playDash(shot);
 }
 // The usage card: this month's tokens, how the last week compares with the week before, and a few facts.
@@ -1005,55 +996,12 @@ function showDashTip(bar: HTMLElement): void {
     { transform: 'none', width: `${to.width}px`, height: `${to.height}px` }], { duration: 260, easing: ease }).id = 'tip';
   for (const row of Array.from(tip.children)) row.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
 }
-// The other agents: everything but the default. Picking a row shows that agent above.
-function renderDashTable(agents: DetectedAgent[]): void {
-  const others = agents.filter(a => a.id !== appState.agent);
-  const days = dashDays();
-  const head = '<div class="ad-tr ad-th" role="row"><span role="columnheader">Agent</span><span role="columnheader">Status</span><span role="columnheader">Tool calls</span><span role="columnheader">Tokens</span><span role="columnheader">Last used</span><span role="columnheader"></span></div>';
-  const rows = others.map(a => {
-    const h = dashHistory?.agents[a.id];
-    const tokens = dashUsage?.usage[a.id] ?? 0;
-    const spark = h ? days.slice(-7).map(d => dayTotal(h.days[d])) : [];
-    const sparkMax = Math.max(...spark, 1);
-    const sparkHtml = spark.length ? `<span class="ad-spark" aria-hidden="true">${spark.map(v => `<i data-h="${Math.round(v / sparkMax * 100)}"></i>`).join('')}</span>` : '';
-    return `<div class="ad-tr${a.id === dashAgent ? ' on' : ''}" role="row" tabindex="0" data-dash-agent="${escAttr(a.id)}">
-      <span role="cell" class="ad-name">${brandMark('ad-mark', a.id, a.name[0])}${esc(a.name)}</span>
-      <span role="cell"><span class="pill${a.found ? ' ok' : ''}">${a.found ? 'Ready' : 'Not installed'}</span></span>
-      <span role="cell">${sparkHtml}<span>${h?.tools ? h.tools.toLocaleString() : '—'}</span></span>
-      <span role="cell">${dashUsage ? compact(tokens) : DASH_SKEL}</span>
-      <span role="cell">${h?.last ? esc(timeAgo(h.last)) : '—'}</span>
-      <span role="cell">${a.found ? `<button class="btn btn-sm" data-dash-default="${escAttr(a.id)}">Make default</button>` : ''}</span>
-    </div>`;
-  }).join('');
-  const el = $('#adTable');
-  el.innerHTML = others.length ? head + rows : '<p class="ad-empty">No other agents yet. Install more in Settings → Agents.</p>';
-  $$<HTMLElement>('.ad-spark i', el).forEach((i, n) => { i.style.height = `${Math.max(8, Number(i.dataset.h))}%`; i.style.setProperty('--i', String(n % 7)); });
-  $$('.ad-spark', el).forEach(s => s.classList.add('anim'));
-  $('.ad-table-wrap').classList.toggle('hidden', !agents.length);
-}
 function pickDashAgent(id: string): void {
   if (!id || id === dashAgent) return;
   dashAgent = id;
   renderAgentDash();
 }
 $('#adTabs').addEventListener('click', e => pickDashAgent((e.target as HTMLElement).closest<HTMLElement>('[data-dash-agent]')?.dataset.dashAgent ?? ''));
-$('#adTable').addEventListener('click', e => {
-  const t = e.target as HTMLElement;
-  const def = t.closest<HTMLElement>('[data-dash-default]');
-  if (def) {
-    const ag = appState.detect?.agents.find(a => a.id === def.dataset.dashDefault && a.found);
-    if (ag) { makeDefaultAgent(ag); dashAgent = ag.id; renderAgentDash(); toast(`${ag.name} is now the default agent`); }
-    return;
-  }
-  pickDashAgent(t.closest<HTMLElement>('[data-dash-agent]')?.dataset.dashAgent ?? '');
-});
-$('#adTable').addEventListener('keydown', e => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const row = (e.target as HTMLElement).closest<HTMLElement>('.ad-tr[data-dash-agent]');
-  if (!row || e.target !== row) return;
-  e.preventDefault();
-  pickDashAgent(row.dataset.dashAgent ?? '');
-});
 $('#adRange').addEventListener('click', e => {
   const n = Number((e.target as HTMLElement).closest<HTMLElement>('[data-range]')?.dataset.range);
   if (!DASH_RANGES.includes(n) || n === dashRange) return;

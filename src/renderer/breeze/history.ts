@@ -15,8 +15,9 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   if (!html?.includes('class="msg')) return;
   if (!tab.historyId) tab.historyId = newChatId();
   const id = tab.historyId;
-  const first = tab.panel.querySelector('.msg.user .body')?.textContent ?? tab.title ?? 'Chat';
-  const title = first.trim().replaceAll(/\s+/g, ' ').slice(0, 64) || tab.title || 'Chat';
+  const first = tab.panel.querySelector('.msg.user .body')?.textContent ?? '';
+  // The tab's own name (typed, or the agent's), else the first request.
+  const title = (/^Chat \d+$/i.test(tab.title) ? '' : tab.title) || first.trim().replaceAll(/\s+/g, ' ').slice(0, 64) || 'Chat';
   const old = chatHistory(s);
   // A chat stays under the folder it began in, even if another folder is open by now.
   const folder = old.find(e => e.id === id)?.folder ?? rootInfo?.root ?? null;
@@ -178,6 +179,21 @@ function closeBoxSearch(): void {
   $('#boxSideSearchBtn').classList.remove('hidden');
   renderBoxSide();
 }
+function renameChatEntry(s: Surface, id: string, title: string): void {
+  store.set(historyKey(s), chatHistory(s).map(e => (e.id === id ? { ...e, title } : e)));
+  if (s.name === 'box') renderBoxSide();
+}
+function renameBoxChat(id: string): void {
+  const row = $('#boxSideList').querySelector<HTMLElement>(`[data-chat="${CSS.escape(id)}"]`);
+  const e = chatHistory(SURFACES.box).find(x => x.id === id);
+  if (!row || !e) return;
+  renameInline(row, e.title, name => {
+    if (!name) { renderBoxSide(); return; }
+    const tab = surfaceTabs.box.find(t => t.historyId === id);
+    if (tab) setChatTitle(tab, name);
+    else renameChatEntry(SURFACES.box, id, name);
+  });
+}
 function deleteBoxChat(id: string): void {
   store.set(historyKey(SURFACES.box), chatHistory(SURFACES.box).filter(e => e.id !== id));
   const tab = surfaceTabs.box.find(t => t.historyId === id);
@@ -187,6 +203,7 @@ function deleteBoxChat(id: string): void {
 }
 function renderBoxSide(): void {
   const list = $('#boxSideList');
+  if (list.querySelector('.rename-input')) return; // a chat is being renamed: redrawn once that is done
   const q = boxSideQuery.toLowerCase();
   const matches = (e: ChatEntry) => `${e.title}\n${folderName(e.folder)}`.toLowerCase().includes(q);
   const entries = chatHistory(SURFACES.box).filter(e => !q || matches(e));
@@ -233,7 +250,11 @@ $('#boxSideList').addEventListener('contextmenu', ev => {
   if (!row) return;
   ev.preventDefault();
   const id = row.dataset.chat as string;
-  popupMenu(ev.clientX, ev.clientY, [{ label: 'Delete chat', run: () => deleteBoxChat(id) }]);
+  popupMenu(ev.clientX, ev.clientY, [{ label: 'Rename chat', run: () => renameBoxChat(id) }, { label: 'Delete chat', run: () => deleteBoxChat(id) }]);
+});
+$('#boxSideList').addEventListener('dblclick', ev => {
+  const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-chat]')?.dataset.chat;
+  if (id) renameBoxChat(id);
 });
 $('#boxSideNew').onclick = newBoxChat;
 $('#boxSideSearchBtn').onclick = openBoxSearch;

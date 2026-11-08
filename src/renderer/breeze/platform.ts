@@ -689,6 +689,7 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async status() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
       async run() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
       async clone() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
+      async remove() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
       async settings() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
     },
     win: {

@@ -9,6 +9,7 @@ const path = require('node:path');
 const { Readable } = require('node:stream');
 const { pathToFileURL } = require('node:url');
 const { PREVIEW_INSPECTOR } = require('./previewInspector');
+const { markdownPage } = require('./markdown');
 
 const PREVIEW_SCHEME = 'breeze-preview';
 const PREVIEW_PRIVILEGES = { standard: true, secure: true, supportFetchAPI: true, stream: true };
@@ -28,6 +29,11 @@ function createPreviewHandler(resolveIn) {
       const rel = decodeURIComponent(new URL(req.url).pathname).replace(/^\/+/, '');
       let abs = resolveIn(rel);
       if ((await fsp.stat(abs)).isDirectory()) abs = resolveIn(path.join(rel, 'index.html')); // it may be a link too
+      // A Markdown file shows rendered, as a page; its images and links resolve from where it is, like on GitHub.
+      if (/\.(md|markdown)$/i.test(abs)) {
+        const page = markdownPage(await fsp.readFile(abs, 'utf8'), path.basename(abs));
+        return new Response(withPreviewExtras(page), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+      }
       const res = await net.fetch(pathToFileURL(abs).href);
       const type = res.headers.get('content-type') || 'application/octet-stream';
       const headers = { 'Content-Type': type, 'Cache-Control': 'no-store', 'Accept-Ranges': 'bytes' };
