@@ -49,6 +49,7 @@ function run() {
     b.set(doc(d, 'friends', me.uid, 'list', them.uid), { email: them.email, name: them.uid, avatar: null, since: serverTimestamp() });
     b.set(doc(d, 'friends', them.uid, 'list', me.uid), { email: me.email, name: me.uid, avatar: null, since: serverTimestamp() });
     if (reverse) b.delete(doc(d, 'requests', rid(me, them.email)));
+    b.delete(doc(d, 'friends', me.uid, 'declined', rid(them, me.email))); // usually not there; deleting is still allowed
     return b.commit();
   }
   const presence = u => setDoc(doc(db(u), 'presence', u.uid), { state: 'online', project: 'breeze', activity: 'editing', updatedAt: serverTimestamp() });
@@ -116,8 +117,8 @@ function run() {
     await assertSucceeds(getDocs(query(collection(db(BOB), 'requests'), where('toEmail', '==', BOB.email), where('status', '==', 'pending'))));
     await assertSucceeds(getDocs(query(collection(db(ALICE), 'requests'), where('fromUid', '==', 'alice'), where('status', '==', 'pending'))));
     await assertSucceeds(acceptBatch(BOB, ALICE, { reverse: true }));
-    // Accepted is final: nobody flips it to declined afterwards.
-    await assertFails(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'declined', toUid: 'bob' }));
+    // Accepted is final: nobody changes it afterwards.
+    await assertFails(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'pending', toUid: 'bob' }));
     await assertSucceeds(getDocs(collection(db(BOB), 'friends', 'bob', 'list')));
     await assertFails(getDocs(collection(db(ALICE), 'friends', 'bob', 'list')));
     await assertSucceeds(presence(ALICE));
@@ -169,19 +170,55 @@ function run() {
     await assertFails(setDoc(doc(d, 'friends', 'alice', 'list', 'bob'), { email: BOB.email, name: 'bob', avatar: null, since: serverTimestamp() }));
   });
 
-  test('a sender cannot see that a request was declined', async () => {
+  // What the sender can observe about their own request: its GET and both of their queries.
+  async function senderView(who) {
+    const g = await getDoc(doc(db(who), 'requests', rid(who, BOB.email)));
+    const q = async st => (await getDocs(query(collection(db(who), 'requests'), where('fromUid', '==', who.uid), where('status', '==', st))))
+      .docs.map(d => ({ id: d.id, ...d.data(), createdAt: null }));
+    return { get: { ...g.data(), createdAt: null }, pending: await q('pending'), accepted: await q('accepted') };
+  }
+  const decline = (me, id) => setDoc(doc(db(me), 'friends', me.uid, 'declined', id), { at: serverTimestamp() });
+
+  test('after a decline the sender sees exactly what they see for an untouched pending request', async () => {
+    const CAROL = { uid: 'carol', email: 'carol@example.com' };
     await assertSucceeds(send(ALICE, BOB));
-    await assertSucceeds(getDoc(doc(db(ALICE), 'requests', rid(ALICE, BOB.email))));
-    await assertSucceeds(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'declined', toUid: 'bob' }));
-    await assertFails(getDoc(doc(db(ALICE), 'requests', rid(ALICE, BOB.email))));
-    // The client's own sender queries pin status, so they still run (and the declined one simply is not there).
-    const pending = await assertSucceeds(getDocs(query(collection(db(ALICE), 'requests'), where('fromUid', '==', 'alice'), where('status', '==', 'pending'))));
-    assert.equal(pending.size, 0);
-    await assertSucceeds(getDocs(query(collection(db(ALICE), 'requests'), where('fromUid', '==', 'alice'), where('status', '==', 'accepted'))));
-    // An unpinned query could include the declined one, so it is refused.
-    await assertFails(getDocs(query(collection(db(ALICE), 'requests'), where('fromUid', '==', 'alice'))));
-    // The recipient still sees it.
-    await assertSucceeds(getDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email))));
+    const before = await senderView(ALICE);
+    await assertSucceeds(decline(BOB, rid(ALICE, BOB.email)));
+    const after = await senderView(ALICE);
+    assert.deepEqual(after, before);
+    // And the same shape as a request nobody has looked at (only the ids and the sender's own fields differ).
+    await assertSucceeds(send(CAROL, BOB));
+    const untouched = await senderView(CAROL);
+    const strip = v => JSON.parse(JSON.stringify(v).replaceAll('alice', 'X').replaceAll('carol', 'X').replaceAll(rid(ALICE, BOB.email), 'ID').replaceAll(rid(CAROL, BOB.email), 'ID'));
+    assert.deepEqual(strip(after), strip(untouched));
+    // Nor can the sender read the marker.
+    await assertFails(getDoc(doc(db(ALICE), 'friends', 'bob', 'declined', rid(ALICE, BOB.email))));
+    await assertFails(getDocs(collection(db(ALICE), 'friends', 'bob', 'declined')));
+  });
+
+  test('decline markers: owner only, for a pending request to me, and accept still works after one', async () => {
+    const id = rid(ALICE, BOB.email);
+    await assertSucceeds(send(ALICE, BOB));
+    await assertFails(decline(EVE, id)); // not addressed to Eve
+    await assertFails(setDoc(doc(db(EVE), 'friends', 'bob', 'declined', id), { at: serverTimestamp() })); // not Eve's
+    await assertFails(setDoc(doc(db(BOB), 'friends', 'bob', 'declined', id), { at: new Date(0) }));
+    await assertFails(setDoc(doc(db(BOB), 'friends', 'bob', 'declined', id), { at: serverTimestamp(), why: 'x' }));
+    await assertFails(decline(BOB, 'nosuchrequest'));
+    await assertSucceeds(decline(BOB, id));
+    await assertSucceeds(decline(BOB, id)); // a repeat decline rewrites it
+    await assertSucceeds(getDoc(doc(db(BOB), 'friends', 'bob', 'declined', id)));
+    // The request itself can no longer be set to declined by anyone.
+    await assertFails(updateDoc(doc(db(BOB), 'requests', id), { status: 'declined', toUid: 'bob' }));
+    // Accept after a decline, deleting the marker in the same commit (as friends.js does).
+    const d = db(BOB);
+    const b = writeBatch(d);
+    b.update(doc(d, 'requests', id), { status: 'accepted', toUid: 'bob' });
+    b.set(doc(d, 'friends', 'bob', 'list', 'alice'), { email: ALICE.email, name: 'alice', avatar: null, since: serverTimestamp() });
+    b.set(doc(d, 'friends', 'alice', 'list', 'bob'), { email: BOB.email, name: 'bob', avatar: null, since: serverTimestamp() });
+    b.delete(doc(d, 'friends', 'bob', 'declined', id));
+    await assertSucceeds(b.commit());
+    // Once accepted, a new marker is refused.
+    await assertFails(decline(BOB, id));
   });
 
   test('the recipient can remove an accepted friend', async () => {
@@ -195,14 +232,13 @@ function run() {
     await assertSucceeds(b.commit());
   });
 
-  test('decline, and cancel by the sender only', async () => {
+  test('only the recipient accepts, and cancel is by the sender only', async () => {
     await assertSucceeds(send(ALICE, BOB));
     await assertFails(deleteDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)))); // pending: not the recipient's to delete
-    await assertFails(updateDoc(doc(db(EVE), 'requests', rid(ALICE, BOB.email)), { status: 'declined', toUid: 'eve' }));
-    await assertFails(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'declined', toUid: 'bob', fromName: 'x' }));
-    await assertSucceeds(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'declined', toUid: 'bob' }));
-    // Declined stays declined; the sender's re-send (a create on an existing doc) is refused.
-    await assertFails(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'accepted', toUid: 'bob' }));
+    await assertFails(updateDoc(doc(db(EVE), 'requests', rid(ALICE, BOB.email)), { status: 'accepted', toUid: 'eve' }));
+    await assertFails(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'accepted', toUid: 'bob', fromName: 'x' }));
+    await assertFails(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'accepted', toUid: 'eve' }));
+    // A re-send of an existing request (a create on an existing doc) is refused.
     await assertFails(send(ALICE, BOB));
     await assertFails(deleteDoc(doc(db(EVE), 'requests', rid(ALICE, BOB.email))));
     await assertSucceeds(deleteDoc(doc(db(ALICE), 'requests', rid(ALICE, BOB.email))));

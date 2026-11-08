@@ -252,7 +252,7 @@ const iso = ms => new Date(ms).toISOString();
 
 // A tiny Firestore: answers GET list / runQuery / batchGet from `data`, and records writes.
 function fakeStore(data = {}) {
-  const d = { friends: [], presence: {}, incoming: [], outgoing: [], accepted: { incoming: [], outgoing: [] }, readTime: iso(T), ...data };
+  const d = { friends: [], presence: {}, declined: [], incoming: [], outgoing: [], accepted: { incoming: [], outgoing: [] }, readTime: iso(T), ...data };
   const log = { commits: [], queries: [], all: [] };
   const handler = async (url, init) => {
     const method = init.method || 'GET';
@@ -285,6 +285,10 @@ function fakeStore(data = {}) {
     }
     if (url === `${BASE}:batchGet`) {
       return reply(200, body.documents.map(name => {
+        if (name.includes('/declined/')) {
+          const id = name.split('/').pop();
+          return d.declined.includes(id) ? { found: pdoc(`friends/u1/declined/${id}`, { at: new Date(T - 5000) }), readTime: d.readTime } : { missing: name, readTime: d.readTime };
+        }
         const uid = name.split('/').pop();
         return d.presence[uid] ? { found: d.presence[uid], readTime: d.readTime } : { missing: name, readTime: d.readTime };
       }));
@@ -370,7 +374,7 @@ test('sendRequest to an existing friend throws exists; repeat pending send write
   assert.equal(f.log.commits.length, 0);
 });
 
-test('sendRequest treats a request that already exists server-side (409, or 403 when it was declined) as sent', async () => {
+test('sendRequest treats a request that already exists server-side (409, or 403) as sent', async () => {
   for (const status of [409, 403]) {
     const f = fakeStore({ commitStatus: status });
     assert.deepEqual(await apiFor(f).sendRequest('dan@x.com'), { id: `u1_${hashOf('dan@x.com')}` });
@@ -389,7 +393,7 @@ test('sendRequest throws too-many at 50 pending', async () => {
   assert.equal(f.log.commits.length, 1);
 });
 
-test('accept writes one commit with request, both list docs and the reverse-request delete', async () => {
+test('accept writes one commit with request, both list docs, the reverse-request delete and the decline-marker delete', async () => {
   const reqId = `u2_${hashOf('me@x.com')}`;
   const reverseId = `u1_${hashOf('bob@x.com')}`;
   const f = fakeStore({
@@ -399,7 +403,7 @@ test('accept writes one commit with request, both list docs and the reverse-requ
   await apiFor(f).accept(reqId);
   assert.equal(f.log.commits.length, 1);
   const w = f.log.commits[0].writes;
-  assert.equal(w.length, 4);
+  assert.equal(w.length, 5);
   assert.equal(w[0].update.name, `${DOCS}/requests/${reqId}`);
   assert.deepEqual(fromDoc({ name: w[0].update.name, fields: w[0].update.fields }), { id: reqId, status: 'accepted', toUid: 'u1' });
   assert.deepEqual(w[0].updateMask.fieldPaths, ['status', 'toUid']);
@@ -411,13 +415,16 @@ test('accept writes one commit with request, both list docs and the reverse-requ
   assert.equal(fromDoc(w[2].update).email, 'me@x.com');
   assert.equal(fromDoc(w[2].update).name, 'Me');
   assert.deepEqual(w[3], { delete: `${DOCS}/requests/${reverseId}` });
+  assert.deepEqual(w[4], { delete: `${DOCS}/friends/u1/declined/${reqId}` });
 });
 
-test('accept without a reverse request writes three docs and no delete', async () => {
+test('accept without a reverse request writes three docs and only the decline-marker delete', async () => {
   const reqId = `u2_${hashOf('me@x.com')}`;
   const f = fakeStore({ requestDocs: [reqDoc(reqId, { fromUid: 'u2', fromEmail: 'Bob@x.com', fromName: 'Bob', toEmail: 'me@x.com' })] });
   await apiFor(f).accept(reqId);
-  assert.equal(f.log.commits[0].writes.length, 3);
+  const w = f.log.commits[0].writes;
+  assert.equal(w.length, 4);
+  assert.deepEqual(w.filter(x => x.delete).map(x => x.delete), [`${DOCS}/friends/u1/declined/${reqId}`]);
 });
 
 test('accept of a request that is gone (404, or 403 after the sender cancelled) throws gone, not reauth', async () => {
@@ -429,18 +436,49 @@ test('accept of a request that is gone (404, or 403 after the sender cancelled) 
   }
 });
 
-test('decline marks a pending request declined', async () => {
+test('decline leaves the request alone and writes only my private marker', async () => {
   const id = `u2_${hashOf('me@x.com')}`;
   const f = fakeStore({ requestDocs: [reqDoc(id, { fromUid: 'u2', fromEmail: 'bob@x.com', toEmail: 'me@x.com' })] });
   await apiFor(f).decline(id);
-  const d = f.log.commits[0].writes[0];
-  assert.deepEqual(fromDoc(d.update), { id, status: 'declined', toUid: 'u1' });
-  assert.deepEqual(d.updateMask.fieldPaths, ['status', 'toUid']);
+  assert.equal(f.log.commits.length, 1);
+  const w = f.log.commits[0].writes;
+  assert.equal(w.length, 1);
+  assert.equal(w[0].update.name, `${DOCS}/friends/u1/declined/${id}`);
+  assert.deepEqual(w[0].update.fields, {});
+  assert.deepEqual(w[0].updateTransforms, [{ fieldPath: 'at', setToServerValue: 'REQUEST_TIME' }]);
+  assert.equal(w[0].updateMask, undefined);
+});
+
+test('decline whose marker write is refused (403/404) throws gone', async () => {
+  const id = `u2_${hashOf('me@x.com')}`;
+  for (const commitStatus of [403, 404]) {
+    const f = fakeStore({ commitStatus, requestDocs: [reqDoc(id, { fromUid: 'u2', fromEmail: 'bob@x.com', toEmail: 'me@x.com' })] });
+    await assert.rejects(apiFor(f).decline(id), e => e.code === 'gone');
+  }
+});
+
+test('list hides incoming requests I declined, with one batchGet of my markers', async () => {
+  const a = `u5_${hashOf('me@x.com')}`, b = `u6_${hashOf('me@x.com')}`;
+  const f = fakeStore({
+    incoming: [reqDoc(a, { fromUid: 'u5', fromEmail: 'eve@x.com', toEmail: 'me@x.com' }), reqDoc(b, { fromUid: 'u6', fromEmail: 'dan@x.com', toEmail: 'me@x.com' })],
+    declined: [a],
+  });
+  const out = await apiFor(f).list();
+  assert.deepEqual(out.incoming.map(r => r.id), [b]);
+  const gets = f.log.all.filter(c => c.url === `${BASE}:batchGet`);
+  assert.equal(gets.length, 1);
+  assert.deepEqual(JSON.parse(gets[0].init.body).documents, [`${DOCS}/friends/u1/declined/${a}`, `${DOCS}/friends/u1/declined/${b}`]);
+});
+
+test('list with no incoming requests reads no markers', async () => {
+  const f = fakeStore();
+  await apiFor(f).list();
+  assert.equal(f.log.all.filter(c => c.url === `${BASE}:batchGet`).length, 0);
 });
 
 test('decline of a request that is no longer pending, or gone, throws gone and writes nothing', async () => {
   const id = `u2_${hashOf('me@x.com')}`;
-  // An accepted request (a stale row in the UI) must not be flipped to declined.
+  // An accepted request (a stale row in the UI) must not be marked declined.
   const accepted = fakeStore({ requestDocs: [reqDoc(id, { status: 'accepted', fromUid: 'u2', toEmail: 'me@x.com', toUid: 'u1' })] });
   await assert.rejects(apiFor(accepted).decline(id), e => e.code === 'gone');
   assert.equal(accepted.log.commits.length, 0);

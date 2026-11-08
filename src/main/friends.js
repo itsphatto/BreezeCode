@@ -339,7 +339,7 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
       if (friends.some(f => normEmail(f.email) === email)) throw new FriendsError('exists');
       if (pending.docs.some(r => r.id === id)) return { id };
       if (pending.docs.length >= MAX_PENDING_OUT) throw new FriendsError('too-many');
-      // exists:false makes this a create. If the request is already there (409), or was declined so I may not touch it (403),
+      // exists:false makes this a create. If the request is already there (409, or 403 when the rules judge it as an update),
       // it stays as it is and counts as sent: the sender never learns what the other side did.
       await commit([put(`requests/${id}`, {
         fromUid: myUid, fromEmail: myEmail, fromName: myName, fromAvatar: myAvatar,
@@ -364,6 +364,9 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
       const reverseId = `${myUid}_${sha256hex(theirEmail)}`;
       const mine = await queryRequests({ fromUid: myUid, status: 'pending' }, MAX_PENDING_OUT + 1);
       if (mine.docs.some(r => r.id === reverseId)) writes.push(del(`requests/${reverseId}`));
+      // A decline marker I may have left for this request goes too, so a later request with the same id (after a
+      // remove) is not hidden.
+      writes.push(del(`friends/${myUid}/declined/${id}`));
       // The sender may have cancelled between my read and this write.
       const st = await commit(writes, [403, 404, 409]);
       if (st >= 400) throw new FriendsError('gone');
@@ -372,8 +375,10 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
     async decline(requestId) {
       needEmail();
       const id = safe(requestId);
-      await pendingRequestForMe(id); // a stale row for a request that was accepted must not be flipped to declined
-      const st = await commit([put(`requests/${id}`, { status: 'declined', toUid: myUid }, { mask: ['status', 'toUid'], exists: true })], [403, 404]);
+      await pendingRequestForMe(id); // a stale row for a request that was accepted must not be marked declined
+      // The request itself is left pending, so the sender sees exactly what they would if I had never looked: the
+      // decline is a private marker under my own friends doc, and list() hides marked requests.
+      const st = await commit([put(`friends/${myUid}/declined/${id}`, { at: SERVER_TIME })], [403, 404]);
       if (st >= 400) throw new FriendsError('gone');
     },
 
@@ -414,9 +419,16 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
         queryRequests({ toEmail: myEmail, status: 'pending' }),
         queryRequests({ fromUid: myUid, status: 'pending' }),
       ]);
+      let readTime = Math.max(incoming.readTime, outgoing.readTime);
+      // Incoming requests I declined stay pending for the sender; my own markers hide them here (one batchGet).
+      const declined = new Set();
+      if (incoming.docs.length) {
+        const names = incoming.docs.map(r => docName(`friends/${myUid}/declined/${safe(r.id)}`));
+        const { data } = await call('POST', `${base}:batchGet`, { documents: names });
+        for (const r of Array.isArray(data) ? data : []) if (r.found) declined.add(fromDoc(r.found).id);
+      }
       // Presence is batch-read; a friend who never shared has no doc, which is "offline", not an error.
       const presence = new Map();
-      let readTime = Math.max(incoming.readTime, outgoing.readTime);
       for (let i = 0; i < friends.length; i += 100) {
         const names = friends.slice(i, i + 100).map(f => docName(`presence/${safe(f.id)}`));
         const { data } = await call('POST', `${base}:batchGet`, { documents: names });
@@ -439,7 +451,7 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
             updatedAt,
           };
         }),
-        incoming: incoming.docs.map(r => asReq(r, 'from')),
+        incoming: incoming.docs.filter(r => !declined.has(r.id)).map(r => asReq(r, 'from')),
         outgoing: outgoing.docs.map(r => asReq(r, 'to')),
         readTime,
       };

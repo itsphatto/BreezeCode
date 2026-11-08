@@ -52,11 +52,10 @@ service cloud.firestore {
 
     // ---- requests/{fromUid}_{sha256(toEmail)}: friend requests ----
     match /requests/{id} {
-      // The sender (but not once it is declined: that would tell them the email has an account), or the recipient, by
-      // email or, once answered, by uid. Also covers the list queries, since each one's filters pin one clause:
-      // fromUid == me with status pending/accepted, toEmail == myEmail, or toUid == me.
+      // The sender, or the recipient, by email or, once accepted, by uid. Also covers the list queries, since each
+      // one's filters pin one clause: fromUid == me, toEmail == myEmail, or toUid == me.
       allow read: if verified()
-        && ((resource.data.fromUid == request.auth.uid && resource.data.status != 'declined')
+        && (resource.data.fromUid == request.auth.uid
             || resource.data.toEmail == myEmail()
             || resource.data.toUid == request.auth.uid);
 
@@ -78,12 +77,14 @@ service cloud.firestore {
         && request.resource.data.status == 'pending'
         && request.resource.data.createdAt == request.time;
 
-      // Only the recipient answers, only once (pending -> accepted or declined), and only status and toUid change.
+      // Only the recipient accepts, only once (pending -> accepted), and only status and toUid change. There is no
+      // declined state: a decline is the recipient's private marker (friends/{uid}/declined below), so the request, and
+      // so the sender's view of it, never changes.
       allow update: if verified()
         && resource.data.toEmail == myEmail()
         && resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'toUid'])
-        && request.resource.data.status in ['accepted', 'declined']
+        && request.resource.data.status == 'accepted'
         && request.resource.data.toUid == request.auth.uid;
 
       // The sender at any time (Cancel, or the accept that makes a reverse request pointless); either party once it is
@@ -130,6 +131,18 @@ service cloud.firestore {
             || (request.auth.uid == fid && acceptedFrom(uid) && entryOk(myEmail())));
 
       allow delete: if verified() && (request.auth.uid == uid || request.auth.uid == fid);
+    }
+
+    // ---- friends/{uid}/declined/{rid}: requests I declined, private to me ----
+    // Only for a request that exists, is still pending and is addressed to me. Rewriting is allowed (a repeat decline).
+    match /friends/{uid}/declined/{rid} {
+      allow read, delete: if isMe(uid);
+      allow create, update: if isMe(uid)
+        && exactKeys(request.resource.data, ['at'])
+        && request.resource.data.at == request.time
+        && exists(/databases/$(database)/documents/requests/$(rid))
+        && get(/databases/$(database)/documents/requests/$(rid)).data.toEmail == myEmail()
+        && get(/databases/$(database)/documents/requests/$(rid)).data.status == 'pending';
     }
   }
 }
