@@ -177,6 +177,22 @@ async function sendVerifyEmail({ apiKey, idToken, fetch: fetchFn = globalThis.fe
   });
 }
 
+// Gives a Firebase account the email Breeze already knows for it, and returns the new id token. GitHub hides a private
+// email from Firebase, so a GitHub account can arrive with none; the verification link still proves the address.
+const UPDATE_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:update';
+async function setAccountEmail({ apiKey, idToken, email, fetch: fetchFn = globalThis.fetch }) {
+  const body = await postJson(fetchFn, `${UPDATE_URL}?key=${encodeURIComponent(apiKey)}`, {
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken, email, returnSecureToken: true }),
+  }, msg => {
+    if (/EMAIL_EXISTS/i.test(msg)) return new FriendsError('linked');
+    if (/INVALID_EMAIL/i.test(msg)) return new FriendsError('unverified', "This account's email can't be used by Friends.");
+    if (/TOKEN_EXPIRED|CREDENTIAL_TOO_OLD|INVALID_ID_TOKEN/i.test(msg)) return new FriendsError('network', "Couldn't send the email. Try again.");
+    return new FriendsError('network', "Couldn't send the email. Try again.");
+  });
+  return body.idToken || idToken;
+}
+
 // Trades a saved refresh token for a new session. The refresh reply has no email, so it is read from the id token
 // (or kept from `email`, which the caller may pass from the session it is replacing).
 async function refreshSession({ apiKey, refreshToken, email = null, fetch: fetchFn = globalThis.fetch, now = Date.now }) {
@@ -625,4 +641,4 @@ function friendsReply(e, provider) {
   return { error, code: e.code };
 }
 
-module.exports = { callWithRetry, failureHold, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, sendVerifyEmail, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
+module.exports = { callWithRetry, failureHold, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, sendVerifyEmail, setAccountEmail, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };

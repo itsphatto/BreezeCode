@@ -148,6 +148,21 @@ test('sendVerifyEmail asks Firebase for a VERIFY_EMAIL link with the id token', 
   assert.deepEqual(JSON.parse(f.calls[0].body), { requestType: 'VERIFY_EMAIL', idToken: 'ID' });
 });
 
+test('setAccountEmail sets the email and returns the new id token', async () => {
+  const { setAccountEmail } = require('../src/main/friends');
+  const f = fakeFetch(() => reply(200, { idToken: 'ID2', email: 'bob@x.com' }));
+  assert.equal(await setAccountEmail({ apiKey: 'K', idToken: 'ID', email: 'bob@x.com', fetch: f }), 'ID2');
+  assert.ok(f.calls[0].url.includes('accounts:update?key=K'));
+  assert.deepEqual(JSON.parse(f.calls[0].body), { idToken: 'ID', email: 'bob@x.com', returnSecureToken: true });
+});
+
+test('setAccountEmail maps EMAIL_EXISTS to linked', async () => {
+  const { setAccountEmail } = require('../src/main/friends');
+  const f = fakeFetch(() => reply(400, { error: { message: 'EMAIL_EXISTS' } }));
+  await assert.rejects(setAccountEmail({ apiKey: 'K', idToken: 'ID', email: 'bob@x.com', fetch: f }),
+    e => e instanceof FriendsError && e.code === 'linked');
+});
+
 test('sendVerifyEmail maps TOO_MANY_ATTEMPTS to a friendly network error', async () => {
   const { sendVerifyEmail } = require('../src/main/friends');
   const f = fakeFetch(() => reply(400, { error: { message: 'TOO_MANY_ATTEMPTS_TRY_LATER' } }));
