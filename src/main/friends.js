@@ -20,10 +20,11 @@ const COPY = {
   gone: 'That request is no longer there.',
   denied: "Friends can't do that.",
   unverified: "This account's email isn't verified, so Friends can't use it.",
+  linked: 'This email is already used by your other sign-in. Switch to that account to use Friends.',
   network: "Couldn't reach Friends. Retrying…",
 };
 
-// code is one of: not-configured, signed-out, reauth, unverified, invalid-email, self, exists, too-many, gone, denied, network.
+// code is one of: not-configured, signed-out, reauth, unverified, linked, invalid-email, self, exists, too-many, gone, denied, network.
 // `message` is optional; each code has a default line.
 class FriendsError extends Error {
   constructor(code, message) { super(message || COPY[code] || code); this.code = code; }
@@ -136,13 +137,15 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
     body: JSON.stringify({
       postBody: `access_token=${encodeURIComponent(accessToken)}&providerId=${providerId}`,
       requestUri: 'http://localhost',
-      returnIdpCredential: true,
       returnSecureToken: true,
     }),
   }, msg => {
     if (/OPERATION_NOT_ALLOWED|API key not valid|API_KEY|PROJECT_NOT_FOUND/i.test(msg)) return new FriendsError('not-configured');
     return reauthError(provider);
   });
+  // A 200 without a session: the email already belongs to another Firebase account (the person's other provider) and
+  // the project links one account per email, so Firebase asks for a confirmation Breeze can't give.
+  if (!body.idToken || !body.localId || body.needConfirmation || body.errorMessage) throw new FriendsError('linked');
   // Identity is the verified email; an account whose email is unverified cannot be matched safely.
   if (body.emailVerified !== true) throw new FriendsError('unverified');
   return {

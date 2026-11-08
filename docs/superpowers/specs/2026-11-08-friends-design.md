@@ -228,6 +228,7 @@ Someone with access to the Firebase console has to do these steps once:
 1. Create a Firebase project and enable Firestore (production mode).
 2. Enable the GitHub sign-in provider in Authentication, using the **same OAuth App** client id and secret as `breeze.config.json`'s `github.clientId`.
 3. Enable the Google provider. Add Breeze's Google OAuth client id under "Safelist client IDs from external projects", or create the Google client in the same GCP project.
+   The project should allow multiple accounts per email (Authentication → Settings → User account linking), or Friends shows the `linked` message for people with both a GitHub and Google account.
 4. Deploy `firestore.rules`.
 5. Put `firebase.apiKey` and `firebase.projectId` in `breeze.config.json`. `breeze.config.example.json` gets the new section, and `scripts/write-config.js` passes it through for release builds.
 

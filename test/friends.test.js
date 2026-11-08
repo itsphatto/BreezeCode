@@ -130,6 +130,32 @@ test('firebaseSession rejects an account whose email is not verified', async () 
   }
 });
 
+test('firebaseSession does not ask for the provider credential back', async () => {
+  const f = fakeFetch(() => idpOk('u1'));
+  await firebaseSession({ apiKey: 'K', provider: 'GitHub', accessToken: 'T', fetch: f });
+  assert.equal('returnIdpCredential' in JSON.parse(f.calls[0].body), false);
+});
+
+test('firebaseSession turns a 200 without a usable session into linked', async () => {
+  const cases = [
+    { idToken: undefined },
+    { idToken: '' },
+    { localId: undefined },
+    { needConfirmation: true },
+    { errorMessage: 'FEDERATED_USER_ID_ALREADY_LINKED' },
+  ];
+  for (const extra of cases) {
+    const f = fakeFetch(() => idpOk('u1', extra));
+    await assert.rejects(firebaseSession({ apiKey: 'K', provider: 'GitHub', accessToken: 'T', fetch: f }),
+      e => e instanceof FriendsError && e.code === 'linked'
+        && e.message === 'This email is already used by your other sign-in. Switch to that account to use Friends.',
+      JSON.stringify(extra));
+  }
+  // needConfirmation without a token or a verified email is still linked, not unverified.
+  const f = fakeFetch(() => reply(200, { needConfirmation: true, email: 'u1@x.com', emailVerified: false }));
+  await assert.rejects(firebaseSession({ apiKey: 'K', provider: 'Google', accessToken: 'T', fetch: f }), e => e.code === 'linked');
+});
+
 test('firebaseSession turns a thrown fetch into network', async () => {
   const f = async () => { throw new Error('ENOTFOUND'); };
   await assert.rejects(firebaseSession({ apiKey: 'K', provider: 'GitHub', accessToken: 'T', fetch: f }), e => e.code === 'network');
