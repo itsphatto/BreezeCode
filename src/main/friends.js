@@ -211,4 +211,213 @@ class SessionCache {
   }
 }
 
-module.exports = { FriendsError, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
+// ---- Friends API over Firestore ----
+
+const MAX_PENDING_OUT = 50;
+const STALE_MS = 180 * 1000; // presence older than this (by Firestore's clock) counts as offline
+const PROJECT_MAX = 80;
+const STATES = new Set(['online', 'away', 'offline']);
+const ACTIVITIES = new Set(['editing', 'agent', 'debug', 'space', 'idle']);
+const ID_OK = /^[A-Za-z0-9_-]{1,200}$/;
+
+// Cuts a folder name to 80 characters without leaving half an emoji at the end.
+function clipProject(p) {
+  if (typeof p !== 'string' || !p) return null;
+  let s = p.slice(0, PROJECT_MAX);
+  if (/[\uD800-\uDBFF]$/.test(s)) s = s.slice(0, -1);
+  return s;
+}
+
+// Everything the signed-in user can do with friends. `session` is { uid, idToken, email } from SessionCache; the caller
+// gets a new api whenever the session changes. A 401/403 throws reauth; main refreshes the session and retries once.
+function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me = {}, now = Date.now }) {
+  const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
+  const docName = p => `projects/${projectId}/databases/(default)/documents/${p}`;
+  const myUid = session.uid;
+  const myEmail = session.email;
+  const myName = me.name || myEmail;
+  const myAvatar = me.avatar || null;
+  const safe = id => { if (typeof id !== 'string' || !ID_OK.test(id)) throw new FriendsError('gone'); return id; };
+  const needEmail = () => { if (!myEmail) throw new FriendsError('reauth'); };
+
+  async function call(method, url, body, allow = []) {
+    let res;
+    try {
+      res = await fetchFn(url, {
+        method,
+        headers: { Authorization: `Bearer ${session.idToken}`, 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch { throw new FriendsError('network'); }
+    const data = await res.json().catch(() => ({}));
+    if (res.ok || allow.includes(res.status)) return { status: res.status, data };
+    if (res.status === 401 || res.status === 403) throw new FriendsError('reauth');
+    const why = data && data.error && data.error.message;
+    throw new FriendsError('network', why ? `Friends: ${why}` : undefined);
+  }
+
+  const commit = async writes => { await call('POST', `${base}:commit`, { writes }); };
+  // A write of a whole document. SERVER_TIME fields become REQUEST_TIME transforms.
+  const put = (path, obj, { mask, mustExist } = {}) => {
+    const w = { update: { name: docName(path), fields: toFields(obj) } };
+    const tf = transformsOf(obj);
+    if (tf.length) w.updateTransforms = tf;
+    if (mask) w.updateMask = { fieldPaths: mask };
+    if (mustExist) w.currentDocument = { exists: true };
+    return w;
+  };
+  const del = path => ({ delete: docName(path) });
+
+  // Requests where every field in `filters` equals its value. Returns { docs, readTime }.
+  async function queryRequests(filters, limit = 200) {
+    const { data } = await call('POST', `${base}:runQuery`, {
+      structuredQuery: {
+        from: [{ collectionId: 'requests' }],
+        where: { compositeFilter: { op: 'AND', filters: Object.entries(filters).map(([k, v]) => ({ fieldFilter: { field: { fieldPath: k }, op: 'EQUAL', value: toValue(v) } })) } },
+        limit,
+      },
+    });
+    const rows = Array.isArray(data) ? data : [];
+    return { docs: rows.filter(r => r.document).map(r => fromDoc(r.document)), readTime: maxTime(rows) };
+  }
+  const maxTime = rows => rows.reduce((m, r) => Math.max(m, r.readTime ? Date.parse(r.readTime) : 0), 0);
+
+  // The friends/{me}/list documents, all pages.
+  async function friendDocs() {
+    const out = [];
+    let token = '';
+    for (let page = 0; page < 20; page++) {
+      const { data } = await call('GET', `${base}/friends/${myUid}/list?pageSize=300${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`, undefined, [404]);
+      for (const d of data.documents || []) out.push(fromDoc(d));
+      token = data.nextPageToken;
+      if (!token) break;
+    }
+    return out;
+  }
+
+  const asReq = (r, who) => (who === 'from'
+    ? { id: r.id, email: normEmail(r.fromEmail) || String(r.fromEmail || ''), name: r.fromName || null, avatar: r.fromAvatar || null, createdAt: r.createdAt ?? null }
+    : { id: r.id, email: String(r.toEmail || ''), name: null, avatar: null, createdAt: r.createdAt ?? null });
+
+  return {
+    async upsertProfile() {
+      needEmail();
+      await commit([put(`users/${myUid}`, { email: myEmail, name: myName, avatar: myAvatar, updatedAt: SERVER_TIME })]);
+    },
+
+    async sendRequest(rawEmail) {
+      const email = normEmail(rawEmail);
+      if (!email) throw new FriendsError('invalid-email');
+      needEmail();
+      if (email === myEmail) throw new FriendsError('self');
+      const id = `${myUid}_${sha256hex(email)}`;
+      const [friends, pending] = await Promise.all([friendDocs(), queryRequests({ fromUid: myUid, status: 'pending' }, MAX_PENDING_OUT + 1)]);
+      if (friends.some(f => normEmail(f.email) === email)) throw new FriendsError('exists');
+      if (pending.docs.some(r => r.id === id)) return { id };
+      if (pending.docs.length >= MAX_PENDING_OUT) throw new FriendsError('too-many');
+      const fields = toFields({
+        fromUid: myUid, fromEmail: myEmail, fromName: myName, fromAvatar: myAvatar,
+        toEmail: email, toUid: null, status: 'pending', createdAt: new Date(now()),
+      });
+      // exists=false: if the request is already there (declined, or a race), it stays as it is and counts as sent.
+      await call('PATCH', `${base}/requests/${id}?currentDocument.exists=false`, { fields }, [409]);
+      return { id };
+    },
+
+    async accept(requestId) {
+      needEmail();
+      const id = safe(requestId);
+      const { status, data } = await call('GET', `${base}/requests/${id}`, undefined, [404]);
+      if (status === 404) throw new FriendsError('gone');
+      const req = fromDoc(data);
+      const theirEmail = normEmail(req.fromEmail);
+      if (req.status !== 'pending' || req.toEmail !== myEmail || !theirEmail || !req.fromUid) throw new FriendsError('gone');
+      const them = safe(req.fromUid);
+      const writes = [
+        put(`requests/${id}`, { status: 'accepted', toUid: myUid }, { mask: ['status', 'toUid'], mustExist: true }),
+        put(`friends/${myUid}/list/${them}`, { email: theirEmail, name: req.fromName || theirEmail, avatar: req.fromAvatar || null, since: SERVER_TIME }),
+        put(`friends/${them}/list/${myUid}`, { email: myEmail, name: myName, avatar: myAvatar, since: SERVER_TIME }),
+      ];
+      // If I had also asked them, that request is now pointless; a sender may always delete their own.
+      const reverseId = `${myUid}_${sha256hex(theirEmail)}`;
+      const mine = await queryRequests({ fromUid: myUid, status: 'pending' }, MAX_PENDING_OUT + 1);
+      if (mine.docs.some(r => r.id === reverseId)) writes.push(del(`requests/${reverseId}`));
+      await commit(writes);
+    },
+
+    async decline(requestId) {
+      const id = safe(requestId);
+      await commit([put(`requests/${id}`, { status: 'declined', toUid: myUid }, { mask: ['status', 'toUid'], mustExist: true })]);
+    },
+
+    async cancel(requestId) {
+      const id = safe(requestId);
+      if (!id.startsWith(`${myUid}_`)) throw new FriendsError('gone');
+      await commit([del(`requests/${id}`)]);
+    },
+
+    async removeFriend(uid) {
+      needEmail();
+      const them = safe(uid);
+      // The accepted request lives under whoever sent it: ask for both directions.
+      const [theirs, mine] = await Promise.all([
+        queryRequests({ toEmail: myEmail, status: 'accepted' }),
+        queryRequests({ fromUid: myUid, status: 'accepted' }),
+      ]);
+      const ids = [...new Set([
+        ...theirs.docs.filter(r => r.fromUid === them).map(r => r.id),
+        ...mine.docs.filter(r => r.toUid === them).map(r => r.id),
+      ])];
+      await commit([del(`friends/${myUid}/list/${them}`), del(`friends/${them}/list/${myUid}`), ...ids.map(id => del(`requests/${id}`))]);
+    },
+
+    async writePresence({ state, project, activity }) {
+      await commit([put(`presence/${myUid}`, {
+        state: STATES.has(state) ? state : 'offline',
+        project: clipProject(project),
+        activity: ACTIVITIES.has(activity) ? activity : 'idle',
+        updatedAt: SERVER_TIME,
+      })]);
+    },
+
+    async list() {
+      needEmail();
+      const [friends, incoming, outgoing] = await Promise.all([
+        friendDocs(),
+        queryRequests({ toEmail: myEmail, status: 'pending' }),
+        queryRequests({ fromUid: myUid, status: 'pending' }),
+      ]);
+      // Presence is batch-read; a friend who never shared has no doc, which is "offline", not an error.
+      const presence = new Map();
+      let readTime = Math.max(incoming.readTime, outgoing.readTime);
+      for (let i = 0; i < friends.length; i += 100) {
+        const names = friends.slice(i, i + 100).map(f => docName(`presence/${safe(f.id)}`));
+        const { data } = await call('POST', `${base}:batchGet`, { documents: names });
+        const rows = Array.isArray(data) ? data : [];
+        readTime = Math.max(readTime, maxTime(rows));
+        for (const r of rows) if (r.found) { const p = fromDoc(r.found); presence.set(p.id, p); }
+      }
+      // Staleness is judged against Firestore's own clock, so a wrong clock on this computer cannot skew it.
+      if (!readTime) readTime = now();
+      return {
+        friends: friends.map(f => {
+          const p = presence.get(f.id);
+          const updatedAt = p && Number.isFinite(p.updatedAt) ? p.updatedAt : null;
+          const live = p && STATES.has(p.state) && p.state !== 'offline' && updatedAt !== null && readTime - updatedAt <= STALE_MS;
+          return {
+            uid: f.id, email: f.email, name: f.name || f.email, avatar: f.avatar || null,
+            state: live ? p.state : 'offline',
+            project: live ? clipProject(p.project) : null,
+            activity: live && ACTIVITIES.has(p.activity) ? p.activity : 'idle',
+            updatedAt,
+          };
+        }),
+        incoming: incoming.docs.map(r => asReq(r, 'from')),
+        outgoing: outgoing.docs.map(r => asReq(r, 'to')),
+        readTime,
+      };
+    },
+  };
+}
+
+module.exports = { FriendsError, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };

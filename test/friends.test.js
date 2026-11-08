@@ -208,3 +208,291 @@ test('SessionCache does not keep a session that was dropped while it was signing
   await cache.get('a');
   assert.deepEqual(tokenCalls, ['a', 'a']);
 });
+
+// ---- Task 3: Friends API over Firestore ----
+
+const { friendsApi } = require('../src/main/friends');
+
+const DOCS = 'projects/p1/databases/(default)/documents';
+const BASE = `https://firestore.googleapis.com/v1/${DOCS}`;
+const hashOf = e => sha256hex(e);
+const pdoc = (path, obj) => ({ name: `${DOCS}/${path}`, fields: toFields(obj) });
+const T = Date.UTC(2026, 10, 8, 12, 0, 0);
+const iso = ms => new Date(ms).toISOString();
+
+// A tiny Firestore: answers GET list / runQuery / batchGet from `data`, and records writes.
+function fakeStore(data = {}) {
+  const d = { friends: [], presence: {}, incoming: [], outgoing: [], accepted: { incoming: [], outgoing: [] }, readTime: iso(T), ...data };
+  const log = { commits: [], patches: [], queries: [], all: [] };
+  const handler = async (url, init) => {
+    const method = init.method || 'GET';
+    log.all.push({ method, url, init });
+    if (method === 'GET' && url.startsWith(`${BASE}/friends/u1/list`)) return reply(200, d.friends.length ? { documents: d.friends } : {});
+    if (method === 'GET' && url.startsWith(`${BASE}/requests/`)) {
+      const id = url.slice(`${BASE}/requests/`.length);
+      const hit = (d.requestDocs || []).find(x => x.name.endsWith(`/${id}`));
+      return hit ? reply(200, hit) : reply(404, { error: { status: 'NOT_FOUND' } });
+    }
+    if (method === 'PATCH') { log.patches.push({ url, body: JSON.parse(init.body) }); return reply(200, {}); }
+    const body = init.body ? JSON.parse(init.body) : {};
+    if (url === `${BASE}:commit`) { log.commits.push(body); return reply(200, { writeResults: [] }); }
+    if (url === `${BASE}:runQuery`) {
+      log.queries.push(body);
+      const filters = body.structuredQuery.where.compositeFilter.filters.map(f => [f.fieldFilter.field.fieldPath, f.fieldFilter.value.stringValue]);
+      const has = (k, v) => filters.some(([fk, fv]) => fk === k && (v === undefined || fv === v));
+      let docs = [];
+      if (has('status', 'accepted')) docs = has('fromUid') ? d.accepted.outgoing : d.accepted.incoming;
+      else docs = has('fromUid') ? d.outgoing : d.incoming;
+      return reply(200, docs.length ? docs.map(document => ({ document, readTime: d.readTime })) : [{ readTime: d.readTime }]);
+    }
+    if (url === `${BASE}:batchGet`) {
+      return reply(200, body.documents.map(name => {
+        const uid = name.split('/').pop();
+        return d.presence[uid] ? { found: d.presence[uid], readTime: d.readTime } : { missing: name, readTime: d.readTime };
+      }));
+    }
+    return reply(500, { error: { message: `unexpected ${method} ${url}` } });
+  };
+  const f = async (url, init = {}) => handler(url, init);
+  f.log = log; f.data = d;
+  return f;
+}
+const SESSION = { uid: 'u1', idToken: 'IT', email: 'me@x.com' };
+const apiFor = (f, over = {}) => friendsApi({ projectId: 'p1', session: SESSION, fetch: f, me: { name: 'Me', avatar: 'https://a/me.png' }, now: () => T, ...over });
+const friendDoc = (uid, email, name = uid) => pdoc(`friends/u1/list/${uid}`, { email, name, avatar: null, since: new Date(T - 86400000) });
+const reqDoc = (id, o) => pdoc(`requests/${id}`, { status: 'pending', createdAt: new Date(T - 1000), ...o });
+const presenceDoc = (uid, o) => pdoc(`presence/${uid}`, { project: null, activity: 'idle', ...o });
+
+test('sendRequest normalises the email and uses fromUid_sha256 as the id', async () => {
+  const f = fakeStore();
+  const r = await apiFor(f).sendRequest('  Bob@X.com ');
+  const id = `u1_${hashOf('bob@x.com')}`;
+  assert.deepEqual(r, { id });
+  assert.equal(f.log.patches.length, 1);
+  const p = f.log.patches[0];
+  assert.ok(p.url.startsWith(`${BASE}/requests/${id}`));
+  assert.ok(p.url.includes('currentDocument.exists=false'));
+  const got = fromDoc({ name: `${DOCS}/requests/${id}`, fields: p.body.fields });
+  assert.equal(got.toEmail, 'bob@x.com');
+  assert.equal(got.fromUid, 'u1');
+  assert.equal(got.fromEmail, 'me@x.com');
+  assert.equal(got.fromName, 'Me');
+  assert.equal(got.status, 'pending');
+  assert.equal(got.toUid, null);
+  assert.equal(got.createdAt, T);
+  const patch = f.log.all.find(c => c.method === 'PATCH');
+  assert.equal(patch.init.headers.Authorization, 'Bearer IT');
+});
+
+test('sendRequest rejects things that are not emails', async () => {
+  const f = fakeStore();
+  await assert.rejects(apiFor(f).sendRequest('bob'), e => e instanceof FriendsError && e.code === 'invalid-email');
+  assert.equal(f.log.all.length, 0);
+});
+
+test('sendRequest to own email throws self', async () => {
+  const f = fakeStore();
+  await assert.rejects(apiFor(f).sendRequest(' ME@x.com '), e => e.code === 'self');
+  assert.equal(f.log.all.length, 0);
+});
+
+test('sendRequest to an existing friend throws exists; repeat pending send writes nothing', async () => {
+  const bobId = `u1_${hashOf('bob@x.com')}`;
+  const f = fakeStore({ friends: [friendDoc('u2', 'bob@x.com', 'Bob')], outgoing: [reqDoc(bobId, { fromUid: 'u1', toEmail: 'cy@x.com' })] });
+  const api = apiFor(f);
+  await assert.rejects(api.sendRequest('Bob@x.com'), e => e.code === 'exists');
+  assert.equal(f.log.patches.length, 0);
+  // A pending request to cy is already out there: sending again resolves with the same id and writes nothing.
+  const cyId = `u1_${hashOf('cy@x.com')}`;
+  f.data.outgoing = [reqDoc(cyId, { fromUid: 'u1', toEmail: 'cy@x.com' })];
+  assert.deepEqual(await api.sendRequest(' CY@x.com'), { id: cyId });
+  assert.equal(f.log.patches.length, 0);
+  assert.equal(f.log.commits.length, 0);
+});
+
+test('sendRequest treats a request that already exists server-side as sent', async () => {
+  const base = fakeStore();
+  const f = async (url, init = {}) => (init.method === 'PATCH' ? reply(409, { error: { status: 'ALREADY_EXISTS' } }) : base(url, init));
+  assert.deepEqual(await apiFor(f).sendRequest('dan@x.com'), { id: `u1_${hashOf('dan@x.com')}` });
+});
+
+test('sendRequest throws too-many at 50 pending', async () => {
+  const outgoing = Array.from({ length: 50 }, (_, i) => reqDoc(`u1_h${i}`, { fromUid: 'u1', toEmail: `p${i}@x.com` }));
+  const f = fakeStore({ outgoing });
+  const api = apiFor(f);
+  await assert.rejects(api.sendRequest('new@x.com'), e => e.code === 'too-many');
+  assert.equal(f.log.patches.length, 0);
+  // 49 is fine.
+  f.data.outgoing = outgoing.slice(0, 49);
+  await api.sendRequest('new@x.com');
+  assert.equal(f.log.patches.length, 1);
+});
+
+test('accept writes one commit with request, both list docs and the reverse-request delete', async () => {
+  const reqId = `u2_${hashOf('me@x.com')}`;
+  const reverseId = `u1_${hashOf('bob@x.com')}`;
+  const f = fakeStore({
+    requestDocs: [reqDoc(reqId, { fromUid: 'u2', fromEmail: 'bob@x.com', fromName: 'Bob', fromAvatar: 'https://a/bob.png', toEmail: 'me@x.com', toUid: null })],
+    outgoing: [reqDoc(reverseId, { fromUid: 'u1', toEmail: 'bob@x.com' })],
+  });
+  await apiFor(f).accept(reqId);
+  assert.equal(f.log.commits.length, 1);
+  const w = f.log.commits[0].writes;
+  assert.equal(w.length, 4);
+  assert.equal(w[0].update.name, `${DOCS}/requests/${reqId}`);
+  assert.deepEqual(fromDoc({ name: w[0].update.name, fields: w[0].update.fields }), { id: reqId, status: 'accepted', toUid: 'u1' });
+  assert.deepEqual(w[0].updateMask.fieldPaths, ['status', 'toUid']);
+  assert.equal(w[1].update.name, `${DOCS}/friends/u1/list/u2`);
+  assert.equal(fromDoc(w[1].update).email, 'bob@x.com');
+  assert.equal(fromDoc(w[1].update).name, 'Bob');
+  assert.deepEqual(w[1].updateTransforms, [{ fieldPath: 'since', setToServerValue: 'REQUEST_TIME' }]);
+  assert.equal(w[2].update.name, `${DOCS}/friends/u2/list/u1`);
+  assert.equal(fromDoc(w[2].update).email, 'me@x.com');
+  assert.equal(fromDoc(w[2].update).name, 'Me');
+  assert.deepEqual(w[3], { delete: `${DOCS}/requests/${reverseId}` });
+});
+
+test('accept without a reverse request writes three docs and no delete', async () => {
+  const reqId = `u2_${hashOf('me@x.com')}`;
+  const f = fakeStore({ requestDocs: [reqDoc(reqId, { fromUid: 'u2', fromEmail: 'Bob@x.com', fromName: 'Bob', toEmail: 'me@x.com' })] });
+  await apiFor(f).accept(reqId);
+  assert.equal(f.log.commits[0].writes.length, 3);
+});
+
+test('accept of a request that is gone throws gone', async () => {
+  const f = fakeStore();
+  await assert.rejects(apiFor(f).accept(`u2_${hashOf('me@x.com')}`), e => e.code === 'gone');
+  assert.equal(f.log.commits.length, 0);
+});
+
+test('decline marks the request declined; cancel deletes my own request', async () => {
+  const f = fakeStore();
+  const api = apiFor(f);
+  await api.decline(`u2_${hashOf('me@x.com')}`);
+  const d = f.log.commits[0].writes[0];
+  assert.deepEqual(fromDoc(d.update), { id: `u2_${hashOf('me@x.com')}`, status: 'declined', toUid: 'u1' });
+  assert.deepEqual(d.updateMask.fieldPaths, ['status', 'toUid']);
+  const mine = `u1_${hashOf('bob@x.com')}`;
+  await api.cancel(mine);
+  assert.deepEqual(f.log.commits[1].writes, [{ delete: `${DOCS}/requests/${mine}` }]);
+  // Cancel only touches requests I sent.
+  await assert.rejects(api.cancel(`u2_${hashOf('me@x.com')}`), e => e.code === 'gone');
+  await assert.rejects(api.cancel('../users/u2'), e => e.code === 'gone');
+});
+
+test('removeFriend deletes both list docs and the request in one commit', async () => {
+  const sentByThem = `u2_${hashOf('me@x.com')}`;
+  const f = fakeStore({
+    accepted: {
+      incoming: [reqDoc(sentByThem, { status: 'accepted', fromUid: 'u2', toEmail: 'me@x.com', toUid: 'u1' }), reqDoc(`u9_${hashOf('me@x.com')}`, { status: 'accepted', fromUid: 'u9', toEmail: 'me@x.com', toUid: 'u1' })],
+      outgoing: [],
+    },
+  });
+  await apiFor(f).removeFriend('u2');
+  assert.equal(f.log.commits.length, 1);
+  assert.deepEqual(f.log.commits[0].writes, [
+    { delete: `${DOCS}/friends/u1/list/u2` },
+    { delete: `${DOCS}/friends/u2/list/u1` },
+    { delete: `${DOCS}/requests/${sentByThem}` },
+  ]);
+});
+
+test('removeFriend also finds the request when I sent it', async () => {
+  const sentByMe = `u1_${hashOf('bob@x.com')}`;
+  const f = fakeStore({ accepted: { incoming: [], outgoing: [reqDoc(sentByMe, { status: 'accepted', fromUid: 'u1', toEmail: 'bob@x.com', toUid: 'u2' })] } });
+  await apiFor(f).removeFriend('u2');
+  assert.deepEqual(f.log.commits[0].writes.map(w => w.delete), [`${DOCS}/friends/u1/list/u2`, `${DOCS}/friends/u2/list/u1`, `${DOCS}/requests/${sentByMe}`]);
+});
+
+test('list marks a friend with no presence doc offline', async () => {
+  const f = fakeStore({ friends: [friendDoc('u2', 'bob@x.com', 'Bob')], presence: {} });
+  const out = await apiFor(f).list();
+  assert.equal(out.friends.length, 1);
+  assert.deepEqual(out.friends[0], { uid: 'u2', email: 'bob@x.com', name: 'Bob', avatar: null, state: 'offline', project: null, activity: 'idle', updatedAt: null });
+});
+
+test('list reads presence for friends and keeps fresh online state', async () => {
+  const f = fakeStore({
+    friends: [friendDoc('u2', 'bob@x.com', 'Bob'), friendDoc('u3', 'cy@x.com', 'Cy')],
+    presence: {
+      u2: presenceDoc('u2', { state: 'online', project: 'my-app', activity: 'agent', updatedAt: new Date(T - 30000) }),
+      u3: presenceDoc('u3', { state: 'away', project: null, activity: 'idle', updatedAt: new Date(T - 180000) }),
+    },
+  });
+  const out = await apiFor(f).list();
+  const bob = out.friends.find(x => x.uid === 'u2'), cy = out.friends.find(x => x.uid === 'u3');
+  assert.deepEqual([bob.state, bob.project, bob.activity, bob.updatedAt], ['online', 'my-app', 'agent', T - 30000]);
+  assert.equal(cy.state, 'away'); // exactly 180 s is not yet stale
+  assert.equal(out.readTime, T);
+  const batch = f.log.all.find(c => c.url === `${BASE}:batchGet`);
+  assert.deepEqual(JSON.parse(batch.init.body).documents, [`${DOCS}/presence/u2`, `${DOCS}/presence/u3`]);
+});
+
+test('list marks presence older than 180s before readTime offline, using readTime not Date.now', async () => {
+  const mk = ago => fakeStore({
+    friends: [friendDoc('u2', 'bob@x.com', 'Bob')],
+    presence: { u2: presenceDoc('u2', { state: 'online', project: 'my-app', activity: 'editing', updatedAt: new Date(T - ago) }) },
+  });
+  const realNow = Date.now;
+  try {
+    // A computer whose clock is ten days slow: old presence must still be offline.
+    Date.now = () => T - 10 * 86400000;
+    const stale = (await apiFor(mk(181000), { now: undefined }).list()).friends[0];
+    assert.equal(stale.state, 'offline');
+    assert.equal(stale.project, null);
+    assert.equal(stale.activity, 'idle');
+    assert.equal(stale.updatedAt, T - 181000);
+    // A computer whose clock is ten days fast: fresh presence must still be online.
+    Date.now = () => T + 10 * 86400000;
+    const fresh = (await apiFor(mk(5000), { now: undefined }).list()).friends[0];
+    assert.equal(fresh.state, 'online');
+    assert.equal(fresh.project, 'my-app');
+  } finally { Date.now = realNow; }
+});
+
+test('list returns incoming and outgoing requests', async () => {
+  const f = fakeStore({
+    incoming: [reqDoc(`u5_${hashOf('me@x.com')}`, { fromUid: 'u5', fromEmail: 'Eve@x.com', fromName: 'Eve', fromAvatar: 'https://a/eve.png', toEmail: 'me@x.com' })],
+    outgoing: [reqDoc(`u1_${hashOf('zed@x.com')}`, { fromUid: 'u1', toEmail: 'zed@x.com' })],
+  });
+  const out = await apiFor(f).list();
+  assert.deepEqual(out.incoming, [{ id: `u5_${hashOf('me@x.com')}`, email: 'eve@x.com', name: 'Eve', avatar: 'https://a/eve.png', createdAt: T - 1000 }]);
+  assert.deepEqual(out.outgoing, [{ id: `u1_${hashOf('zed@x.com')}`, email: 'zed@x.com', name: null, avatar: null, createdAt: T - 1000 }]);
+  assert.deepEqual(out.friends, []);
+  // Requests are asked for as "mine and still pending".
+  const asked = f.log.queries.map(q => q.structuredQuery.where.compositeFilter.filters.map(x => `${x.fieldFilter.field.fieldPath}=${x.fieldFilter.value.stringValue}`).sort().join('&')).sort();
+  assert.deepEqual(asked, ['fromUid=u1&status=pending', 'status=pending&toEmail=me@x.com']);
+});
+
+test('writePresence truncates project to 80 chars and uses REQUEST_TIME', async () => {
+  const f = fakeStore();
+  await apiFor(f).writePresence({ state: 'online', project: 'x'.repeat(200), activity: 'editing' });
+  const w = f.log.commits[0].writes[0];
+  assert.equal(w.update.name, `${DOCS}/presence/u1`);
+  const got = fromDoc(w.update);
+  assert.equal(got.project.length, 80);
+  assert.equal(got.state, 'online');
+  assert.equal(got.activity, 'editing');
+  assert.equal('updatedAt' in got, false);
+  assert.deepEqual(w.updateTransforms, [{ fieldPath: 'updatedAt', setToServerValue: 'REQUEST_TIME' }]);
+  await apiFor(f).writePresence({ state: 'offline', project: null, activity: 'idle' });
+  assert.equal(fromDoc(f.log.commits[1].writes[0].update).project, null);
+});
+
+test('upsertProfile writes users/{uid} with the verified email', async () => {
+  const f = fakeStore();
+  await apiFor(f).upsertProfile();
+  const w = f.log.commits[0].writes[0];
+  assert.equal(w.update.name, `${DOCS}/users/u1`);
+  assert.deepEqual(fromDoc(w.update), { id: 'u1', email: 'me@x.com', name: 'Me', avatar: 'https://a/me.png' });
+  assert.deepEqual(w.updateTransforms, [{ fieldPath: 'updatedAt', setToServerValue: 'REQUEST_TIME' }]);
+});
+
+test('a 401 or 403 from Firestore is reauth; a 503 or a dead network is network', async () => {
+  const status = s => async () => reply(s, { error: { message: 'x' } });
+  await assert.rejects(apiFor(status(401)).list(), e => e.code === 'reauth');
+  await assert.rejects(apiFor(status(403)).writePresence({ state: 'online', project: null, activity: 'idle' }), e => e.code === 'reauth');
+  await assert.rejects(apiFor(status(503)).list(), e => e.code === 'network');
+  await assert.rejects(apiFor(async () => { throw new Error('offline'); }).list(), e => e.code === 'network');
+});
+
