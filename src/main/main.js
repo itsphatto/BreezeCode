@@ -3791,25 +3791,27 @@ async function fillAccountEmails() {
   saveState({ accounts: accounts.map(withEmail), user: s.user ? withEmail(s.user) : s.user });
 }
 handle('auth:accounts', async () => { await fillAccountEmails(); return accountsState(); });
-handle('auth:switch', (_e, id) => {
+handle('auth:switch', async (_e, id) => {
   const user = accountsState().accounts.find(a => accountId(a) === id);
   if (!user) throw new Error('That account is no longer signed in');
+  if (id !== accountsState().active) await friendsReset(); // presence stays with the account that shared it
   saveState({ user });
   return user;
 });
 // Signs the active account out and switches to the next one, if any.
-handle('auth:signOut', () => {
+handle('auth:signOut', async () => {
   const { accounts, active } = accountsState();
-  if (active) forgetSignIn(active);
+  if (active) { await friendsReset(); forgetSignIn(active); }
   const rest = accounts.filter(a => accountId(a) !== active);
   const user = rest[0] || null;
   saveState({ accounts: rest, user });
   return user;
 });
 // Forgets one remembered account (and its saved sign-in). Removing the active one switches to the next.
-handle('auth:remove', (_e, id) => {
+handle('auth:remove', async (_e, id) => {
   const { accounts, active } = accountsState();
   if (!accounts.some(a => accountId(a) === id)) throw new Error('That account is no longer signed in');
+  if (id === active) await friendsReset();
   forgetSignIn(id);
   const rest = accounts.filter(a => accountId(a) !== id);
   const user = id === active ? rest[0] || null : loadState().user || null;
@@ -3825,7 +3827,7 @@ handle('auth:start', (_e, provider) => {
   const ac = new AbortController();
   authAbort = ac;
   (provider === 'GitHub' ? githubSignIn(cfg.github, ac.signal) : googleSignIn(cfg.google, ac.signal))
-    .then(user => { addAccount(user); authEmit({ t: 'done', user }); })
+    .then(async user => { await friendsReset(); addAccount(user); authEmit({ t: 'done', user }); }) // the new sign-in becomes the active account
     .catch(err => { if (!ac.signal.aborted) authEmit({ t: 'error', text: err.message }); })
     .finally(() => { if (authAbort === ac) authAbort = null; });
   return { started: true };
@@ -4276,3 +4278,125 @@ handle('discord:set', async (_e, a) => {
 });
 handle('discord:clear', async () => { discord.clear(); });
 app.on('before-quit', () => discord.close());
+
+/* ================= Friends ================= */
+// See what friends are building (never code). friends.js does the work over Firebase; this wires it to the active
+// account and the window. Keys: breeze.config.json "firebase" { apiKey, projectId }, or BREEZE_FIREBASE_API_KEY and
+// BREEZE_FIREBASE_PROJECT_ID. The web API key is public, not a secret.
+const friends = require('./friends');
+let friendsCfg = null;
+function friendsConfig() {
+  if (friendsCfg) return friendsCfg;
+  let file = {};
+  try { file = JSON.parse(fs.readFileSync(path.join(ROOT, 'breeze.config.json'), 'utf8')); } catch { /* not configured */ }
+  const apiKey = String(process.env.BREEZE_FIREBASE_API_KEY || file.firebase?.apiKey || '').trim();
+  const projectId = String(process.env.BREEZE_FIREBASE_PROJECT_ID || file.firebase?.projectId || '').trim();
+  return (friendsCfg = { apiKey, projectId, configured: !!(apiKey && projectId) });
+}
+// No call to Friends may hang the window.
+const friendsFetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
+
+// The access token Firebase trades for a session: GitHub's own, or a fresh Google one from the saved refresh token.
+async function friendsAccessToken(acct) {
+  const user = accountsState().accounts.find(a => accountId(a) === acct);
+  if (!user) return null;
+  if (user.provider === 'GitHub') {
+    const token = await githubToken(acct);
+    return token ? { provider: 'GitHub', token } : null;
+  }
+  const refreshToken = getSecret(`token:${acct}`);
+  if (!refreshToken) return null;
+  try { return { provider: 'Google', token: await syncEngine.googleAccessToken({ ...authConfig().google, refreshToken }) }; }
+  catch (err) { throw new friends.FriendsError(err instanceof syncEngine.SyncError ? 'reauth' : 'network'); }
+}
+let friendsSessions = null;
+function friendsCache() {
+  return friendsSessions ||= new friends.SessionCache({
+    apiKey: friendsConfig().apiKey,
+    fetch: friendsFetch,
+    getAccessToken: friendsAccessToken,
+    loadRefresh: acct => getSecret(`firebase:${acct}`),
+    saveRefresh: (acct, rt) => { try { setSecret(`firebase:${acct}`, rt); } catch { /* no secure storage: signs in again next run */ } },
+  });
+}
+
+// Runs fn(api, session) as the active account. A stale session (401) is thrown away and tried once more.
+// The profile is written the first time each account gets a session in this run.
+const friendsProfiled = new Set();
+async function friendsRun(fn) {
+  const cfg = friendsConfig();
+  if (!cfg.configured) throw new friends.FriendsError('not-configured');
+  const user = loadState().user;
+  if (!user) throw new friends.FriendsError('signed-out');
+  const acct = accountId(user), cache = friendsCache();
+  return friends.callWithRetry(async () => {
+    const session = await cache.get(acct);
+    const api = friends.friendsApi({ projectId: cfg.projectId, session, fetch: friendsFetch, me: { name: user.name, avatar: user.avatar } });
+    if (!friendsProfiled.has(acct)) { await api.upsertProfile(); friendsProfiled.add(acct); }
+    return fn(api, session);
+  }, () => cache.drop());
+}
+// IPC drops an error's code, so Friends failures come back as { error, code } for the renderer to act on.
+function friendsFail(err) {
+  const reply = friends.friendsReply(err, loadState().user?.provider);
+  if (!reply) throw err;
+  return reply;
+}
+function friendsHandle(channel, fn) {
+  handle(channel, async (_e, ...args) => {
+    try { return await friendsRun(api => fn(api, ...args)); } catch (err) { return friendsFail(err); }
+  });
+}
+
+// Presence: one throttle for the active account, made when the renderer first shares.
+let friendsThrottle = null, friendsThrottleAcct = null, friendsStopping = null;
+function friendsStop() {
+  const t = friendsThrottle;
+  friendsThrottle = null; friendsThrottleAcct = null;
+  if (t) friendsStopping = t.stop().finally(() => { friendsStopping = null; }); // writes "offline", 1.5 s at most
+  return friendsStopping || Promise.resolve();
+}
+// The active account is changing: say "offline" as the old one (its session is still cached), then forget it.
+async function friendsReset() {
+  await friendsStop();
+  friendsSessions?.drop();
+}
+
+friendsHandle('friends:list', api => api.list());
+friendsHandle('friends:add', (api, email) => api.sendRequest(email));
+friendsHandle('friends:accept', async (api, id) => { await api.accept(id); return { ok: true }; });
+friendsHandle('friends:decline', async (api, id) => { await api.decline(id); return { ok: true }; });
+friendsHandle('friends:cancel', async (api, id) => { await api.cancel(id); return { ok: true }; });
+friendsHandle('friends:remove', async (api, uid) => { await api.removeFriend(uid); return { ok: true }; });
+
+// Whether Friends is set up and usable, without asking the network when it can't be.
+handle('friends:status', async () => {
+  const user = loadState().user;
+  const base = { configured: friendsConfig().configured, signedIn: !!user, email: null, provider: user?.provider || null };
+  if (!base.configured || !user) return base;
+  try { return { ...base, email: await friendsRun((api, session) => session.email) }; } catch (err) { return { ...base, ...friendsFail(err) }; }
+});
+
+// p = { state, project, activity } to share (the throttle keeps writes polite), or null to stop sharing.
+handle('friends:presence', async (_e, p) => {
+  if (!p || typeof p !== 'object') { await friendsStop(); return { ok: true }; }
+  const user = loadState().user;
+  if (!friendsConfig().configured) return friendsFail(new friends.FriendsError('not-configured'));
+  if (!user) return friendsFail(new friends.FriendsError('signed-out'));
+  const acct = accountId(user);
+  if (friendsThrottle && friendsThrottleAcct !== acct) await friendsReset(); // the account changed some other way
+  if (!friendsThrottle) {
+    friendsThrottleAcct = acct;
+    friendsThrottle = friends.presenceThrottle({ write: q => friendsRun(api => api.writePresence(q)) });
+  }
+  friendsThrottle.set(p);
+  return { ok: true };
+});
+
+// Electron doesn't wait for promises in before-quit: hold the quit once, write "offline", then quit again.
+// The second pass finds nothing left to stop, so it goes straight through.
+app.on('before-quit', e => {
+  if (!friendsThrottle && !friendsStopping) return;
+  e.preventDefault();
+  friendsStop().finally(() => app.quit());
+});

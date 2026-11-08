@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { toFields, fromDoc, normEmail, sha256hex, FriendsError, clipName, safeAvatar } = require('../src/main/friends');
+const { callWithRetry, friendsReply, toFields, fromDoc, normEmail, sha256hex, FriendsError, clipName, safeAvatar } = require('../src/main/friends');
 
 // ---- Task 1: codec and email helpers ----
 
@@ -792,4 +792,31 @@ test('stop before anything was shared writes nothing', async () => {
   const { th, writes } = throttleFor();
   await th.stop();
   assert.deepEqual(writes, []);
+});
+
+// ---- Task 6: main-process helpers ----
+
+test('callWithRetry renews and retries once on reauth only', async () => {
+  let runs = 0, renews = 0;
+  const out = await callWithRetry(async () => { if (++runs === 1) throw new FriendsError('reauth'); return 'ok'; }, async () => { renews++; });
+  assert.deepEqual([out, runs, renews], ['ok', 2, 1]);
+
+  runs = 0; renews = 0;
+  await assert.rejects(callWithRetry(async () => { runs++; throw new FriendsError('reauth'); }, async () => { renews++; }), { code: 'reauth' });
+  assert.deepEqual([runs, renews], [2, 1]); // a second reauth is final
+
+  for (const code of ['denied', 'network', 'gone']) {
+    runs = 0; renews = 0;
+    await assert.rejects(callWithRetry(async () => { runs++; throw new FriendsError(code); }, async () => { renews++; }), { code });
+    assert.deepEqual([runs, renews], [1, 0]);
+  }
+  await assert.rejects(callWithRetry(async () => { throw new TypeError('bug'); }, async () => {}), TypeError);
+});
+
+test('friendsReply names the provider for reauth and leaves other copy alone', () => {
+  assert.deepEqual(friendsReply(new FriendsError('reauth'), 'GitHub'), { error: 'Sign in to GitHub again to use Friends.', code: 'reauth' });
+  assert.deepEqual(friendsReply(new FriendsError('reauth', 'Sign in to Google again to use Friends.'), 'Google'), { error: 'Sign in to Google again to use Friends.', code: 'reauth' });
+  assert.deepEqual(friendsReply(new FriendsError('reauth'), null), { error: 'Sign in again to use Friends.', code: 'reauth' });
+  assert.deepEqual(friendsReply(new FriendsError('denied'), 'GitHub'), { error: "Friends can't do that.", code: 'denied' });
+  assert.equal(friendsReply(new Error('x'), 'GitHub'), null);
 });

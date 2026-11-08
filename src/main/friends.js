@@ -524,4 +524,24 @@ function presenceThrottle({
   };
 }
 
-module.exports = { FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
+// ---- Main-process helpers ----
+
+// Runs `attempt`; when it fails with reauth (a 401: the session went stale), calls `renew()` and runs it once more.
+// Any other failure, including denied, is final: retrying a 403 would only fail the same way.
+async function callWithRetry(attempt, renew) {
+  try { return await attempt(); } catch (e) {
+    if (!(e instanceof FriendsError) || e.code !== 'reauth') throw e;
+    await renew();
+    return attempt();
+  }
+}
+
+// What the renderer gets for a failure: { error, code }, or null when `e` is not a FriendsError (a real bug, left to throw).
+// IPC drops an error's code, so it travels in the reply. A reauth names the account's provider ("GitHub" / "Google").
+function friendsReply(e, provider) {
+  if (!(e instanceof FriendsError)) return null;
+  const error = e.code === 'reauth' && provider ? `Sign in to ${provider} again to use Friends.` : e.message;
+  return { error, code: e.code };
+}
+
+module.exports = { callWithRetry, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
