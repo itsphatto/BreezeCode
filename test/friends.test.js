@@ -148,27 +148,30 @@ test('sendVerifyEmail asks Firebase for a VERIFY_EMAIL link with the id token', 
   assert.deepEqual(JSON.parse(f.calls[0].body), { requestType: 'VERIFY_EMAIL', idToken: 'ID' });
 });
 
-test('sendVerifyEmail with an email asks for VERIFY_AND_CHANGE_EMAIL, which sets and verifies it in one link', async () => {
+test('sendVerifyEmail asks for plain VERIFY_EMAIL first', async () => {
   const { sendVerifyEmail } = require('../src/main/friends');
   const f = fakeFetch(() => reply(200, {}));
   await sendVerifyEmail({ apiKey: 'K', idToken: 'ID', email: 'bob@x.com', fetch: f });
   assert.equal(f.calls.length, 1);
-  assert.deepEqual(JSON.parse(f.calls[0].body), { requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken: 'ID', newEmail: 'bob@x.com' });
+  assert.deepEqual(JSON.parse(f.calls[0].body), { requestType: 'VERIFY_EMAIL', idToken: 'ID' });
 });
 
-test('sendVerifyEmail falls back to VERIFY_EMAIL when Firebase refuses the change', async () => {
+test('sendVerifyEmail sets and verifies the email with VERIFY_AND_CHANGE_EMAIL when the account has none', async () => {
   const { sendVerifyEmail } = require('../src/main/friends');
-  const f = fakeFetch((url, body) => (JSON.parse(body).requestType === 'VERIFY_AND_CHANGE_EMAIL'
-    ? reply(400, { error: { message: 'EMAIL_EXISTS' } }) : reply(200, {})));
+  const f = fakeFetch((url, body) => (JSON.parse(body).requestType === 'VERIFY_EMAIL'
+    ? reply(400, { error: { message: 'EMAIL_NOT_FOUND' } }) : reply(200, {})));
   await sendVerifyEmail({ apiKey: 'K', idToken: 'ID', email: 'bob@x.com', fetch: f });
-  assert.deepEqual(f.calls.map(c => JSON.parse(c.body).requestType), ['VERIFY_AND_CHANGE_EMAIL', 'VERIFY_EMAIL']);
+  assert.deepEqual(f.calls.map(c => JSON.parse(c.body)), [
+    { requestType: 'VERIFY_EMAIL', idToken: 'ID' },
+    { requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken: 'ID', newEmail: 'bob@x.com' },
+  ]);
 });
 
 test('sendVerifyEmail names both Firebase codes when neither request works', async () => {
   const { sendVerifyEmail } = require('../src/main/friends');
   const f = fakeFetch((url, body) => reply(400, { error: { message: JSON.parse(body).requestType === 'VERIFY_EMAIL' ? 'EMAIL_NOT_FOUND' : 'OPERATION_NOT_ALLOWED : nope' } }));
   await assert.rejects(sendVerifyEmail({ apiKey: 'K', idToken: 'ID', email: 'bob@x.com', fetch: f }),
-    e => e instanceof FriendsError && e.message === "Couldn't send the email (OPERATION_NOT_ALLOWED, EMAIL_NOT_FOUND). Try again.");
+    e => e instanceof FriendsError && e.message === "Couldn't send the email (EMAIL_NOT_FOUND, OPERATION_NOT_ALLOWED). Try again.");
 });
 
 test('sendVerifyEmail stops at too many attempts without a second request', async () => {

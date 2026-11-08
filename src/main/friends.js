@@ -165,10 +165,11 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
 }
 
 // Has Firebase email the account a link that verifies `email`. `idToken` is from the unverified sign-in.
-// A GitHub account's email may sit only on its GitHub link (or be hidden by GitHub), and Firebase projects with email
-// enumeration protection refuse to set an email outright. So it asks for VERIFY_AND_CHANGE_EMAIL first: the link both
-// sets the account's email and verifies it. If Firebase won't (the email is already the account's), plain VERIFY_EMAIL.
-// A failure Breeze has no words for carries Firebase's code, e.g. "Couldn't send the email (OPERATION_NOT_ALLOWED)."
+// Plain VERIFY_EMAIL first: it works whenever the account has an email. A GitHub account's email may sit only on its
+// GitHub link (or be hidden by GitHub), so the account itself has none and Firebase answers EMAIL_NOT_FOUND; then
+// VERIFY_AND_CHANGE_EMAIL, whose link sets the account's email and verifies it (projects with email enumeration
+// protection won't set an email any other way).
+// A failure Breeze has no words for carries Firebase's codes, e.g. "Couldn't send the email (EMAIL_NOT_FOUND, …)."
 const OOB_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode';
 const oobCode = msg => (String(msg).match(/^[A-Z_]+/) || ['UNKNOWN'])[0];
 async function sendVerifyEmail({ apiKey, idToken, email, fetch: fetchFn = globalThis.fetch }) {
@@ -177,18 +178,16 @@ async function sendVerifyEmail({ apiKey, idToken, email, fetch: fetchFn = global
     body: JSON.stringify(body),
   }, onFail);
   const tooMany = msg => (/TOO_MANY_ATTEMPTS/i.test(msg) ? new FriendsError('network', 'Too many emails were sent. Wait a few minutes and try again.') : null);
-  let first = null;
-  if (email) {
-    try {
-      await send({ requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken, newEmail: email }, msg => tooMany(msg) || Object.assign(new FriendsError('network'), { firebase: oobCode(msg) }));
-      return;
-    } catch (e) {
-      if (!e.firebase) throw e; // the network, or too many emails: VERIFY_EMAIL would fail the same way
-      first = e.firebase;
-    }
+  const failed = (...codes) => new FriendsError('network', `Couldn't send the email (${codes.join(', ')}). Try again.`);
+  let first;
+  try {
+    await send({ requestType: 'VERIFY_EMAIL', idToken }, msg => tooMany(msg) || Object.assign(failed(oobCode(msg)), { firebase: oobCode(msg) }));
+    return;
+  } catch (e) {
+    if (!e.firebase || !email) throw e; // the network, too many emails, or nothing to set: the change would fail too
+    first = e.firebase;
   }
-  await send({ requestType: 'VERIFY_EMAIL', idToken }, msg => tooMany(msg)
-    || new FriendsError('network', `Couldn't send the email (${first ? `${first}, ` : ''}${oobCode(msg)}). Try again.`));
+  await send({ requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken, newEmail: email }, msg => tooMany(msg) || failed(first, oobCode(msg)));
 }
 
 // Trades a saved refresh token for a new session. The refresh reply has no email, so it is read from the id token
