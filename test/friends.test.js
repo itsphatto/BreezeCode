@@ -130,6 +130,31 @@ test('firebaseSession rejects an account whose email is not verified', async () 
   }
 });
 
+test('an unverified sign-in keeps its id token for the verification email, but never shows it', async () => {
+  const f = fakeFetch(() => idpOk('u1', { emailVerified: false, email: 'Bob@X.com' }));
+  const err = await firebaseSession({ apiKey: 'K', provider: 'GitHub', accessToken: 'T', fetch: f }).catch(e => e);
+  assert.equal(err.code, 'unverified');
+  assert.equal(err.idToken, 'id-u1');
+  assert.equal(err.email, 'bob@x.com');
+  assert.ok(!JSON.stringify(err).includes('id-u1'));
+  assert.ok(!Object.keys(err).includes('idToken'));
+});
+
+test('sendVerifyEmail asks Firebase for a VERIFY_EMAIL link with the id token', async () => {
+  const { sendVerifyEmail } = require('../src/main/friends');
+  const f = fakeFetch(() => reply(200, { email: 'bob@x.com' }));
+  await sendVerifyEmail({ apiKey: 'K', idToken: 'ID', fetch: f });
+  assert.ok(f.calls[0].url.includes('accounts:sendOobCode?key=K'));
+  assert.deepEqual(JSON.parse(f.calls[0].body), { requestType: 'VERIFY_EMAIL', idToken: 'ID' });
+});
+
+test('sendVerifyEmail maps TOO_MANY_ATTEMPTS to a friendly network error', async () => {
+  const { sendVerifyEmail } = require('../src/main/friends');
+  const f = fakeFetch(() => reply(400, { error: { message: 'TOO_MANY_ATTEMPTS_TRY_LATER' } }));
+  await assert.rejects(sendVerifyEmail({ apiKey: 'K', idToken: 'ID', fetch: f }),
+    e => e instanceof FriendsError && e.code === 'network' && /Too many emails/.test(e.message));
+});
+
 test('firebaseSession does not ask for the provider credential back', async () => {
   const f = fakeFetch(() => idpOk('u1'));
   await firebaseSession({ apiKey: 'K', provider: 'GitHub', accessToken: 'T', fetch: f });

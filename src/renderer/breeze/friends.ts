@@ -19,6 +19,8 @@ let friendsOpen = false;
 let friendsData: FriendsList | null = null;
 // Why the list can't show (not set up, signed out, sign in again, …), or a network failure over the last list; null: fine.
 let friendsGate: FriendsFail | null = null;
+let friendsVerifySent: string | null = null; // the address Firebase emailed a verification link to
+let friendsVerifyNote = '';                   // a line under the verify message: a failure, or "still not verified"
 let friendsConfigured: boolean | null = null; // null until main has said
 let friendsTimer: TimeoutId | undefined;
 let friendsSeq = 0;
@@ -70,6 +72,17 @@ function friendsStateHtml(g: FriendsFail): string {
   if (g.code === 'not-configured') {
     return `${svgIcon('users', 28)}<h3>${esc(FRIENDS_COPY['not-configured'])}</h3>
       <p>Add <code>firebase.apiKey</code> and <code>firebase.projectId</code> to <code>breeze.config.json</code> to turn it on.</p>`;
+  }
+  if (g.code === 'unverified') {
+    // Firebase doesn't take GitHub's word for an email: it emails a link, and one click turns Friends on for good.
+    const sent = friendsVerifySent;
+    return `${svgIcon('users', 28)}<h3>Verify your email to use Friends</h3>
+      <p>${sent ? `We sent a link to <b>${esc(sent)}</b>. Click it, then come back and press Try again.`
+        : 'Friends matches people by email, so it needs to know this one is yours. We\'ll email you a link; click it once and you\'re in.'}</p>
+      ${friendsVerifyNote ? `<p class="friends-note">${esc(friendsVerifyNote)}</p>` : ''}
+      <div class="friends-acts">${sent
+        ? '<button class="btn btn-primary" data-friend-act="recheck">Try again</button><button class="btn" data-friend-act="verify">Send again</button>'
+        : '<button class="btn btn-primary" data-friend-act="verify">Send verification email</button>'}</div>`;
   }
   const text = g.code === 'signed-out' ? FRIENDS_COPY['signed-out'] : g.error;
   const signIn = g.code === 'signed-out' || g.code === 'reauth';
@@ -131,7 +144,7 @@ function scheduleFriends(): void {
 const friendsGateOf = (st: FriendsStatus): FriendsFail | null => (!st.configured ? { error: FRIENDS_COPY['not-configured'], code: 'not-configured' }
   : !st.signedIn ? { error: FRIENDS_COPY['signed-out'], code: 'signed-out' }
     : st.error ? { error: st.error, code: st.code ?? null } : null);
-const friendsStatusOf = () => api.friends.status().catch((e: unknown) => ({ configured: true, signedIn: true, email: null, provider: null, ...friendsFailOf(e) }) as FriendsStatus);
+const friendsStatusOf = (fresh = false) => api.friends.status(fresh).catch((e: unknown) => ({ configured: true, signedIn: true, email: null, provider: null, ...friendsFailOf(e) }) as FriendsStatus);
 // The hidden poll: only the badge. A failure other than the network is shown like the full refresh would show it.
 async function refreshFriendsBadge(): Promise<void> {
   const seq = ++friendsSeq;
@@ -152,11 +165,12 @@ async function refreshFriendsBadge(): Promise<void> {
     if (seq === friendsSeq) scheduleFriends();
   }
 }
-async function refreshFriends(): Promise<void> {
+// `fresh` asks main to forget a held failure and sign in again (Try again, after clicking the verification link).
+async function refreshFriends(fresh = false): Promise<void> {
   const seq = ++friendsSeq;
   clearTimeout(friendsTimer);
   try {
-    const st = await friendsStatusOf();
+    const st = await friendsStatusOf(fresh);
     if (seq !== friendsSeq) return;
     friendsConfigured = st.configured;
     let gate = friendsGateOf(st);
@@ -167,6 +181,9 @@ async function refreshFriends(): Promise<void> {
       else friendsData = r;
     }
     if (gate && gate.code !== 'network') friendsData = null; // another account's (or no account's) list never lingers
+    if (gate?.code !== 'unverified') { friendsVerifySent = null; friendsVerifyNote = ''; }
+    else if (fresh && friendsVerifySent) friendsVerifyNote = "Still not verified. Check your inbox (and spam) for the link from Firebase.";
+    if (!gate && friendsGate?.code === 'unverified') queueFriendsPresence(); // just verified: start sharing now
     friendsGate = gate;
     renderFriends();
   } finally {
@@ -289,6 +306,17 @@ function openFriendMenu(anchor: HTMLElement, f: Friend): void {
   const r = anchor.getBoundingClientRect();
   popupMenu(r.left, r.bottom + 4, [{ label: 'Remove', run: () => confirmRemoveFriend(f) }], undefined, anchor);
 }
+// Has Firebase email this account a verification link (or find it verified already).
+async function friendsSendVerify(b: HTMLButtonElement): Promise<void> {
+  b.disabled = true;
+  const r = await api.friends.verify().catch(friendsFailOf);
+  if (isFriendsFail(r)) { friendsVerifyNote = r.error; renderFriends(); b.disabled = false; return; }
+  if ('verified' in r) { void refreshFriends(true); return; }
+  friendsVerifySent = r.email ?? 'your email';
+  friendsVerifyNote = '';
+  renderFriends();
+  $<HTMLButtonElement>('[data-friend-act="recheck"]')?.focus();
+}
 // A picture that fails to load (expired, offline) becomes the initial rather than a broken-image glyph.
 friendsView().addEventListener('error', e => {
   const img = e.target;
@@ -299,6 +327,8 @@ friendsView().addEventListener('click', e => {
   if (!b) return;
   const act = b.dataset.friendAct, id = b.dataset.id ?? '';
   if (act === 'signin') addAccount();
+  else if (act === 'verify') void friendsSendVerify(b);
+  else if (act === 'recheck') void refreshFriends(true);
   else if (act === 'more') { const f = friendsData?.friends.find(x => x.uid === id); if (f) openFriendMenu(b, f); }
   else if (act === 'accept' || act === 'decline' || act === 'cancel') void friendsAct(act, id, b);
 });

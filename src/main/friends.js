@@ -146,8 +146,15 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
   // A 200 without a session: the email already belongs to another Firebase account (the person's other provider) and
   // the project links one account per email, so Firebase asks for a confirmation Breeze can't give.
   if (!body.idToken || !body.localId || body.needConfirmation || body.errorMessage) throw new FriendsError('linked');
-  // Identity is the verified email; an account whose email is unverified cannot be matched safely.
-  if (body.emailVerified !== true) throw new FriendsError('unverified');
+  // Identity is the verified email; an account whose email is unverified cannot be matched safely. Firebase doesn't take
+  // GitHub's word for an email, so a GitHub account lands here until the person clicks a link Firebase emails them
+  // (sendVerifyEmail). The error carries the unverified session's id token for that, and never leaves main.
+  if (body.emailVerified !== true) {
+    const err = new FriendsError('unverified');
+    Object.defineProperty(err, 'idToken', { value: body.idToken, enumerable: false });
+    err.email = normEmail(body.email);
+    throw err;
+  }
   return {
     uid: body.localId,
     idToken: body.idToken,
@@ -155,6 +162,19 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
     email: normEmail(body.email),
     expiresAt: now() + Number(body.expiresIn || 3600) * 1000,
   };
+}
+
+// Asks Firebase to email the account a link that marks its email verified. `idToken` is from the unverified sign-in.
+const OOB_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode';
+async function sendVerifyEmail({ apiKey, idToken, fetch: fetchFn = globalThis.fetch }) {
+  await postJson(fetchFn, `${OOB_URL}?key=${encodeURIComponent(apiKey)}`, {
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestType: 'VERIFY_EMAIL', idToken }),
+  }, msg => {
+    if (/TOO_MANY_ATTEMPTS/i.test(msg)) return new FriendsError('network', 'Too many emails were sent. Wait a few minutes and try again.');
+    if (/EMAIL_NOT_FOUND|MISSING_EMAIL/i.test(msg)) return new FriendsError('unverified', "This account has no email Firebase can send a link to.");
+    return new FriendsError('network', "Couldn't send the email. Try again.");
+  });
 }
 
 // Trades a saved refresh token for a new session. The refresh reply has no email, so it is read from the id token
@@ -605,4 +625,4 @@ function friendsReply(e, provider) {
   return { error, code: e.code };
 }
 
-module.exports = { callWithRetry, failureHold, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
+module.exports = { callWithRetry, failureHold, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, sendVerifyEmail, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };

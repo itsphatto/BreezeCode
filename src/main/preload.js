@@ -201,7 +201,8 @@ contextBridge.exposeInMainWorld('breeze', {
     onEvent: cb => listen('auth:event', cb),
   },
   friends: {
-    status: () => invoke('friends:status'),
+    status: fresh => invoke('friends:status', fresh === true),
+    verify: () => invoke('friends:verify'),
     list: () => invoke('friends:list'),
     incoming: () => invoke('friends:incoming'),
     add: email => invoke('friends:add', email),

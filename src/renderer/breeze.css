@@ -8828,6 +8828,14 @@ body.layout-animating .box > .terminal.open {
   font-size: .9em;
 }
 
+.friends-state p {
+  max-width: 42ch;
+}
+
+.friends-state .friends-note {
+  color: var(--err);
+}
+
 .friends-state code {
   font-family: var(--font-code);
   font-size: .9em;

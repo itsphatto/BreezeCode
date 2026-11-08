@@ -4397,11 +4397,35 @@ friendsHandle('friends:cancel', async (api, id) => { await api.cancel(id); retur
 friendsHandle('friends:remove', async (api, uid) => { await api.removeFriend(uid); return { ok: true }; });
 
 // Whether Friends is set up and usable, without asking the network when it can't be.
-handle('friends:status', async () => {
+// `fresh` (the Try again button) forgets a held failure and the cached session, so Firebase is asked again: after the
+// person clicks the verification link, the next sign-in comes back verified.
+handle('friends:status', async (_e, fresh) => {
+  if (fresh === true) { friendsHeld.clear(); friendsSessions?.drop(); }
   const user = loadState().user;
   const base = { configured: friendsConfig().configured, signedIn: !!user, email: null, provider: user?.provider || null };
   if (!base.configured || !user) return base;
   try { return { ...base, email: await friendsRun((api, session) => session.email) }; } catch (err) { return { ...base, ...friendsFail(err) }; }
+});
+
+// An unverified account (GitHub's emails are never taken on trust): sign in afresh and have Firebase email the person a
+// link that verifies the address. { sent: true, email } once the email is on its way, { verified: true } when the
+// account turns out to be verified already, else { error, code }. The unverified session's token stays in main.
+handle('friends:verify', async () => {
+  const cfg = friendsConfig();
+  if (!cfg.configured) return friendsFail(new friends.FriendsError('not-configured'));
+  const user = loadState().user;
+  if (!user) return friendsFail(new friends.FriendsError('signed-out'));
+  friendsHeld.clear(); friendsSessions?.drop();
+  try {
+    await friendsCache().get(accountId(user));
+    return { verified: true };
+  } catch (err) {
+    if (!(err instanceof friends.FriendsError) || err.code !== 'unverified' || !err.idToken) return friendsFail(err);
+    try {
+      await friends.sendVerifyEmail({ apiKey: cfg.apiKey, idToken: err.idToken, fetch: friendsFetch });
+      return { sent: true, email: err.email };
+    } catch (e) { return friendsFail(e); }
+  }
 });
 
 // p = { state, project, activity } to share (the throttle keeps writes polite), or null to stop sharing.

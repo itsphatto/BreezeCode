@@ -336,7 +336,10 @@ interface BreezeApi {
     onEvent(cb: (ev: AuthEvent) => void): () => void;
   };
   friends: {
-    status(): Promise<FriendsStatus>;
+    // fresh: forget a held failure and ask Firebase again (Try again after verifying the email).
+    status(fresh?: boolean): Promise<FriendsStatus>;
+    // Emails the account a link that verifies its address (GitHub's emails aren't taken on trust).
+    verify(): Promise<{ sent: true; email: string | null } | { verified: true } | FriendsFail>;
     list(): Promise<FriendsList | FriendsFail>;
     incoming(): Promise<FriendsIncoming | FriendsFail>;
     add(email: string): Promise<{ id: string } | FriendsFail>;
