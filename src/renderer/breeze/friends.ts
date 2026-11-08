@@ -251,10 +251,13 @@ $('#friendsAdd').onsubmit = e => {
 const friendsView = () => $('.home-view[data-view="friends"]');
 const friendsButtons = (act: string) => $$<HTMLButtonElement>(`[data-friend-act="${act}"]`, friendsView());
 // The rows are redrawn, so the button that had focus is gone: focus goes to the same kind of button in the row that
-// took its place (or the one above), else the email field. Only when focus was lost, or is still in the view.
-function friendsRefocus(act: string, index: number): void {
+// took its place (or the one above), else the email field. Only when focus was lost (the page has it) or is still on
+// the button that started the action; focus the person moved anywhere else, the email field above all, stays put, so
+// an Enter meant for Add can never land on Accept.
+function friendsRefocus(act: string, index: number, start: Element | null): void {
   const at = document.activeElement;
-  if (at && at !== document.body && !friendsView().contains(at)) return;
+  if (at && at !== document.body && at !== start) return;
+  if (at && at === $('#friendsEmail')) return;
   if (!friendsView().getClientRects().length) return;
   const same = friendsButtons(act).filter(b => !b.disabled);
   const target = same[Math.min(index, same.length - 1)] ?? $<HTMLInputElement>('#friendsEmail');
@@ -264,12 +267,14 @@ async function friendsAct(kind: 'accept' | 'decline' | 'cancel' | 'remove', id: 
   // Remove starts from the row's "…" button (through its menu and the confirm); the others from their own button.
   const act = kind === 'remove' ? 'more' : kind;
   const index = Math.max(0, friendsButtons(act).findIndex(b => b.dataset.id === id));
+  // What has focus as the action starts: its own button, or for Remove, wherever the closed dialog left it.
+  const start = btn ?? document.activeElement;
   if (btn) btn.disabled = true;
   const r = await api.friends[kind](id).catch(friendsFailOf);
   if (isFriendsFail(r)) toast(r.error);
   await refreshFriends();
   if (btn?.isConnected) btn.disabled = false;
-  friendsRefocus(act, index);
+  friendsRefocus(act, index, start);
 }
 // Removing is the app's usual confirm dialog: Cancel, and the red button that does it.
 function confirmRemoveFriend(f: Friend): void {
