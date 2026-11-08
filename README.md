@@ -9,7 +9,7 @@
 A free, featherweight code editor for Windows. Say what you want in plain words,<br>
 then watch Claude Code, Codex, Antigravity or a local model build it, live, right next to your code.
 
-<br>
+
 
 [**Download for Windows**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.itsphatto.site) &nbsp;·&nbsp; [FAQ](https://breezecode.itsphatto.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
 

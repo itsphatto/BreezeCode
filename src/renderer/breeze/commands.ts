@@ -777,6 +777,7 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
   m.style.setProperty('--n', String(items.length)); // menus that open upwards stagger their rows from the bottom
   applyDataStyles(m);
   $('#menuRoot').append(m);
+  fitMenuHeight(m);
   m.style.left = `${Math.max(8, Math.min(x, innerWidth - m.offsetWidth - 8))}px`;
   m.style.top = `${Math.max(8, Math.min(y, innerHeight - m.offsetHeight - 8))}px`;
   $$<HTMLElement>('[data-ms]', m).forEach(row => {
@@ -796,6 +797,27 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
     else if (depth) b.onmouseenter = () => closeSubmenu(depth + 1);
   });
   return m;
+}
+// A menu with more rows than fit (every page in a project, say) keeps a fixed size: its rows scroll in a box inside it,
+// with the editor's slider (scrollSlider, editor.ts) for the hidden scrollbar. The menu itself doesn't scroll, so the
+// slider and the keyboard highlight (its ::before) stay put. Long labels end in "…" and show whole on hover.
+const MENU_MAX_H = 360;
+function fitMenuHeight(m: HTMLElement): void {
+  if (m.scrollHeight <= Math.min(MENU_MAX_H, innerHeight - 16)) return;
+  const box = document.createElement('div');
+  box.className = 'menu-scroll';
+  box.append(...Array.from(m.childNodes));
+  m.append(box);
+  m.classList.add('scrolls');
+  const update = scrollSlider(m, () => box as unknown as CodeSurface, 'v');
+  box.addEventListener('scroll', () => { update(); if (m.classList.contains('kb-on')) slideKbHighlight(); }, { passive: true });
+  for (const label of $$<HTMLElement>('.menu-item > span:not(.key):not(.menu-check)', box)) {
+    if (label.scrollWidth > label.clientWidth) label.closest<HTMLElement>('.menu-item')!.title = label.textContent ?? '';
+  }
+  // The ticked row (the page on show, say) starts in view.
+  const on = box.querySelector<HTMLElement>('.menu-check')?.closest<HTMLElement>('.menu-item');
+  if (on) box.scrollTop = on.offsetTop - box.clientHeight / 2;
+  update();
 }
 // Hovering an item with "›" opens its submenu beside it.
 function openSubmenu(btn: HTMLElement, it: MenuItem): void {
@@ -895,7 +917,11 @@ function slideKbHighlight(): void {
   const b = document.querySelector<HTMLElement>('#menuRoot .menu-item.kb');
   const m = b?.closest<HTMLElement>('.menu');
   if (!b || !m) return;
-  for (const [k, v] of [['x', b.offsetLeft], ['y', b.offsetTop], ['w', b.offsetWidth], ['h', b.offsetHeight]] as const) m.style.setProperty(`--kb-${k}`, `${v}px`);
+  // In a menu that scrolls (fitMenuHeight) the row is brought into view and measured where it shows.
+  const box = b.closest<HTMLElement>('.menu-scroll');
+  if (box && (b.offsetTop < box.scrollTop || b.offsetTop + b.offsetHeight > box.scrollTop + box.clientHeight)) b.scrollIntoView({ block: 'nearest' });
+  const y = b.offsetTop - (box?.scrollTop ?? 0);
+  for (const [k, v] of [['x', b.offsetLeft], ['y', y], ['w', b.offsetWidth], ['h', b.offsetHeight]] as const) m.style.setProperty(`--kb-${k}`, `${v}px`);
   if (m.classList.contains('kb-on')) return;
   m.classList.add('kb-on'); // first placement jumps; later moves slide
   void m.offsetWidth; // apply that placement before turning the slide on
