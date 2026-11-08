@@ -41,3 +41,4 @@ DemoVideo/
 # Plan execution scratch
 .superpowers/
 test/fixtures/**/build/
+agent-brief.txt

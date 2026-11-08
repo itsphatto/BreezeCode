@@ -139,7 +139,7 @@
   --warn: #9c4706;
   --err: #c42b1c;
   --c-planner: #6d28d9;
-  --c-builder: #0369a1;
+  --c-builder: #036496;
   /* Paper isn't see-through: popups are solid sheets, not frosted glass. */
   --glass: rgba(251, 249, 244, .97);
   --glass-strong: rgba(248, 245, 238, .98);
@@ -277,7 +277,7 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 2px;
 }
 
@@ -1406,12 +1406,13 @@ button {
   font: inherit;
 }
 
-/* Text boxes stay flat when clicked into: no ring, glow or coloured edge; the caret shows where you type. */
+/* Text boxes stay flat when clicked into: no ring, glow or coloured edge. The edge only turns a neutral grey, so
+   keyboard users can still see which box they're in (WCAG 2.4.7). */
 .input:focus,
 input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible,
 textarea:focus-visible {
   outline: none;
-  border-color: var(--line);
+  border-color: var(--text-2);
   box-shadow: none;
 }
 
@@ -1814,7 +1815,7 @@ textarea:focus-visible {
 
 .win-btn:focus-visible::before {
   opacity: 1;
-  box-shadow: 0 0 0 2px var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-text);
 }
 
 /* Maximize/restore is drawn on the 24-unit grid (so it can morph, platform.ts): 2.4 units is 1px at 10px, like the others. */
@@ -2124,7 +2125,7 @@ textarea:focus-visible {
 }
 
 .ms-track:focus-visible {
-  box-shadow: 0 0 0 2px var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-text);
 }
 
 /* Inset 2px and ending 8px past the thumb's centre, so its rounded end sits wholly under the (taller) thumb: ending
@@ -5069,7 +5070,7 @@ body.resizing-h .term-body {
 }
 
 .composer-box:focus-within {
-  border-color: var(--line);
+  border-color: var(--text-2);
   box-shadow: none !important;
 }
 
@@ -6554,7 +6555,7 @@ body.vibing .ide {
 .commit-box textarea:focus,
 .commit-box textarea:focus-visible {
   outline: none;
-  border-color: var(--line);
+  border-color: var(--text-2);
   box-shadow: none;
 }
 
@@ -6563,6 +6564,11 @@ body.vibing .ide {
 .commit-box .btn:focus-visible {
   outline: none;
   box-shadow: none;
+}
+
+.commit-box .btn:focus-visible {
+  outline: 2px solid var(--blue-text);
+  outline-offset: 2px;
 }
 
 #scmGenMsg svg {
@@ -7712,7 +7718,7 @@ body.vibing .ide {
 }
 
 .home-rail .act-btn:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: -2px;
 }
 
@@ -7882,7 +7888,7 @@ body.vibing .ide {
 }
 
 .home-link:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -7927,7 +7933,7 @@ body.vibing .ide {
 }
 
 .home-recent .recent-open:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -7939,7 +7945,7 @@ body.vibing .ide {
 }
 
 .home-recent .recent-forget:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -8132,7 +8138,7 @@ body.vibing .ide {
 }
 
 .ad-tab:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 2px;
 }
 
@@ -8294,7 +8300,7 @@ body.vibing .ide {
 }
 
 .ad-range button:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -9936,7 +9942,7 @@ body.layout-animating .box > .terminal.open {
 
 .dd-btn:focus-visible {
   outline: none;
-  border-color: var(--line-strong);
+  border-color: var(--text-2);
 }
 
 .dd-btn .dd-chev {
@@ -11328,8 +11334,9 @@ button.pill:active, .pill-btn:active {
   animation: promptModelIn .28s cubic-bezier(.22, 1, .36, 1) both;
 }
 .prompt-model.open { background: var(--bg-3); color: var(--text); }
-/* The border never changes colour: no hover, open or focus ring. */
-.prompt-model, .prompt-model.open, .prompt-model:focus, .prompt-model:focus-visible { border-color: var(--line); outline: none; box-shadow: none; }
+/* The border never changes colour on hover or open, and there's no ring; keyboard focus greys the edge like a text box. */
+.prompt-model, .prompt-model.open, .prompt-model:focus { border-color: var(--line); outline: none; box-shadow: none; }
+.prompt-model:focus-visible { border-color: var(--text-2); }
 .prompt-model b { font-weight: 600; color: var(--text); flex-shrink: 0; }
 /* Squeezed, the model name gives way first, then the effort; the agent's name and the arrow always show. */
 .prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 100; }
@@ -12293,7 +12300,7 @@ body.layout-animating #previewPane {
 }
 
 .set-profile-edit:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -12515,16 +12522,32 @@ body.layout-animating #previewPane {
     opacity: var(--fade-bot);
   }
 
-  /* The same for the Skills & Plugins list, which also keeps the side panels' fade-in. */
-  #skillList {
+  /* The same for the side lists (Explorer, Search, Skills & Plugins), which also keep the side panels' fade-in,
+     and for the Source Control list, which has none. */
+  #tree,
+  #searchResults,
+  #skillList,
+  #scm {
     mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent);
     animation: fade .18s, setFadeTop linear both, setFadeBot linear both;
     animation-timeline: auto, scroll(self), scroll(self);
     animation-range: normal, 0 48px, calc(100% - 48px) 100%;
   }
 
+  #scm {
+    animation: setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0 48px, calc(100% - 48px) 100%;
+  }
+
+  #tree::before,
+  #tree::after,
+  #searchResults::before,
+  #searchResults::after,
   #skillList::before,
-  #skillList::after {
+  #skillList::after,
+  #scm::before,
+  #scm::after {
     content: "";
     position: sticky;
     z-index: 4;
@@ -12535,18 +12558,30 @@ body.layout-animating #previewPane {
     backdrop-filter: blur(4px);
   }
 
-  #skillList::before {
+  #tree::before,
+  #searchResults::before,
+  #skillList::before,
+  #scm::before {
     top: 0;
     margin-block: 0 -40px;
     mask-image: linear-gradient(#000, transparent);
     opacity: var(--fade-top);
   }
 
-  #skillList::after {
+  #tree::after,
+  #searchResults::after,
+  #skillList::after,
+  #scm::after {
     bottom: -10px;
     margin-block: -30px -10px;
     mask-image: linear-gradient(transparent, #000);
     opacity: var(--fade-bot);
+  }
+
+  /* Source Control's list has 12px of bottom padding, not 10px. */
+  #scm::after {
+    bottom: -12px;
+    margin-block: -28px -12px;
   }
 }
 
@@ -14463,7 +14498,7 @@ body.layout-animating #previewPane {
 :root[data-theme="light"] .ln.warn .diag-msg { color: #b45309; }
 
 /* Git status, refs and diffs */
-:root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m :is(.gst, .nm), .scm-row.git-m :is(.st, .nm)) { color: #8a5800; }
+:root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m :is(.gst, .nm), .scm-row.git-m :is(.st, .nm)) { color: #865500; }
 /* Added and untracked share the green, as they do in the dark themes; each status covers its tab, tree and list rows. */
 :root[data-theme="light"] :is(.tab .gst:is(.git-a, .git-u), .tree-item:is(.git-a, .git-u) :is(.gst, .nm), .scm-row:is(.git-a, .git-u) :is(.st, .nm)) { color: #137036; }
 :root[data-theme="light"] :is(.tab .gst.git-d, .tree-item.git-d :is(.gst, .nm), .scm-row.git-d :is(.st, .nm)) { color: #b91c1c; }
@@ -14494,6 +14529,7 @@ body.layout-animating #previewPane {
 /* Controls (WCAG 1.4.11): a field's edge stands 3:1 off the paper, placeholders read at full text contrast, header
    icons rest at a strength you can still see, and an agent that isn't installed keeps a readable name. */
 :root[data-theme="light"] :is(.input, .select, .composer-box) { border-color: #887e6b; }
+:root[data-theme="light"] :is(.input:focus, .select:focus-visible, .composer-box:focus-within) { border-color: var(--text); } /* 3.9:1 off the resting edge */
 :root[data-theme="light"] ::placeholder { color: var(--text-3); }
 :root[data-theme="light"] .head-actions { opacity: .85; }
 :root[data-theme="light"] .set-agent.missing .nm { opacity: 1; color: var(--text-3); }
@@ -16988,4 +17024,24 @@ input.dbg-edit.bad:focus-visible {
 
 .cf-text.proposed {
   box-shadow: inset 2px 0 0 var(--blue);
+}
+
+/* Reduced motion (Windows: Settings → Accessibility → Visual effects → Animation effects off). Durations shrink to
+   1ms rather than `animation: none`, so the animationend/transitionend events the UI waits on still fire. Loops play
+   once and stop. Script-driven animations (element.animate) check the query themselves. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+
+  .shimmer-text {
+    -webkit-text-fill-color: var(--text-3);
+  }
 }
