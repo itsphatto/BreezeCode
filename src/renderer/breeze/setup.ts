@@ -674,6 +674,7 @@ function showHomeView(view: string): void {
   $('.home-main').scrollTop = 0;
   // Coming to the page, the bars rise in afresh rather than morph from the last visit's.
   if (view === 'agent') { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
+  if (view === 'friends') openFriends(); else closeFriends();
 }
 
 /* ----- Home → Agent: one agent's token use, and the other agents ----- */

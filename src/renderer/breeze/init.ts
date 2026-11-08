@@ -32,6 +32,7 @@ async function boot(): Promise<void> {
   const signed = await api.auth.user().catch(() => null);
   if (signed || isDesktop) { user = signed; appState.user = signed; saveApp(); }
   await refreshAccounts();
+  void refreshFriends(); // in the background: Friends never holds up start-up
   if (!appState.onboarded) goStep(step);
   booted = true;
   updateActIndicator(true);

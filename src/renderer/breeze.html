@@ -314,6 +314,7 @@
         <nav class="activity home-rail" aria-label="Home">
           <button class="act-btn on" data-home-view="session" aria-current="page" title="Home" aria-label="Home"><svg data-i="home" data-size="20"></svg></button>
           <button class="act-btn" data-home-view="agent" title="Agent" aria-label="Agent"><svg data-i="sparkles" data-size="20"></svg></button>
+          <button class="act-btn" data-home-view="friends" title="Friends" aria-label="Friends"><svg data-i="users" data-size="20"></svg><span class="rail-badge hidden" id="friendsBadge" aria-hidden="true"></span></button>
           <span class="flex-1"></span>
           <button class="act-btn" title="Settings" id="homeSettings" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false"><svg
               width="20" height="20">
@@ -388,6 +389,22 @@
                   <div class="ad-tip hidden" id="adTip" role="tooltip"></div>
                 </section>
               </div>
+            </div>
+          </div>
+          <!-- Friends: requests by email, and what accepted friends are building (friends.ts). -->
+          <div class="home-view hidden" data-view="friends">
+            <div class="friends">
+              <header class="friends-head">
+                <h2>Friends</h2>
+                <form class="friends-add" id="friendsAdd" autocomplete="off" novalidate>
+                  <input class="input" id="friendsEmail" type="email" placeholder="Add by email" aria-label="Friend's email" spellcheck="false">
+                  <button class="btn btn-primary" type="submit">Add</button>
+                </form>
+              </header>
+              <p class="friends-msg" id="friendsMsg" aria-live="polite"></p>
+              <div class="friends-state hidden" id="friendsState"></div>
+              <section class="friends-requests hidden" id="friendsRequests" aria-label="Requests"></section>
+              <section class="friends-list" id="friendsList" aria-label="Friends"></section>
             </div>
           </div>
         </main>
@@ -876,6 +893,7 @@
   <script src="breeze/views.js" defer></script>
   <script src="breeze/vibe.js" defer></script>
   <script src="breeze/discord.js" defer></script>
+  <script src="breeze/friends.js" defer></script>
   <script src="breeze/ui.js" defer></script>
   <script src="breeze/init.js" defer></script>
 </body>

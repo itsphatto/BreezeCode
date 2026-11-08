@@ -197,6 +197,7 @@ $('#onboard').addEventListener('click', e => { if (e.detail > 1) { e.preventDefa
 function setUser(u: User | null): void {
   user = u; appState.user = u; saveApp();
   renderUser();
+  friendsAccountChanged(); // signed in, out or switched: Friends looks again as whoever is active now
 }
 const initialsOf = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(w => [...w][0] ?? '').join('').toUpperCase(); // by code point: w[0] splits an emoji
 function avatarHtml(u: User | null, title: string): string {
