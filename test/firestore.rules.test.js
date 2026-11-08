@@ -170,6 +170,36 @@ function run() {
     await assertFails(setDoc(doc(d, 'friends', 'alice', 'list', 'bob'), { email: BOB.email, name: 'bob', avatar: null, since: serverTimestamp() }));
   });
 
+  test('list docs come and go in pairs: one side alone can be neither created nor deleted', async () => {
+    const entry = u => ({ email: u.email, name: u.uid, avatar: null, since: serverTimestamp() });
+    // Creating only one side inside an otherwise valid accept commit fails.
+    await assertSucceeds(send(ALICE, BOB));
+    for (const side of ['mine', 'theirs']) {
+      const d = db(BOB);
+      const b = writeBatch(d);
+      b.update(doc(d, 'requests', rid(ALICE, BOB.email)), { status: 'accepted', toUid: 'bob' });
+      if (side === 'mine') b.set(doc(d, 'friends', 'bob', 'list', 'alice'), entry(ALICE));
+      else b.set(doc(d, 'friends', 'alice', 'list', 'bob'), entry(BOB));
+      await assertFails(b.commit());
+    }
+    // Both together succeed (the accept commit).
+    await assertSucceeds(acceptBatch(BOB, ALICE));
+    // Deleting only one side fails, from either friend.
+    for (const who of [ALICE, BOB]) {
+      await assertFails(deleteDoc(doc(db(who), 'friends', 'alice', 'list', 'bob')));
+      await assertFails(deleteDoc(doc(db(who), 'friends', 'bob', 'list', 'alice')));
+    }
+    // Both together succeed, even without the request.
+    const d = db(ALICE);
+    const b = writeBatch(d);
+    b.delete(doc(d, 'friends', 'alice', 'list', 'bob'));
+    b.delete(doc(d, 'friends', 'bob', 'list', 'alice'));
+    await assertSucceeds(b.commit());
+    // A one-sided pair left over from before these rules can still be cleaned up: its last side may go alone.
+    await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), 'friends', 'alice', 'list', 'bob'), entry(BOB)); });
+    await assertSucceeds(deleteDoc(doc(db(ALICE), 'friends', 'alice', 'list', 'bob')));
+  });
+
   // What the sender can observe about their own request: its GET and both of their queries.
   async function senderView(who) {
     const g = await getDoc(doc(db(who), 'requests', rid(who, BOB.email)));

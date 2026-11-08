@@ -326,6 +326,35 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
     return req;
   }
 
+  // The ids among `reqs` (incoming requests) that I declined: my own markers, in one batchGet.
+  async function declinedOf(reqs) {
+    const declined = new Set();
+    if (!reqs.length) return declined;
+    const names = reqs.map(r => docName(`friends/${myUid}/declined/${safe(r.id)}`));
+    const { data } = await call('POST', `${base}:batchGet`, { documents: names });
+    for (const r of Array.isArray(data) ? data : []) if (r.found) declined.add(fromDoc(r.found).id);
+    return declined;
+  }
+
+  // Presence docs for `uids` (at most 100), as [docs, readTime]. A friend who never shared has no doc. If the batch is
+  // refused (a friend doc whose other side is gone makes one read in it unreadable, and Firestore then refuses all of
+  // them), each one is read alone and a refused one counts as offline, so the list still loads and Remove still works.
+  async function presenceOf(uids) {
+    const names = uids.map(uid => docName(`presence/${safe(uid)}`));
+    try {
+      const { data } = await call('POST', `${base}:batchGet`, { documents: names });
+      const rows = Array.isArray(data) ? data : [];
+      return [rows.filter(r => r.found).map(r => fromDoc(r.found)), maxTime(rows)];
+    } catch (e) {
+      if (!(e instanceof FriendsError) || e.code !== 'denied') throw e;
+    }
+    const one = await Promise.all(uids.map(async uid => {
+      const { status, data } = await call('GET', `${base}/presence/${safe(uid)}`, undefined, [403, 404]);
+      return status === 200 ? fromDoc(data) : null;
+    }));
+    return [one.filter(Boolean), 0];
+  }
+
   const asReq = (r, who) => (who === 'from'
     ? { id: r.id, email: normEmail(r.fromEmail) || String(r.fromEmail || ''), name: r.fromName || null, avatar: safeAvatar(r.fromAvatar), createdAt: r.createdAt ?? null }
     : { id: r.id, email: String(r.toEmail || ''), name: null, avatar: null, createdAt: r.createdAt ?? null });
@@ -427,21 +456,14 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
         queryRequests({ fromUid: myUid, status: 'pending' }),
       ]);
       let readTime = Math.max(incoming.readTime, outgoing.readTime);
-      // Incoming requests I declined stay pending for the sender; my own markers hide them here (one batchGet).
-      const declined = new Set();
-      if (incoming.docs.length) {
-        const names = incoming.docs.map(r => docName(`friends/${myUid}/declined/${safe(r.id)}`));
-        const { data } = await call('POST', `${base}:batchGet`, { documents: names });
-        for (const r of Array.isArray(data) ? data : []) if (r.found) declined.add(fromDoc(r.found).id);
-      }
+      // Incoming requests I declined stay pending for the sender; my own markers hide them here.
+      const declined = await declinedOf(incoming.docs);
       // Presence is batch-read; a friend who never shared has no doc, which is "offline", not an error.
       const presence = new Map();
       for (let i = 0; i < friends.length; i += 100) {
-        const names = friends.slice(i, i + 100).map(f => docName(`presence/${safe(f.id)}`));
-        const { data } = await call('POST', `${base}:batchGet`, { documents: names });
-        const rows = Array.isArray(data) ? data : [];
-        readTime = Math.max(readTime, maxTime(rows));
-        for (const r of rows) if (r.found) { const p = fromDoc(r.found); presence.set(p.id, p); }
+        const [docs, t] = await presenceOf(friends.slice(i, i + 100).map(f => f.id));
+        readTime = Math.max(readTime, t);
+        for (const p of docs) presence.set(p.id, p);
       }
       // Staleness is judged against Firestore's own clock, so a wrong clock on this computer cannot skew it.
       if (!readTime) readTime = now();

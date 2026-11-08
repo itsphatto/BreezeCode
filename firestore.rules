@@ -121,16 +121,25 @@ service cloud.firestore {
           && request.resource.data.since == request.time;
       }
 
+      // The other side of this friendship: friends/{fid}/list/{uid}.
+      function counterpart() {
+        return /databases/$(database)/documents/friends/$(fid)/list/$(uid);
+      }
+
       allow read: if isMe(uid);
 
       // Only the recipient of the accepted request writes both sides, inside the accept commit. My entry for them
-      // carries the email they sent from; their entry for me carries my own email.
+      // carries the email they sent from; their entry for me carries my own email. The two sides are born together,
+      // so a friendship is never one-sided (which would leave one friend unable to read the other's presence).
       allow create: if verified() && uid != fid
+        && existsAfter(counterpart())
         && ((request.auth.uid == uid && acceptedFrom(fid)
              && entryOk(getAfter(requestFrom(fid)).data.fromEmail))
             || (request.auth.uid == fid && acceptedFrom(uid) && entryOk(myEmail())));
 
-      allow delete: if verified() && (request.auth.uid == uid || request.auth.uid == fid);
+      // Either friend, and both sides go in the same commit.
+      allow delete: if verified() && (request.auth.uid == uid || request.auth.uid == fid)
+        && !existsAfter(counterpart());
     }
 
     // ---- friends/{uid}/declined/{rid}: requests I declined, private to me ----

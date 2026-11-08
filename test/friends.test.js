@@ -316,6 +316,11 @@ function fakeStore(data = {}) {
     const method = init.method || 'GET';
     log.all.push({ method, url, init });
     if (method === 'GET' && url.startsWith(`${BASE}/friends/u1/list`)) return reply(200, d.friends.length ? { documents: d.friends } : {});
+    if (method === 'GET' && url.startsWith(`${BASE}/presence/`)) {
+      const uid = url.slice(`${BASE}/presence/`.length);
+      if ((d.presenceDenied || []).includes(uid)) return reply(403, { error: { status: 'PERMISSION_DENIED' } });
+      return d.presence[uid] ? reply(200, d.presence[uid]) : reply(404, { error: { status: 'NOT_FOUND' } });
+    }
     if (method === 'GET' && url.startsWith(`${BASE}/requests/`)) {
       const id = url.slice(`${BASE}/requests/`.length);
       const hit = (d.requestDocs || []).find(x => x.name.endsWith(`/${id}`));
@@ -342,6 +347,8 @@ function fakeStore(data = {}) {
       return reply(200, docs.length ? docs.map(document => ({ document, readTime: d.readTime })) : [{ readTime: d.readTime }]);
     }
     if (url === `${BASE}:batchGet`) {
+      // Like Firestore: one unreadable document refuses the whole batch.
+      if (body.documents.some(n => (d.presenceDenied || []).some(uid => n.endsWith(`/presence/${uid}`)))) return reply(403, { error: { status: 'PERMISSION_DENIED' } });
       return reply(200, body.documents.map(name => {
         if (name.includes('/declined/')) {
           const id = name.split('/').pop();
@@ -641,6 +648,30 @@ test('list marks presence older than 180s before readTime offline, using readTim
     assert.equal(fresh.state, 'online');
     assert.equal(fresh.project, 'my-app');
   } finally { Date.now = realNow; }
+});
+
+test('list still loads when a friend doc is one-sided: a refused presence batch is read one by one, refused = offline', async () => {
+  const f = fakeStore({
+    friends: [friendDoc('u2', 'bob@x.com', 'Bob'), friendDoc('u3', 'cy@x.com', 'Cy'), friendDoc('u4', 'di@x.com', 'Di')],
+    presence: { u3: presenceDoc('u3', { state: 'online', project: 'my-app', activity: 'editing', updatedAt: new Date(T - 5000) }) },
+    presenceDenied: ['u2'], // Bob's side of the friendship is gone, so his presence is unreadable
+  });
+  const out = await apiFor(f).list();
+  const by = Object.fromEntries(out.friends.map(x => [x.uid, x]));
+  assert.deepEqual([by.u2.state, by.u2.updatedAt], ['offline', null]);
+  assert.deepEqual([by.u3.state, by.u3.project], ['online', 'my-app']);
+  assert.deepEqual([by.u4.state, by.u4.updatedAt], ['offline', null]); // never shared: 404
+  const gets = f.log.all.filter(c => c.method === 'GET' && c.url.includes('/presence/')).map(c => c.url.split('/').pop()).sort();
+  assert.deepEqual(gets, ['u2', 'u3', 'u4']);
+  // And Bob can still be removed.
+  await apiFor(f).removeFriend('u2');
+  assert.deepEqual(f.log.commits[0].writes.slice(0, 2).map(w => w.delete), [`${DOCS}/friends/u1/list/u2`, `${DOCS}/friends/u2/list/u1`]);
+});
+
+test('list does not fall back on a presence batch that fails for another reason', async () => {
+  const f = fakeStore({ friends: [friendDoc('u2', 'bob@x.com', 'Bob')] });
+  const g = async (url, init = {}) => (url === `${BASE}:batchGet` ? reply(401, { error: {} }) : f(url, init));
+  await assert.rejects(apiFor(g).list(), e => e.code === 'reauth');
 });
 
 test('list drops a non-http(s) avatar on an incoming request', async () => {
