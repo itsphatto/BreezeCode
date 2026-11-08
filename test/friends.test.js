@@ -65,7 +65,7 @@ function fakeFetch(handler) {
   fn.calls = calls;
   return fn;
 }
-const idpOk = (uid, extra = {}) => reply(200, { localId: uid, idToken: `id-${uid}`, refreshToken: `rt-${uid}`, email: `${uid}@x.com`, expiresIn: '3600', ...extra });
+const idpOk = (uid, extra = {}) => reply(200, { localId: uid, idToken: `id-${uid}`, refreshToken: `rt-${uid}`, email: `${uid}@x.com`, emailVerified: true, expiresIn: '3600', ...extra });
 
 test('firebaseSession sends github.com postBody and maps the response', async () => {
   const f = fakeFetch(() => idpOk('u1', { email: 'Bob@X.com' }));
@@ -86,6 +86,14 @@ test('firebaseSession maps INVALID_IDP_RESPONSE to reauth', async () => {
   const f = fakeFetch(() => reply(400, { error: { message: 'INVALID_IDP_RESPONSE : Error getting access token' } }));
   await assert.rejects(firebaseSession({ apiKey: 'K', provider: 'GitHub', accessToken: 'T', fetch: f }),
     e => e instanceof FriendsError && e.code === 'reauth' && /GitHub/.test(e.message));
+});
+
+test('firebaseSession rejects an account whose email is not verified', async () => {
+  for (const emailVerified of [false, undefined]) {
+    const f = fakeFetch(() => idpOk('u1', { emailVerified }));
+    await assert.rejects(firebaseSession({ apiKey: 'K', provider: 'GitHub', accessToken: 'T', fetch: f }),
+      e => e instanceof FriendsError && e.code === 'unverified');
+  }
 });
 
 test('firebaseSession turns a thrown fetch into network', async () => {
@@ -223,7 +231,7 @@ const iso = ms => new Date(ms).toISOString();
 // A tiny Firestore: answers GET list / runQuery / batchGet from `data`, and records writes.
 function fakeStore(data = {}) {
   const d = { friends: [], presence: {}, incoming: [], outgoing: [], accepted: { incoming: [], outgoing: [] }, readTime: iso(T), ...data };
-  const log = { commits: [], patches: [], queries: [], all: [] };
+  const log = { commits: [], queries: [], all: [] };
   const handler = async (url, init) => {
     const method = init.method || 'GET';
     log.all.push({ method, url, init });
@@ -231,11 +239,15 @@ function fakeStore(data = {}) {
     if (method === 'GET' && url.startsWith(`${BASE}/requests/`)) {
       const id = url.slice(`${BASE}/requests/`.length);
       const hit = (d.requestDocs || []).find(x => x.name.endsWith(`/${id}`));
+      if (d.requestStatus) return reply(d.requestStatus, { error: { status: 'x' } });
       return hit ? reply(200, hit) : reply(404, { error: { status: 'NOT_FOUND' } });
     }
-    if (method === 'PATCH') { log.patches.push({ url, body: JSON.parse(init.body) }); return reply(200, {}); }
     const body = init.body ? JSON.parse(init.body) : {};
-    if (url === `${BASE}:commit`) { log.commits.push(body); return reply(200, { writeResults: [] }); }
+    if (url === `${BASE}:commit`) {
+      if (d.commitStatus) return reply(d.commitStatus, { error: { status: 'x' } });
+      log.commits.push(body);
+      return reply(200, { writeResults: [] });
+    }
     if (url === `${BASE}:runQuery`) {
       log.queries.push(body);
       const filters = body.structuredQuery.where.compositeFilter.filters.map(f => [f.fieldFilter.field.fieldPath, f.fieldFilter.value.stringValue]);
@@ -268,20 +280,21 @@ test('sendRequest normalises the email and uses fromUid_sha256 as the id', async
   const r = await apiFor(f).sendRequest('  Bob@X.com ');
   const id = `u1_${hashOf('bob@x.com')}`;
   assert.deepEqual(r, { id });
-  assert.equal(f.log.patches.length, 1);
-  const p = f.log.patches[0];
-  assert.ok(p.url.startsWith(`${BASE}/requests/${id}`));
-  assert.ok(p.url.includes('currentDocument.exists=false'));
-  const got = fromDoc({ name: `${DOCS}/requests/${id}`, fields: p.body.fields });
+  assert.equal(f.log.commits.length, 1);
+  const w = f.log.commits[0].writes[0];
+  assert.equal(f.log.commits[0].writes.length, 1);
+  assert.equal(w.update.name, `${DOCS}/requests/${id}`);
+  assert.deepEqual(w.currentDocument, { exists: false });
+  assert.deepEqual(w.updateTransforms, [{ fieldPath: 'createdAt', setToServerValue: 'REQUEST_TIME' }]);
+  const got = fromDoc({ name: w.update.name, fields: w.update.fields });
   assert.equal(got.toEmail, 'bob@x.com');
   assert.equal(got.fromUid, 'u1');
   assert.equal(got.fromEmail, 'me@x.com');
   assert.equal(got.fromName, 'Me');
   assert.equal(got.status, 'pending');
   assert.equal(got.toUid, null);
-  assert.equal(got.createdAt, T);
-  const patch = f.log.all.find(c => c.method === 'PATCH');
-  assert.equal(patch.init.headers.Authorization, 'Bearer IT');
+  assert.equal('createdAt' in got, false); // stamped by Firestore, not by this computer's clock
+  assert.equal(f.log.all.find(c => c.url.endsWith(':commit')).init.headers.Authorization, 'Bearer IT');
 });
 
 test('sendRequest rejects things that are not emails', async () => {
@@ -301,19 +314,19 @@ test('sendRequest to an existing friend throws exists; repeat pending send write
   const f = fakeStore({ friends: [friendDoc('u2', 'bob@x.com', 'Bob')], outgoing: [reqDoc(bobId, { fromUid: 'u1', toEmail: 'cy@x.com' })] });
   const api = apiFor(f);
   await assert.rejects(api.sendRequest('Bob@x.com'), e => e.code === 'exists');
-  assert.equal(f.log.patches.length, 0);
+  assert.equal(f.log.commits.length, 0);
   // A pending request to cy is already out there: sending again resolves with the same id and writes nothing.
   const cyId = `u1_${hashOf('cy@x.com')}`;
   f.data.outgoing = [reqDoc(cyId, { fromUid: 'u1', toEmail: 'cy@x.com' })];
   assert.deepEqual(await api.sendRequest(' CY@x.com'), { id: cyId });
-  assert.equal(f.log.patches.length, 0);
   assert.equal(f.log.commits.length, 0);
 });
 
-test('sendRequest treats a request that already exists server-side as sent', async () => {
-  const base = fakeStore();
-  const f = async (url, init = {}) => (init.method === 'PATCH' ? reply(409, { error: { status: 'ALREADY_EXISTS' } }) : base(url, init));
-  assert.deepEqual(await apiFor(f).sendRequest('dan@x.com'), { id: `u1_${hashOf('dan@x.com')}` });
+test('sendRequest treats a request that already exists server-side (409, or 403 when it was declined) as sent', async () => {
+  for (const status of [409, 403]) {
+    const f = fakeStore({ commitStatus: status });
+    assert.deepEqual(await apiFor(f).sendRequest('dan@x.com'), { id: `u1_${hashOf('dan@x.com')}` });
+  }
 });
 
 test('sendRequest throws too-many at 50 pending', async () => {
@@ -321,11 +334,11 @@ test('sendRequest throws too-many at 50 pending', async () => {
   const f = fakeStore({ outgoing });
   const api = apiFor(f);
   await assert.rejects(api.sendRequest('new@x.com'), e => e.code === 'too-many');
-  assert.equal(f.log.patches.length, 0);
+  assert.equal(f.log.commits.length, 0);
   // 49 is fine.
   f.data.outgoing = outgoing.slice(0, 49);
   await api.sendRequest('new@x.com');
-  assert.equal(f.log.patches.length, 1);
+  assert.equal(f.log.commits.length, 1);
 });
 
 test('accept writes one commit with request, both list docs and the reverse-request delete', async () => {
@@ -359,25 +372,49 @@ test('accept without a reverse request writes three docs and no delete', async (
   assert.equal(f.log.commits[0].writes.length, 3);
 });
 
-test('accept of a request that is gone throws gone', async () => {
-  const f = fakeStore();
-  await assert.rejects(apiFor(f).accept(`u2_${hashOf('me@x.com')}`), e => e.code === 'gone');
-  assert.equal(f.log.commits.length, 0);
+test('accept of a request that is gone (404, or 403 after the sender cancelled) throws gone, not reauth', async () => {
+  const id = `u2_${hashOf('me@x.com')}`;
+  for (const requestStatus of [undefined, 404, 403]) {
+    const f = fakeStore({ requestStatus });
+    await assert.rejects(apiFor(f).accept(id), e => e instanceof FriendsError && e.code === 'gone');
+    assert.equal(f.log.commits.length, 0);
+  }
 });
 
-test('decline marks the request declined; cancel deletes my own request', async () => {
+test('decline marks a pending request declined', async () => {
+  const id = `u2_${hashOf('me@x.com')}`;
+  const f = fakeStore({ requestDocs: [reqDoc(id, { fromUid: 'u2', fromEmail: 'bob@x.com', toEmail: 'me@x.com' })] });
+  await apiFor(f).decline(id);
+  const d = f.log.commits[0].writes[0];
+  assert.deepEqual(fromDoc(d.update), { id, status: 'declined', toUid: 'u1' });
+  assert.deepEqual(d.updateMask.fieldPaths, ['status', 'toUid']);
+});
+
+test('decline of a request that is no longer pending, or gone, throws gone and writes nothing', async () => {
+  const id = `u2_${hashOf('me@x.com')}`;
+  // An accepted request (a stale row in the UI) must not be flipped to declined.
+  const accepted = fakeStore({ requestDocs: [reqDoc(id, { status: 'accepted', fromUid: 'u2', toEmail: 'me@x.com', toUid: 'u1' })] });
+  await assert.rejects(apiFor(accepted).decline(id), e => e.code === 'gone');
+  assert.equal(accepted.log.commits.length, 0);
+  for (const requestStatus of [undefined, 404, 403]) {
+    const f = fakeStore({ requestStatus });
+    await assert.rejects(apiFor(f).decline(id), e => e.code === 'gone');
+    assert.equal(f.log.commits.length, 0);
+  }
+});
+
+test('cancel deletes my own request; a request already gone (403/404) is gone, not reauth', async () => {
   const f = fakeStore();
   const api = apiFor(f);
-  await api.decline(`u2_${hashOf('me@x.com')}`);
-  const d = f.log.commits[0].writes[0];
-  assert.deepEqual(fromDoc(d.update), { id: `u2_${hashOf('me@x.com')}`, status: 'declined', toUid: 'u1' });
-  assert.deepEqual(d.updateMask.fieldPaths, ['status', 'toUid']);
   const mine = `u1_${hashOf('bob@x.com')}`;
   await api.cancel(mine);
-  assert.deepEqual(f.log.commits[1].writes, [{ delete: `${DOCS}/requests/${mine}` }]);
+  assert.deepEqual(f.log.commits[0].writes, [{ delete: `${DOCS}/requests/${mine}` }]);
   // Cancel only touches requests I sent.
   await assert.rejects(api.cancel(`u2_${hashOf('me@x.com')}`), e => e.code === 'gone');
   await assert.rejects(api.cancel('../users/u2'), e => e.code === 'gone');
+  for (const commitStatus of [403, 404]) {
+    await assert.rejects(apiFor(fakeStore({ commitStatus })).cancel(mine), e => e instanceof FriendsError && e.code === 'gone');
+  }
 });
 
 test('removeFriend deletes both list docs and the request in one commit', async () => {
@@ -488,10 +525,10 @@ test('upsertProfile writes users/{uid} with the verified email', async () => {
   assert.deepEqual(w.updateTransforms, [{ fieldPath: 'updatedAt', setToServerValue: 'REQUEST_TIME' }]);
 });
 
-test('a 401 or 403 from Firestore is reauth; a 503 or a dead network is network', async () => {
+test('only a 401 from Firestore is reauth; a 403 is denied; a 503 or a dead network is network', async () => {
   const status = s => async () => reply(s, { error: { message: 'x' } });
   await assert.rejects(apiFor(status(401)).list(), e => e.code === 'reauth');
-  await assert.rejects(apiFor(status(403)).writePresence({ state: 'online', project: null, activity: 'idle' }), e => e.code === 'reauth');
+  await assert.rejects(apiFor(status(403)).writePresence({ state: 'online', project: null, activity: 'idle' }), e => e instanceof FriendsError && e.code === 'denied');
   await assert.rejects(apiFor(status(503)).list(), e => e.code === 'network');
   await assert.rejects(apiFor(async () => { throw new Error('offline'); }).list(), e => e.code === 'network');
 });

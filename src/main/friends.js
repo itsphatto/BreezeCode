@@ -18,10 +18,12 @@ const COPY = {
   exists: "You're already friends.",
   'too-many': 'Too many requests are still waiting. Cancel a few first.',
   gone: 'That request is no longer there.',
+  denied: "Friends can't do that.",
+  unverified: "This account's email isn't verified, so Friends can't use it.",
   network: "Couldn't reach Friends. Retrying…",
 };
 
-// code is one of: not-configured, signed-out, reauth, invalid-email, self, exists, too-many, gone, network.
+// code is one of: not-configured, signed-out, reauth, unverified, invalid-email, self, exists, too-many, gone, denied, network.
 // `message` is optional; each code has a default line.
 class FriendsError extends Error {
   constructor(code, message) { super(message || COPY[code] || code); this.code = code; }
@@ -140,6 +142,8 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
     if (/OPERATION_NOT_ALLOWED|API key not valid|API_KEY|PROJECT_NOT_FOUND/i.test(msg)) return new FriendsError('not-configured');
     return reauthError(provider);
   });
+  // Identity is the verified email; an account whose email is unverified cannot be matched safely.
+  if (body.emailVerified !== true) throw new FriendsError('unverified');
   return {
     uid: body.localId,
     idToken: body.idToken,
@@ -229,7 +233,7 @@ function clipProject(p) {
 }
 
 // Everything the signed-in user can do with friends. `session` is { uid, idToken, email } from SessionCache; the caller
-// gets a new api whenever the session changes. A 401/403 throws reauth; main refreshes the session and retries once.
+// gets a new api whenever the session changes. A 401 throws reauth (a 403 is `denied`, or `gone` where a call says so); main refreshes the session and retries once.
 function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me = {}, now = Date.now }) {
   const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
   const docName = p => `projects/${projectId}/databases/(default)/documents/${p}`;
@@ -240,6 +244,7 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
   const safe = id => { if (typeof id !== 'string' || !ID_OK.test(id)) throw new FriendsError('gone'); return id; };
   const needEmail = () => { if (!myEmail) throw new FriendsError('reauth'); };
 
+  // `allow` lists error statuses the caller wants back as { status } instead of a throw.
   async function call(method, url, body, allow = []) {
     let res;
     try {
@@ -251,19 +256,20 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
     } catch { throw new FriendsError('network'); }
     const data = await res.json().catch(() => ({}));
     if (res.ok || allow.includes(res.status)) return { status: res.status, data };
-    if (res.status === 401 || res.status === 403) throw new FriendsError('reauth');
+    if (res.status === 401) throw new FriendsError('reauth');
+    if (res.status === 403) throw new FriendsError('denied');
     const why = data && data.error && data.error.message;
     throw new FriendsError('network', why ? `Friends: ${why}` : undefined);
   }
 
-  const commit = async writes => { await call('POST', `${base}:commit`, { writes }); };
+  const commit = async (writes, allow = []) => (await call('POST', `${base}:commit`, { writes }, allow)).status;
   // A write of a whole document. SERVER_TIME fields become REQUEST_TIME transforms.
-  const put = (path, obj, { mask, mustExist } = {}) => {
+  const put = (path, obj, { mask, exists } = {}) => {
     const w = { update: { name: docName(path), fields: toFields(obj) } };
     const tf = transformsOf(obj);
     if (tf.length) w.updateTransforms = tf;
     if (mask) w.updateMask = { fieldPaths: mask };
-    if (mustExist) w.currentDocument = { exists: true };
+    if (exists !== undefined) w.currentDocument = { exists };
     return w;
   };
   const del = path => ({ delete: docName(path) });
@@ -295,6 +301,15 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
     return out;
   }
 
+  // A request addressed to me that is still pending, or throws gone (404, or 403 after the sender cancelled it).
+  async function pendingRequestForMe(id) {
+    const { status, data } = await call('GET', `${base}/requests/${id}`, undefined, [403, 404]);
+    if (status !== 200) throw new FriendsError('gone');
+    const req = fromDoc(data);
+    if (req.status !== 'pending' || req.toEmail !== myEmail) throw new FriendsError('gone');
+    return req;
+  }
+
   const asReq = (r, who) => (who === 'from'
     ? { id: r.id, email: normEmail(r.fromEmail) || String(r.fromEmail || ''), name: r.fromName || null, avatar: r.fromAvatar || null, createdAt: r.createdAt ?? null }
     : { id: r.id, email: String(r.toEmail || ''), name: null, avatar: null, createdAt: r.createdAt ?? null });
@@ -315,26 +330,24 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
       if (friends.some(f => normEmail(f.email) === email)) throw new FriendsError('exists');
       if (pending.docs.some(r => r.id === id)) return { id };
       if (pending.docs.length >= MAX_PENDING_OUT) throw new FriendsError('too-many');
-      const fields = toFields({
+      // exists:false makes this a create. If the request is already there (409), or was declined so I may not touch it (403),
+      // it stays as it is and counts as sent: the sender never learns what the other side did.
+      await commit([put(`requests/${id}`, {
         fromUid: myUid, fromEmail: myEmail, fromName: myName, fromAvatar: myAvatar,
-        toEmail: email, toUid: null, status: 'pending', createdAt: new Date(now()),
-      });
-      // exists=false: if the request is already there (declined, or a race), it stays as it is and counts as sent.
-      await call('PATCH', `${base}/requests/${id}?currentDocument.exists=false`, { fields }, [409]);
+        toEmail: email, toUid: null, status: 'pending', createdAt: SERVER_TIME,
+      }, { exists: false })], [403, 409]);
       return { id };
     },
 
     async accept(requestId) {
       needEmail();
       const id = safe(requestId);
-      const { status, data } = await call('GET', `${base}/requests/${id}`, undefined, [404]);
-      if (status === 404) throw new FriendsError('gone');
-      const req = fromDoc(data);
+      const req = await pendingRequestForMe(id);
       const theirEmail = normEmail(req.fromEmail);
-      if (req.status !== 'pending' || req.toEmail !== myEmail || !theirEmail || !req.fromUid) throw new FriendsError('gone');
+      if (!theirEmail || !req.fromUid) throw new FriendsError('gone');
       const them = safe(req.fromUid);
       const writes = [
-        put(`requests/${id}`, { status: 'accepted', toUid: myUid }, { mask: ['status', 'toUid'], mustExist: true }),
+        put(`requests/${id}`, { status: 'accepted', toUid: myUid }, { mask: ['status', 'toUid'], exists: true }),
         put(`friends/${myUid}/list/${them}`, { email: theirEmail, name: req.fromName || theirEmail, avatar: req.fromAvatar || null, since: SERVER_TIME }),
         put(`friends/${them}/list/${myUid}`, { email: myEmail, name: myName, avatar: myAvatar, since: SERVER_TIME }),
       ];
@@ -342,18 +355,25 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
       const reverseId = `${myUid}_${sha256hex(theirEmail)}`;
       const mine = await queryRequests({ fromUid: myUid, status: 'pending' }, MAX_PENDING_OUT + 1);
       if (mine.docs.some(r => r.id === reverseId)) writes.push(del(`requests/${reverseId}`));
-      await commit(writes);
+      // The sender may have cancelled between my read and this write.
+      const st = await commit(writes, [403, 404, 409]);
+      if (st >= 400) throw new FriendsError('gone');
     },
 
     async decline(requestId) {
+      needEmail();
       const id = safe(requestId);
-      await commit([put(`requests/${id}`, { status: 'declined', toUid: myUid }, { mask: ['status', 'toUid'], mustExist: true })]);
+      await pendingRequestForMe(id); // a stale row for a request that was accepted must not be flipped to declined
+      const st = await commit([put(`requests/${id}`, { status: 'declined', toUid: myUid }, { mask: ['status', 'toUid'], exists: true })], [403, 404]);
+      if (st >= 400) throw new FriendsError('gone');
     },
 
     async cancel(requestId) {
       const id = safe(requestId);
       if (!id.startsWith(`${myUid}_`)) throw new FriendsError('gone');
-      await commit([del(`requests/${id}`)]);
+      // Already deleted: Firestore may answer 403 (rules cannot see a document that is not there) or 404.
+      const st = await commit([del(`requests/${id}`)], [403, 404]);
+      if (st >= 400) throw new FriendsError('gone');
     },
 
     async removeFriend(uid) {
