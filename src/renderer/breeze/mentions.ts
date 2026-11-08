@@ -546,12 +546,8 @@ async function sendPrompt(): Promise<void> {
   if (tab.panel.querySelector('.empty')) tab.panel.innerHTML = '';
 
   if (/^Chat \d+$/i.test(tab.title) || tab.title === 'New chat') {
-    if (text) {
-      tab.title = text.length > 20 ? text.slice(0, 18) + '…' : text;
-    } else {
-      tab.title = 'Task';
-    }
-    renderAgentTabs(s);
+    setChatTitle(tab, text.replaceAll(/\s+/g, ' ').slice(0, 64) || 'Task', true);
+    if (text) void nameChat(tab, text, agent.id);
   }
 
   team = [];

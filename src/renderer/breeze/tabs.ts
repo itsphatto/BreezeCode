@@ -11,7 +11,7 @@ function openFile(path: string, at?: Spot): void {
 async function actuallyOpen(path: string, at?: Spot): Promise<void> {
   const b = await loadBuffer(path);
   if (!b) return;
-  closeScmPage(); // the editor is hidden behind the Source Control page; a file opened from anywhere else (chat, Ctrl+P) must show
+  if (scmPageOpen) scmEmptyDetail(); // a diff or pull request on the Source Control page covers the editor: the file must show
   if (!openTabs.includes(path)) openTabs.push(path);
   setActive(path);
   if (at && b.ta) {

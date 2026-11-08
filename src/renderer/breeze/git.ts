@@ -559,7 +559,7 @@ async function showDiff(f: GitFile, staged: boolean): Promise<void> {
   // On the Source Control page the diff sits beside the changes; anywhere else it's a modal.
   if (scmPageOpen) {
     showScmDetail(`<div class="scm-diff-view">${html}</div>`, el => {
-      $('#diffOpen', el).onclick = () => { closeScmPage(); openFile(f.path); };
+      $('#diffOpen', el).onclick = () => openFile(f.path); // beside the changes, which stay open
       // The file moves to the other list once staged or unstaged, so what's shown no longer matches it.
       $('#diffStage', el).onclick = () => { scmEmptyDetail(); toggleStage(); };
     });

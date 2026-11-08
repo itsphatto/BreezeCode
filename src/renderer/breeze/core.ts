@@ -327,6 +327,7 @@ interface BreezeApi {
     status(): Promise<SyncStatus | SyncFail>;
     run(mode: 'sync' | 'pull'): Promise<SyncSummary | SyncFail>;
     clone(id: string): Promise<{ info: RootInfo; summary: SyncSummary } | null | SyncFail>;
+    remove(id: string): Promise<{ ok: true } | SyncFail>;
     settings(local: SharedSettings | null): Promise<{ settings: SharedSettings | null; pulled: boolean } | SyncFail>;
   };
   // Social feeds for Vibe Mode. The desktop app signs in through its own browser window and lays the feed over #vibeFrame.

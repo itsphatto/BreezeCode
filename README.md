@@ -86,7 +86,7 @@ Breeze finds the coding agents already installed on your computer and signs in w
 
 ```mermaid
 flowchart LR
-    P["Your prompt<br/>@Claude front end<br/>@Codex backend"] --> S{"Breeze splits<br/>the task"}
+    P["Your prompt<br/>@Claude frontend<br/>@Codex backend"] --> S{"Breeze splits<br/>the task"}
     S --> C["Claude claims<br/>src/ui/, index.html"]
     S --> X["Codex claims<br/>server/, package.json"]
     C & X --> O{"Overlap?"}
@@ -315,9 +315,9 @@ flowchart TB
 | Member | Role |
 | --- | --- |
 | [@itsphatto](https://github.com/itsphatto) | Founder and Lead Software Engineer |
-| [@sapfire151](https://github.com/sapfire151) | Lead Front End Developer and UI/UX Designer |
-| [@LangZab](https://github.com/LangZab) | Contributor |
-| [@esrazti](https://github.com/esrazti) | Contributor |
+| [@sapfire151](https://github.com/sapfire151) | Co-Founder, Lead Frontend Developer and UI/UX Designer |
+| [@LangZab](https://github.com/LangZab) | Contributor, Emotional Support |
+| [@esrazti](https://github.com/esrazti) | The Origin |
 
 
 ## License

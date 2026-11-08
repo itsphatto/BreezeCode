@@ -138,7 +138,8 @@ for (const btn of $$<HTMLElement>('.space-btn')) {
     ctx.globalAlpha = 1;
     frame = requestAnimationFrame(draw);
   };
-  const start = () => { if (!frame) frame = requestAnimationFrame(draw); };
+  // The light theme has no sky on the button (breeze.css): it just fades its hover in like any other button.
+  const start = () => { if (!frame && document.documentElement.dataset.theme !== 'light') frame = requestAnimationFrame(draw); };
   const stop = () => { cancelAnimationFrame(frame); frame = 0; last = 0; }; // the last picture stays for the fade out
   btn.addEventListener('pointerenter', start);
   btn.addEventListener('focus', start);

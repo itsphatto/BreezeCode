@@ -931,6 +931,8 @@ function debugPageKey(e: KeyboardEvent): void {
   run(act);
 }
 document.addEventListener('keydown', e => {
+  // Reload Window (Ctrl+R) works from every page and over any dialog, unlike the other shortcuts below.
+  if (keymap.get(comboOf(e)) === 'win.reload') { e.preventDefault(); run('win.reload'); return; }
   if (menuKeys(e)) return;
   if (e.key === 'Escape') {
     if (vibeOn) { exitVibe(); return; }

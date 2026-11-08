@@ -204,6 +204,7 @@ contextBridge.exposeInMainWorld('breeze', {
     status: () => invoke('sync:status'),
     run: mode => invoke('sync:run', mode),
     clone: id => invoke('sync:clone', id),
+    remove: id => invoke('sync:delete', id),
     settings: local => invoke('sync:settings', local),
   },
   vibe: {

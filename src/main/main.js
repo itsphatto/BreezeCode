@@ -411,7 +411,12 @@ function createWindow() {
     if (!isFileUrl(url, APP_PAGE)) e.preventDefault();
   });
   // A reload or crash drops the renderer's terminal state, so nothing may keep running for it.
-  win.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => { if (isMainFrame) killAllTerms(); });
+  win.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => {
+    if (!isMainFrame) return;
+    killAllTerms();
+    // The popped-out terminal is a page the IDE drew; reloaded, the IDE can't take it back, so it closes.
+    if (termPopupWin && !termPopupWin.isDestroyed()) termPopupWin.close();
+  });
   win.webContents.on('render-process-gone', killAllTerms);
   // Terminal windows belong to this one: they close with it.
   win.on('closed', () => { win = null; vibeView = null; splash?.destroy(); stopWatching(); stopLiveServer(); killAllTerms(); for (const t of termWins.values()) t.win.close(); });
@@ -1718,6 +1723,19 @@ handle('win:close', () => win?.close());
 handle('win:isMaximized', () => !!win?.isMaximized());
 // The same buttons on the popped-out terminal's window (Terminal → ... → Pop out Terminal), which the IDE's page draws.
 let termPopupWin = null;
+// Ctrl+R (Cmd+R) reloads from every Breeze window. The IDE's page handles it itself (commands.ts, which keeps a rebound
+// key working); here it's the other pages that have the keyboard: a terminal window reloads itself, the Vibe Mode
+// feed reloads its feed, and the popped-out terminal (a page of the IDE's) reloads the IDE.
+app.on('web-contents-created', (_e, wc) => {
+  wc.on('before-input-event', (e, input) => {
+    const mod = process.platform === 'darwin' ? input.meta : input.control;
+    if (input.type !== 'keyDown' || !mod || input.alt || input.shift || input.key.toLowerCase() !== 'r') return;
+    if (wc.getType() === 'webview' || wc.getType() === 'remote' || wc === win?.webContents || wc.getURL().startsWith('devtools://')) return;
+    e.preventDefault();
+    if (termPopupWin && !termPopupWin.isDestroyed() && wc === termPopupWin.webContents) win?.webContents.reload();
+    else wc.reload();
+  });
+});
 handle('win:termPopup', (_e, action) => {
   const w = termPopupWin;
   if (!w || w.isDestroyed()) return;
@@ -3660,8 +3678,7 @@ handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
 // A one-shot, read-only question to the user's agent (the conflict Duel): the same writers, but the reply comes back as it
 // was, not cleaned up as a commit message. Its own channel, so commit-message changes never reach it.
 handle('agent:ask', async (_e, { agent, prompt, model, effort } = {}) => {
-  const base = root;
-  if (!base) throw new Error('Open a folder first');
+  const base = root || boxDir(); // naming a Breeze Space chat needs no folder open
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 200000) throw new Error('The prompt must be text, up to 200,000 characters');
   if (agent !== undefined && agent !== null && !Object.hasOwn(COMMIT_WRITERS, agent)) throw new Error(`Unsupported agent: ${agent}`);
   const id = agent || await defaultCommitAgent();
@@ -4045,6 +4062,12 @@ syncHandle('sync:clone', (_e, id) => oneSync(async () => {
   });
   writeLink(acct, dir, link);
   return { info: await setRoot(dir), summary };
+}));
+// Deletes a cloud workspace for good (the renderer asks first). This computer's folders keep their files.
+syncHandle('sync:delete', (_e, id) => oneSync(async () => {
+  const { store } = await syncStore();
+  await syncEngine.deleteWorkspace(store, String(id ?? ''));
+  return { ok: true };
 }));
 // The renderer's shared settings ({ updatedAt, values }); the newer side wins.
 syncHandle('sync:settings', async (_e, local) => {
