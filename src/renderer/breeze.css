@@ -16013,6 +16013,19 @@ input.dbg-edit.bad:focus-visible {
   from { opacity: 0; }
 }
 
+/* Changing folder (morphFolder, buffers.ts): rows at the same path in both folders glide to their new place. */
+:root.folder-morph::view-transition-group(*) {
+  animation-duration: .32s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+/* Nothing travels; the rows only cross-fade. */
+@media (prefers-reduced-motion: reduce) {
+  :root.folder-morph::view-transition-group(*) {
+    animation-name: none;
+  }
+}
+
 /* While it's open (prs.ts) the page's column stands in for the side bar, whose own column closes to nothing like a
    collapsed side bar; the editor stays beside it, and a diff or pull request (.scm-detail-on) takes the editor's place.
    The agents panel stays, and `layout` itself is untouched. */

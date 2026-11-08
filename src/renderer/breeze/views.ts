@@ -97,7 +97,8 @@ function enterMode(mode: WorkMode): void {
 function renderBoxFolder(): void {
   const chip = $('#boxFolder');
   const name = rootInfo ? rootInfo.name : 'Breeze Space folder';
-  chip.innerHTML = `${svgIcon('folder', 13)}<span>${esc(name)}</span>`;
+  const label = chip.querySelector('span');
+  if (label) swapText(label, name); else chip.innerHTML = `${svgIcon('folder', 13)}<span>${esc(name)}</span>`;
   chip.title = rootInfo ? `Agents work in ${rootInfo.root}` : 'No project open: agents work in Documents/Breeze Space';
 }
 function boxAgentItems(): MenuItem[] {
