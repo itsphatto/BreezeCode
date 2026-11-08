@@ -5,11 +5,13 @@ interface AppState {
   user: User | null; agent: string | null; detect: Detection | null;
   vibeArmed: boolean; vibeSites: string[]; vibeSite: string | null; mode: WorkMode;
   discord: boolean; discordDetails: boolean; devMode: boolean;
+  // Friends: share what I'm doing at all, and the open folder's name with it.
+  friendsShare: boolean; friendsProject: boolean;
 }
 const savedApp = store.get<Partial<AppState>>('breeze.app', {});
 const appState: AppState = {
   onboarded: false, step: 0, name: null, termsAcceptedAt: null, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
-  discord: false, discordDetails: true, devMode: false,
+  discord: false, discordDetails: true, devMode: false, friendsShare: true, friendsProject: true,
   ...savedApp,
 };
 // A save from before the name screen has no `name` (every save since does) and counts the later steps one lower.

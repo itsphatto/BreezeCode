@@ -149,11 +149,41 @@ function closeFriends(): void {
   friendsOpen = false;
   scheduleFriends(); // back to the slow, badge-only pace
 }
-// Signed in, out, or to another account: forget the old list and look again as the new one.
+// Signed in, out, or to another account: forget the old list and look again as the new one. Main stops sharing on any
+// account change (and refuses presence mid-switch), so this account's presence is sent afresh.
 function friendsAccountChanged(): void {
   friendsData = null; friendsGate = null;
   renderFriends();
   void refreshFriends();
+  queueFriendsPresence();
+}
+
+/* ----- Sharing my presence ----- */
+let friendsAway = false; // the window lost focus and nothing was typed or clicked for 5 minutes
+let friendsPresenceTimer: TimeoutId | undefined;
+// What friends see: a working agent wins, then debugging, Breeze Space, an open file, else idle. The project is only
+// the open folder's name, and only when Show my project name is on.
+function friendsActivity(): FriendsPresence {
+  let activity: FriendActivity = 'idle';
+  if (Object.values(agentsDef).some(a => a.status === 'working')) activity = 'agent';
+  else if (debugLive) activity = 'debug';
+  else if (appState.mode === 'box') activity = 'space';
+  else if (active) activity = 'editing';
+  const project = appState.friendsProject ? rootInfo?.name.slice(0, 80) ?? null : null;
+  return { state: friendsAway ? 'away' : 'online', project, activity };
+}
+// Coalesced over 1.2 s; main throttles the writes and heartbeats. Sharing off sends null, which writes "offline" once.
+function queueFriendsPresence(): void {
+  clearTimeout(friendsPresenceTimer);
+  friendsPresenceTimer = setTimeout(() => {
+    if (!user || friendsConfigured === false) return;
+    void api.friends.setPresence(appState.friendsShare ? friendsActivity() : null).catch(() => undefined);
+  }, 1200);
+}
+function setFriendsAway(away: boolean): void {
+  if (away === friendsAway) return;
+  friendsAway = away;
+  queueFriendsPresence();
 }
 
 /* ----- Adding, answering and removing ----- */

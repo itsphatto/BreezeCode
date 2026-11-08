@@ -161,6 +161,7 @@ api.debug.onEvent(ev => {
       const live = ev.state !== 'stopped';
       if (live !== debugLive) {
         debugLive = live;
+        queueFriendsPresence();
         verifiedBps.clear();
         for (const p of breakpoints.keys()) repaintMarks(p);
       }
