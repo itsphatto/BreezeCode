@@ -3,8 +3,8 @@
 // skipped unless both the modules load and FIRESTORE_EMULATOR_HOST is set. To run them:
 //   npm install --no-save @firebase/rules-unit-testing firebase
 //   firebase emulators:exec --only firestore --project demo-breeze "node --test test/firestore.rules.test.js"
-// (emulators:exec needs a firebase.json; `{ "emulators": { "firestore": { "port": 8080 } } }` is enough, passed with
-// --config if you keep it outside the repo. The rules are loaded from firestore.rules by the test itself.)
+// from the repo root; it uses the repo's firebase.json (emulator on its default port 8080). The test loads the rules
+// from firestore.rules itself.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -132,6 +132,56 @@ function run() {
     b.delete(doc(d, 'requests', rid(ALICE, BOB.email)));
     await assertSucceeds(b.commit());
     await assertFails(getDoc(doc(db(BOB), 'presence', 'alice')));
+  });
+
+  // removeFriend's queries, pinned to both uids in each direction.
+  const pairQuery = (who, from, to) => getDocs(query(collection(db(who), 'requests'),
+    where('fromUid', '==', from.uid), where('toUid', '==', to.uid), where('status', '==', 'accepted')));
+
+  test('removeFriend finds the accepted request from either side with a query pinned to both uids', async () => {
+    await assertSucceeds(send(ALICE, BOB));
+    await assertSucceeds(send(EVE, BOB));
+    await assertSucceeds(acceptBatch(BOB, ALICE));
+    await assertSucceeds(acceptBatch(BOB, EVE));
+    const asBob = await assertSucceeds(pairQuery(BOB, ALICE, BOB));
+    assert.deepEqual(asBob.docs.map(d => d.id), [rid(ALICE, BOB.email)]);
+    assert.equal((await assertSucceeds(pairQuery(BOB, BOB, ALICE))).size, 0);
+    const asAlice = await assertSucceeds(pairQuery(ALICE, ALICE, BOB));
+    assert.deepEqual(asAlice.docs.map(d => d.id), [rid(ALICE, BOB.email)]);
+    assert.equal((await assertSucceeds(pairQuery(ALICE, BOB, ALICE))).size, 0);
+    // Someone outside the pair may not ask.
+    await assertFails(pairQuery(EVE, ALICE, BOB));
+  });
+
+  test('list docs are only born in the commit that accepts: a leftover accepted request cannot re-create them', async () => {
+    await assertSucceeds(send(ALICE, BOB));
+    await assertSucceeds(acceptBatch(BOB, ALICE));
+    await env.withSecurityRulesDisabled(async c => {
+      const d = c.firestore();
+      await deleteDoc(doc(d, 'friends', 'bob', 'list', 'alice'));
+      await deleteDoc(doc(d, 'friends', 'alice', 'list', 'bob'));
+    });
+    const d = db(BOB);
+    const b = writeBatch(d);
+    b.set(doc(d, 'friends', 'bob', 'list', 'alice'), { email: ALICE.email, name: 'alice', avatar: null, since: serverTimestamp() });
+    b.set(doc(d, 'friends', 'alice', 'list', 'bob'), { email: BOB.email, name: 'bob', avatar: null, since: serverTimestamp() });
+    await assertFails(b.commit());
+    await assertFails(setDoc(doc(d, 'friends', 'alice', 'list', 'bob'), { email: BOB.email, name: 'bob', avatar: null, since: serverTimestamp() }));
+  });
+
+  test('a sender cannot see that a request was declined', async () => {
+    await assertSucceeds(send(ALICE, BOB));
+    await assertSucceeds(getDoc(doc(db(ALICE), 'requests', rid(ALICE, BOB.email))));
+    await assertSucceeds(updateDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email)), { status: 'declined', toUid: 'bob' }));
+    await assertFails(getDoc(doc(db(ALICE), 'requests', rid(ALICE, BOB.email))));
+    // The client's own sender queries pin status, so they still run (and the declined one simply is not there).
+    const pending = await assertSucceeds(getDocs(query(collection(db(ALICE), 'requests'), where('fromUid', '==', 'alice'), where('status', '==', 'pending'))));
+    assert.equal(pending.size, 0);
+    await assertSucceeds(getDocs(query(collection(db(ALICE), 'requests'), where('fromUid', '==', 'alice'), where('status', '==', 'accepted'))));
+    // An unpinned query could include the declined one, so it is refused.
+    await assertFails(getDocs(query(collection(db(ALICE), 'requests'), where('fromUid', '==', 'alice'))));
+    // The recipient still sees it.
+    await assertSucceeds(getDoc(doc(db(BOB), 'requests', rid(ALICE, BOB.email))));
   });
 
   test('the recipient can remove an accepted friend', async () => {

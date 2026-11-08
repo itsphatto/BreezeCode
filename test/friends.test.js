@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { toFields, fromDoc, normEmail, sha256hex, FriendsError } = require('../src/main/friends');
+const { toFields, fromDoc, normEmail, sha256hex, FriendsError, clipName, safeAvatar } = require('../src/main/friends');
 
 // ---- Task 1: codec and email helpers ----
 
@@ -36,6 +36,28 @@ test('normEmail trims and lowercases', () => {
   assert.equal(normEmail('a@b'), null);
   assert.equal(normEmail(''), null);
   assert.equal(normEmail(null), null);
+});
+
+test('normEmail refuses an address longer than 254 characters', () => {
+  const at254 = `${'a'.repeat(64)}@${'b'.repeat(185)}.com`;
+  assert.equal(at254.length, 254);
+  assert.equal(normEmail(at254), at254);
+  assert.equal(normEmail(`a${at254}`), null);
+});
+
+test('clipName keeps names to 80 characters without splitting an emoji; safeAvatar drops a URL over 2048', () => {
+  assert.equal(clipName('x'.repeat(100)), 'x'.repeat(80));
+  assert.equal(clipName('Bob'), 'Bob');
+  const emoji = `${'x'.repeat(79)}😀`; // 81 UTF-16 units; the cut would land inside the emoji
+  assert.equal(clipName(emoji), 'x'.repeat(79));
+  assert.equal(clipName(''), null);
+  assert.equal(clipName(null), null);
+  const url = `https://a/${'p'.repeat(2038)}`;
+  assert.equal(url.length, 2048);
+  assert.equal(safeAvatar(url), url);
+  assert.equal(safeAvatar(`${url}p`), null);
+  assert.equal(safeAvatar(''), null);
+  assert.equal(safeAvatar(42), null);
 });
 
 test('sha256hex matches node crypto', () => {
@@ -253,7 +275,11 @@ function fakeStore(data = {}) {
       const filters = body.structuredQuery.where.compositeFilter.filters.map(f => [f.fieldFilter.field.fieldPath, f.fieldFilter.value.stringValue]);
       const has = (k, v) => filters.some(([fk, fv]) => fk === k && (v === undefined || fv === v));
       let docs = [];
-      if (has('status', 'accepted')) docs = has('fromUid') ? d.accepted.outgoing : d.accepted.incoming;
+      if (has('status', 'accepted')) {
+        // Answered like Firestore would: only the accepted docs that match every filter.
+        const fieldOf = (doc, k) => { const v = doc.fields[k]; return v && 'stringValue' in v ? v.stringValue : null; };
+        docs = [...d.accepted.incoming, ...d.accepted.outgoing].filter(doc => filters.every(([k, v]) => fieldOf(doc, k) === v));
+      }
       else docs = has('fromUid') ? d.outgoing : d.incoming;
       return reply(200, docs.length ? docs.map(document => ({ document, readTime: d.readTime })) : [{ readTime: d.readTime }]);
     }
@@ -295,6 +321,28 @@ test('sendRequest normalises the email and uses fromUid_sha256 as the id', async
   assert.equal(got.toUid, null);
   assert.equal('createdAt' in got, false); // stamped by Firestore, not by this computer's clock
   assert.equal(f.log.all.find(c => c.url.endsWith(':commit')).init.headers.Authorization, 'Bearer IT');
+});
+
+test('long names are cut to 80 and over-long avatars dropped in every write the rules check', async () => {
+  const longName = 'N'.repeat(120);
+  const longAvatar = `https://a/${'p'.repeat(3000)}`;
+  const reqId = `u2_${hashOf('me@x.com')}`;
+  const f = fakeStore({ requestDocs: [reqDoc(reqId, { fromUid: 'u2', fromEmail: 'bob@x.com', fromName: longName, fromAvatar: longAvatar, toEmail: 'me@x.com', toUid: null })] });
+  const api = apiFor(f, { me: { name: longName, avatar: longAvatar } });
+  await api.sendRequest('bob@x.com');
+  await api.upsertProfile();
+  await api.accept(reqId);
+  assert.equal(f.log.commits.length, 3); // send, profile, accept
+  const fields = w => fromDoc({ name: w.update.name, fields: w.update.fields });
+  const sent = fields(f.log.commits[0].writes[0]);
+  assert.equal(sent.fromName, 'N'.repeat(80));
+  assert.equal(sent.fromAvatar, null);
+  const profile = fields(f.log.commits[1].writes[0]);
+  assert.equal(profile.name, 'N'.repeat(80));
+  assert.equal(profile.avatar, null);
+  const lists = f.log.commits[2].writes.filter(w => w.update && w.update.name.includes('/friends/')).map(fields);
+  assert.equal(lists.length, 2);
+  for (const l of lists) { assert.equal(l.name, 'N'.repeat(80)); assert.equal(l.avatar, null); }
 });
 
 test('sendRequest rejects things that are not emails', async () => {
@@ -432,6 +480,18 @@ test('removeFriend deletes both list docs and the request in one commit', async 
     { delete: `${DOCS}/friends/u2/list/u1` },
     { delete: `${DOCS}/requests/${sentByThem}` },
   ]);
+});
+
+test('removeFriend asks for the accepted request pinned to both uids, in each direction', async () => {
+  const f = fakeStore();
+  await apiFor(f).removeFriend('u2');
+  const shapes = f.log.queries.map(q => Object.fromEntries(q.structuredQuery.where.compositeFilter.filters.map(x => [x.fieldFilter.field.fieldPath, x.fieldFilter.value.stringValue])));
+  assert.deepEqual(shapes, [
+    { fromUid: 'u2', toUid: 'u1', status: 'accepted' },
+    { fromUid: 'u1', toUid: 'u2', status: 'accepted' },
+  ]);
+  // Nothing found: the list docs still go.
+  assert.deepEqual(f.log.commits[0].writes.map(w => w.delete), [`${DOCS}/friends/u1/list/u2`, `${DOCS}/friends/u2/list/u1`]);
 });
 
 test('removeFriend also finds the request when I sent it', async () => {

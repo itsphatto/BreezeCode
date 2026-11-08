@@ -35,6 +35,7 @@ const sha256hex = s => crypto.createHash('sha256').update(String(s)).digest('hex
 function normEmail(s) {
   if (typeof s !== 'string') return null;
   const e = s.trim().toLowerCase();
+  if (e.length > 254) return null; // the longest address SMTP allows; the rules refuse longer
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
 }
 
@@ -220,17 +221,25 @@ class SessionCache {
 const MAX_PENDING_OUT = 50;
 const STALE_MS = 180 * 1000; // presence older than this (by Firestore's clock) counts as offline
 const PROJECT_MAX = 80;
+const NAME_MAX = 80;      // the rules refuse a longer fromName
+const AVATAR_MAX = 2048;  // and a longer avatar URL
 const STATES = new Set(['online', 'away', 'offline']);
 const ACTIVITIES = new Set(['editing', 'agent', 'debug', 'space', 'idle']);
 const ID_OK = /^[A-Za-z0-9_-]{1,200}$/;
 
-// Cuts a folder name to 80 characters without leaving half an emoji at the end.
-function clipProject(p) {
+// Cuts a string to `max` UTF-16 units without leaving half an emoji at the end; null for a non-string or empty one.
+function clipText(p, max) {
   if (typeof p !== 'string' || !p) return null;
-  let s = p.slice(0, PROJECT_MAX);
+  let s = p.slice(0, max);
   if (/[\uD800-\uDBFF]$/.test(s)) s = s.slice(0, -1);
   return s;
 }
+// A folder name, at most 80 characters.
+const clipProject = p => clipText(p, PROJECT_MAX);
+// A display name, at most 80 characters.
+const clipName = n => clipText(n, NAME_MAX);
+// An avatar URL. A cut URL points nowhere, so one that is too long is dropped instead.
+const safeAvatar = a => (typeof a === 'string' && a && a.length <= AVATAR_MAX ? a : null);
 
 // Everything the signed-in user can do with friends. `session` is { uid, idToken, email } from SessionCache; the caller
 // gets a new api whenever the session changes. A 401 throws reauth (a 403 is `denied`, or `gone` where a call says so); main refreshes the session and retries once.
@@ -239,8 +248,8 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
   const docName = p => `projects/${projectId}/databases/(default)/documents/${p}`;
   const myUid = session.uid;
   const myEmail = session.email;
-  const myName = me.name || myEmail;
-  const myAvatar = me.avatar || null;
+  const myName = clipName(me.name) || clipName(myEmail);
+  const myAvatar = safeAvatar(me.avatar);
   const safe = id => { if (typeof id !== 'string' || !ID_OK.test(id)) throw new FriendsError('gone'); return id; };
   const needEmail = () => { if (!myEmail) throw new FriendsError('reauth'); };
 
@@ -348,7 +357,7 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
       const them = safe(req.fromUid);
       const writes = [
         put(`requests/${id}`, { status: 'accepted', toUid: myUid }, { mask: ['status', 'toUid'], exists: true }),
-        put(`friends/${myUid}/list/${them}`, { email: theirEmail, name: req.fromName || theirEmail, avatar: req.fromAvatar || null, since: SERVER_TIME }),
+        put(`friends/${myUid}/list/${them}`, { email: theirEmail, name: clipName(req.fromName) || clipName(theirEmail), avatar: safeAvatar(req.fromAvatar), since: SERVER_TIME }),
         put(`friends/${them}/list/${myUid}`, { email: myEmail, name: myName, avatar: myAvatar, since: SERVER_TIME }),
       ];
       // If I had also asked them, that request is now pointless; a sender may always delete their own.
@@ -379,15 +388,13 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
     async removeFriend(uid) {
       needEmail();
       const them = safe(uid);
-      // The accepted request lives under whoever sent it: ask for both directions.
+      // The accepted request lives under whoever sent it: ask for both directions, pinned to the two of us, so it is
+      // found however many other friends there are (a request left behind would let its recipient re-create the pair).
       const [theirs, mine] = await Promise.all([
-        queryRequests({ toEmail: myEmail, status: 'accepted' }),
-        queryRequests({ fromUid: myUid, status: 'accepted' }),
+        queryRequests({ fromUid: them, toUid: myUid, status: 'accepted' }),
+        queryRequests({ fromUid: myUid, toUid: them, status: 'accepted' }),
       ]);
-      const ids = [...new Set([
-        ...theirs.docs.filter(r => r.fromUid === them).map(r => r.id),
-        ...mine.docs.filter(r => r.toUid === them).map(r => r.id),
-      ])];
+      const ids = [...new Set([...theirs.docs, ...mine.docs].map(r => r.id))];
       await commit([del(`friends/${myUid}/list/${them}`), del(`friends/${them}/list/${myUid}`), ...ids.map(id => del(`requests/${id}`))]);
     },
 
@@ -505,4 +512,4 @@ function presenceThrottle({
   };
 }
 
-module.exports = { FriendsError, presenceThrottle, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
+module.exports = { FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };

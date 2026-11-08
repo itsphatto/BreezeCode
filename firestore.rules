@@ -52,10 +52,13 @@ service cloud.firestore {
 
     // ---- requests/{fromUid}_{sha256(toEmail)}: friend requests ----
     match /requests/{id} {
-      // The sender, or whoever owns the email it was sent to. Also covers the list queries
-      // (fromUid == me, or toEmail == myEmail), since each one's filter pins one side of this rule.
+      // The sender (but not once it is declined: that would tell them the email has an account), or the recipient, by
+      // email or, once answered, by uid. Also covers the list queries, since each one's filters pin one clause:
+      // fromUid == me with status pending/accepted, toEmail == myEmail, or toUid == me.
       allow read: if verified()
-        && (resource.data.fromUid == request.auth.uid || resource.data.toEmail == myEmail());
+        && ((resource.data.fromUid == request.auth.uid && resource.data.status != 'declined')
+            || resource.data.toEmail == myEmail()
+            || resource.data.toUid == request.auth.uid);
 
       // Same answer whether or not the email belongs to anyone: nothing here looks the recipient up.
       allow create: if verified()
@@ -98,10 +101,13 @@ service cloud.firestore {
         let rid = other + '_' + hashing.sha256(myEmail()).toHexString().lower();
         return /databases/$(database)/documents/requests/$(rid);
       }
-      // `other` sent me a request and, once this commit lands, I have accepted it.
+      // `other` sent me a request and this very commit accepts it: pending before, accepted after. So list docs are only
+      // born together with the accept, and a leftover accepted request cannot re-create a removed friendship.
       function acceptedFrom(other) {
         let path = requestFrom(other);
-        return existsAfter(path)
+        return exists(path)
+          && get(path).data.status == 'pending'
+          && existsAfter(path)
           && getAfter(path).data.fromUid == other
           && getAfter(path).data.status == 'accepted'
           && getAfter(path).data.toUid == request.auth.uid;
