@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <!-- Only Firebase Auth is ever called; nothing else loads from anywhere. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self'; connect-src https://identitytoolkit.googleapis.com; base-uri 'none'; form-action 'none'">
+  <title>Breeze Code</title>
+  <link rel="icon" href="../assets/icon.png">
+  <style>
+    @font-face { font-family: 'Instrument Sans'; font-weight: 400 700; font-display: swap; src: url('../assets/InstrumentSans-Variable.woff2') format('woff2'); }
+    @font-face { font-family: Unbounded; font-weight: 700; font-display: swap; src: url('../assets/Unbounded-700.woff2') format('woff2'); }
+
+    :root {
+      color-scheme: dark;
+      /* Breeze's launch sky (breeze.css --sig-accent). */
+      --sky:
+        radial-gradient(60% 55% at 12% 8%, #b9dcff 0%, rgba(185, 220, 255, 0) 70%),
+        radial-gradient(55% 60% at 92% 96%, #a9d1fb 0%, rgba(169, 209, 251, 0) 70%),
+        radial-gradient(45% 40% at 18% 92%, #7a5cff 0%, rgba(122, 92, 255, 0) 70%),
+        linear-gradient(125deg, #8fc3ff 0%, #2f6bff 34%, #1f4dff 55%, #3d7bff 78%, #9cc9f7 100%);
+      --card: rgba(29, 29, 31, .74);
+      --line: rgba(255, 255, 255, .12);
+      --text: #f5f5f7;
+      --text-2: #b9b9bf;
+      --chip: rgba(255, 255, 255, .08);
+      --ok: #22c55e;
+      --err: #f87171;
+      --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-display: Unbounded, var(--font-ui);
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --card: rgba(251, 249, 244, .82);
+        --line: rgba(0, 0, 0, .1);
+        --text: #26231e;
+        --text-2: #57514a;
+        --chip: rgba(0, 0, 0, .06);
+        --ok: #137036;
+        --err: #c42b1c;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+      background: #2f6bff var(--sky) fixed;
+      color: var(--text);
+      font: 15px/1.5 var(--font-ui);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 420px;
+      padding: 36px 32px 30px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--card);
+      backdrop-filter: blur(22px) saturate(160%);
+      -webkit-backdrop-filter: blur(22px) saturate(160%);
+      text-align: center;
+      animation: rise .5s cubic-bezier(.2, .8, .2, 1) both;
+    }
+    @keyframes rise { from { opacity: 0; transform: translateY(12px) scale(.98); } }
+
+    .icon { position: relative; width: 72px; height: 72px; margin: 0 auto 20px; }
+    .icon img { width: 72px; height: 72px; border-radius: 18px; display: block; }
+    .badge {
+      position: absolute; right: -6px; bottom: -6px;
+      width: 28px; height: 28px; border-radius: 50%;
+      display: grid; place-items: center;
+      border: 3px solid var(--card);
+      background: var(--ok);
+      color: #fff;
+      transform: scale(0);
+      transition: transform .35s cubic-bezier(.3, 1.6, .5, 1);
+    }
+    .badge svg { width: 14px; height: 14px; }
+    [data-state="ok"] .badge { transform: scale(1); }
+    [data-state="bad"] .badge { transform: scale(1); background: var(--err); }
+
+    h1 { margin: 0 0 8px; font: 700 21px/1.25 var(--font-display); letter-spacing: -.01em; }
+    p { margin: 0; color: var(--text-2); }
+    .email {
+      display: inline-block; max-width: 100%;
+      margin: 14px 0 4px; padding: 6px 14px;
+      border-radius: 999px;
+      background: var(--chip);
+      color: var(--text);
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .email:empty { display: none; }
+
+    .next {
+      margin: 22px 0 0; padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      text-align: left;
+      color: var(--text-2);
+      font-size: 14px;
+    }
+    .next b { color: var(--text); font-weight: 600; }
+    .next:empty { display: none; }
+
+    .spin {
+      width: 18px; height: 18px; margin: 18px auto 0;
+      border: 2px solid var(--line); border-top-color: var(--text);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    [data-state]:not([data-state="wait"]) .spin { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    footer { margin-top: 26px; color: var(--text-2); font-size: 12px; }
+
+    @media (prefers-reduced-motion: reduce) { .card, .badge { animation: none; transition: none; } .spin { animation-duration: 2s; } }
+  </style>
+</head>
+<body>
+  <main class="card" id="card" data-state="wait" aria-live="polite">
+    <div class="icon">
+      <img src="../assets/icon.png" alt="Breeze Code">
+      <span class="badge" id="badge" aria-hidden="true"></span>
+    </div>
+    <h1 id="title">Checking your link…</h1>
+    <p id="lead">One moment.</p>
+    <span class="email" id="email"></span>
+    <div class="spin" aria-hidden="true"></div>
+    <div class="next" id="next"></div>
+    <footer>Breeze Code · Friends</footer>
+  </main>
+
+  <script>
+    // Firebase's email links land here (Authentication → Templates → Customize action URL). The link carries a one-time
+    // oobCode; applying it marks the email verified. The key is the project's public web key, not a secret.
+    const API_KEY = 'AIzaSyDenqcW6R-Rd7A9rYoWTPQd_M1EYjIWNWI';
+    const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+    const CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+    const $ = id => document.getElementById(id);
+
+    function show(state, title, lead, email, next) {
+      $('card').dataset.state = state;
+      $('badge').innerHTML = state === 'ok' ? CHECK : state === 'bad' ? CROSS : '';
+      $('title').textContent = title;
+      $('lead').textContent = lead;
+      $('email').textContent = email || '';
+      $('next').innerHTML = next || '';
+      document.title = `${title} · Breeze Code`;
+    }
+
+    const AGAIN = 'In Breeze Code, open <b>Friends</b> and press <b>Send again</b> for a new link.';
+    const DONE = 'Go back to Breeze Code, open <b>Friends</b> and press <b>Refresh</b>. You can close this tab.';
+
+    async function run() {
+      const q = new URLSearchParams(location.search);
+      const mode = q.get('mode'), code = q.get('oobCode');
+      if (!code || (mode !== 'verifyEmail' && mode !== 'verifyAndChangeEmail')) {
+        show('bad', "This link isn't for Breeze", 'It may be cut short. Open it again from the email, or ask for a new one.', '', AGAIN);
+        return;
+      }
+      try {
+        const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ oobCode: code }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          show('ok', "You're verified", 'Friends can now match people to this email:', body.email || body.newEmail, DONE);
+          return;
+        }
+        const msg = String(body?.error?.message || '');
+        if (/EXPIRED_OOB_CODE/.test(msg)) show('bad', 'This link has expired', 'Links only last a while.', '', AGAIN);
+        else if (/INVALID_OOB_CODE/.test(msg)) show('bad', 'This link was already used', "If you've clicked it before, you may already be verified.", '', 'In Breeze Code, open <b>Friends</b> and press <b>Refresh</b>. If it still asks, press <b>Send again</b>.');
+        else if (/USER_DISABLED|USER_NOT_FOUND/.test(msg)) show('bad', "This account can't be verified", 'It was removed or turned off.', '', '');
+        else show('bad', 'Something went wrong', `Firebase said: ${msg.split(' ')[0] || res.status}.`, '', AGAIN);
+      } catch {
+        show('bad', "Couldn't reach Firebase", 'Check your connection, then reload this page.', '', '');
+      }
+    }
+    run();
+  </script>
+</body>
+</html>

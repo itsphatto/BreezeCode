@@ -70,6 +70,7 @@
   "dependencies": {
     "electron-updater": "^6.8.9",
     "emmet": "^2.4.11",
+    "firebase": "^13.2.0",
     "morphicons": "^2.0.0"
   }
 }

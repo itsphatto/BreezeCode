@@ -1,6 +1,6 @@
 /* ================= Settings ================= */
 // One pop-up for everything: the gear opens it (in the IDE and in Breeze Space) and turns while it is open.
-type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
+type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'friends' | 'help' | 'dev';
 // The controller Discord puts beside a game's elapsed time (Lucide's gamepad-2), for the Discord tab's preview.
 // The same language art main.js hands Discord, so the preview shows what friends see.
 const DC_ICON_URL = 'https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/';
@@ -11,6 +11,7 @@ const SETTINGS_TABS: [SettingsTab, string, string][] = [
   ['controls', 'Controls', 'keyboard'],
   ['agents', 'Agents', 'terminal'],
   ['discord', 'Discord', 'discord'],
+  ['friends', 'Friends', 'users'],
   ['help', 'Help & About', 'info'],
   ['misc', 'Miscellaneous', 'more'],
   ['dev', 'Developer', 'code'],
@@ -373,6 +374,15 @@ function settingsBody(tab: SettingsTab): string {
         </div>
         <p class="set-sub">The Discord app must be running on this computer.</p></div>`;
     }
+    case 'friends': {
+      // With sharing off, the project switch goes grey and can't be used, like Discord's.
+      const off = appState.friendsShare ? '' : 'off';
+      return `<h4>Friends</h4>
+        ${settingRow('Share my activity with friends', 'Friends see whether you are online and what you are doing: coding, building with an agent, debugging or in Breeze Space. Never your files, code or prompts.', switchHtml('sFriendsShare', appState.friendsShare, 'Share my activity with friends'))}
+        <div class="set-dim ${off}"${off ? ' inert' : ''}>
+        ${settingRow('Show my project name', 'The open folder’s name. Names can include client or employer names.', switchHtml('sFriendsProject', appState.friendsProject, 'Show my project name'))}</div>
+        ${friendsConfigured === false ? `<p class="set-sub">${esc(FRIENDS_COPY['not-configured'])}</p>` : ''}`;
+    }
     case 'help': {
       const engine = /Electron\/[\d.]+|Chrome\/[\d.]+/.exec(navigator.userAgent)?.[0] ?? '';
       // Git, Node.js and the compilers, each with the setup card's installer when it's missing (bindToolButtons).
@@ -498,7 +508,7 @@ document.addEventListener('pointerdown', e => {
 // The side tab, top to bottom: who you are, a search box, then the sections in groups.
 const SETTINGS_GROUPS: [string, SettingsTab[]][] = [
   ['', ['general', 'appearance', 'controls', 'agents']],
-  ['Apps', ['discord', 'misc']],
+  ['Apps', ['discord', 'friends', 'misc']],
   ['Support', ['help', 'dev']],
 ];
 let settingsQuery = '';
@@ -773,6 +783,9 @@ function bindSettings(m: HTMLElement): void {
   }
   on('sClassicSwitch', () => { setClassicSwitch(!classicSwitch); refreshSettings(); });
   on('sDevOff', () => { appState.devMode = false; saveApp(); applyDevMode(); settingsTab = 'misc'; refreshSettings(); });
+  // Friends
+  on('sFriendsShare', () => { appState.friendsShare = !appState.friendsShare; saveApp(); queueFriendsPresence(); refreshSettings(); });
+  on('sFriendsProject', () => { appState.friendsProject = !appState.friendsProject; saveApp(); queueFriendsPresence(); refreshSettings(); });
   // Discord
   on('sDiscord', el => {
     if (appState.discord) { discordOff(); return; }

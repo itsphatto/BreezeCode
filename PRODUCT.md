@@ -36,6 +36,7 @@ These four points are equally weighted and should not be traded against each oth
 - First-run setup scans for coding agents, Git and Node.js, and offers to use a local LLM with an API key.
 - Main surfaces:
   - **Home:** New File, Open Folder or Clone Repository, recent projects, GitHub contributions, and an Agent tab with 30 days of token use and what it would have cost at API prices (an estimate).
+    - Friends: add people by email (they accept), and see who's online and what project and activity they're on. You can hide the project name or stop sharing.
   - **Breeze Code:** explorer, tabbed and split editor, terminal (can pop out into its own window with the same sessions), live preview, full-page Source Control, and an agents panel with agent cards.
   - **Breeze Space:** prompt and chat only, with no editor (a terminal can open beside the chat). Code in a reply becomes an artifact card you can copy or download. Chats can be named without a folder open. With Extra animation on, the view flies through the clouds between the IDE and Space.
   - **Vibe Code Mode:** the IDE fades and an Instagram or Facebook feed plays while the agents work, and a card announces when the code is ready. It works in Breeze Space too.

@@ -684,6 +684,19 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async set() { return { user: null }; },
       async clear() { /* nothing to clear in the browser */ },
     },
+    // Friends talks to Firebase from the desktop app's main process; the preview shows the not-set-up state.
+    friends: {
+      async status() { return { configured: false, signedIn: !!current, email: null, provider: current?.provider ?? null }; },
+      async list() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async incoming() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async verify() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async add() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async accept() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async decline() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async cancel() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async remove() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async setPresence() { return { ok: true }; },
+    },
     // Sync needs an account's cloud, which only the desktop app reaches.
     sync: {
       async status() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
@@ -784,6 +797,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   eye: [['path', { d: 'M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
   gear: [['path', { d: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
   user: [['path', { d: 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2' }], ['circle', { cx: 12, cy: 7, r: 4 }]],
+  users: [['path', { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' }], ['circle', { cx: 9, cy: 7, r: 4 }], ['path', { d: 'M22 21v-2a4 4 0 0 0-3-3.87' }], ['path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' }]],
   pencil: [['path', { d: 'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' }], ['path', { d: 'm15 5 4 4' }]],
   terminal: [['path', { d: 'M4 17l6-6-6-6' }], ['path', { d: 'M12 19h8' }]],
   code: [['path', { d: 'm16 18 6-6-6-6' }], ['path', { d: 'm8 6-6 6 6 6' }]],

@@ -32,6 +32,8 @@ async function boot(): Promise<void> {
   const signed = await api.auth.user().catch(() => null);
   if (signed || isDesktop) { user = signed; appState.user = signed; saveApp(); }
   await refreshAccounts();
+  void refreshFriends(); // in the background: Friends never holds up start-up
+  queueFriendsPresence();
   if (!appState.onboarded) goStep(step);
   booted = true;
   updateActIndicator(true);
@@ -57,6 +59,20 @@ async function boot(): Promise<void> {
   startupWaits = null;
   // One frame so the last renders are painted before start-up counts as done.
   await new Promise(r => { requestAnimationFrame(() => r(undefined)); setTimeout(r, 100); }); // a hidden window has no frames
+}
+// Friends: away once the window has lost focus and nothing was typed or clicked for 5 minutes; back on focus or input.
+{
+  const AWAY_MS = 5 * 60_000;
+  let awayTimer: TimeoutId | undefined;
+  const arm = () => {
+    clearTimeout(awayTimer);
+    awayTimer = setTimeout(() => { if (!document.hasFocus()) setFriendsAway(true); }, AWAY_MS);
+  };
+  // Input over an unfocused window (a scroll, say) counts too, and the 5 minutes start again from it.
+  const back = () => { setFriendsAway(false); if (document.hasFocus()) clearTimeout(awayTimer); else arm(); };
+  window.addEventListener('blur', arm);
+  window.addEventListener('focus', back);
+  for (const ev of ['keydown', 'pointerdown', 'wheel']) window.addEventListener(ev, back, { capture: true, passive: true });
 }
 // Every launch opens behind the launch light (see launch.css); after setup it lifts straight onto Home, so a returning
 // user never sees the welcome flash by. A first run's welcome rises in on the same sky as the light lifts; sounds stay
