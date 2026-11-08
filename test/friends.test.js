@@ -277,6 +277,26 @@ test('SessionCache does not keep a session that was dropped while it was signing
   assert.deepEqual(tokenCalls, ['a', 'a']);
 });
 
+test('SessionCache does not save the refresh token of a sign-in that was dropped while it ran', async () => {
+  // A fresh sign-in (no saved refresh token) dropped mid-way: nothing is saved.
+  const a = cacheFor({ persist: true });
+  const pending = a.cache.get('a');
+  a.cache.drop(); // e.g. sign-out, which has just cleared the saved token
+  await pending;
+  assert.equal(a.saved.has('a'), false);
+  // The same through the refresh path: the old token stays as it was, the new one is not written.
+  const b = cacheFor({ persist: true });
+  b.saved.set('a', 'old-rt');
+  const p2 = b.cache.get('a');
+  b.cache.drop();
+  await p2;
+  assert.equal(b.saved.get('a'), 'old-rt');
+  // Not dropped: saved as usual.
+  const c = cacheFor({ persist: true });
+  await c.cache.get('a');
+  assert.equal(c.saved.get('a'), 'rt-a');
+});
+
 // ---- Task 3: Friends API over Firestore ----
 
 const { friendsApi } = require('../src/main/friends');

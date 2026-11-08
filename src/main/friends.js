@@ -191,7 +191,7 @@ class SessionCache {
     if (this.session && this.session.expiresAt - this.now() >= REFRESH_EARLY_MS) return this.session;
     if (this.pending) return this.pending;
     const gen = this.gen;
-    const p = this.load(acct, this.session).then(s => {
+    const p = this.load(acct, this.session, gen).then(s => {
       if (gen === this.gen) this.session = s;
       return s;
     }).finally(() => { if (this.pending === p) this.pending = null; });
@@ -199,12 +199,15 @@ class SessionCache {
     return p;
   }
 
-  async load(acct, previous) {
+  // `gen` is this.gen when the load started: a load that outlived a drop() keeps nothing, not even the refresh token
+  // (the drop may be a sign-out that has just cleared it).
+  async load(acct, previous, gen = this.gen) {
+    const keep = async rt => { if (gen === this.gen) await this.saveRefresh(acct, rt); };
     const refreshToken = previous ? previous.refreshToken : await this.loadRefresh(acct);
     if (refreshToken) {
       try {
         const s = await refreshSession({ apiKey: this.apiKey, refreshToken, email: previous && previous.email, fetch: this.fetchFn, now: this.now });
-        await this.saveRefresh(acct, s.refreshToken);
+        await keep(s.refreshToken);
         return s;
       } catch (e) {
         if (!(e instanceof FriendsError) || e.code !== 'reauth') throw e;
@@ -214,7 +217,7 @@ class SessionCache {
     const tok = await this.getAccessToken(acct);
     if (!tok || !tok.token) throw new FriendsError('signed-out');
     const s = await firebaseSession({ apiKey: this.apiKey, provider: tok.provider, accessToken: tok.token, fetch: this.fetchFn, now: this.now });
-    await this.saveRefresh(acct, s.refreshToken);
+    await keep(s.refreshToken);
     return s;
   }
 }
