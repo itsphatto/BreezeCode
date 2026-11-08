@@ -203,6 +203,7 @@ contextBridge.exposeInMainWorld('breeze', {
   friends: {
     status: () => invoke('friends:status'),
     list: () => invoke('friends:list'),
+    incoming: () => invoke('friends:incoming'),
     add: email => invoke('friends:add', email),
     accept: id => invoke('friends:accept', id),
     decline: id => invoke('friends:decline', id),

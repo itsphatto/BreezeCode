@@ -91,15 +91,18 @@ function friendsListHtml(d: FriendsList): string {
       <button class="icon-btn friends-more" data-friend-act="more" data-id="${escAttr(f.uid)}" title="More" aria-label="${escAttr(`More for ${f.name}`)}" aria-haspopup="menu">${svgIcon('more', 16)}</button></div>`).join('');
   return `<h3 class="friends-sub">Friends</h3>${rows}`;
 }
+// The dot on the Home rail button: incoming requests waiting.
+function friendsBadge(n: number): void {
+  const badge = $('#friendsBadge');
+  badge.classList.toggle('hidden', !n);
+  badge.closest('button')?.setAttribute('aria-label', n ? `Friends, ${plural(n, 'request')} waiting` : 'Friends');
+}
 function renderFriends(): void {
   const g = friendsGate;
   const hard = !!g && g.code !== 'network'; // nothing to show but the reason
   const d = hard ? null : friendsData;
   const parts = [g ? friendsStateHtml(g) : '', d ? friendsRequestsHtml(d) : '', d ? friendsListHtml(d) : ''];
-  const n = d?.incoming.length ?? 0;
-  const badge = $('#friendsBadge');
-  badge.classList.toggle('hidden', !n);
-  badge.closest('button')?.setAttribute('aria-label', n ? `Friends, ${plural(n, 'request')} waiting` : 'Friends');
+  friendsBadge(d?.incoming.length ?? 0);
   const key = `${hard}|${parts.join('|')}`;
   if (key === friendsShown) return; // a poll that changed nothing leaves the rows (and a hovered one) be
   friendsShown = key;
@@ -120,18 +123,43 @@ const friendsVisible = () => friendsOpen && $('.home-view[data-view="friends"]')
 function scheduleFriends(): void {
   clearTimeout(friendsTimer);
   if (friendsConfigured === false) return; // this build has no Firebase config; that doesn't change while it runs
-  friendsTimer = setTimeout(() => void refreshFriends(), friendsVisible() ? FRIENDS_POLL_OPEN : FRIENDS_POLL_HIDDEN);
+  // On screen, the whole list; hidden, only the request count for the badge (one query, not the list and presence).
+  const open = friendsVisible();
+  friendsTimer = setTimeout(() => void (open ? refreshFriends() : refreshFriendsBadge()), open ? FRIENDS_POLL_OPEN : FRIENDS_POLL_HIDDEN);
+}
+// Main asks for the status first (and fails it the same way list() would), so a gate still shows up here.
+const friendsGateOf = (st: FriendsStatus): FriendsFail | null => (!st.configured ? { error: FRIENDS_COPY['not-configured'], code: 'not-configured' }
+  : !st.signedIn ? { error: FRIENDS_COPY['signed-out'], code: 'signed-out' }
+    : st.error ? { error: st.error, code: st.code ?? null } : null);
+const friendsStatusOf = () => api.friends.status().catch((e: unknown) => ({ configured: true, signedIn: true, email: null, provider: null, ...friendsFailOf(e) }) as FriendsStatus);
+// The hidden poll: only the badge. A failure other than the network is shown like the full refresh would show it.
+async function refreshFriendsBadge(): Promise<void> {
+  const seq = ++friendsSeq;
+  clearTimeout(friendsTimer);
+  try {
+    const st = await friendsStatusOf();
+    if (seq !== friendsSeq) return;
+    friendsConfigured = st.configured;
+    const gate = friendsGateOf(st);
+    const r = gate ?? await api.friends.incoming().catch(friendsFailOf);
+    if (seq !== friendsSeq) return;
+    if (!isFriendsFail(r)) { friendsBadge(r.count); return; }
+    if (r.code === 'network') return; // the badge stays as it was; the next poll tries again
+    friendsData = null;
+    friendsGate = r;
+    renderFriends();
+  } finally {
+    if (seq === friendsSeq) scheduleFriends();
+  }
 }
 async function refreshFriends(): Promise<void> {
   const seq = ++friendsSeq;
   clearTimeout(friendsTimer);
   try {
-    const st = await api.friends.status().catch((e: unknown) => ({ configured: true, signedIn: true, email: null, provider: null, ...friendsFailOf(e) }) as FriendsStatus);
+    const st = await friendsStatusOf();
     if (seq !== friendsSeq) return;
     friendsConfigured = st.configured;
-    let gate: FriendsFail | null = !st.configured ? { error: FRIENDS_COPY['not-configured'], code: 'not-configured' }
-      : !st.signedIn ? { error: FRIENDS_COPY['signed-out'], code: 'signed-out' }
-        : st.error ? { error: st.error, code: st.code ?? null } : null;
+    let gate = friendsGateOf(st);
     if (!gate) {
       const r = await api.friends.list().catch(friendsFailOf);
       if (seq !== friendsSeq) return;

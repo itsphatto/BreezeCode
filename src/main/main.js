@@ -4377,6 +4377,7 @@ async function friendsSwitching(change) {
 }
 
 friendsHandle('friends:list', api => api.list());
+friendsHandle('friends:incoming', api => api.incoming()); // just the badge count, for the slow poll while Friends is hidden
 friendsHandle('friends:add', (api, email) => api.sendRequest(email));
 friendsHandle('friends:accept', async (api, id) => { await api.accept(id); return { ok: true }; });
 friendsHandle('friends:decline', async (api, id) => { await api.decline(id); return { ok: true }; });

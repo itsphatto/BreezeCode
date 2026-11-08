@@ -448,6 +448,14 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
       })]);
     },
 
+    // Just the number of incoming requests waiting (declined ones left out), for the badge while Friends isn't on screen.
+    async incoming() {
+      needEmail();
+      const incoming = await queryRequests({ toEmail: myEmail, status: 'pending' });
+      const declined = await declinedOf(incoming.docs);
+      return { count: incoming.docs.filter(r => !declined.has(r.id)).length };
+    },
+
     async list() {
       needEmail();
       const [friends, incoming, outgoing] = await Promise.all([

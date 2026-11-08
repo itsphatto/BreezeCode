@@ -122,6 +122,8 @@ interface FriendsStatus { configured: boolean; signedIn: boolean; email: string 
 interface Friend { uid: string; email: string; name: string; avatar: string | null; state: FriendState; project: string | null; activity: FriendActivity; updatedAt: number | null; }
 interface FriendRequest { id: string; email: string; name: string | null; avatar: string | null; createdAt: number | null; }
 interface FriendsList { friends: Friend[]; incoming: FriendRequest[]; outgoing: FriendRequest[]; readTime: number; }
+// How many incoming requests are waiting, without the rest of the list (the badge, while Friends is hidden).
+interface FriendsIncoming { count: number; }
 interface FriendsPresence { state: 'online' | 'away'; project: string | null; activity: FriendActivity; }
 interface Completion { text: string; dir: boolean; }
 interface DetectedTool { id: string; name: string; found: boolean; version: string | null; optional?: boolean; hint?: string | null; cmd?: string | null; url?: string | null; }
@@ -336,6 +338,7 @@ interface BreezeApi {
   friends: {
     status(): Promise<FriendsStatus>;
     list(): Promise<FriendsList | FriendsFail>;
+    incoming(): Promise<FriendsIncoming | FriendsFail>;
     add(email: string): Promise<{ id: string } | FriendsFail>;
     accept(id: string): Promise<{ ok: true } | FriendsFail>;
     decline(id: string): Promise<{ ok: true } | FriendsFail>;

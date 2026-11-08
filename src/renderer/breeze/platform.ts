@@ -688,6 +688,7 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
     friends: {
       async status() { return { configured: false, signedIn: !!current, email: null, provider: current?.provider ?? null }; },
       async list() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
+      async incoming() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
       async add() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
       async accept() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },
       async decline() { return { error: "Friends isn't set up in this build.", code: 'not-configured' }; },

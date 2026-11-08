@@ -696,6 +696,26 @@ test('list returns incoming and outgoing requests', async () => {
   assert.deepEqual(asked, ['fromUid=u1&status=pending', 'status=pending&toEmail=me@x.com']);
 });
 
+test('incoming counts the pending requests to me, leaving out the ones I declined, and reads nothing else', async () => {
+  const a = `u5_${hashOf('me@x.com')}`, b = `u6_${hashOf('me@x.com')}`, c = `u7_${hashOf('me@x.com')}`;
+  const f = fakeStore({
+    friends: [friendDoc('u2', 'bob@x.com', 'Bob')],
+    incoming: [a, b, c].map((id, i) => reqDoc(id, { fromUid: `u${5 + i}`, fromEmail: `p${i}@x.com`, toEmail: 'me@x.com' })),
+    declined: [b],
+  });
+  assert.deepEqual(await apiFor(f).incoming(), { count: 2 });
+  assert.equal(f.log.queries.length, 1);
+  assert.deepEqual(f.log.queries[0].structuredQuery.where.compositeFilter.filters.map(x => `${x.fieldFilter.field.fieldPath}=${x.fieldFilter.value.stringValue}`), ['toEmail=me@x.com', 'status=pending']);
+  const gets = f.log.all.filter(x => x.url === `${BASE}:batchGet`);
+  assert.equal(gets.length, 1);
+  assert.ok(JSON.parse(gets[0].init.body).documents.every(n => n.includes('/declined/')));
+  assert.equal(f.log.all.length, 2); // no friends list, no presence, no outgoing query
+  // None waiting: one query, no batchGet.
+  const empty = fakeStore();
+  assert.deepEqual(await apiFor(empty).incoming(), { count: 0 });
+  assert.equal(empty.log.all.length, 1);
+});
+
 test('writePresence truncates project to 80 chars and uses REQUEST_TIME', async () => {
   const f = fakeStore();
   await apiFor(f).writePresence({ state: 'online', project: 'x'.repeat(200), activity: 'editing' });
