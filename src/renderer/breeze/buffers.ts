@@ -13,7 +13,38 @@ function applyPendingScroll(b: EditorBuffer & { ta: CodeSurface }): void {
   b.ta.scrollTop = top;
   pendingScroll.delete(b);
 }
+// Changing from one folder to another while the IDE is showing morphs it: a file or folder at the same path in both glides
+// from its old row to its new one, and the rest of the window cross-fades (.folder-morph, breeze.css).
 async function loadWorkspace(info: RootInfo): Promise<void> {
+  if (rootInfo && $('#projectName').checkVisibility()) await morphFolder(() => swapWorkspace(info));
+  else await swapWorkspace(info);
+}
+async function morphFolder(swap: () => Promise<void>): Promise<void> {
+  const root = document.documentElement;
+  root.classList.add('folder-morph');
+  nameTreeRows();
+  const morph = document.startViewTransition(async () => {
+    // The window can't paint until the new folder has loaded, so a slow one drops the morph rather than looking stuck.
+    const slow = setTimeout(() => morph.skipTransition(), 600);
+    try { await swap(); } finally { clearTimeout(slow); }
+    nameTreeRows();
+  });
+  const done = () => {
+    root.classList.remove('folder-morph');
+    $$<HTMLElement>('#tree .tree-item').forEach(r => r.style.viewTransitionName = '');
+  };
+  morph.finished.then(done, done);
+  await morph.updateCallbackDone;
+}
+// Only rows fully in view: a named row is drawn above the tree, so the tree's scrolling wouldn't clip it.
+function nameTreeRows(): void {
+  const { top, bottom } = $('#tree').getBoundingClientRect();
+  for (const r of $$<HTMLElement>('#tree .tree-item[data-path]')) {
+    const box = r.getBoundingClientRect();
+    if (box.top >= top && box.bottom <= bottom) r.style.viewTransitionName = `fm-${CSS.escape(r.dataset.path as string)}`;
+  }
+}
+async function swapWorkspace(info: RootInfo): Promise<void> {
   if (rootInfo) { flushSession(); resetWorkspace(); }
   rootInfo = info;
   gitLoaded = false;

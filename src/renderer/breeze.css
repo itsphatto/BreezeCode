@@ -1577,84 +1577,21 @@ textarea:focus-visible {
   line-height: 1.2;
 }
 
-/* Animated active underline with smooth sweep and gradient flow: Get Ollama's, and every link that underlines on
-   hover (Home's links, onboarding's, the Recent names, Settings' email, the debugger's). */
-:is(.ob-link, .ob-terms a, .home-recent .recent-open .nm, .set-profile-edit, .dbg-link) {
-  position: relative;
+/* Link hover: a blue line draws in from the left, the same move as the website's footer links. Get Ollama's, and
+   every link that underlines on hover (Home's links, onboarding's, the Recent names, Settings' email, the debugger's). */
+:is(.agent-opt .get .get-label, .agent-opt .get:not(:has(.get-label)), .home-link .get-label, .ob-link, .ob-terms a, .home-recent .recent-open .nm, .set-profile-edit, .dbg-link) {
+  padding-bottom: 2px;
+  background: linear-gradient(var(--blue), var(--blue)) 0 100% / 0 2px no-repeat;
+  transition: background-size .35s cubic-bezier(.16, 1, .3, 1), color .15s ease, transform .12s cubic-bezier(.16, 1, .3, 1);
 }
 
-.agent-opt .get .get-label::after,
-.home-link .get-label::after,
-:is(.ob-link, .ob-terms a, .home-recent .recent-open .nm, .set-profile-edit, .dbg-link)::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: -1px;
-  width: 100%;
-  height: 1.5px;
-  background: linear-gradient(90deg, var(--blue-text), #c084fc, #38bdf8, var(--blue-text));
-  background-size: 200% 100%;
-  border-radius: 2px;
-  transform: scaleX(0);
-  transform-origin: left;
-  opacity: 0;
-  transition: transform .26s cubic-bezier(.16, 1, .3, 1),
-              opacity .2s ease;
-}
-
-.agent-opt .get:hover .get-label::after,
-.home-link:hover .get-label::after,
-:is(.ob-link:hover, .ob-terms a:is(:hover, :focus-visible), .home-recent .recent-open:hover .nm, .set-profile-edit:hover, .dbg-link:hover)::after {
-  transform: scaleX(1);
-  opacity: 1;
-  animation: underlineShimmer 1.8s ease-in-out infinite;
+:is(.agent-opt .get:hover .get-label, .agent-opt .get:not(:has(.get-label)):hover, .home-link:hover .get-label, .ob-link:hover, .ob-terms a:is(:hover, :focus-visible), .home-recent .recent-open:hover .nm, .set-profile-edit:hover, .dbg-link:hover) {
+  background-size: 100% 2px;
 }
 
 .agent-opt .get:hover {
   color: #93baff;
   text-decoration: none !important;
-}
-
-/* Fallback for any .get button without .get-label wrapper */
-.agent-opt .get:not(:has(.get-label)) {
-  position: relative;
-}
-
-.agent-opt .get:not(:has(.get-label))::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: -1px;
-  width: 100%;
-  height: 1.5px;
-  background: linear-gradient(90deg, var(--blue-text), #c084fc, #38bdf8, var(--blue-text));
-  background-size: 200% 100%;
-  border-radius: 2px;
-  transform: scaleX(0);
-  transform-origin: left;
-  opacity: 0;
-  transition: transform .26s cubic-bezier(.16, 1, .3, 1),
-              opacity .2s ease;
-}
-
-.agent-opt .get:not(:has(.get-label)):hover::after {
-  transform: scaleX(1);
-  opacity: 1;
-  animation: underlineShimmer 1.8s ease-in-out infinite;
-}
-
-/* These cut their text with "…" (overflow hidden), which would clip a line drawn below the box. */
-:is(.home-recent .recent-open .nm, .set-profile-mail)::after {
-  bottom: 0;
-}
-
-@keyframes underlineShimmer {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 200% 50%;
-  }
 }
 
 .folder-path {
@@ -16304,6 +16241,19 @@ input.dbg-edit.bad:focus-visible {
 
 @keyframes scm-in {
   from { opacity: 0; }
+}
+
+/* Changing folder (morphFolder, buffers.ts): rows at the same path in both folders glide to their new place. */
+:root.folder-morph::view-transition-group(*) {
+  animation-duration: .32s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+/* Nothing travels; the rows only cross-fade. */
+@media (prefers-reduced-motion: reduce) {
+  :root.folder-morph::view-transition-group(*) {
+    animation-name: none;
+  }
 }
 
 /* While it's open (prs.ts) the page's column stands in for the side bar, whose own column closes to nothing like a
