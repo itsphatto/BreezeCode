@@ -61,7 +61,7 @@ const OB_SOFT = 'cubic-bezier(.16, 1, .3, 1)';
 const OB_CURVE = 'cubic-bezier(.22, .72, .2, 1)'; // softer off the mark than OB_SOFT, or the curve is over before it's seen
 const stepEl = (n: number) => $(`.ob-step[data-step="${n}"]`);
 const stepLogo = (n: number) => stepEl(n).querySelector<HTMLImageElement>('.ob-logo, .ob-icon');
-const motionOff = () => document.documentElement.classList.contains('win-jump') || matchMedia('(prefers-reduced-motion: reduce)').matches;
+const motionOff = () => document.documentElement.classList.contains('win-jump');
 let obAnims: Animation[] = [], obGhost: HTMLElement | null = null;
 function stopObMotion(): void {
   obAnims.forEach(a => a.cancel());

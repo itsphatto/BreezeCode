@@ -1,8 +1,7 @@
 /* ================= Source Control page (and pull requests) ================= */
-// Source Control is a full page: the changes, commit box and graph in a column on the left (git.ts), and on the right
-// whatever was picked there, a file's diff for now and pull requests later. It takes the place of the editor and
-// preview, and of the side bar, while it is open. Nothing in `layout` changes, so closing it brings back exactly what
-// was on screen before.
+// Source Control is a page: the changes, commit box and graph in a column where the side bar was (git.ts), and on the
+// right the editor, or whatever was picked in the column (a file's diff, a pull request) until a file is opened again.
+// Nothing in `layout` changes, so closing it brings back exactly what was on screen before.
 let scmPageOpen = false;
 // The side-bar view to go back to when the page closes (never 'git': that is the page itself).
 let scmPrevView = 'files';
@@ -27,28 +26,49 @@ function openScmPage(): void {
 }
 
 // `restore` false: showView is already switching to another view, so there is nothing to go back to.
-function closeScmPage(restore = true): void {
+// `morph`: the header's icons morph into the side bar's (a click; see showView).
+function closeScmPage(restore = true, morph = false): void {
   if (!scmPageOpen) return;
   snapMain();
   scmPageOpen = false;
-  $('#main').classList.remove('scm-page');
+  $('#main').classList.remove('scm-page', 'scm-detail-on');
+  $('#scmDetail').innerHTML = '';
   setTimeout(placeSashes);
-  if (restore) showView(scmPrevView);
+  if (restore) showView(scmPrevView, false, morph);
 }
 
 function showScmDetail(html: string, bind?: (el: HTMLElement) => void): void {
   const el = $('#scmDetail');
+  const shown = $('#main').classList.contains('scm-detail-on');
+  $('#main').classList.add('scm-detail-on');
+  if (!shown) applyLayout(); // the preview is sized again once the editor is back
   el.innerHTML = html;
   el.scrollTop = 0;
   bind?.(el);
   markPrSel();
 }
 
+// Nothing picked: the editor shows beside the column.
 function scmEmptyDetail(): void {
-  showScmDetail(`<div class="empty scm-empty"><div>${svgIcon('gitBranch', 36)}<h4>Select a change or a pull request</h4></div></div>`);
+  $('#scmDetail').innerHTML = '';
+  markPrSel();
+  if (!$('#main').classList.contains('scm-detail-on')) return;
+  $('#main').classList.remove('scm-detail-on');
+  applyLayout();
 }
 
-$('#scmClose').onclick = () => closeScmPage();
+$('#scmClose').onclick = () => scmFade(() => closeScmPage(true, true));
+
+// Going to or from the Source Control page morphs the side bar's box into the page's column (and back), and the editor
+// slides over to make room; neither is faded out. A view transition (.scm-fade, breeze.css), so `change` runs once the
+// old look has been captured.
+function scmFade(change: () => void): void {
+  const root = document.documentElement;
+  if (!document.startViewTransition || root.classList.contains('term-morph')) { change(); return; }
+  root.classList.add('scm-fade');
+  const done = () => root.classList.remove('scm-fade');
+  document.startViewTransition(change).finished.then(done, done);
+}
 
 /* ----- Pull requests: the list in the left column ----- */
 type PrList = GhResult<GhPullList>;

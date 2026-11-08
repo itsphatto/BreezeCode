@@ -65,7 +65,7 @@ const commands: Record<string, () => unknown> = {
   'view.paletteF1': () => openPalette(),
   'view.files': () => showView('files', true),
   'view.search': searchSelection,
-  'view.git': () => showView('git', true),
+  'view.git': () => (scmPageOpen ? showView('git', true) : scmFade(() => showView('git', true))),
   'view.toggleSide': () => {
     closeScmPage(); // the side bar is hidden behind the Source Control page: go back to what it holds, then toggle it
     const prev = { ...layout };
@@ -157,12 +157,20 @@ const commands: Record<string, () => unknown> = {
     layout.termOpen = !showing;
     sfx.play('whoosh');
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
-    applyLayoutAnimated();
+    applyLayoutAnimated(); // below the editor it slides its height; beside it, its width (breeze.css)
     if (layout.termOpen) termInput.focus();
     else if (appState.mode === 'box') SURFACES.box.prompt.focus();
   },
   'term.focus': () => { if (termPopped()) termPopup?.focus(); terminalHere(); layout.termOpen = true; applyLayoutAnimated(); termInput.focus(); },
   'term.new': () => {
+    // Asked for from the IDE while the terminal is in its own window: it docks back below the editor with everything
+    // it holds, the window closes, and the new tab opens there, unless the terminal on show is still blank.
+    if (termPopped()) {
+      dockTerminal('bottom');
+      if (!termBlank(activeTermSession)) createTermSession();
+      termInput.focus();
+      return;
+    }
     terminalHere();
     layout.termOpen = true;
     applyLayoutAnimated();
@@ -690,7 +698,7 @@ function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
   // and started part-way through its trip so they don't set off together.
   const bubbles: Animation[] = [];
   const fill = row.querySelector<HTMLElement>('.ms-fill');
-  if (fill && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (fill) {
     const w = track.offsetWidth;
     for (let k = 0; k < 16; k++) {
       const b = document.createElement('span');
@@ -705,8 +713,10 @@ function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
   }
   const paint = (i: number, at = i / last) => {
     row.style.setProperty('--pos', String(at));
+    // The top step (Extra) turns the fill red and races the bubbles.
+    row.classList.toggle('max', i === last);
     // More effort, faster bubbles; updatePlaybackRate keeps each bubble where it is instead of jumping.
-    for (const a of bubbles) a.updatePlaybackRate(.6 + at * 2.4);
+    for (const a of bubbles) a.updatePlaybackRate(i === last ? 6 : .6 + at * 2.4);
     swapText(row.querySelector('.ms-val') as HTMLElement, sl.steps[i]);
     const hint = row.querySelector<HTMLElement>('.ms-hint');
     if (hint && sl.hint) swapText(hint, sl.hint(i));
@@ -767,6 +777,7 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
   m.style.setProperty('--n', String(items.length)); // menus that open upwards stagger their rows from the bottom
   applyDataStyles(m);
   $('#menuRoot').append(m);
+  fitMenuHeight(m);
   m.style.left = `${Math.max(8, Math.min(x, innerWidth - m.offsetWidth - 8))}px`;
   m.style.top = `${Math.max(8, Math.min(y, innerHeight - m.offsetHeight - 8))}px`;
   $$<HTMLElement>('[data-ms]', m).forEach(row => {
@@ -786,6 +797,27 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
     else if (depth) b.onmouseenter = () => closeSubmenu(depth + 1);
   });
   return m;
+}
+// A menu with more rows than fit (every page in a project, say) keeps a fixed size: its rows scroll in a box inside it,
+// with the editor's slider (scrollSlider, editor.ts) for the hidden scrollbar. The menu itself doesn't scroll, so the
+// slider and the keyboard highlight (its ::before) stay put. Long labels end in "…" and show whole on hover.
+const MENU_MAX_H = 360;
+function fitMenuHeight(m: HTMLElement): void {
+  if (m.scrollHeight <= Math.min(MENU_MAX_H, innerHeight - 16)) return;
+  const box = document.createElement('div');
+  box.className = 'menu-scroll';
+  box.append(...Array.from(m.childNodes));
+  m.append(box);
+  m.classList.add('scrolls');
+  const update = scrollSlider(m, () => box as unknown as CodeSurface, 'v');
+  box.addEventListener('scroll', () => { update(); if (m.classList.contains('kb-on')) slideKbHighlight(); }, { passive: true });
+  for (const label of $$<HTMLElement>('.menu-item > span:not(.key):not(.menu-check)', box)) {
+    if (label.scrollWidth > label.clientWidth) label.closest<HTMLElement>('.menu-item')!.title = label.textContent ?? '';
+  }
+  // The ticked row (the page on show, say) starts in view.
+  const on = box.querySelector<HTMLElement>('.menu-check')?.closest<HTMLElement>('.menu-item');
+  if (on) box.scrollTop = on.offsetTop - box.clientHeight / 2;
+  update();
 }
 // Hovering an item with "›" opens its submenu beside it.
 function openSubmenu(btn: HTMLElement, it: MenuItem): void {
@@ -885,7 +917,11 @@ function slideKbHighlight(): void {
   const b = document.querySelector<HTMLElement>('#menuRoot .menu-item.kb');
   const m = b?.closest<HTMLElement>('.menu');
   if (!b || !m) return;
-  for (const [k, v] of [['x', b.offsetLeft], ['y', b.offsetTop], ['w', b.offsetWidth], ['h', b.offsetHeight]] as const) m.style.setProperty(`--kb-${k}`, `${v}px`);
+  // In a menu that scrolls (fitMenuHeight) the row is brought into view and measured where it shows.
+  const box = b.closest<HTMLElement>('.menu-scroll');
+  if (box && (b.offsetTop < box.scrollTop || b.offsetTop + b.offsetHeight > box.scrollTop + box.clientHeight)) b.scrollIntoView({ block: 'nearest' });
+  const y = b.offsetTop - (box?.scrollTop ?? 0);
+  for (const [k, v] of [['x', b.offsetLeft], ['y', y], ['w', b.offsetWidth], ['h', b.offsetHeight]] as const) m.style.setProperty(`--kb-${k}`, `${v}px`);
   if (m.classList.contains('kb-on')) return;
   m.classList.add('kb-on'); // first placement jumps; later moves slide
   void m.offsetWidth; // apply that placement before turning the slide on
@@ -921,6 +957,8 @@ function debugPageKey(e: KeyboardEvent): void {
   run(act);
 }
 document.addEventListener('keydown', e => {
+  // Reload Window (Ctrl+R) works from every page and over any dialog, unlike the other shortcuts below.
+  if (keymap.get(comboOf(e)) === 'win.reload') { e.preventDefault(); run('win.reload'); return; }
   if (menuKeys(e)) return;
   if (e.key === 'Escape') {
     if (vibeOn) { exitVibe(); return; }

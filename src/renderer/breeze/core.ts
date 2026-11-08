@@ -327,6 +327,7 @@ interface BreezeApi {
     status(): Promise<SyncStatus | SyncFail>;
     run(mode: 'sync' | 'pull'): Promise<SyncSummary | SyncFail>;
     clone(id: string): Promise<{ info: RootInfo; summary: SyncSummary } | null | SyncFail>;
+    remove(id: string): Promise<{ ok: true } | SyncFail>;
     settings(local: SharedSettings | null): Promise<{ settings: SharedSettings | null; pulled: boolean } | SyncFail>;
   };
   // Social feeds for Vibe Mode. The desktop app signs in through its own browser window and lays the feed over #vibeFrame.
@@ -345,6 +346,8 @@ interface BreezeApi {
     minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>;
     newTerminal(): Promise<void>;
     onMaximized(cb: (maximized: boolean) => void): () => void;
+    termPopup(action: 'minimize' | 'toggleMaximize'): Promise<void>; // the popped-out terminal's window (layout.ts)
+    onTermMaximized(cb: (maximized: boolean) => void): () => void;
     launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
 }
 interface Window { breeze?: BreezeApi; }
@@ -394,7 +397,7 @@ function toast(text: string): void {
 // Changes a label's text with a quick fade-in, and lets its box grow or shrink to the new width instead of jumping.
 function swapText(el: HTMLElement, text: string): void {
   if (el.textContent === text) return;
-  if (!el.isConnected || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = text; return; }
+  if (!el.isConnected) { el.textContent = text; return; }
   const from = el.getBoundingClientRect().width;
   el.textContent = text;
   el.getAnimations().forEach(a => { if (a.id === 'swap') a.cancel(); });

@@ -211,7 +211,7 @@ function fitScmMsgEased(msg: HTMLTextAreaElement): void {
   scmMsgAnim?.cancel(); // measure the new height without it
   autoResizeScmMsg(msg);
   const toH = msg.offsetHeight;
-  if (Math.abs(toH - fromH) < 1 || reduceMotion.matches) return;
+  if (Math.abs(toH - fromH) < 1) return;
   scmMsgAnim = msg.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
 }
 
@@ -242,8 +242,7 @@ function updateScmGenBtn(): void {
 let scmTypeRun = 0;
 function typeScmMsg(text: string): void {
   const run = ++scmTypeRun;
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const step = reduce ? text.length : Math.max(1, Math.ceil(text.length / 90)); // about 1.5 s at most
+  const step = Math.max(1, Math.ceil(text.length / 90)); // about 1.5 s at most
   let i = 0, frames = 0, shown = '';
   const tick = () => {
     const msg = $<HTMLTextAreaElement>('#scmMsg'); // the panel may have redrawn the box meanwhile
@@ -348,6 +347,56 @@ Instructions:
   }
 }
 
+/* ----- Redraws morph: the panel is drawn from HTML each time, so it is noted just before (shootScm) and compared just
+   after, before any paint (playScm). A block that stays slides from where it was, a new one (a file that just changed)
+   grows in, one that's gone (the last change committed) shrinks away where it was, and the commit button's new label
+   comes into focus. A file moving between Changes and Staged slides across, being the same block. */
+const SCM_BLOCKS = '.commit-box, .scm-sec:not(.graph):not(.prs) > .scm-head, .scm-sec:not(.graph):not(.prs) .scm-row, .scm-sec.graph, .scm-sec.prs, #scm > .side-note';
+type ScmShot = { blocks: Map<string, { el: HTMLElement; r: DOMRect }>; label: string };
+function scmBlockKey(el: HTMLElement): string {
+  const sec = el.closest<HTMLElement>('.scm-sec')?.dataset.sec;
+  if (el.matches('.scm-row')) return `row:${el.dataset.file ?? `${sec}:${el.title}`}`;
+  if (el.matches('.scm-head')) return `head:${sec}`;
+  if (el.matches('.scm-sec')) return `sec:${sec}`;
+  return el.matches('.side-note') ? 'note' : 'commit';
+}
+function scmBlocks(): Map<string, HTMLElement> {
+  return new Map($$<HTMLElement>(SCM_BLOCKS, $('#scm')).filter(b => b.getClientRects().length).map(b => [scmBlockKey(b), b]));
+}
+const scmLabel = () => document.querySelector('#scm [data-act="git.commit"]')?.textContent ?? '';
+function shootScm(): ScmShot | null {
+  const el = $('#scm');
+  if (!el.querySelector('.commit-box') || !el.offsetParent || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+  return { blocks: new Map(Array.from(scmBlocks(), ([k, b]) => [k, { el: b, r: b.getBoundingClientRect() }])), label: scmLabel() };
+}
+function playScm(shot: ScmShot | null): void {
+  if (!shot) return;
+  const host = $('#scm'), hr = host.getBoundingClientRect(), now = scmBlocks();
+  const ease = 'cubic-bezier(.2, .8, .2, 1)';
+  // `translate` and `scale` rather than `transform`, which the rows pin with !important (breeze.css) and so beats any animation.
+  const grow: Keyframe[] = [{ opacity: 0, scale: '.96', filter: 'blur(2px)' }, { opacity: 1, scale: '1', filter: 'blur(0)' }];
+  for (const [k, b] of now) {
+    const was = shot.blocks.get(k);
+    if (!was) { b.animate(grow, { duration: 300, easing: ease }); continue; }
+    const r = b.getBoundingClientRect(), dx = was.r.left - r.left, dy = was.r.top - r.top;
+    if (Math.abs(dx) > .5 || Math.abs(dy) > .5) b.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }], { duration: 340, easing: ease });
+  }
+  // The old element itself (redrawing detached it), put back where it was over the new panel while it goes.
+  for (const [k, was] of shot.blocks) {
+    if (now.has(k)) continue;
+    const ghost = was.el;
+    ghost.setAttribute('aria-hidden', 'true');
+    Object.assign(ghost.style, { position: 'absolute', left: `${was.r.left - hr.left + host.scrollLeft}px`, top: `${was.r.top - hr.top + host.scrollTop}px`, width: `${was.r.width}px`, height: `${was.r.height}px`, margin: '0', pointerEvents: 'none', zIndex: '1' });
+    host.append(ghost);
+    ghost.animate([...grow].reverse(), { duration: 220, easing: 'ease-in', fill: 'forwards' }).onfinish = () => ghost.remove();
+  }
+  const btn = document.querySelector<HTMLElement>('#scm [data-act="git.commit"]');
+  if (btn && shot.label && btn.textContent !== shot.label) {
+    const fg = getComputedStyle(btn).color;
+    btn.animate([{ color: 'transparent', textShadow: `0 0 6px ${fg}` }, { color: fg, textShadow: `0 0 0 ${fg}` }], { duration: 260, easing: ease });
+  }
+}
+
 function renderScm(): void {
   const el = $('#scm');
   if (!rootInfo) { el.innerHTML = restoringWorkspace ? skeletonRows(6) : '<p class="side-note">Open a folder to use source control.</p>'; return; }
@@ -363,6 +412,7 @@ function renderScm(): void {
   const sync = syncLabel(gitState);
   const syncBtn = sync ? `<button class="btn btn-sm commit-btn" data-act="git.sync">${sync}</button>` : '';
   const empty = files.length ? '' : gitState.incoming?.length ? '<p class="side-note">No local changes. The remote has files you haven’t pulled yet.</p>' : '<p class="side-note">No changes. Everything is saved in a checkpoint.</p>';
+  const shot = shootScm();
   el.innerHTML = `
     <div class="commit-box">
       <textarea class="input" id="scmMsg" rows="1" data-no-grow aria-label="Commit message" placeholder="Message (Ctrl+Enter to commit on ‘${escAttr(gitState.branch || 'main')}’)"></textarea>
@@ -396,6 +446,7 @@ function renderScm(): void {
   msg.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run('git.commit'); } };
 
   updateScmGenBtn();
+  playScm(shot);
 }
 // Files the remote changed since this branch last pulled; Sync brings them in.
 function incomingSectionHtml(): string {
@@ -560,7 +611,7 @@ async function showDiff(f: GitFile, staged: boolean): Promise<void> {
   // On the Source Control page the diff sits beside the changes; anywhere else it's a modal.
   if (scmPageOpen) {
     showScmDetail(`<div class="scm-diff-view">${html}</div>`, el => {
-      $('#diffOpen', el).onclick = () => { closeScmPage(); openFile(f.path); };
+      $('#diffOpen', el).onclick = () => openFile(f.path); // beside the changes, which stay open
       // The file moves to the other list once staged or unstaged, so what's shown no longer matches it.
       $('#diffStage', el).onclick = () => { scmEmptyDetail(); toggleStage(); };
     });

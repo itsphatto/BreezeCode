@@ -124,7 +124,9 @@ async function syncWorkspace({ store, dir, link, mode = 'sync', device, name, ba
   let id = link?.id;
   if (!id) id = Object.entries(workspaces).find(([, w]) => w.name === name)?.[0] || newWorkspaceId();
   const meta = workspaces[id];
-  const base = link?.id === id ? link.base || {} : {};
+  // A link to a workspace no longer in the cloud (deleted from another computer) starts over: with its old base, every
+  // file missing from the empty cloud would read as deleted there and be removed here.
+  const base = link?.id === id && meta ? link.base || {} : {};
   const prefix = wsPrefix(id);
   const remote = {};
   for (const [p, sha] of listing) if (p.startsWith(prefix)) remote[p.slice(prefix.length)] = sha;
@@ -201,6 +203,20 @@ async function workspaceStatus(store, link) {
   const list = await listWorkspaces(store);
   const remote = link ? list.find(w => w.id === link.id) || null : null;
   return { remote, newer: !!(remote && remote.rev > (link?.rev || 0)), workspaces: list };
+}
+
+// Removes a workspace from the cloud: its files and its line in the index. The folders on each computer are left alone,
+// and one that syncs again puts its files back up as a new start (see base in syncWorkspace).
+async function deleteWorkspace(store, id) {
+  const listing = await store.list();
+  const index = await readJson(store, listing, INDEX, {});
+  const workspaces = { ...(index.workspaces || {}) };
+  const ws = typeof id === 'string' && Object.hasOwn(workspaces, id) ? workspaces[id] : null;
+  if (!ws) throw new SyncError('That workspace is no longer in the cloud.');
+  delete workspaces[id];
+  const prefix = wsPrefix(id);
+  const removes = [...listing.keys()].filter(p => p.startsWith(prefix));
+  await store.commit({ puts: [{ path: INDEX, data: writeJson({ ...index, workspaces }) }], removes, message: `Delete ${ws.name}` });
 }
 
 // Settings carry their own time; the newer side wins.
@@ -367,5 +383,5 @@ async function googleAccessToken({ clientId, clientSecret, refreshToken, fetch: 
 
 module.exports = {
   SyncError, SYNC_REPO, DRIVE_SCOPE, blobSha, scanDir, planSync, conflictName,
-  listWorkspaces, syncWorkspace, workspaceStatus, syncSettings, githubStore, driveStore, googleAccessToken,
+  listWorkspaces, syncWorkspace, workspaceStatus, deleteWorkspace, syncSettings, githubStore, driveStore, googleAccessToken,
 };

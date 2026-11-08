@@ -204,6 +204,7 @@ contextBridge.exposeInMainWorld('breeze', {
     status: () => invoke('sync:status'),
     run: mode => invoke('sync:run', mode),
     clone: id => invoke('sync:clone', id),
+    remove: id => invoke('sync:delete', id),
     settings: local => invoke('sync:settings', local),
   },
   vibe: {
@@ -234,6 +235,8 @@ contextBridge.exposeInMainWorld('breeze', {
     close: () => invoke('win:close'),
     isMaximized: () => invoke('win:isMaximized'),
     onMaximized: cb => listen('win:maximized', cb),
+    termPopup: action => invoke('win:termPopup', action),
+    onTermMaximized: cb => listen('win:termMaximized', cb),
     launchWait: () => invoke('win:launchWait'),
     launchShow: () => invoke('win:launchShow'),
     launchFade: () => invoke('win:launchFade'),

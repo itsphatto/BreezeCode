@@ -139,7 +139,7 @@
   --warn: #9c4706;
   --err: #c42b1c;
   --c-planner: #6d28d9;
-  --c-builder: #0369a1;
+  --c-builder: #036496;
   /* Paper isn't see-through: popups are solid sheets, not frosted glass. */
   --glass: rgba(251, 249, 244, .97);
   --glass-strong: rgba(248, 245, 238, .98);
@@ -149,7 +149,7 @@
   /* Fibre grain: brown noise at a few percent, tiled over the big surfaces (see "paper grain" below). */
   --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .24 0 0 0 0 .13 0 0 0 .16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   --paper-shadow: 0 1px 2px rgba(70, 55, 30, .08), 0 14px 36px rgba(70, 55, 30, .14);
-  --hover-dim: rgba(70, 55, 30, .12);
+  --hover-dim: rgba(70, 55, 30, .22); /* stronger than the dark theme's: a light page needs more to show a hover */
   --ink: 38, 35, 30;
   --blue-text: #0057b8;
   --text-soft: #3b3731;
@@ -277,7 +277,7 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 2px;
 }
 
@@ -1406,12 +1406,13 @@ button {
   font: inherit;
 }
 
-/* Text boxes stay flat when clicked into: no ring, glow or coloured edge; the caret shows where you type. */
+/* Text boxes stay flat when clicked into: no ring, glow or coloured edge. The edge only turns a neutral grey, so
+   keyboard users can still see which box they're in (WCAG 2.4.7). */
 .input:focus,
 input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible,
 textarea:focus-visible {
   outline: none;
-  border-color: var(--line);
+  border-color: var(--text-2);
   box-shadow: none;
 }
 
@@ -1814,7 +1815,7 @@ textarea:focus-visible {
 
 .win-btn:focus-visible::before {
   opacity: 1;
-  box-shadow: 0 0 0 2px var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-text);
 }
 
 /* Maximize/restore is drawn on the 24-unit grid (so it can morph, platform.ts): 2.4 units is 1px at 10px, like the others. */
@@ -1947,6 +1948,32 @@ textarea:focus-visible {
   transform-origin: top left;
 }
 
+/* Too many rows: a fixed size, the rows scrolling inside (fitMenuHeight, commands.ts) past the app's own slider. */
+.menu.scrolls {
+  display: flex;
+  flex-direction: column;
+  max-width: min(480px, calc(100vw - 16px));
+  max-height: min(360px, calc(100vh - 16px));
+  overflow: hidden;
+}
+
+.menu-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.menu.scrolls .menu-item {
+  padding-right: 20px; /* clear of the slider */
+}
+
+.menu.scrolls .menu-item > span:not(.key):not(.menu-check) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .menu-item {
   position: relative;
   display: flex;
@@ -1989,9 +2016,6 @@ textarea:focus-visible {
 }
 .menu.kb-on:has(.menu-item:hover:not(:disabled))::before {
   opacity: 0;
-}
-@media (prefers-reduced-motion: reduce) {
-  .menu.kb-slide::before { transition: none; }
 }
 
 /* A little space between rows, so two lit rows never run together. */
@@ -2057,6 +2081,11 @@ textarea:focus-visible {
   color: var(--blue-text);
   font-size: 14px;
   font-weight: 600;
+  transition: color .25s ease;
+}
+
+.menu-slider.max .ms-val {
+  color: var(--err);
 }
 
 .ms-hint {
@@ -2096,7 +2125,7 @@ textarea:focus-visible {
 }
 
 .ms-track:focus-visible {
-  box-shadow: 0 0 0 2px var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-text);
 }
 
 /* Inset 2px and ending 8px past the thumb's centre, so its rounded end sits wholly under the (taller) thumb: ending
@@ -2118,6 +2147,21 @@ textarea:focus-visible {
 
 @keyframes ms-sky {
   to { background-position-x: var(--band); }
+}
+
+/* At the top step a red band of the same shape fades in over the blue (gradients can't transition themselves). */
+.ms-fill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg in oklab, #ffb08f, #ff3b2f 22%, #e8141f 42%, #ff5c7a 58%, #ff4a3d 78%, #ffb08f) 0 0 / var(--band) 100% repeat-x;
+  opacity: 0;
+  transition: opacity .25s ease;
+  animation: ms-sky 2.5s linear infinite;
+}
+
+.menu-slider.max .ms-fill::before {
+  opacity: 1;
 }
 
 /* Bubbles (made and moved in bindMenuSlider, faster as the effort goes up). */
@@ -2155,10 +2199,6 @@ textarea:focus-visible {
 /* Settling on a step eases; dragging follows the pointer straight. */
 .menu-slider:not(.dragging) :is(.ms-fill, .ms-thumb) {
   transition: width .18s cubic-bezier(.2, .8, .2, 1), left .18s cubic-bezier(.2, .8, .2, 1), opacity .18s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .menu-slider :is(.ms-fill, .ms-thumb) { transition: none; animation: none; }
 }
 
 /* ---------- layout ---------- */
@@ -2520,13 +2560,6 @@ body.resizing-h iframe {
   overflow: hidden;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .skill-group-body,
-  .plugin-skills {
-    transition: none !important;
-  }
-}
-
 .skill-row {
   display: flex;
   align-items: center;
@@ -2701,10 +2734,6 @@ body.resizing-h iframe {
 
 @keyframes mcp-slide {
   from { opacity: 0; transform: translateX(var(--from)); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mcp-form.switched [data-mcp-for] { animation: none; }
 }
 
 .mcp-type {
@@ -3327,11 +3356,6 @@ svg.ico-svg:active {
   transition: transform .22s cubic-bezier(.16, 1, .3, 1);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .split-drop-hint::after { transform: translate(-50%, -50%); transition: none; }
-  .split-drop-hint.on::before { animation: none; }
-}
-
 .editor-row>.editor {
   min-width: 0;
 }
@@ -3377,14 +3401,6 @@ svg.ico-svg:active {
   to {
     opacity: 1;
     transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  .split.opening,
-  .split.closing {
-    animation: none;
   }
 }
 
@@ -3814,10 +3830,6 @@ svg.ico-svg:active {
   from { opacity: 0; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .type-hand { animation: none; }
-}
-
 /* Scope guides: a hairline from a tag's or block's opening line down to where it ends. */
 .guide {
   position: absolute;
@@ -3909,6 +3921,13 @@ svg.ico-svg:active {
   z-index: 2;
   background: var(--bg);
   font: 13px/1.5 var(--font-ui);
+}
+
+/* What was showing, left over (or under) the next file for a moment while they cross-fade (ghostEditor, tabs.ts).
+   Opaque, so the two files' text never shows through each other. */
+.editor-xfade {
+  background: var(--bg);
+  pointer-events: none !important;
 }
 
 .editor-blur-out {
@@ -4150,8 +4169,9 @@ svg.ico-svg:active {
   color: #86efac;
 }
 
+/* Comments in every language: a faint grey that reads on every theme, so the code around them stands out. */
 .tk-com {
-  color: var(--text-3);
+  color: rgb(140 140 140 / .55);
   font-style: italic;
 }
 
@@ -4407,9 +4427,10 @@ svg.ico-svg:active {
   min-width: 46px;
   padding-left: 6px;
 }
-.term-tabs.no-morph .term-tab,
-.term-tabs.no-morph .term-tab-dot,
-.term-tabs.no-morph .term-tab-close {
+/* A closing tab keeps its collapse even when the strip settles its tight state in the same frame */
+.term-tabs.no-morph .term-tab:not(.leaving),
+.term-tabs.no-morph .term-tab:not(.leaving) .term-tab-dot,
+.term-tabs.no-morph .term-tab:not(.leaving) .term-tab-close {
   transition: none !important;
 }
 
@@ -5049,7 +5070,7 @@ body.resizing-h .term-body {
 }
 
 .composer-box:focus-within {
-  border-color: var(--line);
+  border-color: var(--text-2);
   box-shadow: none !important;
 }
 
@@ -5243,10 +5264,8 @@ textarea:not(:placeholder-shown) + .ph-rot {
   pointer-events: none;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  :is(#send, #boxSend) {
-    transition: background-color .15s ease, border-color .15s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
-  }
+:is(#send, #boxSend) {
+  transition: background-color .15s ease, border-color .15s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
 }
 
 /* The IDE composer's send button is one text line tall, so it lines up with the prompt. */
@@ -6135,16 +6154,6 @@ body.vibing .ide {
   animation-delay: .54s;
 }
 
-@media (prefers-reduced-motion: reduce) {
-
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-  }
-}
-
 
 /* ================= Interaction feedback (applies everywhere) ================= */
 .btn,
@@ -6510,6 +6519,7 @@ body.vibing .ide {
 
 /* ================= Source control ================= */
 .scm {
+  position: relative; /* what a redraw took away shrinks where it was (playScm, git.ts) */
   padding: 0 6px 12px;
   transition: opacity .2s;
 }
@@ -6545,7 +6555,7 @@ body.vibing .ide {
 .commit-box textarea:focus,
 .commit-box textarea:focus-visible {
   outline: none;
-  border-color: var(--line);
+  border-color: var(--text-2);
   box-shadow: none;
 }
 
@@ -6554,6 +6564,11 @@ body.vibing .ide {
 .commit-box .btn:focus-visible {
   outline: none;
   box-shadow: none;
+}
+
+.commit-box .btn:focus-visible {
+  outline: 2px solid var(--blue-text);
+  outline-offset: 2px;
 }
 
 #scmGenMsg svg {
@@ -6785,7 +6800,7 @@ body.vibing .ide {
   width: 22px;
   height: 22px;
   padding: 0;
-  border-radius: 4px;
+  border-radius: 7px;
   color: var(--text-2);
   background: transparent;
   display: inline-flex;
@@ -7652,7 +7667,7 @@ body.vibing .ide {
   --line-hi: #c7bfab;
   --line-strong: #a89f8a;
   --ink: 38, 35, 30;
-  --hover-dim: rgba(70, 55, 30, .12);
+  --hover-dim: rgba(70, 55, 30, .22); /* stronger than the dark theme's: a light page needs more to show a hover */
   --glass: rgba(251, 249, 244, .97);
   --glass-strong: rgba(248, 245, 238, .98);
   --glass-line: rgba(70, 55, 30, .12);
@@ -7703,7 +7718,7 @@ body.vibing .ide {
 }
 
 .home-rail .act-btn:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: -2px;
 }
 
@@ -7815,10 +7830,6 @@ body.vibing .ide {
   color: var(--err);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .home-clone { animation: none; }
-}
-
 .home-head h2 {
   margin: 0;
   font-size: 1.85em;
@@ -7877,7 +7888,7 @@ body.vibing .ide {
 }
 
 .home-link:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -7922,7 +7933,7 @@ body.vibing .ide {
 }
 
 .home-recent .recent-open:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -7934,7 +7945,7 @@ body.vibing .ide {
 }
 
 .home-recent .recent-forget:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -8126,9 +8137,8 @@ body.vibing .ide {
   font-size: .78em;
 }
 
-.ad-tab:focus-visible,
-.ad-tr:focus-visible {
-  outline: 2px solid var(--blue);
+.ad-tab:focus-visible {
+  outline: 2px solid var(--blue-text);
   outline-offset: 2px;
 }
 
@@ -8174,8 +8184,7 @@ body.vibing .ide {
   margin-bottom: .8em;
 }
 
-.ad-card h3,
-.ad-table-wrap h3 {
+.ad-card h3 {
   margin: 0;
   color: var(--text);
   font-size: 1em;
@@ -8291,7 +8300,7 @@ body.vibing .ide {
 }
 
 .ad-range button:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -8367,10 +8376,6 @@ body.vibing .ide {
   from { transform: scaleX(0); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ad-meter i { animation: none; }
-}
-
 /* The plot: a scale on the left, a stacked bar a day. */
 .ad-plot {
   display: grid;
@@ -8441,17 +8446,6 @@ body.vibing .ide {
   from { opacity: 0; }
 }
 
-.ad-spark.anim i {
-  animation: ad-rise .5s cubic-bezier(.16, 1, .3, 1) both;
-  animation-delay: calc(var(--i, 0) * 30ms);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ad-bars.anim .ad-bar,
-  .ad-spark.anim i,
-  :is(.ad-y, .ad-x, .ad-legend).anim { animation: none; }
-}
-
 .ad-bar i {
   display: block;
   flex: none;
@@ -8459,7 +8453,7 @@ body.vibing .ide {
 }
 
 /* Even digits, so a number scrambling (setup.ts) keeps its width. */
-:is(.ad-big, .ad-facts dd, .ad-limit-top b, .ad-chart-total, .ad-y span, .ad-legend b, .ad-tr [role="cell"]) {
+:is(.ad-big, .ad-facts dd, .ad-limit-top b, .ad-chart-total, .ad-y span, .ad-legend b) {
   font-variant-numeric: tabular-nums;
 }
 
@@ -8566,87 +8560,6 @@ body.vibing .ide {
   margin-bottom: .2em;
   color: var(--text) !important;
   font-weight: 600;
-}
-
-/* The other agents: a row each; picking one shows it above. */
-.ad-table-wrap {
-  margin-top: 1.8em;
-}
-
-.ad-table-wrap h3 {
-  margin-bottom: .7em;
-}
-
-.ad-table {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.ad-tr {
-  display: grid;
-  grid-template-columns: minmax(10em, 2fr) 1fr 1.1fr .9fr 1fr minmax(7.5em, auto);
-  align-items: center;
-  gap: 1em;
-  padding: .7em 1.1em;
-  border-top: 1px solid var(--line);
-  font-size: .9em;
-  color: var(--text-2);
-}
-
-.ad-tr:first-child {
-  border-top: 0;
-}
-
-.ad-th {
-  color: var(--text-3);
-  font-weight: 500;
-  background: rgba(var(--ink), .03);
-}
-
-.ad-th > span {
-  font-size: .88em; /* the text only: the row keeps the body size, so its em gaps match the rows' and the columns line up */
-}
-
-.ad-tr[data-dash-agent] {
-  cursor: pointer;
-  transition: background .12s ease;
-}
-
-.ad-tr[data-dash-agent]:hover {
-  background: rgba(var(--ink), .04);
-}
-
-.ad-tr.on {
-  background: var(--blue-soft);
-}
-
-.ad-name {
-  display: flex;
-  align-items: center;
-  gap: .6em;
-  color: var(--text);
-  font-weight: 500;
-}
-
-.ad-tr > span:last-child {
-  justify-self: end;
-}
-
-/* Seven days at a glance beside the tool count. */
-.ad-spark {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 1em;
-  margin-right: .5em;
-  vertical-align: -.1em;
-}
-
-.ad-spark i {
-  width: 3px;
-  border-radius: 1px;
-  background: var(--k-input);
 }
 
 .ad-empty {
@@ -8850,13 +8763,6 @@ body.layout-animating .box > .terminal.open {
   transition: width .28s cubic-bezier(.16, 1, .3, 1), margin .28s cubic-bezier(.16, 1, .3, 1), opacity .28s cubic-bezier(.16, 1, .3, 1), border-color .28s ease;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  body.layout-animating .box > .terminal,
-  body.layout-animating .box > .terminal.open {
-    transition: opacity .18s ease;
-  }
-}
-
 /* ----- Breeze Space live file: the one file an agent is editing, as it's written ----- */
 .box-live {
   --live-w: clamp(320px, 34vw, 560px);
@@ -9034,10 +8940,6 @@ body.layout-animating .box > .terminal.open {
   50% { opacity: 0; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .box-live-at .type-caret { animation: none; }
-}
-
 .box-live-more {
   padding: 8px 14px;
   font: 11.5px var(--font-code);
@@ -9055,11 +8957,6 @@ body.layout-animating .box > .terminal.open {
   text-align: center;
   font-size: 12.5px;
   color: var(--text-3);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .box-live.writing .box-live-status::before { animation: none; }
-  .box-live { transition: opacity .18s ease; }
 }
 
 /* ----- Breeze Space side bar: New chat, Search, then chats grouped by folder ----- */
@@ -9482,10 +9379,6 @@ body.layout-animating .box > .terminal.open {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .lsp-hover { animation: none; }
-}
-
 .qo-item .ref-text {
   font-family: var(--font-code);
 }
@@ -9685,13 +9578,6 @@ body.layout-animating .box > .terminal.open {
 .tabs .tab-run.compact span {
   max-width: 0;
   transform: scale(.5);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tabs .tab-run,
-  .tabs .tab-run * {
-    transition: none !important;
-  }
 }
 
 .tabs .tab-run.compact .ico-svg {
@@ -9986,13 +9872,6 @@ body.layout-animating .box > .terminal.open {
   animation: shimmer 1.8s ease-in-out infinite;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .shimmer-text {
-    animation: none;
-    -webkit-text-fill-color: var(--text-3);
-  }
-}
-
 /* A light sweeps along the composer while the agent works. */
 .composer-box {
   position: relative;
@@ -10063,7 +9942,7 @@ body.layout-animating .box > .terminal.open {
 
 .dd-btn:focus-visible {
   outline: none;
-  border-color: var(--line-strong);
+  border-color: var(--text-2);
 }
 
 .dd-btn .dd-chev {
@@ -10327,15 +10206,6 @@ body.layout-animating .box > .terminal.open {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .menu.stagger,
-  .menu.stagger > *,
-  .stagger-item {
-    animation-duration: 0s !important;
-    animation-delay: 0s !important;
-  }
 }
 
 /* ================= Chat history ================= */
@@ -10609,7 +10479,17 @@ body.layout-animating .box > .terminal.open {
   opacity: 0;
 }
 
-@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+/* The light theme leaves the sky out: the button just fades in its hover layer, like every other button. */
+:root[data-theme="light"] .space-btn::before,
+:root[data-theme="light"] .space-btn-sky {
+  display: none;
+}
+
+:root[data-theme="light"] .space-btn:hover::after {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
   .box :is(.btn, .icon-btn, .pill-btn, .avatars, .chat-file-chip, .chat-img-wrap, #boxSend),
   .space-btn {
     transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .18s ease, opacity .2s ease,
@@ -10623,6 +10503,11 @@ body.layout-animating .box > .terminal.open {
 
   .box :is(.icon-btn, .avatars, #boxSend):hover {
     scale: 1.06;
+  }
+
+  /* The light theme's buttons only fade on hover; they don't grow. */
+  :root[data-theme="light"] :is(.box :is(.btn, .icon-btn, .pill-btn, .avatars, .chat-file-chip, #boxSend), .space-btn):hover {
+    scale: none;
   }
 
   .box-chat .empty :is(img, h4),
@@ -10829,6 +10714,17 @@ body:is(.resizing, .resizing-h) .sash-line.on {
   transition: none;
 }
 
+/* Opening and closing beside the editor slides like it does below it, on the width instead of the height: the column
+   eases open or shut, and the panel's contents keep their full width meanwhile, so they're uncovered or cut off at the
+   edge rather than rewrapping. */
+body.layout-animating .center.term-side {
+  transition: grid-template-columns .28s cubic-bezier(.16, 1, .3, 1);
+}
+
+body.layout-animating .center.term-side > .terminal > :is(.term-head, .term-body) {
+  min-width: calc(var(--term-w, 420px) - var(--gap, 6px) - 2px);
+}
+
 /* Terminal → ... → New Window: the same terminal, moved into a window of its own (popOutTerminal, layout.ts). */
 body.term-popout {
   display: flex;
@@ -10862,6 +10758,80 @@ body.term-popout > .terminal .term-body {
 
 body.term-popout #termTitle > svg {
   display: none; /* nothing to fold away in its own window */
+}
+
+/* The window has no title bar of its own (main.js): the header drags it and ends in the IDE's window buttons. */
+body.term-popout > .terminal .term-head {
+  height: 38px;
+  -webkit-app-region: drag;
+}
+
+body.term-popout > .terminal .term-head :is(button, .term-tabs) {
+  -webkit-app-region: no-drag;
+}
+
+:root:not(.own-win-controls) body.term-popout > .terminal .term-head {
+  padding-left: 78px; /* past macOS's traffic lights */
+}
+
+body.term-popout .term-win-controls {
+  color: var(--text); /* white on the dark themes, not the IDE's dimmer grey */
+  position: static;
+  flex: none;
+  align-self: stretch;
+  margin-right: -10px; /* flush with the window's corner, past the header's padding */
+}
+
+body.term-popout .term-win-controls .win-btn {
+  height: 100%;
+}
+
+body.term-popout .term-win-controls .win-btn::before {
+  inset: 5px 9px; /* the same 28px square as the IDE's */
+}
+
+/* Moving the terminal (below or beside the editor, out to its own window and back) morphs it from its old box to its
+   new one, with the editor giving up or taking back the room in step (morphTerminal, layout.ts). The snapshots keep
+   their size and are clipped by the morphing box rather than stretched, so the text never squashes. */
+:root.term-morph #terminal {
+  view-transition-name: term-panel;
+}
+
+:root.term-morph #work {
+  view-transition-name: term-work;
+}
+
+::view-transition-group(term-panel),
+::view-transition-group(term-work) {
+  animation-duration: .4s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+::view-transition-old(term-panel),
+::view-transition-new(term-panel),
+::view-transition-old(term-work),
+::view-transition-new(term-work) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+  animation-duration: .3s;
+}
+
+/* Out to its own window: the panel lifts away. Back from it: it settles into place. */
+::view-transition-old(term-panel):only-child {
+  animation: term-pop-out .26s cubic-bezier(.4, 0, 1, 1) both;
+}
+
+::view-transition-new(term-panel):only-child {
+  animation: term-pop-in .38s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes term-pop-out {
+  to { opacity: 0; transform: translateY(-10px) scale(.96); filter: blur(4px); }
+}
+
+@keyframes term-pop-in {
+  from { opacity: 0; transform: translateY(10px) scale(.96); filter: blur(4px); }
 }
 
 .menu.term-win-menu {
@@ -10906,12 +10876,6 @@ body.term-popout #termTitle > svg {
   pointer-events: none;
   z-index: 1;
   transition: transform .32s cubic-bezier(.2, .8, .2, 1), width .32s cubic-bezier(.2, .8, .2, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab-ink {
-    transition: none;
-  }
 }
 
 /* Feed picker: one row per feed, logo · name and status · button. */
@@ -11249,15 +11213,13 @@ body.term-popout #termTitle > svg {
 
 /* Hovering an account's trash lifts its lid (the icon's 1st and 3rd paths) on a hinge at its right end; leaving
    sets it back down. */
-@media (prefers-reduced-motion: no-preference) {
-  .set-acct-ctl .br-del .ico-svg path:is(:nth-child(1), :nth-child(3)) {
-    transform-origin: 21px 6px;
-    transition: transform .28s cubic-bezier(.34, 1.56, .64, 1);
-  }
+.set-acct-ctl .br-del .ico-svg path:is(:nth-child(1), :nth-child(3)) {
+  transform-origin: 21px 6px;
+  transition: transform .28s cubic-bezier(.34, 1.56, .64, 1);
+}
 
-  .set-acct-ctl .br-del:is(:hover, :focus-visible) .ico-svg path:is(:nth-child(1), :nth-child(3)) {
-    transform: translateY(-1.5px) rotate(14deg);
-  }
+.set-acct-ctl .br-del:is(:hover, :focus-visible) .ico-svg path:is(:nth-child(1), :nth-child(3)) {
+  transform: translateY(-1.5px) rotate(14deg);
 }
 
 .set-row:hover .br-del,
@@ -11367,21 +11329,23 @@ button.pill:active, .pill-btn:active {
   display: inline-flex; align-items: center; gap: 5px; min-width: 0; height: 24px; padding: 0 7px 0 8px;
   border: 1px solid var(--line); border-radius: 7px; background: var(--bg-2); color: var(--text-2);
   font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+  overflow: hidden; /* squeezed chips clip their text instead of running into the next chip */
   transition: border-color .15s ease, background .15s ease, color .15s ease;
   animation: promptModelIn .28s cubic-bezier(.22, 1, .36, 1) both;
 }
 .prompt-model.open { background: var(--bg-3); color: var(--text); }
-/* The border never changes colour: no hover, open or focus ring. */
-.prompt-model, .prompt-model.open, .prompt-model:focus, .prompt-model:focus-visible { border-color: var(--line); outline: none; box-shadow: none; }
+/* The border never changes colour on hover or open, and there's no ring; keyboard focus greys the edge like a text box. */
+.prompt-model, .prompt-model.open, .prompt-model:focus { border-color: var(--line); outline: none; box-shadow: none; }
+.prompt-model:focus-visible { border-color: var(--text-2); }
 .prompt-model b { font-weight: 600; color: var(--text); flex-shrink: 0; }
-.prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.prompt-model .dd-eff { color: var(--text-3); font-size: 11px; flex-shrink: 0; }
+/* Squeezed, the model name gives way first, then the effort; the agent's name and the arrow always show. */
+.prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 100; }
+.prompt-model .dd-eff { color: var(--text-3); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
 .prompt-model svg { flex-shrink: 0; color: var(--text-3); transition: transform .15s ease; }
 .prompt-model.open svg { transform: rotate(180deg); }
 .prompt-model.leaving { animation: promptModelOut .26s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; transform-origin: left center; }
 @keyframes promptModelIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
 @keyframes promptModelOut { to { opacity: 0; transform: scale(.82) translateX(-8px); filter: blur(4px); } }
-@media (prefers-reduced-motion: reduce) { .prompt-model, .prompt-model.leaving { animation-duration: .01ms; } }
 
 /* Composer attachments */
 .composer-attachments { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
@@ -11899,6 +11863,27 @@ body.layout-animating #previewPane {
   transition: opacity .12s ease-out !important;
 }
 
+/* Renaming a chat: the name turns into a box the same size, on its tab or its side bar row. */
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--blue);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.box-side-chats > .rename-input {
+  display: block;
+  height: 28px;
+  margin: 1px 0;
+}
+
 .agent-tab .tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -12315,7 +12300,7 @@ body.layout-animating #previewPane {
 }
 
 .set-profile-edit:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -12491,11 +12476,6 @@ body.layout-animating #previewPane {
   100% { transform: rotate(0) scale(1.14); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .set-nav .set-item:hover svg,
-  .set-nav .set-item:hover svg circle { animation: none !important; }
-}
-
 .set-main {
   position: relative;
   overflow-y: auto;
@@ -12542,16 +12522,32 @@ body.layout-animating #previewPane {
     opacity: var(--fade-bot);
   }
 
-  /* The same for the Skills & Plugins list, which also keeps the side panels' fade-in. */
-  #skillList {
+  /* The same for the side lists (Explorer, Search, Skills & Plugins), which also keep the side panels' fade-in,
+     and for the Source Control list, which has none. */
+  #tree,
+  #searchResults,
+  #skillList,
+  #scm {
     mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent);
     animation: fade .18s, setFadeTop linear both, setFadeBot linear both;
     animation-timeline: auto, scroll(self), scroll(self);
     animation-range: normal, 0 48px, calc(100% - 48px) 100%;
   }
 
+  #scm {
+    animation: setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0 48px, calc(100% - 48px) 100%;
+  }
+
+  #tree::before,
+  #tree::after,
+  #searchResults::before,
+  #searchResults::after,
   #skillList::before,
-  #skillList::after {
+  #skillList::after,
+  #scm::before,
+  #scm::after {
     content: "";
     position: sticky;
     z-index: 4;
@@ -12562,18 +12558,30 @@ body.layout-animating #previewPane {
     backdrop-filter: blur(4px);
   }
 
-  #skillList::before {
+  #tree::before,
+  #searchResults::before,
+  #skillList::before,
+  #scm::before {
     top: 0;
     margin-block: 0 -40px;
     mask-image: linear-gradient(#000, transparent);
     opacity: var(--fade-top);
   }
 
-  #skillList::after {
+  #tree::after,
+  #searchResults::after,
+  #skillList::after,
+  #scm::after {
     bottom: -10px;
     margin-block: -30px -10px;
     mask-image: linear-gradient(transparent, #000);
     opacity: var(--fade-bot);
+  }
+
+  /* Source Control's list has 12px of bottom padding, not 10px. */
+  #scm::after {
+    bottom: -12px;
+    margin-block: -28px -12px;
   }
 }
 
@@ -12605,8 +12613,21 @@ body.layout-animating #previewPane {
   }
 }
 
-.set-pane {
+.set-pane,
+.set-dash {
   animation: setPaneFadeIn .22s cubic-bezier(.16, 1, .3, 1);
+}
+
+/* Home's agent page, shown under Settings → Agents: as wide as the pane, without the page's own padding. */
+.set-dash {
+  max-width: 800px;
+  margin: 24px auto 0;
+}
+
+.set-dash .agent-dash {
+  width: 100%;
+  padding: 0;
+  font-size: 13px;
 }
 
 .set-pane h4 {
@@ -12766,6 +12787,44 @@ body.layout-animating #previewPane {
   font-variant-numeric: tabular-nums;
 }
 
+/* In the light theme it's Discord's light card instead: white, a hairline border and soft shadow, dark text. */
+:root[data-theme="light"] .discord-preview {
+  border: 1px solid #e1e2e4;
+  background: #fff;
+  color: #313338;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+:root[data-theme="light"] .dc-head {
+  color: #4e5058;
+}
+
+:root[data-theme="light"] .dc-head .ico-svg {
+  color: #4e5058;
+}
+
+:root[data-theme="light"] .dc-txt b {
+  color: #060607;
+}
+
+:root[data-theme="light"] .dc-badge {
+  border-color: #fff;
+  background: #fff;
+}
+
+:root[data-theme="light"] .dc-time {
+  color: #248046;
+}
+
+/* Its controller is solid, with the buttons cut out in white. */
+:root[data-theme="light"] .dc-pad {
+  fill: currentColor;
+}
+
+:root[data-theme="light"] .dc-pad path:first-child {
+  stroke: #fff;
+}
+
 .set-ctl {
   flex: none;
 }
@@ -12846,10 +12905,6 @@ body.layout-animating #previewPane {
   from {
     color: transparent; /* just the text; the button itself stays put */
   }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .kb-key.kb-swap { animation: none; }
 }
 
 .kb-reset {
@@ -12960,13 +13015,6 @@ body.layout-animating #previewPane {
 
 .composer-access.on {
   color: var(--warn);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .switch,
-  .switch * {
-    transition-duration: 0s !important;
-  }
 }
 
 /* Liquid switch: Jhey Tompkins' liquid toggle (codepen), in Breeze blue. settings.ts adds the parts below into
@@ -13180,6 +13228,9 @@ body.layout-animating #previewPane {
       inset: 0;
       background: white;
       border-radius: 100px;
+      /* A little wider than the hole cut for it: the hole's soft edge isn't pure black, so the filter (#remove-black)
+         leaves it as a dark ring round the knob, worst at the small size. */
+      box-shadow: 0 0 0 3px white;
     }
   }
 
@@ -13620,6 +13671,54 @@ body.layout-animating #previewPane {
   max-height: 340px;
   overflow-y: auto;
   scrollbar-width: none;
+  padding: 1px; /* the scroll box clipped the last row's (and the empty note's dashed) bottom border */
+}
+
+/* A row: the download button, with the delete button laid over its right end, left of the download arrow. */
+.cloud-ws-item {
+  position: relative;
+}
+
+.cloud-ws-item .cloud-ws {
+  padding-right: 84px;
+}
+
+.cloud-ws-item .cloud-ws-go {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+
+.cloud-ws-del {
+  position: absolute;
+  right: 46px;
+  top: 50%;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s, color .15s, background .15s;
+}
+
+.cloud-ws-item:hover .cloud-ws-del,
+.cloud-ws-del:focus-visible {
+  opacity: 1;
+}
+
+.cloud-ws-del:hover,
+.cloud-ws-del:focus-visible {
+  color: #f87171;
+  background: rgba(248, 113, 113, .12);
 }
 
 .cloud-ws {
@@ -14399,7 +14498,7 @@ body.layout-animating #previewPane {
 :root[data-theme="light"] .ln.warn .diag-msg { color: #b45309; }
 
 /* Git status, refs and diffs */
-:root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m :is(.gst, .nm), .scm-row.git-m :is(.st, .nm)) { color: #8a5800; }
+:root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m :is(.gst, .nm), .scm-row.git-m :is(.st, .nm)) { color: #865500; }
 /* Added and untracked share the green, as they do in the dark themes; each status covers its tab, tree and list rows. */
 :root[data-theme="light"] :is(.tab .gst:is(.git-a, .git-u), .tree-item:is(.git-a, .git-u) :is(.gst, .nm), .scm-row:is(.git-a, .git-u) :is(.st, .nm)) { color: #137036; }
 :root[data-theme="light"] :is(.tab .gst.git-d, .tree-item.git-d :is(.gst, .nm), .scm-row.git-d :is(.st, .nm)) { color: #b91c1c; }
@@ -14430,6 +14529,7 @@ body.layout-animating #previewPane {
 /* Controls (WCAG 1.4.11): a field's edge stands 3:1 off the paper, placeholders read at full text contrast, header
    icons rest at a strength you can still see, and an agent that isn't installed keeps a readable name. */
 :root[data-theme="light"] :is(.input, .select, .composer-box) { border-color: #887e6b; }
+:root[data-theme="light"] :is(.input:focus, .select:focus-visible, .composer-box:focus-within) { border-color: var(--text); } /* 3.9:1 off the resting edge */
 :root[data-theme="light"] ::placeholder { color: var(--text-3); }
 :root[data-theme="light"] .head-actions { opacity: .85; }
 :root[data-theme="light"] .set-agent.missing .nm { opacity: 1; color: var(--text-3); }
@@ -14628,19 +14728,17 @@ body.layout-animating #previewPane {
 .theme-swatch .sw-main b:nth-child(4) { width: 70%; }
 
 /* Opening Appearance: each picture's code lines grow from the left, line by line, one card after another. */
-@media (prefers-reduced-motion: no-preference) {
-  .set-themes.grow .theme-swatch b {
-    transform-origin: left center;
-    animation: swLineGrow .55s cubic-bezier(.2, .8, .2, 1) both;
-    animation-delay: calc(180ms + var(--card, 0) * 90ms + var(--line, 0) * 55ms);
-  }
-
-  .set-themes.grow .set-theme:nth-child(2) { --card: 1; }
-  .set-themes.grow .set-theme:nth-child(3) { --card: 2; }
-  .set-themes.grow .theme-swatch b:nth-child(2) { --line: 1; }
-  .set-themes.grow .theme-swatch b:nth-child(3) { --line: 2; }
-  .set-themes.grow .theme-swatch b:nth-child(4) { --line: 3; }
+.set-themes.grow .theme-swatch b {
+  transform-origin: left center;
+  animation: swLineGrow .55s cubic-bezier(.2, .8, .2, 1) both;
+  animation-delay: calc(180ms + var(--card, 0) * 90ms + var(--line, 0) * 55ms);
 }
+
+.set-themes.grow .set-theme:nth-child(2) { --card: 1; }
+.set-themes.grow .set-theme:nth-child(3) { --card: 2; }
+.set-themes.grow .theme-swatch b:nth-child(2) { --line: 1; }
+.set-themes.grow .theme-swatch b:nth-child(3) { --line: 2; }
+.set-themes.grow .theme-swatch b:nth-child(4) { --line: 3; }
 
 @keyframes swLineGrow {
   from { transform: scaleX(0); }
@@ -15417,6 +15515,26 @@ input.dbg-edit.bad:focus-visible {
   min-height: 0;
 }
 
+/* Switching tabs slides the new pane in from the side its tab sits on. */
+.dbg-pane.slide-in {
+  animation: dbg-pane-in .18s cubic-bezier(.2, .8, .2, 1);
+}
+
+#dbgOutputPane {
+  --dbg-slide: -24px;
+}
+
+#dbgConsolePane {
+  --dbg-slide: 24px;
+}
+
+@keyframes dbg-pane-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--dbg-slide));
+  }
+}
+
 .dbg-log {
   flex: 1;
   min-height: 0;
@@ -15514,10 +15632,6 @@ input.dbg-edit.bad:focus-visible {
 
 .dbg-hover small {
   color: var(--text-3);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dbg-var.changed .dbg-val { animation: none; }
 }
 
 :root[data-theme="light"] :is(.dbg-panel, .dbg-src-head) {
@@ -15864,8 +15978,107 @@ input.dbg-edit.bad:focus-visible {
 }
 
 /* ================= Source Control page ================= */
-/* While it's open (prs.ts) the page stands in for the editor, preview and side bar. The side bar's column closes to
-   nothing like a collapsed side bar, the agents panel stays, and `layout` itself is untouched. */
+/* Going to or from the page (scmFade, prs.ts): the side bar's box morphs into the page's column and back (one name on
+   whichever is showing), the editor slides aside, and a diff or pull request shown on the right fades. The rest of the
+   window (agents, terminal) stays as it is. */
+:root.scm-fade #work {
+  view-transition-name: scm-work;
+}
+
+:root.scm-fade #scmDetail {
+  view-transition-name: scm-page;
+}
+
+:root.scm-fade .main:not(.scm-page) #sidebar,
+:root.scm-fade .main.scm-page #scmLeft {
+  view-transition-name: scm-side;
+}
+
+:root.scm-fade::view-transition-old(root),
+:root.scm-fade::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(scm-work),
+::view-transition-group(scm-page),
+::view-transition-group(scm-side) {
+  animation-duration: .32s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+/* The side bar's column closes to nothing: its picture is cut off by the narrowing box, not squeezed. */
+::view-transition-old(scm-side),
+::view-transition-new(scm-side) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+
+/* The box moves and resizes (the group, clipped to it); what's in it swaps quickly inside, kept at its own size rather
+   than stretched. The editor is the same file on both sides, so it shows only as it ends up: two pictures of it at
+   different widths would read as a double. */
+::view-transition-group(scm-work),
+::view-transition-group(scm-side) {
+  overflow: clip;
+  border-radius: var(--r);
+}
+
+::view-transition-old(scm-work) {
+  display: none;
+}
+
+/* The header rides on top of the box as it is live: its icons morph one into another (morphSideHead, views.ts) rather
+   than fading, so there is no old picture of it. Pinned right, where the icons sit; its title fades in on its own. */
+:root.scm-fade .main:not(.scm-page) #sidebar > .contents:not(.hidden) > .side-head,
+:root.scm-fade .main.scm-page #scmLeft > .side-head {
+  view-transition-name: scm-head;
+}
+
+::view-transition-group(scm-head) {
+  overflow: clip;
+  animation-duration: .32s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+::view-transition-old(scm-head) {
+  display: none;
+}
+
+::view-transition-new(scm-head) {
+  height: 100%;
+  object-fit: none;
+  object-position: right top;
+  animation: none;
+}
+
+::view-transition-new(scm-work) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+  animation: none;
+}
+
+::view-transition-old(scm-page),
+::view-transition-old(scm-side) {
+  animation: scm-out .14s ease-in both;
+}
+
+::view-transition-new(scm-page),
+::view-transition-new(scm-side) {
+  animation: scm-in .2s ease-out .06s both;
+}
+
+@keyframes scm-out {
+  to { opacity: 0; }
+}
+
+@keyframes scm-in {
+  from { opacity: 0; }
+}
+
+/* While it's open (prs.ts) the page's column stands in for the side bar, whose own column closes to nothing like a
+   collapsed side bar; the editor stays beside it, and a diff or pull request (.scm-detail-on) takes the editor's place.
+   The agents panel stays, and `layout` itself is untouched. */
 .scm-view {
   display: none;
   min-width: 0;
@@ -15887,12 +16100,28 @@ input.dbg-edit.bad:focus-visible {
   border-width: 0;
 }
 
-.main.scm-page .work {
-  display: none;
-}
-
 .main.scm-page .scm-view {
   display: flex;
+}
+
+/* The column and the editor share the centre's first cell: the editor starts where the column ends. */
+.main.scm-page .scm-view,
+.main.scm-page .work {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.main.scm-page .work {
+  margin-left: calc(var(--scm-left, 320px) + var(--gap));
+}
+
+.main.scm-page:not(.scm-detail-on) .scm-view {
+  justify-self: start;
+}
+
+.main.scm-page:not(.scm-detail-on) .scm-detail,
+.main.scm-page.scm-detail-on .work {
+  display: none;
 }
 
 .scm-left,
@@ -15927,12 +16156,6 @@ input.dbg-edit.bad:focus-visible {
   flex: 1;
   overflow: auto;
   background: var(--bg);
-}
-
-.scm-detail > .scm-empty {
-  height: 100%;
-  min-height: 0;
-  margin: 0;
 }
 
 .scm-diff-view {
@@ -16801,4 +17024,24 @@ input.dbg-edit.bad:focus-visible {
 
 .cf-text.proposed {
   box-shadow: inset 2px 0 0 var(--blue);
+}
+
+/* Reduced motion (Windows: Settings → Accessibility → Visual effects → Animation effects off). Durations shrink to
+   1ms rather than `animation: none`, so the animationend/transitionend events the UI waits on still fire. Loops play
+   once and stop. Script-driven animations (element.animate) check the query themselves. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+
+  .shimmer-text {
+    -webkit-text-fill-color: var(--text-3);
+  }
 }

@@ -33,7 +33,7 @@ function morphSideHead(from: HTMLElement, to: HTMLElement): void {
   // A tab with fewer tools: the old ones it lacks (the leftmost) stay a moment as copies that shrink away and close
   // their gap, instead of vanishing. Tools sit at the right, so the closing gap moves nothing else.
   const actions = $('.side-head .head-actions', to);
-  if (!actions || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!actions) return;
   for (const b of icons(from).slice(icons(to).length)) {
     const ghost = b.cloneNode(true) as HTMLElement;
     ghost.removeAttribute('id');
@@ -53,15 +53,17 @@ function morphSideHead(from: HTMLElement, to: HTMLElement): void {
 function showView(v: string, reveal = false, morph = false): void {
   // Source Control is a full page (prs.ts) rather than a side-bar panel: it notes the view to go back to, and any other view closes it.
   if (v === 'git') openScmPage(); else closeScmPage(false);
-  // Neither side of a switch to or from the page has a header to morph.
-  const was = morph && layout.sideOpen && layout.view !== v && layout.view !== 'git' && v !== 'git' ? $(`[data-panel="${layout.view}"]`) : null;
+  // The page's header is its column's (#scmLeft); the side bar's shows only while the side bar is open.
+  const headOf = (view: string) => (view === 'git' ? $('#scmLeft') : $(`[data-panel="${view}"]`));
+  const shown = layout.view === 'git' || layout.sideOpen; // 'git' is the page, which is (or was just) open
+  const was = morph && shown && layout.view !== v ? headOf(layout.view) : null;
   layout.view = v;
   // The page doesn't use the side bar, so it leaves it as it was; closing the page then returns to exactly that.
   if (reveal && !layout.sideOpen && v !== 'git') layout.sideOpen = true;
   applyLayout();
   $$('.act-btn[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   $$('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== v));
-  if (was) morphSideHead(was, $(`[data-panel="${v}"]`));
+  if (was) morphSideHead(was, headOf(v));
   updateActIndicator();
   if (v === 'git') void refreshGit();
   if (v === 'skills') void refreshSkills();
@@ -69,8 +71,10 @@ function showView(v: string, reveal = false, morph = false): void {
 // Clicking the active view's icon again collapses the side bar, like VS Code. For Source Control, the page, it closes it.
 $$('.act-btn[data-view]').forEach(b => b.onclick = () => {
   const v = b.dataset.view as string;
-  if (v === 'git' && scmPageOpen) closeScmPage();
-  else if (v === layout.view && layout.sideOpen && v !== 'git') { layout.sideOpen = false; applyLayout(); } else showView(v, true, true);
+  if (v === 'git' && scmPageOpen) scmFade(() => closeScmPage(true, true));
+  else if (v === layout.view && layout.sideOpen && v !== 'git') { layout.sideOpen = false; applyLayout(); }
+  else if (v === 'git' || scmPageOpen) scmFade(() => showView(v, true, true)); // into or out of the page
+  else showView(v, true, true);
 });
 
 /* ================= Breeze Space (chat only) ================= */

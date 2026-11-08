@@ -689,6 +689,7 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async status() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
       async run() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
       async clone() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
+      async remove() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
       async settings() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
     },
     win: {
@@ -705,6 +706,8 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async isMaximized() { return false; },
       async newTerminal() { toast('Terminal windows are available in the desktop app'); },
       onMaximized() { return () => { /* */ }; },
+      async termPopup() { /* */ },
+      onTermMaximized() { return () => { /* */ }; },
       // No splash window in the browser: the page plays the whole launch itself (init.ts).
       async launchWait() { return null; },
       async launchShow() { /* the page is already showing */ },
@@ -868,7 +871,7 @@ async function setIcon(host: Element, name: string): Promise<void> {
   const from = svg.dataset.icon ?? name;
   svg.dataset.icon = name;
   // The speaker gives a little bounce as its waves change: bigger going louder, a dip going quieter or muted.
-  if (name.startsWith('volume') && from.startsWith('volume') && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (name.startsWith('volume') && from.startsWith('volume')) {
     const rank = (n: string) => ['volumeOff', 'volumeMin', 'volumeLow', 'volume'].indexOf(n);
     const up = rank(name) > rank(from);
     svg.animate([

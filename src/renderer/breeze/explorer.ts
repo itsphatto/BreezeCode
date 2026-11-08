@@ -117,7 +117,6 @@ function endTreeEdit(name: string | null): void {
 // A new entry's row opens up from nothing (and closes back); a rename's box widens out of the name (and back in).
 // Returns how long it runs.
 function growTreeEdit(input: HTMLInputElement, ed: TreeEdit, out: boolean): number {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return 0;
   const row = input.closest<HTMLElement>('.tree-item');
   const timing: KeyframeAnimationOptions = { duration: out ? 150 : 200, easing: 'cubic-bezier(.2, .8, .2, 1)', direction: out ? 'reverse' : 'normal', fill: out ? 'forwards' : 'none' };
   input.animate([{ borderColor: 'transparent' }], timing); // its blue edge fades with it, never a lone blue line
@@ -643,10 +642,9 @@ async function typeOut(b: EditorBuffer, after: string): Promise<boolean> {
   const head = after.slice(0, s), mid = after.slice(s, after.length - e), tail = after.slice(after.length - e);
   // An insertion that starts with a line break begins on the next line; the line above stays unlit.
   const firstLine = lineAt(after, s) + (mid.startsWith('\n') ? 1 : 0);
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   // Short edits type at a natural pace; long ones speed up so none takes more than ~2.5 s.
   // Very large files would re-highlight every frame, so they change at once.
-  const step = reduce || after.length > 150000 ? mid.length : Math.max(3, Math.ceil(mid.length / 150));
+  const step = after.length > 150000 ? mid.length : Math.max(3, Math.ceil(mid.length / 150));
   followAgentTo(b.path);
   let shown = before, frames = 0;
   for (let i = 0; ; i = Math.min(mid.length, i + step)) {
@@ -669,7 +667,7 @@ async function typeOut(b: EditorBuffer, after: string): Promise<boolean> {
     if (++frames % 3 === 0) sfx.play('key');
     await sleepMs(16);
   }
-  if (running && previewPath && /\.(html?|css|js)$/i.test(b.path)) void reloadPreview();
+  if (running && previewPath && /\.(html?|css|js|md|markdown)$/i.test(b.path)) void reloadPreview();
   return true;
 }
 // Replaces the buffer's text as saved on disk, keeping the person's caret where it was.

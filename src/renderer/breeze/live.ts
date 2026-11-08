@@ -72,7 +72,7 @@ function liveRender(path: string, text: string, prev: string | undefined, writin
   }
   // Follow the agent: the end of a file being drafted, otherwise the first changed line.
   const target = writing ? body.querySelector<HTMLElement>('.ln:last-child') : body.querySelector<HTMLElement>('.ln.changed');
-  if (target) target.scrollIntoView({ block: writing ? 'end' : 'center', behavior: switched || reduceMotion.matches ? 'auto' : 'smooth' });
+  if (target) target.scrollIntoView({ block: writing ? 'end' : 'center', behavior: switched ? 'auto' : 'smooth' });
   else if (switched) body.scrollTop = 0;
 }
 

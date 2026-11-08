@@ -85,11 +85,12 @@ async function openCloudWorkspaces(auto = false): Promise<void> {
   const rows = st.workspaces.map(w => {
     const here = w.device === st.device;
     const pc = w.deviceNo ? `PC ${w.deviceNo}` : 'PC';
-    return `<button class="cloud-ws" data-ws="${escAttr(w.id)}" title="Download ${escAttr(w.name)} to this computer">
+    return `<div class="cloud-ws-item"><button class="cloud-ws" data-ws="${escAttr(w.id)}" title="Download ${escAttr(w.name)} to this computer">
       <span class="cloud-ws-face">${face}<span class="cloud-ws-pc" title="${escAttr(`${pc} · ${w.device}`)}">${w.deviceNo ?? '?'}</span></span>
       <span class="cloud-ws-text"><span class="cloud-ws-name"><span class="cloud-ws-title">${esc(w.name)}</span>${here ? '<span class="cloud-ws-here">This PC</span>' : ''}</span>
         <span class="cloud-ws-meta">${esc(pc)} · ${esc(w.device)} · ${esc(timeAgo(Date.parse(w.updatedAt)))}</span></span>
-      <span class="cloud-ws-go">${svgIcon('download', 15)}</span></button>`;
+      <span class="cloud-ws-go">${svgIcon('download', 15)}</span></button>
+      <button class="cloud-ws-del" data-ws-del="${escAttr(w.id)}" data-ws-name="${escAttr(w.name)}" title="Delete ${escAttr(w.name)} from the cloud" aria-label="Delete ${escAttr(w.name)} from the cloud">${svgIcon('trash', 14)}</button></div>`;
   }).join('');
   const empty = '<div class="cloud-ws-empty">Nothing synced yet. Open a folder and choose Sync Workspace from your picture to put it in the cloud.</div>';
   openModal(`<h3>${auto ? 'Pick up where you left off' : 'Your cloud workspaces'}</h3>
@@ -105,6 +106,23 @@ async function openCloudWorkspaces(auto = false): Promise<void> {
       syncSeenRev = r.summary.rev;
       toast(`${r.info.name}: ${r.summary.downloaded} files downloaded`);
     })()));
+    $$<HTMLElement>('[data-ws-del]', m).forEach(b => b.onclick = () => confirmDeleteCloud(b.dataset.wsDel ?? '', b.dataset.wsName ?? 'this workspace'));
+  });
+}
+// Deleting is permanent, so it asks first; the list comes back afterwards either way.
+function confirmDeleteCloud(id: string, name: string): void {
+  openModal(`<h3>Delete ${esc(name)} from the cloud?</h3><p class="sub">Its synced files are removed from your cloud for good, so your other computers can no longer download it. Folders on your computers keep their files.</p>
+    <div class="row end"><button class="btn" id="wsDelNo">Cancel</button><button class="btn btn-danger" id="wsDelYes">Delete</button></div>`, m => {
+    $('#wsDelNo', m).onclick = () => { closeModal(); background(openCloudWorkspaces()); };
+    $<HTMLButtonElement>('#wsDelYes', m).onclick = () => background((async () => {
+      const btn = $<HTMLButtonElement>('#wsDelYes', m);
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      const r = syncOk(await api.sync.remove(id));
+      closeModal();
+      if (r) toast(`${name} deleted from the cloud`);
+      await openCloudWorkspaces();
+    })());
   });
 }
 // A fresh install that signs in gets the account's settings, then its workspaces if no folder is open.
