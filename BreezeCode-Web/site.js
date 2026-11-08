@@ -116,10 +116,12 @@ if (window.gsap && window.ScrollTrigger && window.SplitText) {
       reveal(gsap.utils.toArray('.feature', section), { y: 24, autoAlpha: 0 }, (els) => rise(els));
     }
     ruled('.extra');
+    reveal(gsap.utils.toArray('.perf i'), { scaleX: 0, transformOrigin: 'left center' },
+      (els) => gsap.to(els, { scaleX: 1, duration: 1.1, ease: out, stagger: 0.08, delay: 0.4 }));
     reveal(gsap.utils.toArray('.langs img'), { scale: 0.4, autoAlpha: 0 },
       (els) => gsap.to(els, { scale: 1, autoAlpha: 1, duration: 0.6, ease: 'back.out(2)', stagger: 0.05, delay: 0.5 }));
 
-    // Download: the sky opens from the centre as the finale arrives (styles.css), then the icon and button land.
+    // Download: the sky opens from the centre as the finale arrives (styles.css), then the button lands.
     const sky = document.querySelector('.finale-sky');
     if (sky) {
       sky.classList.add('is-closed');
@@ -128,9 +130,7 @@ if (window.gsap && window.ScrollTrigger && window.SplitText) {
         onEnter: () => sky.classList.replace('is-closed', 'is-open'),
       });
     }
-    reveal(gsap.utils.toArray('.download > img'), { scale: 0.6, rotation: -12, autoAlpha: 0 },
-      (els) => gsap.to(els, { scale: 1, rotation: 0, autoAlpha: 1, duration: 1.1, ease: out }));
-    reveal(gsap.utils.toArray('.download > p, .download .cta'), { y: 20, autoAlpha: 0 }, (els) => rise(els, { delay: 0.25 }));
+    reveal(gsap.utils.toArray('.download-copy > p, .download .cta, .steps li'), { y: 20, autoAlpha: 0 }, (els) => rise(els, { delay: 0.25 }));
 
     return () => section?.classList.remove('is-pinned');
   });
@@ -163,7 +163,7 @@ if (!reduceMotion) document.querySelectorAll('details.faq').forEach((faq) => {
   });
 });
 
-// Run with F5: the language logos orbit the description on a tilted ellipse, behind the text on the far side and in front on
+// Runs what you write: the language logos orbit the description on a tilted ellipse, behind the text on the far side and in front on
 // the near side. Scrolling winds them faster (and backwards when scrolling up). Without JS or motion, or on a screen
 // too narrow for the two-column row (styles.css, 860px), they stay a row under the text.
 const langs = document.querySelector('.langs');
@@ -191,12 +191,12 @@ if (langs && !reduceMotion) {
     lastY = scrollY;
     boost += (Math.max(-6, Math.min(6, v * 0.006)) - boost) * Math.min(1, dt * 6);
     angle += (BASE + boost) * dt;
-    // The ring hugs the description: centred on it, a little wider and taller than its text. The tilt makes the
-    // ring taller, so ry is sized for the tilted ring to clear the text by the same margin.
+    // The ring is centred on the description, at least a little wider and taller than its text. The tilt makes the
+    // ring taller, so ry is sized for the tilted ring to reach exactly `top`.
     const cx = dd.offsetLeft + dd.offsetWidth / 2 - row.clientWidth / 2, cy = dd.offsetTop + dd.offsetHeight / 2 - row.clientHeight / 2;
-    // Sideways it reaches just past the text, into the page's 20px side gutter but no further: past that the page
-    // would scroll sideways.
-    const rx = dd.offsetWidth / 2 - 10, top = dd.offsetHeight / 2 + 24;
+    // In the big tile the ring opens out to fill it, keeping clear of the tile's edges and of the title at its top.
+    const rx = Math.max(dd.offsetWidth / 2 - 10, row.clientWidth / 2 - 64);
+    const top = Math.max(dd.offsetHeight / 2 + 24, row.clientHeight / 2 - 110);
     const ry = Math.sqrt(Math.max(0, top ** 2 - (rx * Math.sin(TILT)) ** 2)) / Math.cos(TILT);
     icons.forEach((img, i) => {
       const a = angle + (i / icons.length) * Math.PI * 2;
@@ -226,6 +226,16 @@ if (langs && !reduceMotion) {
   wide.addEventListener('change', run);
   run();
 }
+
+// Download buttons: the hover fill grows out of, and shrinks back to, wherever the pointer is (styles.css --x, --y).
+document.querySelectorAll(':is(.hero, .finale) .btn-primary').forEach((btn) => {
+  const track = (e) => {
+    const r = btn.getBoundingClientRect();
+    btn.style.setProperty('--x', `${e.clientX - r.left}px`);
+    btn.style.setProperty('--y', `${e.clientY - r.top}px`);
+  };
+  for (const type of ['pointerenter', 'pointermove', 'pointerleave']) btn.addEventListener(type, track);
+});
 
 // Footer links open in a new tab; replay the press animation on every click (styles.css .is-opening).
 document.querySelectorAll('.footer a[target="_blank"]').forEach((a) => {

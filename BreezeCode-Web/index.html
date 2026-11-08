@@ -286,10 +286,13 @@
       -->
 
       <div class="wrap more">
-        <h3 class="extras-title" id="extras-title">Oh, and</h3>
+        <div class="extras-head">
+          <h3 class="extras-title" id="extras-title">Oh, and</h3>
+          <p>The small stuff that saves you a trip to another app.</p>
+        </div>
         <dl class="extras">
-          <div class="extra">
-            <dt>Run with <kbd>F5</kbd></dt>
+          <div class="extra extra-f5">
+            <dt>Runs what you write</dt>
             <dd>Python, C, C++, C#, Java and Rust run on the compilers you already have. Missing one? Breeze tells you
               what to grab.
               <span class="langs">
@@ -297,32 +300,37 @@
                 <img src="assets/langs/c.svg" alt="C" width="28" height="28" loading="lazy">
                 <img src="assets/langs/cplusplus.svg" alt="C++" width="28" height="28" loading="lazy">
                 <img src="assets/langs/csharp.svg" alt="C#" width="28" height="28" loading="lazy">
+                <img src="assets/langs/java.svg" alt="Java" width="28" height="28" loading="lazy">
+                <img src="assets/langs/rust.svg" alt="Rust" width="28" height="28" loading="lazy">
                 <img src="assets/langs/javascript.svg" alt="JavaScript" width="28" height="28" loading="lazy">
                 <img src="assets/langs/typescript.svg" alt="TypeScript" width="28" height="28" loading="lazy">
                 <img src="assets/langs/html5.svg" alt="HTML" width="28" height="28" loading="lazy">
                 <img src="assets/langs/css3.svg" alt="CSS" width="28" height="28" loading="lazy">
+                <img src="assets/langs/react.svg" alt="React" width="28" height="28" loading="lazy">
+                <img src="assets/langs/vue.svg" alt="Vue" width="28" height="28" loading="lazy">
+                <img src="assets/langs/svelte.svg" alt="Svelte" width="28" height="28" loading="lazy">
+                <img src="assets/langs/astro.svg" alt="Astro" width="28" height="28" loading="lazy">
+                <img src="assets/langs/nodejs.svg" alt="Node.js" width="28" height="28" loading="lazy">
+                <img src="assets/langs/sass.svg" alt="Sass" width="28" height="28" loading="lazy">
+                <img src="assets/langs/json.svg" alt="JSON" width="28" height="28" loading="lazy">
+                <img src="assets/langs/markdown.svg" alt="Markdown" width="28" height="28" loading="lazy">
               </span>
             </dd>
           </div>
           <div class="extra">
-            <dt>Live preview</dt>
-            <dd>Pop <code>index.html</code> open beside your code and refresh as you go.</dd>
-          </div>
-          <div class="extra">
-            <dt>Built-in terminal</dt>
-            <dd>Run Node and whatever else without ever leaving the editor.</dd>
-          </div>
-          <div class="extra">
-            <dt>Big files, no sweat</dt>
-            <dd>Only the lines on screen get drawn, so huge files stay snappy.</dd>
+            <dt>Easy on your RAM</dt>
+            <dd>
+              <!-- Windows Task Manager, one PC. Bar widths are each app's share of VS Code's 1,418.7 MB. -->
+              <ul class="perf">
+                <li class="perf-us"><span>Breeze Code</span><b>58 MB</b><i style="--v: 4.1%"></i></li>
+                <li><span>Visual Studio Code</span><b>1,419 MB</b><i style="--v: 100%"></i></li>
+              </ul>
+              <small class="perf-note">Memory in Windows Task Manager, all open on one PC.</small>
+            </dd>
           </div>
           <div class="extra">
             <dt>Keys under lock</dt>
             <dd>API keys and sign-in tokens get encrypted by the Windows keychain and stay on your PC.</dd>
-          </div>
-          <div class="extra">
-            <dt>Polite updates</dt>
-            <dd>Breeze checks for new versions and asks before downloading a thing.</dd>
           </div>
         </dl>
       </div>
@@ -334,25 +342,32 @@
   <div class="finale">
     <div class="finale-sky" aria-hidden="true"><div class="finale-veil"></div></div>
     <section class="download" id="download" aria-labelledby="download-title">
-      <img src="favicon-192.png" alt="" width="72" height="72" loading="lazy">
-      <h2 id="download-title">Get Breeze Code</h2>
-      <p>Code at blazing speed. Turn ideas into reality.</p>
-      <div class="cta">
-        <a class="btn btn-primary btn-lg" data-download href="https://github.com/itsphatto/BreezeCode/releases/latest">
-          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-            <path d="M0 2.3 6.5 1.4v6.2H0zM7.3 1.3 16 0v7.6H7.3zM0 8.4h6.5v6.2L0 13.7zM7.3 8.4H16V16l-8.7-1.2z" />
-          </svg>
-          Download for Windows
-        </a>
+      <div class="download-in">
+        <div class="download-copy">
+          <h2 id="download-title">Get Breeze Code</h2>
+          <p>Code at blazing speed. Turn ideas into reality.</p>
+          <div class="cta">
+            <a class="btn btn-primary btn-lg" data-download href="https://github.com/itsphatto/BreezeCode/releases/latest">
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M0 2.3 6.5 1.4v6.2H0zM7.3 1.3 16 0v7.6H7.3zM0 8.4h6.5v6.2L0 13.7zM7.3 8.4H16V16l-8.7-1.2z" />
+              </svg>
+              Download for Windows
+            </a>
+          </div>
+          <p class="download-meta"><span data-version>Latest version</span> · <span data-size>112 MB</span> ·
+            Windows 10 and 11, 64&#8209;bit</p>
+        </div>
+        <ol class="steps" aria-label="Installing Breeze Code">
+          <li><b>Run the installer</b> <span>It's free. No account, no card.</span></li>
+          <li><b>Windows may warn you</b> <span>Breeze isn't code-signed yet, so SmartScreen asks. Click <i>More info</i>, then <i>Run anyway</i>.</span></li>
+          <li><b>Pick your AI</b> <span>Breeze finds Claude Code, Codex or Antigravity. Or point it at a local model.</span></li>
+        </ol>
       </div>
-      <p class="download-meta"><span data-version>Latest version</span> · <span data-size>112 MB</span> ·
-        Windows 10 and 11, 64&#8209;bit</p>
     </section>
 
     <footer class="footer">
       <div class="wrap footer-in">
-        <a class="logo" href="#content" aria-label="Breeze Code home"><img src="favicon-192.png" alt="" width="24"
-            height="24" loading="lazy">Breeze Code</a>
+        <a class="logo" href="#content" aria-label="Breeze Code home"><img src="assets/brand/BreezeCode.png" alt="" width="178" height="30" loading="lazy"></a>
         <nav aria-label="Footer">
           <a href="privacy.html" target="_blank" rel="noopener">Privacy<span class="skip"> (opens in a new
               tab)</span></a>

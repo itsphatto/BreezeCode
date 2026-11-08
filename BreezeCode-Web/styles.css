@@ -50,7 +50,7 @@
     radial-gradient(60% 40% at 82% 100%, rgba(167, 139, 250, .22), transparent 70%);
   /* Hero atmosphere: Pattaya bay (a 3x time-lapse video over its first frame) under a dark scrim so the headline
      stays readable. */
-  --hero-scrim: linear-gradient(180deg, rgba(0, 0, 0, .62) 0%, rgba(3, 11, 31, .48) 40%, rgba(3, 11, 31, .3) 70%, rgba(0, 0, 0, .5) 100%);
+  --hero-scrim: linear-gradient(180deg, rgba(0, 0, 0, .74) 0%, rgba(3, 11, 31, .66) 40%, rgba(3, 11, 31, .56) 70%, rgba(0, 0, 0, .62) 100%);
   --hero-still: url("assets/Background/pattaya-bay.jpg") center 40% / cover no-repeat #030b1f;
 }
 
@@ -199,11 +199,6 @@ p, li, dd { text-wrap: pretty; }
   .hero-video { display: none; }
 }
 
-/* A faint dark halo behind the hero copy so it reads over the photo. */
-.hero h1, .lede, .hero-meta { text-shadow: 0 1px 3px rgba(0, 0, 0, .55), 0 2px 18px rgba(0, 0, 0, .5); }
-/* A soft dark pool behind the words, fading out well before the edges. */
-.hero-copy { background: radial-gradient(ellipse 46% 42% at 50% 50%, rgba(0, 0, 0, .5), rgba(0, 0, 0, .28) 55%, transparent 100%); }
-
 .hero h1 {
   max-width: 1104px;
   margin: 0 auto;
@@ -218,13 +213,13 @@ p, li, dd { text-wrap: pretty; }
 .lede {
   max-width: 744px;
   margin: 20px auto 0;
-  color: rgba(245, 245, 247, .74);
+  color: rgba(245, 245, 247, .88);
   font-size: clamp(19.2px, 1.92vw, 21.6px);
   text-wrap: pretty;
 }
 
 .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 32px; }
-.hero-meta { margin: 14px 0 0; color: rgba(245, 245, 247, .62); font-size: 15.6px; }
+.hero-meta { margin: 14px 0 0; color: rgba(245, 245, 247, .85); font-size: 15.6px; }
 .cta .btn-lg { padding: 14.4px 28.8px; font-size: 18px; }
 .cta .btn svg { width: 19.2px; height: 19.2px; }
 
@@ -332,7 +327,8 @@ h2 {
 }
 
 /* ---------- compare ---------- */
-.compare { margin-top: clamp(80px, 11vw, 136px); }
+/* Breaks out of the 1120px wrap so the table runs wider than the copy around it. */
+.compare { --w: min(1440px, 100vw - clamp(40px, 12vw, 240px)); width: var(--w); margin: clamp(80px, 11vw, 136px) calc(50% - var(--w) / 2) 0; }
 .compare h3 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 2.4vw, 28px); letter-spacing: -.02em; }
 .compare > p { margin: 10px 0 24px; color: var(--text-2); }
 
@@ -347,10 +343,11 @@ h2 {
   font-size: 15px;
 }
 
-.table th, .table td { padding: 16px 20px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.table th, .table td { padding: 26px 32px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .table tr:last-child > * { border-bottom: 0; }
-.table thead th { background: var(--bg-2); color: var(--text-2); font-size: 14px; font-weight: 600; }
-.table tbody th { width: 22%; font-weight: 500; }
+.table thead th { padding-block: 20px; background: var(--bg-2); color: var(--text-2); font-size: 14px; font-weight: 600; }
+.table tbody th { width: 1%; font-weight: 500; white-space: nowrap; } /* as narrow as its longest label */
+.table td { width: 50%; }
 .table td { color: var(--text-2); }
 .table td.win { border-bottom-color: rgba(255, 255, 255, .18); background: var(--blue); color: #fff; }
 .note { margin: 12px 0 0; color: var(--text-2); font-size: 13px; }
@@ -358,7 +355,7 @@ h2 {
 @media (max-width: 640px) {
   .table { font-size: 14px; }
   .table th, .table td { padding: 12px; }
-  .table tbody th { width: auto; }
+  .table tbody th { width: auto; white-space: normal; }
 }
 
 /* ---------- features: a row of cards ----------
@@ -437,15 +434,15 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
 }
 
 /* And also */
-/* And also: the heading holds still on the left while the rows scroll past on the right. */
+/* And also: a bento grid of tiles. "Runs what you write" takes the big tile so its logos have room to orbit. */
 @property --rule-c { syntax: '<color>'; inherits: false; initial-value: #26262c; }
 
-.more { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 24px clamp(32px, 6vw, 96px); margin-top: clamp(96px, 12vw, 160px); }
+.more { margin-top: clamp(96px, 12vw, 160px); }
+
+.extras-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 40px; margin-bottom: 32px; }
+.extras-head p { max-width: 36ch; margin: 0; color: var(--text-2); font-size: 17px; }
 
 .extras-title {
-  position: sticky;
-  top: calc(var(--nav-h, 62px) + 32px);
-  align-self: start;
   margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
@@ -454,62 +451,71 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
   letter-spacing: -.035em;
 }
 
-.extras { margin: 0; border-bottom: 1px solid var(--line); }
+.extras { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0; }
 
+/* Each tile's top edge is a hairline that site.js draws across on reveal (--rule) and hover turns blue (--rule-c). */
 .extra {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px 40px;
-  padding: 34px 0 38px;
-  background: linear-gradient(var(--rule-c), var(--rule-c)) 0 0 / var(--rule, 100%) 1px no-repeat;
-  transition: --rule-c .35s;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 220px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-top-color: transparent;
+  border-radius: var(--r-card);
+  background:
+    linear-gradient(var(--rule-c), var(--rule-c)) 0 0 / var(--rule, 100%) 2px no-repeat,
+    linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  background-origin: border-box;
+  transition: --rule-c .35s, border-color .35s, translate .45s cubic-bezier(.16, 1, .3, 1);
 }
 
 .extra dt {
   font-family: var(--font-display);
-  font-size: clamp(20px, 2vw, 26px);
+  font-size: clamp(19px, 1.7vw, 22px);
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -.02em;
-  transition: translate .45s cubic-bezier(.16, 1, .3, 1), color .3s;
+  transition: color .3s;
 }
 
-.extra dd { margin: 0; color: var(--text-2); font-size: 17px; line-height: 1.6; }
+.extra dd { margin: 0; color: var(--text-2); font-size: 16px; line-height: 1.6; }
 .extra code { padding: 1px 6px; border-radius: 4px; background: var(--bg-3); color: var(--text); }
 
-/* A real keycap: the offset shadow is the key's side, and it presses down on hover. */
-.extra kbd {
-  display: inline-block;
-  margin-left: .1em;
-  padding: .12em .45em;
-  border: 1px solid #3a3a42;
-  border-radius: 7px;
-  background: var(--bg-2);
-  box-shadow: 0 4px 0 #26262c;
-  font: 600 .72em/1.3 var(--font-code);
-  vertical-align: .18em;
-  transition: translate .12s, box-shadow .12s;
-}
+/* The big tile: two columns by two rows, the description centred so the logo ring sits in the middle. */
+.extra-f5 { grid-column: span 2; grid-row: span 2; min-height: 456px; }
+.extra-f5 dt { font-size: clamp(26px, 2.8vw, 38px); }
+.extra-f5 dd { max-width: 38ch; margin: auto; font-size: 17px; text-align: center; }
 
-.langs { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+/* Memory bars: each name and figure sits right on its pill, Breeze's the only blue one. */
+.perf { display: grid; gap: 12px; margin: 4px 0 0; padding: 0; list-style: none; font-size: 14px; }
+.perf li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
+.perf b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.perf i { grid-column: 1 / -1; width: var(--v); min-width: 10px; height: 10px; border-radius: 999px; background: #6e6e78; }
+.perf-us span { color: var(--text); font-weight: 600; }
+.perf-us i { background: var(--blue); }
+.perf-note { display: block; margin-top: 14px; font-size: 13px; }
+
+
+.langs { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 20px; }
 .langs img { width: 28px; height: 28px; transition: translate .3s cubic-bezier(.16, 1, .3, 1); }
-/* Orbiting (site.js): the logos start at the row's centre and site.js moves them round the description. The row is the stacking context, so a logo on
+/* Orbiting (site.js): the logos start at the tile's centre and site.js moves them round the description. The tile is the stacking context, so a logo on
    the far side (z-index -1) passes under the text and one on the near side over it. */
-.extra:has(.langs.orbit) { position: relative; isolation: isolate; padding-block: 48px; }
+.extra:has(.langs.orbit) { position: relative; isolation: isolate; }
 .langs.orbit { position: absolute; inset: 0; margin: 0; pointer-events: none; }
 .langs.orbit img { position: absolute; left: calc(50% - 18px); top: calc(50% - 18px); width: 36px; height: 36px; transition: none; }
 
 @media (hover: hover) {
-  .extra:hover { --rule-c: var(--blue); }
-  .extra:hover dt { translate: 8px 0; color: #fff; }
-  .extra:hover kbd { translate: 0 3px; box-shadow: 0 1px 0 #26262c; }
+  .extra:hover { --rule-c: var(--blue); border-color: #3a3a42; border-top-color: transparent; translate: 0 -4px; }
+  .extra:hover dt { color: #fff; }
   .langs:not(.orbit) img:hover { translate: 0 -4px; }
 }
 
 @media (max-width: 860px) {
-  .more { grid-template-columns: 1fr; }
-  .extras-title { position: static; }
-  .extra { grid-template-columns: 1fr; padding: 26px 0 30px; }
+  .extras { grid-template-columns: 1fr; }
+  .extra, .extra-f5 { grid-column: auto; grid-row: auto; min-height: 0; padding: 24px; }
+  .extra-f5 dd { margin: 0; text-align: left; }
+  .langs { justify-content: flex-start; }
 }
 
 /* ---------- download ---------- */
@@ -590,26 +596,74 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
   z-index: 1;
 }
 
-/* Top and bottom edges: a dark blur, so the sky melts into the page above and settles under the footer. */
+/* The stops trace a smootherstep curve so a fade shows no kink at either end, and they drift from black to
+   blue because plain black over the pale sky turns grey. */
+.finale-veil {
+  --fade: #000,
+    rgba(0, 2, 8, .991) 10%,
+    rgba(1, 4, 18, .942) 20%,
+    rgba(1, 7, 30, .837) 30%,
+    rgba(2, 10, 44, .683) 40%,
+    rgba(3, 14, 60, .5) 50%,
+    rgba(4, 18, 76, .317) 60%,
+    rgba(5, 22, 92, .163) 70%,
+    rgba(6, 26, 106, .058) 80%,
+    rgba(7, 28, 114, .009) 90%,
+    rgba(8, 30, 120, 0);
+  /* A solid strip at the very top meets the page's black with no visible edge; the bottom settles under the footer. */
+  background:
+    linear-gradient(to bottom, var(--fade)) 0 0 / 100% 40% no-repeat,
+    linear-gradient(to top,
+      rgba(2, 6, 24, .8),
+      rgba(2, 6, 24, .793) 10%,
+      rgba(2, 6, 24, .754) 20%,
+      rgba(2, 6, 24, .67) 30%,
+      rgba(2, 6, 24, .546) 40%,
+      rgba(2, 6, 24, .4) 50%,
+      rgba(2, 6, 24, .254) 60%,
+      rgba(2, 6, 24, .13) 70%,
+      rgba(2, 6, 24, .046) 80%,
+      rgba(2, 6, 24, .007) 90%,
+      rgba(2, 6, 24, 0)) 0 100% / 100% 35% no-repeat;
+}
+
+/* Two sets of soft shapes hang from the top at different depths and sway out of step, so the fade never ends along
+   one line. Wider than the sky (which clips them) so their sides stay out of sight as they move. */
 .finale-veil::before,
 .finale-veil::after {
   content: '';
   position: absolute;
-  inset: 0;
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
+  inset: 0 -35%;
+  transform-origin: top;
+  /* Off at the very top: their blue tint would otherwise show over the solid black and draw a seam. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 2%, #000 26%);
+  mask-image: linear-gradient(to bottom, transparent 2%, #000 26%);
 }
 
 .finale-veil::before {
-  background: linear-gradient(to bottom, rgba(0, 0, 0, .85), transparent 28%);
-  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 28%);
-  mask-image: linear-gradient(to bottom, #000, transparent 28%);
+  background:
+    radial-gradient(34% 58% at 18% 0, var(--fade)),
+    radial-gradient(26% 36% at 46% 0, var(--fade)),
+    radial-gradient(38% 50% at 82% 0, var(--fade));
+  animation: veil-sway-a 11s ease-in-out infinite alternate;
 }
 
 .finale-veil::after {
-  background: linear-gradient(to top, rgba(0, 0, 0, .8), transparent 30%);
-  -webkit-mask-image: linear-gradient(to top, #000, transparent 30%);
-  mask-image: linear-gradient(to top, #000, transparent 30%);
+  background:
+    radial-gradient(28% 40% at 6% 0, var(--fade)),
+    radial-gradient(34% 50% at 60% 0, var(--fade)),
+    radial-gradient(24% 64% at 94% 0, var(--fade));
+  animation: veil-sway-b 17s ease-in-out -6s infinite alternate;
+}
+
+@keyframes veil-sway-a {
+  from { transform: translateX(-12%) scaleY(.82); }
+  to { transform: translateX(12%) scaleY(1.16); }
+}
+
+@keyframes veil-sway-b {
+  from { transform: translateX(14%) scaleY(1.12); }
+  to { transform: translateX(-14%) scaleY(.78); }
 }
 
 @keyframes sky-drift {
@@ -619,12 +673,32 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
 
 @media (prefers-reduced-motion: reduce) {
   .finale-sky::before,
-  .finale-sky::after { animation: none; }
+  .finale-sky::after,
+  .finale-veil::before,
+  .finale-veil::after { animation: none; }
 }
 
-/* Over the sky the blue button would vanish into the blue, so it turns white (as on the app's welcome screen). */
-.finale .btn-primary { background: #f5f5f7; border-color: #f5f5f7; color: #1f4dff; }
-.finale .btn-primary:hover { background: #fff; border-color: #fff; }
+@property --fill { syntax: '<length>'; inherits: false; initial-value: 0px; }
+
+/* The two download buttons are opposites: hovering floods the other one's colour out from the cursor (site.js sets --x and --y).
+   Over the sky the blue button would vanish into the blue, so the finale's starts white. */
+:is(.hero, .finale) .btn-primary {
+  /* The 160px feather is about three button-heights, so no circle edge shows as it spreads. */
+  background-image: radial-gradient(circle at var(--x, 50%) var(--y, 50%), var(--to) calc(var(--fill) - 160px), transparent var(--fill));
+  background-origin: border-box;
+  background-repeat: no-repeat;
+  transition: --fill .6s cubic-bezier(.33, 0, .2, 1), border-color .4s ease, color .35s ease .05s;
+}
+.hero .btn-primary { --to: #fff; }
+.finale .btn-primary { --to: var(--blue); background-color: #fff; border-color: #fff; color: var(--blue); }
+@media (hover: hover) {
+  /* 460px puts the solid part of the fill past the far corner from any starting point on the button. */
+  .hero .btn-primary:hover { --fill: 460px; background-color: var(--blue); border-color: #fff; color: var(--blue); }
+  .finale .btn-primary:hover { --fill: 460px; background-color: #fff; border-color: var(--blue); color: #fff; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.hero, .finale) .btn-primary { transition: none; }
+}
 
 /* FAQ and legal pages: the same screen-tall glow painted at the bottom of the page, behind the footer. */
 .glow { background-image: var(--glow-bg); background-position: bottom; background-size: 100% 100vh; background-repeat: no-repeat; }
@@ -632,17 +706,79 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
 .download {
   display: flex;
   flex: 1;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: clamp(72px, 13vh, 104px) 20px clamp(40px, 9vh, 72px);
-  text-align: center;
+  padding: clamp(96px, 16vh, 160px) 20px clamp(48px, 10vh, 96px);
 }
 
-.download img { width: 72px; height: 72px; margin: 0 auto 8px; }
-.download h2 { margin-top: 16px; }
-.download > p { max-width: 520px; margin: 14px auto 0; color: rgba(245, 245, 247, .8); }
-.download-meta { margin: 14px 0 0; color: rgba(245, 245, 247, .74); font-size: 13px; }
+/* Headline and button on the left, the three install steps on a glass card to the right. */
+.download-in {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 48px clamp(32px, 4vw, 64px);
+  width: 100%;
+  max-width: 1080px; /* .wrap's content width, so both edges line up with the footer */
+  margin: 0 auto;
+}
+
+/* Sized from the viewport so the name always fits on one line. */
+.download h2 {
+  margin: 0;
+  font-size: clamp(30px, 4vw, 60px);
+  line-height: .98;
+  letter-spacing: -.045em;
+  white-space: nowrap;
+}
+.download-copy > p:not(.download-meta) { max-width: 34ch; margin: 18px 0 0; color: rgba(245, 245, 247, .88); font-size: clamp(18px, 1.6vw, 21px); }
+.download .cta { justify-content: flex-start; }
+.download-meta { margin: 14px 0 0; color: rgba(245, 245, 247, .78); font-size: 13px; }
+
+.steps {
+  margin: 0;
+  padding: 20px 36px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 20px;
+  background: rgba(8, 18, 64, .32);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: 0 24px 60px rgba(8, 20, 80, .3);
+  list-style: none;
+  counter-reset: step;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  column-gap: 16px;
+  padding: 32px 0;
+  color: rgba(245, 245, 247, .8);
+  font-size: 15px;
+  line-height: 1.55;
+  counter-increment: step;
+}
+.steps li + li { border-top: 1px solid rgba(255, 255, 255, .14); }
+.steps li::before {
+  content: counter(step);
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #f5f5f7;
+  color: #1f4dff;
+  font: 700 15px/1 var(--font-display);
+}
+.steps b { display: block; margin-bottom: 2px; color: #fff; font-size: 17px; font-weight: 600; }
+.steps i { color: #fff; font-style: normal; font-weight: 600; }
+
+@media (max-width: 980px) {
+  .download-in { grid-template-columns: minmax(0, 1fr); }
+  .download h2 { font-size: min(8.8vw, 64px); }
+  .steps { padding: 12px 24px; }
+  .steps li { padding: 22px 0; }
+}
+
 .download-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 20px; margin-top: 20px; font-size: 14px; }
 .download-links a { color: rgba(245, 245, 247, .8); text-decoration: none; }
 .download-links a:hover { color: var(--text); }
@@ -725,6 +861,7 @@ code, .mono { font-family: var(--font-code); font-size: .9em; }
   -webkit-backdrop-filter: blur(28px) saturate(150%);
   backdrop-filter: blur(28px) saturate(150%);
 }
+.footer .logo img { width: auto; height: 30px; }
 .footer nav { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 14px; }
 .footer nav a {
   display: inline-flex;
