@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://breezecode.itsphatto.site/sitemap.xml
