@@ -496,3 +496,165 @@ test('a 401 or 403 from Firestore is reauth; a 503 or a dead network is network'
   await assert.rejects(apiFor(async () => { throw new Error('offline'); }).list(), e => e.code === 'network');
 });
 
+
+// ---- Task 4: Presence throttle ----
+
+const { presenceThrottle } = require('../src/main/friends');
+
+const flush = () => new Promise(r => setImmediate(r));
+// Fake time: timers only fire when advance() reaches them.
+function fakeClock() {
+  let t = 0, seq = 0;
+  const timers = new Map();
+  return {
+    now: () => t,
+    setTimer: (fn, ms) => { const id = ++seq; timers.set(id, { fn, at: t + ms }); return id; },
+    clearTimer: id => { timers.delete(id); },
+    pending: () => timers.size,
+    async advance(ms) {
+      const end = t + ms;
+      for (;;) {
+        const next = [...timers.entries()].filter(([, x]) => x.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+        if (!next) break;
+        t = Math.max(t, next[1].at);
+        timers.delete(next[0]);
+        next[1].fn();
+        await flush();
+      }
+      t = end;
+      await flush();
+    },
+  };
+}
+const P = (state, project = null, activity = 'idle') => ({ state, project, activity });
+function throttleFor(over = {}) {
+  const clock = fakeClock();
+  const writes = [];
+  const th = presenceThrottle({ write: async p => { writes.push(p); if (over.fail) throw new Error('down'); }, ...clock, ...over });
+  return { th, clock, writes };
+}
+
+test('first set writes at once', async () => {
+  const { th, writes } = throttleFor();
+  th.set(P('online', 'app', 'editing'));
+  await flush();
+  assert.deepEqual(writes, [P('online', 'app', 'editing')]);
+});
+
+test('changes within 10s coalesce into one write of the latest state', async () => {
+  const { th, clock, writes } = throttleFor();
+  th.set(P('online', 'a', 'editing'));
+  await clock.advance(2000);
+  th.set(P('online', 'b', 'agent'));
+  await clock.advance(3000);
+  th.set(P('away', 'b', 'idle'));
+  assert.equal(writes.length, 1);
+  await clock.advance(4999);
+  assert.equal(writes.length, 1);
+  await clock.advance(1);
+  assert.deepEqual(writes, [P('online', 'a', 'editing'), P('away', 'b', 'idle')]);
+});
+
+test('a change after the gap has passed writes straight away', async () => {
+  const { th, clock, writes } = throttleFor();
+  th.set(P('online'));
+  await clock.advance(10_000);
+  th.set(P('away'));
+  await flush();
+  assert.deepEqual(writes, [P('online'), P('away')]);
+});
+
+test('setting the same state again does not write until the heartbeat', async () => {
+  const { th, clock, writes } = throttleFor();
+  th.set(P('online', 'a', 'editing'));
+  await clock.advance(20_000);
+  th.set(P('online', 'a', 'editing'));
+  await flush();
+  assert.equal(writes.length, 1);
+  await clock.advance(40_000);
+  assert.equal(writes.length, 2);
+});
+
+test('heartbeat rewrites the same state every 60s', async () => {
+  const { th, clock, writes } = throttleFor();
+  th.set(P('online', 'a', 'debug'));
+  await clock.advance(59_999);
+  assert.equal(writes.length, 1);
+  await clock.advance(1);
+  assert.equal(writes.length, 2);
+  await clock.advance(60_000);
+  assert.equal(writes.length, 3);
+  assert.deepEqual(writes[2], P('online', 'a', 'debug'));
+});
+
+test('a failed write is dropped and retried at the next heartbeat', async () => {
+  let down = true;
+  const clock = fakeClock();
+  const writes = [];
+  const th = presenceThrottle({ write: async p => { writes.push(p); if (down) throw new Error('down'); }, ...clock });
+  th.set(P('online', 'a', 'editing'));
+  await clock.advance(30_000);
+  assert.equal(writes.length, 1); // no retry loop
+  down = false;
+  await clock.advance(30_000);
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes[1], P('online', 'a', 'editing'));
+});
+
+test('a write that throws synchronously is also dropped', async () => {
+  const clock = fakeClock();
+  let n = 0;
+  const th = presenceThrottle({ write: () => { n++; throw new Error('boom'); }, ...clock });
+  th.set(P('online'));
+  await clock.advance(60_000);
+  assert.equal(n, 2);
+});
+
+test('after a failed write the same state is tried again on the next set', async () => {
+  let down = true;
+  const clock = fakeClock();
+  const writes = [];
+  const th = presenceThrottle({ write: async p => { writes.push(p); if (down) throw new Error('down'); }, ...clock });
+  th.set(P('online'));
+  await clock.advance(10_000);
+  down = false;
+  th.set(P('online'));
+  await flush();
+  assert.equal(writes.length, 2);
+});
+
+test('stop writes offline once and further sets do nothing', async () => {
+  const { th, clock, writes } = throttleFor();
+  th.set(P('online', 'a', 'editing'));
+  await clock.advance(1000);
+  await th.stop();
+  assert.deepEqual(writes, [P('online', 'a', 'editing'), P('offline', null, 'idle')]);
+  await th.stop();
+  th.set(P('online', 'z', 'agent'));
+  await clock.advance(120_000);
+  assert.equal(writes.length, 2);
+  assert.equal(clock.pending(), 0);
+});
+
+test('stop gives up on a stuck offline write after 1.5s', async () => {
+  const clock = fakeClock();
+  let calls = 0;
+  const th = presenceThrottle({ write: () => (++calls === 1 ? Promise.resolve() : new Promise(() => {})), ...clock });
+  th.set(P('online'));
+  await flush();
+  let done = false;
+  const p = th.stop().then(() => { done = true; });
+  await clock.advance(1499);
+  assert.equal(done, false);
+  await clock.advance(1);
+  await p;
+  assert.equal(done, true);
+  assert.equal(calls, 2);
+  assert.equal(clock.pending(), 0);
+});
+
+test('stop before anything was shared writes nothing', async () => {
+  const { th, writes } = throttleFor();
+  await th.stop();
+  assert.deepEqual(writes, []);
+});

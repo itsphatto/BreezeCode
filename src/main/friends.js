@@ -420,4 +420,69 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
   };
 }
 
-module.exports = { FriendsError, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
+// ---- Presence throttle ----
+
+const OFFLINE = Object.freeze({ state: 'offline', project: null, activity: 'idle' });
+const STOP_WAIT_MS = 1500;
+
+// Keeps presence writes polite: the first one goes out at once, later ones are at least minGapMs apart (changes in
+// between collapse into the latest), the current state is rewritten every heartbeatMs so friends can tell we are alive,
+// and a failed write is not retried until the next heartbeat. stop() writes `offline` once, waiting at most 1.5 s.
+function presenceThrottle({
+  write,
+  setTimer = (fn, ms) => { const t = setTimeout(fn, ms); if (t && t.unref) t.unref(); return t; },
+  clearTimer = clearTimeout,
+  now = Date.now,
+  minGapMs = 10_000,
+  heartbeatMs = 60_000,
+}) {
+  let latest = null;     // what we want friends to see
+  let lastOk = null;     // what the last successful write said
+  let lastAt = null;     // when the last write was started
+  let flushTimer = null;
+  let beatTimer = null;
+  let inflight = Promise.resolve();
+  let stopped = false;
+  let stopping = null;
+  const same = (a, b) => !!a && !!b && a.state === b.state && a.project === b.project && a.activity === b.activity;
+
+  function send(p) {
+    lastAt = now();
+    clearTimer(flushTimer); flushTimer = null;
+    clearTimer(beatTimer);
+    beatTimer = setTimer(beat, heartbeatMs);
+    const run = (async () => {
+      try { await write(p); lastOk = p; } catch { lastOk = null; }
+    })();
+    inflight = run;
+    return run;
+  }
+  function beat() { beatTimer = null; if (!stopped && latest) send(latest); }
+  function flush() { flushTimer = null; if (!stopped && !same(latest, lastOk)) send(latest); }
+
+  return {
+    set(p) {
+      if (stopped) return;
+      latest = { state: p.state, project: p.project ?? null, activity: p.activity };
+      if (same(latest, lastOk)) return;
+      const wait = lastAt === null ? 0 : lastAt + minGapMs - now();
+      if (wait <= 0) send(latest);
+      else if (!flushTimer) flushTimer = setTimer(flush, wait);
+    },
+
+    stop() {
+      if (stopping) return stopping;
+      stopped = true;
+      clearTimer(flushTimer); flushTimer = null;
+      clearTimer(beatTimer); beatTimer = null;
+      if (!latest) return (stopping = Promise.resolve()); // never shared anything, nothing to take back
+      let giveUp;
+      const timeout = new Promise(resolve => { giveUp = setTimer(resolve, STOP_WAIT_MS); });
+      const bye = inflight.then(() => write(OFFLINE)).catch(() => {});
+      stopping = Promise.race([bye, timeout]).then(() => { clearTimer(giveUp); });
+      return stopping;
+    },
+  };
+}
+
+module.exports = { FriendsError, presenceThrottle, friendsApi, firebaseSession, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
