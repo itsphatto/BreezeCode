@@ -1,0 +1,129 @@
+rules_version = '2';
+
+// Friends: the privacy boundary. Everything is keyed by the signed-in user's verified email (see
+// docs/superpowers/specs/2026-11-08-friends-design.md, "Data model" and "Security rules"), and these rules allow
+// exactly the reads and writes src/main/friends.js makes. Anything not matched below is denied.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Signed in with a verified email. Every rule needs this: identity is the email, and an unverified one could be
+    // anyone's.
+    function verified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    function isMe(uid) {
+      return verified() && request.auth.uid == uid;
+    }
+    // `uid` has me in their friends list.
+    function inFriendsOf(uid) {
+      return exists(/databases/$(database)/documents/friends/$(uid)/list/$(request.auth.uid));
+    }
+    function optStr(v, max) {
+      return v == null || (v is string && v.size() <= max);
+    }
+    function exactKeys(d, keys) {
+      return d.keys().hasAll(keys) && d.keys().hasOnly(keys);
+    }
+
+    // ---- users/{uid}: who you are ----
+    match /users/{uid} {
+      allow read: if isMe(uid) || (verified() && inFriendsOf(uid));
+      allow create, update: if isMe(uid)
+        && exactKeys(request.resource.data, ['email', 'name', 'avatar', 'updatedAt'])
+        && request.resource.data.email == myEmail()
+        && request.resource.data.name is string && request.resource.data.name.size() <= 256
+        && optStr(request.resource.data.avatar, 2048)
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // ---- presence/{uid}: what you are doing now (never code, files or paths) ----
+    match /presence/{uid} {
+      allow read: if isMe(uid) || (verified() && inFriendsOf(uid));
+      allow create, update: if isMe(uid)
+        && exactKeys(request.resource.data, ['state', 'project', 'activity', 'updatedAt'])
+        && request.resource.data.state in ['online', 'away', 'offline']
+        && optStr(request.resource.data.project, 80)
+        && request.resource.data.activity in ['editing', 'agent', 'debug', 'space', 'idle']
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // ---- requests/{fromUid}_{sha256(toEmail)}: friend requests ----
+    match /requests/{id} {
+      // The sender, or whoever owns the email it was sent to. Also covers the list queries
+      // (fromUid == me, or toEmail == myEmail), since each one's filter pins one side of this rule.
+      allow read: if verified()
+        && (resource.data.fromUid == request.auth.uid || resource.data.toEmail == myEmail());
+
+      // Same answer whether or not the email belongs to anyone: nothing here looks the recipient up.
+      allow create: if verified()
+        && exactKeys(request.resource.data,
+             ['fromUid', 'fromEmail', 'fromName', 'fromAvatar', 'toEmail', 'toUid', 'status', 'createdAt'])
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.fromEmail == myEmail()
+        && request.resource.data.fromName is string && request.resource.data.fromName.size() <= 80
+        && optStr(request.resource.data.fromAvatar, 2048)
+        && request.resource.data.toEmail is string
+        && request.resource.data.toEmail.size() <= 254
+        && request.resource.data.toEmail == request.resource.data.toEmail.lower()
+        && request.resource.data.toEmail.matches('[^ @]+@[^ @]+[.][^ @]+')
+        && request.resource.data.toEmail != myEmail()
+        && id == request.auth.uid + '_' + hashing.sha256(request.resource.data.toEmail).toHexString().lower()
+        && request.resource.data.toUid == null
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+
+      // Only the recipient answers, only once (pending -> accepted or declined), and only status and toUid change.
+      allow update: if verified()
+        && resource.data.toEmail == myEmail()
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'toUid'])
+        && request.resource.data.status in ['accepted', 'declined']
+        && request.resource.data.toUid == request.auth.uid;
+
+      // The sender at any time (Cancel, or the accept that makes a reverse request pointless); either party once it is
+      // accepted (Remove friend).
+      allow delete: if verified()
+        && (resource.data.fromUid == request.auth.uid
+            || (resource.data.status == 'accepted'
+                && (resource.data.toUid == request.auth.uid || resource.data.toEmail == myEmail())));
+    }
+
+    // ---- friends/{uid}/list/{fid}: accepted friends of one user ----
+    match /friends/{uid}/list/{fid} {
+      // The request `other` would have sent me: its id ends in the hash of my email.
+      function requestFrom(other) {
+        let rid = other + '_' + hashing.sha256(myEmail()).toHexString().lower();
+        return /databases/$(database)/documents/requests/$(rid);
+      }
+      // `other` sent me a request and, once this commit lands, I have accepted it.
+      function acceptedFrom(other) {
+        let path = requestFrom(other);
+        return existsAfter(path)
+          && getAfter(path).data.fromUid == other
+          && getAfter(path).data.status == 'accepted'
+          && getAfter(path).data.toUid == request.auth.uid;
+      }
+      function entryOk(email) {
+        return exactKeys(request.resource.data, ['email', 'name', 'avatar', 'since'])
+          && request.resource.data.email == email
+          && request.resource.data.name is string && request.resource.data.name.size() <= 256
+          && optStr(request.resource.data.avatar, 2048)
+          && request.resource.data.since == request.time;
+      }
+
+      allow read: if isMe(uid);
+
+      // Only the recipient of the accepted request writes both sides, inside the accept commit. My entry for them
+      // carries the email they sent from; their entry for me carries my own email.
+      allow create: if verified() && uid != fid
+        && ((request.auth.uid == uid && acceptedFrom(fid)
+             && entryOk(getAfter(requestFrom(fid)).data.fromEmail))
+            || (request.auth.uid == fid && acceptedFrom(uid) && entryOk(myEmail())));
+
+      allow delete: if verified() && (request.auth.uid == uid || request.auth.uid == fid);
+    }
+  }
+}
