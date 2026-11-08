@@ -164,33 +164,31 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
   };
 }
 
-// Asks Firebase to email the account a link that marks its email verified. `idToken` is from the unverified sign-in.
+// Has Firebase email the account a link that verifies `email`. `idToken` is from the unverified sign-in.
+// A GitHub account's email may sit only on its GitHub link (or be hidden by GitHub), and Firebase projects with email
+// enumeration protection refuse to set an email outright. So it asks for VERIFY_AND_CHANGE_EMAIL first: the link both
+// sets the account's email and verifies it. If Firebase won't (the email is already the account's), plain VERIFY_EMAIL.
+// A failure Breeze has no words for carries Firebase's code, e.g. "Couldn't send the email (OPERATION_NOT_ALLOWED)."
 const OOB_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode';
-async function sendVerifyEmail({ apiKey, idToken, fetch: fetchFn = globalThis.fetch }) {
-  await postJson(fetchFn, `${OOB_URL}?key=${encodeURIComponent(apiKey)}`, {
+const oobCode = msg => (String(msg).match(/^[A-Z_]+/) || ['UNKNOWN'])[0];
+async function sendVerifyEmail({ apiKey, idToken, email, fetch: fetchFn = globalThis.fetch }) {
+  const send = (body, onFail) => postJson(fetchFn, `${OOB_URL}?key=${encodeURIComponent(apiKey)}`, {
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ requestType: 'VERIFY_EMAIL', idToken }),
-  }, msg => {
-    if (/TOO_MANY_ATTEMPTS/i.test(msg)) return new FriendsError('network', 'Too many emails were sent. Wait a few minutes and try again.');
-    if (/EMAIL_NOT_FOUND|MISSING_EMAIL/i.test(msg)) return new FriendsError('unverified', "This account has no email Firebase can send a link to.");
-    return new FriendsError('network', "Couldn't send the email. Try again.");
-  });
-}
-
-// Gives a Firebase account the email Breeze already knows for it, and returns the new id token. GitHub hides a private
-// email from Firebase, so a GitHub account can arrive with none; the verification link still proves the address.
-const UPDATE_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:update';
-async function setAccountEmail({ apiKey, idToken, email, fetch: fetchFn = globalThis.fetch }) {
-  const body = await postJson(fetchFn, `${UPDATE_URL}?key=${encodeURIComponent(apiKey)}`, {
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken, email, returnSecureToken: true }),
-  }, msg => {
-    if (/EMAIL_EXISTS/i.test(msg)) return new FriendsError('linked');
-    if (/INVALID_EMAIL/i.test(msg)) return new FriendsError('unverified', "This account's email can't be used by Friends.");
-    if (/TOKEN_EXPIRED|CREDENTIAL_TOO_OLD|INVALID_ID_TOKEN/i.test(msg)) return new FriendsError('network', "Couldn't send the email. Try again.");
-    return new FriendsError('network', "Couldn't send the email. Try again.");
-  });
-  return body.idToken || idToken;
+    body: JSON.stringify(body),
+  }, onFail);
+  const tooMany = msg => (/TOO_MANY_ATTEMPTS/i.test(msg) ? new FriendsError('network', 'Too many emails were sent. Wait a few minutes and try again.') : null);
+  let first = null;
+  if (email) {
+    try {
+      await send({ requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken, newEmail: email }, msg => tooMany(msg) || Object.assign(new FriendsError('network'), { firebase: oobCode(msg) }));
+      return;
+    } catch (e) {
+      if (!e.firebase) throw e; // the network, or too many emails: VERIFY_EMAIL would fail the same way
+      first = e.firebase;
+    }
+  }
+  await send({ requestType: 'VERIFY_EMAIL', idToken }, msg => tooMany(msg)
+    || new FriendsError('network', `Couldn't send the email (${first ? `${first}, ` : ''}${oobCode(msg)}). Try again.`));
 }
 
 // Trades a saved refresh token for a new session. The refresh reply has no email, so it is read from the id token
@@ -641,4 +639,4 @@ function friendsReply(e, provider) {
   return { error, code: e.code };
 }
 
-module.exports = { callWithRetry, failureHold, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, sendVerifyEmail, setAccountEmail, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
+module.exports = { callWithRetry, failureHold, friendsReply, FriendsError, clipName, safeAvatar, presenceThrottle, friendsApi, firebaseSession, sendVerifyEmail, refreshSession, SessionCache, SERVER_TIME, toFields, transformsOf, fromDoc, normEmail, sha256hex };
