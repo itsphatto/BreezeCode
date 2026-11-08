@@ -200,11 +200,11 @@ async function sendVerifyEmail({ apiKey, idToken, email, fetch: fetchFn = global
     const body = await postJson(fetchFn, `${UPDATE_URL}?key=${encodeURIComponent(apiKey)}`, {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken, email, returnSecureToken: true }),
-    }, msg => Object.assign(failed(first, oobCode(msg)), { firebase: oobCode(msg) }));
+    }, msg => Object.assign(failed(first, oobCode(msg)), { firebase: oobCode(msg), firebaseText: String(msg).slice(0, 200) }));
     updated = body.idToken || idToken;
   } catch (e) {
     if (!e.firebase) throw e;
-    debug(`accounts:update refused: ${e.firebase}; trying VERIFY_AND_CHANGE_EMAIL`);
+    debug(`accounts:update refused: ${e.firebaseText}; trying VERIFY_AND_CHANGE_EMAIL`);
     await send({ requestType: 'VERIFY_AND_CHANGE_EMAIL', idToken, newEmail: email }, msg => tooMany(msg) || failed(first, e.firebase, oobCode(msg)));
     return;
   }

@@ -8832,6 +8832,10 @@ body.layout-animating .box > .terminal.open {
   max-width: 42ch;
 }
 
+.friends-state.friends-gate .friends-acts {
+  margin-top: .9em;
+}
+
 .friends-state .friends-note {
   color: var(--err);
 }

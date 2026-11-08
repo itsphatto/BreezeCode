@@ -77,11 +77,11 @@ function friendsStateHtml(g: FriendsFail): string {
     // Firebase doesn't take GitHub's word for an email: it emails a link, and one click turns Friends on for good.
     const sent = friendsVerifySent;
     return `${svgIcon('users', 28)}<h3>Verify your email to use Friends</h3>
-      <p>${sent ? `We sent a link to <b>${esc(sent)}</b>. Click it, then come back and press Try again.`
+      <p>${sent ? `We sent a link to <b>${esc(sent)}</b>. Click it, then come back and press Refresh.`
         : 'Friends matches people by email, so it needs to know this one is yours. We\'ll email you a link; click it once and you\'re in.'}</p>
       ${friendsVerifyNote ? `<p class="friends-note">${esc(friendsVerifyNote)}</p>` : ''}
       <div class="friends-acts">${sent
-        ? '<button class="btn btn-primary" data-friend-act="recheck">Try again</button><button class="btn" data-friend-act="verify">Send again</button>'
+        ? '<button class="btn btn-primary" data-friend-act="recheck">Refresh</button><button class="btn" data-friend-act="verify">Send again</button>'
         : '<button class="btn btn-primary" data-friend-act="verify">Send verification email</button>'}</div>`;
   }
   const text = g.code === 'signed-out' ? FRIENDS_COPY['signed-out'] : g.error;
@@ -165,7 +165,7 @@ async function refreshFriendsBadge(): Promise<void> {
     if (seq === friendsSeq) scheduleFriends();
   }
 }
-// `fresh` asks main to forget a held failure and sign in again (Try again, after clicking the verification link).
+// `fresh` asks main to forget a held failure and sign in again (Refresh, after clicking the verification link).
 async function refreshFriends(fresh = false): Promise<void> {
   const seq = ++friendsSeq;
   clearTimeout(friendsTimer);
