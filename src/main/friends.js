@@ -333,6 +333,14 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
       if (process.env.BREEZE_FRIENDS_DEBUG) {
         const what = String(url).replace(/^.*\/documents/, '') || url;
         console.log(`[friends] 403 ${method} ${what}: ${data?.error?.message || JSON.stringify(data).slice(0, 300)}`);
+        // What the rules see: the ID token's claims (no secrets) and the documents written, against this session's uid.
+        let claims = null;
+        try {
+          const c = JSON.parse(Buffer.from(String(session.idToken).split('.')[1], 'base64url').toString('utf8'));
+          claims = { user_id: c.user_id, email: c.email, email_verified: c.email_verified, provider: c.firebase?.sign_in_provider };
+        } catch { /* not a JWT */ }
+        const docs = (body?.writes || []).map(w => String(w.update?.name || w.delete || '').replace(/^.*\/documents\//, ''));
+        console.log(`[friends]   session uid=${myUid} email=${myEmail} claims=${JSON.stringify(claims)} docs=${JSON.stringify(docs)}`);
       }
       throw new FriendsError('denied');
     }
