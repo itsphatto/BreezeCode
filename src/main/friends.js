@@ -121,11 +121,16 @@ async function postJson(fetchFn, url, init, onFail) {
 }
 
 // The email claim of a Firebase id token (a JWT), or null. Only read, never trusted for anything but display and matching.
-function emailFromIdToken(jwt) {
+// An ID token's claims, or null when it isn't a JWT.
+function idTokenClaims(jwt) {
   try {
     const claims = JSON.parse(Buffer.from(String(jwt).split('.')[1], 'base64url').toString('utf8'));
-    return normEmail(claims.email);
+    return claims && typeof claims === 'object' ? claims : null;
   } catch { return null; }
+}
+function emailFromIdToken(jwt) {
+  const claims = idTokenClaims(jwt);
+  return claims ? normEmail(claims.email) : null;
 }
 
 // Exchanges a GitHub or Google access token for a Firebase session.
@@ -156,7 +161,12 @@ async function firebaseSession({ apiKey, provider, accessToken, fetch: fetchFn =
   // Identity is the verified email; an account whose email is unverified cannot be matched safely. Firebase doesn't take
   // GitHub's word for an email, so a GitHub account lands here until the person clicks a link Firebase emails them
   // (sendVerifyEmail). The error carries the unverified session's id token for that, and never leaves main.
-  if (body.emailVerified !== true) {
+  // The rules read the ID token's own claims, not this response. When the email already belongs to the person's other
+  // provider's account, Firebase makes a second account without an email of its own: the response still says
+  // emailVerified (that is the provider's email) but the token carries no email, so every write would be refused.
+  const claims = idTokenClaims(body.idToken);
+  const tokenVerified = !claims || (claims.email_verified === true && !!normEmail(claims.email));
+  if (body.emailVerified !== true || !tokenVerified) {
     const err = new FriendsError('unverified');
     Object.defineProperty(err, 'idToken', { value: body.idToken, enumerable: false });
     err.email = normEmail(body.email);

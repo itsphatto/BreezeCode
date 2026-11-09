@@ -140,6 +140,20 @@ test('an unverified sign-in keeps its id token for the verification email, but n
   assert.ok(!Object.keys(err).includes('idToken'));
 });
 
+test('a sign-in whose id token has no verified email is unverified, whatever the response says', async () => {
+  const jwt = claims => `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`;
+  // The email belongs to the other provider's account: Firebase makes this one without an email of its own.
+  for (const claims of [{ user_id: 'u1' }, { user_id: 'u1', email: 'bob@x.com', email_verified: false }]) {
+    const f = fakeFetch(() => idpOk('u1', { emailVerified: true, email: 'Bob@X.com', idToken: jwt(claims) }));
+    const err = await firebaseSession({ apiKey: 'K', provider: 'Google', accessToken: 'T', fetch: f }).catch(e => e);
+    assert.equal(err.code, 'unverified', JSON.stringify(claims));
+    assert.equal(err.email, 'bob@x.com');
+    assert.equal(err.idToken, jwt(claims));
+  }
+  const f = fakeFetch(() => idpOk('u1', { emailVerified: true, email: 'bob@x.com', idToken: jwt({ user_id: 'u1', email: 'bob@x.com', email_verified: true }) }));
+  assert.equal((await firebaseSession({ apiKey: 'K', provider: 'Google', accessToken: 'T', fetch: f })).uid, 'u1');
+});
+
 test('sendVerifyEmail asks Firebase for a VERIFY_EMAIL link with the id token', async () => {
   const { sendVerifyEmail } = require('../src/main/friends');
   const f = fakeFetch(() => reply(200, { email: 'bob@x.com' }));
