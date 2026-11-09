@@ -69,7 +69,7 @@ test('runPlan on linux has no .exe', () => {
 });
 
 test('runPlan rejects other files', () => {
-  assert.deepEqual(runPlan('C:\\p\\a.go', tools, 'win32', H), { error: 'Breeze can run .c, .cpp, .cs, .java, .js, .lua, .php, .py, .rs, .sql and .ts files' });
+  assert.deepEqual(runPlan('C:\\p\\a.txt', tools, 'win32', H), { error: 'Breeze can run .c, .cpp, .cs, .dart, .ex, .exs, .go, .groovy, .hs, .java, .js, .kt, .kts, .lua, .php, .pl, .py, .r, .rb, .rs, .sc, .scala, .sql, .swift, .ts and .zig files' });
 });
 
 const WIN_C = 'No C/C++ compiler found. Install one with:\nwinget install BrechtSanders.WinLibs.POSIX.UCRT';
@@ -165,7 +165,10 @@ test('findTools leaves cxx null without a twin, and everything null when nothing
   const withGdb = await findTools(machine('win32', { 'C:\\bin\\gcc.exe': 'gcc 1', 'C:\\bin\\gdb.exe': 'GNU gdb (GDB) 15.2' }));
   assert.equal(withGdb.gdb.path, 'C:\\bin\\gdb.exe');
   const none = await findTools(machine('win32', {}));
-  assert.deepEqual(none, { cc: null, cxx: null, gdb: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null, binDirs: [] });
+  assert.deepEqual(none, {
+    cc: null, cxx: null, gdb: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null,
+    go: null, ruby: null, kotlinc: null, swiftc: null, dart: null, zig: null, scala: null, elixir: null, runghc: null, rscript: null, perl: null, groovy: null, binDirs: [],
+  });
 });
 
 test('findTools rejects the Store python shortcut', async () => {
@@ -572,4 +575,72 @@ test('runPlan for Lua, PHP and SQL without the tool says how to install it', () 
   assert.match(runPlan('C:\\p\\a.lua', tools, 'win32', H).error, /^Lua wasn't found\. Install it with:\nwinget install DEVCOM\.Lua/);
   assert.match(runPlan('C:\\p\\a.php', tools, 'win32', H).error, /^PHP wasn't found\. Install it with:\nwinget install PHP\.PHP\.8\.5/);
   assert.match(runPlan('C:\\p\\a.sql', tools, 'win32', H).error, /^SQLite wasn't found\. Install it with:\nwinget install SQLite\.SQLite/);
+});
+
+test('runPlan runs Go, Ruby, Dart, Zig, Scala, Elixir, Haskell, R, Perl and Groovy files in one step', () => {
+  const t = {
+    ...tools, go: T('C:\\go\\go.exe', 'go'), ruby: T('C:\\rb\\ruby.exe', 'ruby'), dart: T('C:\\d\\dart.exe', 'dart'), zig: T('C:\\z\\zig.exe', 'zig'),
+    scala: T('C:\\s\\scala-cli.exe', 'scala-cli'), elixir: T('/usr/bin/elixir', 'elixir'), runghc: T('C:\\g\\runghc.exe', 'runghc'),
+    rscript: T('C:\\R\\Rscript.exe', 'Rscript'), perl: T('C:\\pl\\perl.exe', 'perl'), groovy: T('/usr/bin/groovy', 'groovy'),
+  };
+  const one = (file, platform = 'win32') => runPlan(file, t, platform, H).steps;
+  assert.deepEqual(one('C:\\p\\main.go'), [{ display: 'go run "main.go"', file: 'C:\\go\\go.exe', args: ['run', 'C:\\p\\main.go'], cwd: 'C:\\p' }]);
+  assert.deepEqual(one('C:\\p\\app.rb'), [{ display: 'ruby "app.rb"', file: 'C:\\rb\\ruby.exe', args: ['C:\\p\\app.rb'], cwd: 'C:\\p' }]);
+  assert.equal(one('C:\\p\\a.dart')[0].display, 'dart run "a.dart"');
+  assert.equal(one('C:\\p\\a.zig')[0].display, 'zig run "a.zig"');
+  assert.equal(one('C:\\p\\A.scala')[0].display, 'scala-cli run "A.scala"');
+  assert.equal(one('C:\\p\\w.sc')[0].display, 'scala-cli run "w.sc"');
+  assert.deepEqual(one('/p/mix.exs', 'linux'), [{ display: 'elixir "mix.exs"', file: '/usr/bin/elixir', args: ['/p/mix.exs'], cwd: '/p' }]);
+  assert.equal(one('C:\\p\\Main.hs')[0].display, 'runghc "Main.hs"');
+  assert.equal(one('C:\\p\\plot.R')[0].display, 'Rscript "plot.R"');
+  assert.equal(one('C:\\p\\x.pl')[0].display, 'perl "x.pl"');
+  assert.equal(one('/p/a.groovy', 'linux')[0].display, 'groovy "a.groovy"');
+});
+
+test('runPlan builds Kotlin into a jar for java, and runs .kts as a script', () => {
+  const t = { ...tools, kotlinc: T('/opt/kotlinc/bin/kotlinc', 'kotlinc'), java: T('/usr/bin/java', 'java', 'javac 21') };
+  assert.deepEqual(runPlan('/p/Main.kt', t, 'linux', H).steps, [
+    { display: 'kotlinc "Main.kt" -include-runtime -d "build/Main.jar"', file: '/opt/kotlinc/bin/kotlinc', args: ['/p/Main.kt', '-include-runtime', '-d', 'build/Main.jar'], cwd: '/p' },
+    { display: 'java -jar "build/Main.jar"', file: '/usr/bin/java', args: ['-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8', '-jar', 'build/Main.jar'], cwd: '/p' },
+  ]);
+  assert.equal(runPlan('/p/build.kts', t, 'linux', H).steps[0].display, 'kotlinc -script "build.kts"');
+  assert.match(runPlan('/p/Main.kt', { ...t, java: null }, 'linux', H).error, /^No Java JDK found/);
+});
+
+test('runPlan compiles Swift, then runs the program', () => {
+  const r = runPlan('C:\\p\\hi.swift', { ...tools, swiftc: T('C:\\sw\\swiftc.exe', 'swiftc') }, 'win32', H);
+  assert.deepEqual(r.steps.map(s => s.display), ['swiftc "hi.swift" -o "build\\hi.exe"', 'build\\hi.exe']);
+  assert.deepEqual(r.steps[0].args, ['C:\\p\\hi.swift', '-o', 'build\\hi.exe']);
+});
+
+test('runPlan runs a Windows .bat tool through cmd.exe, and refuses paths cmd would expand', () => {
+  const t = { ...tools, elixir: T('C:\\Program Files\\Elixir\\bin\\elixir.bat', 'elixir') };
+  assert.deepEqual(runPlan('C:\\my code\\a.exs', t, 'win32', H).steps, [
+    { display: 'elixir "a.exs"', file: '"C:\\Program Files\\Elixir\\bin\\elixir.bat" "C:\\my code\\a.exs"', args: [], cwd: 'C:\\my code', shell: true },
+  ]);
+  assert.match(runPlan('C:\\100%\\a.exs', t, 'win32', H).error, /%/);
+});
+
+test("runPlan without the new languages' tools says how to get them", () => {
+  assert.equal(runPlan('C:\\p\\a.go', tools, 'win32', H).error, "Go wasn't found. Install it with:\nwinget install GoLang.Go\nOr download it from https://go.dev/dl/");
+  assert.equal(runPlan('/p/a.go', tools, 'darwin', H).error, "Go wasn't found. Install it with:\nbrew install go\nOr download it from https://go.dev/dl/");
+  assert.match(runPlan('C:\\p\\a.rb', tools, 'win32', H).error, /^Ruby wasn't found\. Install it with:\nwinget install RubyInstallerTeam\.Ruby/);
+  assert.equal(runPlan('C:\\p\\a.kt', tools, 'win32', H).error, "Kotlin wasn't found.\nDownload it from https://kotlinlang.org/docs/command-line.html");
+  for (const f of ['a.swift', 'a.dart', 'a.zig', 'a.scala', 'a.ex', 'a.hs', 'a.r', 'a.pl', 'a.groovy']) {
+    assert.match(runPlan('C:\\p\\' + f, tools, 'win32', H).error, /wasn't found\.[\s\S]*https:\/\//, f);
+  }
+});
+
+test('findTools finds go by `go version`, R off the PATH and batch-file launchers on Windows', async () => {
+  const m = machine('win32', {
+    'C:\\bin\\go.exe': 'go version go1.24.0 windows/amd64',
+    'C:\\Program Files\\R\\R-4.5.1\\bin\\Rscript.exe': 'Rscript (R) version 4.5.1',
+    'C:\\bin\\kotlinc.bat': '',
+  }, { glob: (p) => (p.includes('R-*') ? ['C:\\Program Files\\R\\R-4.5.1\\bin'] : []) });
+  const r = await findTools(m);
+  assert.equal(r.go.version, 'go version go1.24.0 windows/amd64');
+  assert.ok(m.calls.some(c => c[0] === 'C:\\bin\\go.exe' && c[1] === 'version'));
+  assert.equal(r.rscript.path, 'C:\\Program Files\\R\\R-4.5.1\\bin\\Rscript.exe');
+  assert.deepEqual(r.kotlinc, { path: 'C:\\bin\\kotlinc.bat', name: 'kotlinc', version: '' });
+  assert.ok(r.binDirs.includes('C:\\Program Files\\R\\R-4.5.1\\bin'));
 });

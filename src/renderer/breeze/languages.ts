@@ -12,6 +12,10 @@ const LANGS: Record<string, [lexer: string, name: string]> = {
   c: ['cpp', 'C'], h: ['cpp', 'C/C++ Header'],
   cpp: ['cpp', 'C++'], cc: ['cpp', 'C++'], cxx: ['cpp', 'C++'], hpp: ['cpp', 'C++ Header'], hh: ['cpp', 'C++ Header'], hxx: ['cpp', 'C++ Header'],
   cs: ['cs', 'C#'], csx: ['cs', 'C# Script'], csproj: ['html', 'C# Project'],
+  go: ['go', 'Go'], rb: ['rb', 'Ruby'], rake: ['rb', 'Ruby'], gemspec: ['rb', 'Ruby'], kt: ['kt', 'Kotlin'], kts: ['kt', 'Kotlin Script'],
+  swift: ['swift', 'Swift'], dart: ['dart', 'Dart'], zig: ['zig', 'Zig'], scala: ['scala', 'Scala'], sc: ['scala', 'Scala'],
+  ex: ['ex', 'Elixir'], exs: ['ex', 'Elixir Script'], hs: ['hs', 'Haskell'], r: ['r', 'R'], pl: ['pl', 'Perl'], pm: ['pl', 'Perl Module'],
+  groovy: ['groovy', 'Groovy'], gradle: ['groovy', 'Gradle'],
   lua: ['lua', 'Lua'], php: ['php', 'PHP'], phtml: ['php', 'PHP'], sql: ['sql', 'SQL'],
   yml: ['yaml', 'YAML'], yaml: ['yaml', 'YAML'], toml: ['toml', 'TOML'],
   sh: ['sh', 'Shell Script'], bash: ['sh', 'Bash'], zsh: ['sh', 'Zsh'], ksh: ['sh', 'Shell Script'],
@@ -29,6 +33,8 @@ function langOf(path: string): [lexer: string, name: string] {
   const n = baseName(path).toLowerCase();
   if (n.startsWith('.env')) return ['env', 'Environment'];
   if (n === 'dockerfile' || n === 'containerfile' || n.startsWith('dockerfile.')) return ['docker', 'Dockerfile'];
+  if (n === 'gemfile' || n === 'rakefile') return ['rb', 'Ruby'];
+  if (n === 'go.mod' || n === 'go.sum') return ['go', 'Go Module'];
   return LANGS[extOf(path)] ?? ['', 'Plain Text'];
 }
 
@@ -50,7 +56,19 @@ const BAT_KW = 'echo set if else goto call exit for in do not exist defined erro
 const LUA_KW = 'and break do else elseif end false for function goto if in local nil not or repeat return then true until while self';
 const PHP_KW = 'abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile enum extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield true false null self parent int float bool string void mixed never object iterable';
 const SQL_KW = 'add all alter and any as asc autoincrement begin between by case cascade check column commit constraint create cross database default delete desc distinct drop else end except exists foreign from full group having if in index inner insert intersect into is join key left like limit not null offset on or order outer primary references replace returning right rollback select set table then transaction trigger union unique update using values view when where with without integer int text real blob varchar char boolean date datetime timestamp numeric decimal float double count sum avg min max coalesce true false';
-const DOCKER_KW = 'FROM RUN CMD LABEL MAINTAINER EXPOSE ENV ADD COPY ENTRYPOINT VOLUME USER WORKDIR ARG ONBUILD STOPSIGNAL HEALTHCHECK SHELL';
+const GO_KW = 'break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var true false nil iota any bool byte rune string int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 uintptr float32 float64 error';
+const RB_KW = 'alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield require require_relative attr_accessor attr_reader attr_writer private protected public raise lambda proc';
+const KT_KW = 'as break class continue do else false for fun if in interface is null object package return super this throw true try typealias typeof val var when while by catch constructor init companion data enum sealed open override abstract final inner lateinit private protected public internal suspend inline operator import';
+const SWIFT_KW = 'associatedtype class deinit enum extension fileprivate func import init inout internal let open operator private protocol public rethrows static struct subscript typealias var break case continue default defer do else fallthrough for guard if in repeat return switch where while as catch false is nil self Self super throw throws true try async await actor some any mutating override final weak lazy';
+const DART_KW = 'abstract as assert async await break case catch class const continue covariant default deferred do dynamic else enum export extends extension external factory false final finally for get if implements import in is late library mixin new null on operator part required rethrow return set show static super switch sync this throw true try typedef var void while with yield int double num bool String List Map';
+const ZIG_KW = 'addrspace align allowzero and anyframe anytype asm async await break callconv catch comptime const continue defer else enum errdefer error export extern fn for if inline noalias nosuspend noinline opaque or orelse packed pub resume return linksection struct suspend switch test threadlocal try union unreachable usingnamespace var volatile while true false null undefined void bool u8 i32 u32 i64 u64 usize isize f32 f64 type anyerror';
+const SCALA_KW = 'abstract case catch class def do else enum export extends false final finally for forSome given if implicit import lazy match new null object override package private protected return sealed super then this throw trait true try type using val var while with yield';
+const GROOVY_KW = `${JAVA_KW} def as in trait it`;
+const EX_KW = 'after alias and case catch cond def defdelegate defexception defguard defimpl defmacro defmodule defp defprotocol defstruct do else end false fn for if import in nil not or quote raise receive require rescue true try unless unquote use when with';
+const HS_KW = 'case class data default deriving do else forall foreign hiding if import in infix infixl infixr instance let module newtype of qualified then type where True False Nothing Just';
+const R_KW = 'if else repeat while function for in next break return library require TRUE FALSE NULL NA NA_integer_ NA_real_ NA_character_ Inf NaN';
+const PL_KW = 'my our local sub if elsif else unless while until for foreach do last next redo return use no require package print printf say die warn eq ne lt gt le ge and or not qw undef BEGIN END';
+const DOCKER_KW ='FROM RUN CMD LABEL MAINTAINER EXPOSE ENV ADD COPY ENTRYPOINT VOLUME USER WORKDIR ARG ONBUILD STOPSIGNAL HEALTHCHECK SHELL';
 // A shell word that isn't part of a longer name, variable or flag (do-thing, $done, --exit-code).
 const shellWords = (list: string) => new RegExp(String.raw`(?<![\w$-])(?:${list.replaceAll(' ', '|')})(?![\w-])`);
 // A YAML scalar that is the whole value (after 'key:', '- ', '[' or ','), so 18.x or "yes please" stay plain text.
@@ -73,6 +91,17 @@ const template = (depth: number): string => {
 const BACKTICKED = new RegExp(`${template(3).slice(0, -1)}\`?`);
 const NUMBER = either(/\b0[xX][\da-fA-F]+\b/, /\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?\b/);
 const CALL = /\b[A-Za-z_$][\w$]*(?=\()/;
+const TRIPLE = /"""[\s\S]*?(?:"""|$)/;
+const TRIPLE_SQ = /'''[\s\S]*?(?:'''|$)/;
+const JVM_NUM = either(/\b0[xXbB][\da-fA-F_]+[uUlL]*\b/, /\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?[fFdDlL]?\b/);
+// Kotlin, Swift, Dart, Scala and Groovy share Java's shape: // /* */ comments, their own strings, then @annotations.
+const javaLike = (kw: string, str: RegExp) => lexer([
+  ['com', either(LINE_COMMENT, BLOCK_COMMENT)], ['str', str], ['attr', /@[A-Za-z_]\w*/], ['num', JVM_NUM], ['kw', keywords(kw)], ['prop', CALL],
+]);
+// A :symbol / :atom, but not the second colon of Foo::Bar or x :: type.
+const SYMBOL = /(?<![:\w]):[A-Za-z_]\w*[?!]?/;
+// Elixir sigils: ~r/…/i, ~s(…), ~S"""…""" and the other delimiters, with their modifier letters.
+const SIGIL = /~(?:[a-z]|[A-Z]+)(?:"""[\s\S]*?(?:"""|$)|\/(?:\\.|[^/\\\n])*\/?|\|(?:\\.|[^|\\\n])*\|?|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?|\((?:\\.|[^)\\\n])*\)?|\[(?:\\.|[^\]\\\n])*\]?|\{(?:\\.|[^}\\\n])*\}?|<(?:\\.|[^>\\\n])*>?)[a-zA-Z]*/;
 const LEXERS: Record<string, RegExp> = {
   js: lexer([['com', either(LINE_COMMENT, BLOCK_COMMENT)], ['str', either(QUOTED, BACKTICKED, REGEX_LITERAL)], ['num', NUMBER], ['kw', keywords(JS_KW)], ['prop', CALL]]),
   css: lexer([
@@ -180,6 +209,41 @@ const LEXERS: Record<string, RegExp> = {
     ['tag', /<\?(?:php\b|=)?|\?>/], ['kw', /#\[[^\]\n]*\]?/], ['com', either(LINE_COMMENT, BLOCK_COMMENT, /#[^\n]*/)],
     ['str', either(/<<<[ \t]*(?<phpQ>["']?)(?<phpDoc>[A-Za-z_]\w*)\k<phpQ>\n[\s\S]*?(?:\n[ \t]*\k<phpDoc>\b|$)/, QUOTED, BACKTICKED)],
     ['attr', /\$[A-Za-z_]\w*/], ['num', NUMBER], ['kw', keywords(PHP_KW)], ['prop', CALL],
+  ]),
+  // Go: `raw strings` that span lines.
+  go: lexer([['com', either(LINE_COMMENT, BLOCK_COMMENT)], ['str', either(/`[^`]*`?/, QUOTED)], ['num', NUMBER], ['kw', keywords(GO_KW)], ['prop', CALL]]),
+  // Ruby: =begin/=end blocks, <<~HEREDOCs (<<NAME alone could be a shift), :symbols, @ivars, $globals and predicate? calls.
+  rb: lexer([
+    ['com', either(/(?<=^|\n)=begin\b[\s\S]*?(?:\n=end\b[^\n]*|$)/, /#[^\n]*/)],
+    ['str', either(/<<[~-](?<rbQ>['"`]?)(?<rbDoc>[A-Za-z_]\w*)\k<rbQ>[^\n]*\n[\s\S]*?(?:\n[ \t]*\k<rbDoc>\b|$)/, QUOTED)],
+    ['attr', either(SYMBOL, /@@?[A-Za-z_]\w*/, /\$[A-Za-z_]\w*/)], ['num', NUMBER], ['kw', keywords(RB_KW)], ['prop', /\b[a-z_]\w*[?!]?(?=\()/],
+  ]),
+  kt: javaLike(KT_KW, either(TRIPLE, QUOTED)),
+  swift: javaLike(SWIFT_KW, either(TRIPLE, QUOTED)),
+  dart: javaLike(DART_KW, either(TRIPLE, TRIPLE_SQ, QUOTED)),
+  scala: javaLike(SCALA_KW, either(TRIPLE, QUOTED)),
+  groovy: javaLike(GROOVY_KW, either(TRIPLE, TRIPLE_SQ, QUOTED)),
+  // Zig: only // comments; each line of a multi-line string starts with \\ (so // there is text), and @builtins.
+  zig: lexer([['com', LINE_COMMENT], ['str', either(/\\\\[^\n]*/, QUOTED)], ['attr', /@[A-Za-z_]\w*/], ['num', NUMBER], ['kw', keywords(ZIG_KW)], ['prop', CALL]]),
+  // Elixir: # comments, """heredocs""", ~r/sigils/, :atoms, @module attributes and predicate? calls.
+  ex: lexer([
+    ['com', /#[^\n]*/], ['str', either(TRIPLE, TRIPLE_SQ, SIGIL, QUOTED)], ['attr', either(SYMBOL, /@[A-Za-z_]\w*/)],
+    ['num', NUMBER], ['kw', keywords(EX_KW)], ['prop', /\b[a-z_]\w*[?!]?(?=\()/],
+  ]),
+  // Haskell: {-# pragmas #-}, {- -} and -- comments (but --> is an operator), and 'c' chars that aren't x' primes.
+  hs: lexer([
+    ['kw', /\{-#[\s\S]*?(?:#-\}|$)/], ['com', either(/\{-[\s\S]*?(?:-\}|$)/, /--+(?![!#$%&*+./<=>?@\\^|~:])[^\n]*/)],
+    ['str', either(/"(?:\\.|[^"\\\n])*"?/, /(?<![\w'])'(?:\\[^'\n]+|[^'\\\n])'/)], ['num', NUMBER], ['kw', keywords(HS_KW)],
+  ]),
+  // R: # comments, r"(raw)" strings, 1L numbers and dotted names like is.na().
+  r: lexer([
+    ['com', /#[^\n]*/], ['str', either(/[rR]"(?<rDash>-*)[([{][\s\S]*?(?:[)\]}]\k<rDash>"|$)/, QUOTED)],
+    ['num', /\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[Li]?\b/], ['kw', keywords(R_KW)], ['prop', /(?<![\w.])[A-Za-z.][\w.]*(?=\()/],
+  ]),
+  // Perl: =pod … =cut blocks, # comments and $scalar @array %hash $#last-index variables (% alone is modulo).
+  pl: lexer([
+    ['com', either(/(?<=^|\n)=[A-Za-z]\w*[\s\S]*?(?:\n=cut\b[^\n]*|$)/, /#[^\n]*/)], ['str', QUOTED],
+    ['attr', either(/[$@%]#?(?:\{[^}\n]*\}?|[A-Za-z_]\w*(?:::\w+)*)/, /\$[_\d!@/\\&.,;]/)], ['num', NUMBER], ['kw', keywords(PL_KW)], ['prop', CALL],
   ]),
   // SQL (case-insensitive): -- and /* */ comments, 'strings', "quoted" `quoted` [quoted] names, :params and @variables.
   sql: lexer([
@@ -368,7 +432,7 @@ function lineHtmlOf(d: HlDoc, i: number, shown = LONG_LINE): string {
   if (cached) d.html[i] = h;
   return h;
 }
-const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], yaml: ['# ', ''], toml: ['# ', ''], sh: ['# ', ''], ps: ['# ', ''], docker: ['# ', ''], env: ['# ', ''], bat: ['REM ', ''], lua: ['-- ', ''], sql: ['-- ', ''], php: ['// ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
+const COMMENT: Record<string, [string, string]> = { js: ['// ', ''], java: ['// ', ''], rs: ['// ', ''], cpp: ['// ', ''], cs: ['// ', ''], py: ['# ', ''], yaml: ['# ', ''], toml: ['# ', ''], sh: ['# ', ''], ps: ['# ', ''], docker: ['# ', ''], env: ['# ', ''], bat: ['REM ', ''], lua: ['-- ', ''], sql: ['-- ', ''], php: ['// ', ''], go: ['// ', ''], kt: ['// ', ''], swift: ['// ', ''], dart: ['// ', ''], zig: ['// ', ''], scala: ['// ', ''], groovy: ['// ', ''], rb: ['# ', ''], ex: ['# ', ''], r: ['# ', ''], pl: ['# ', ''], hs: ['-- ', ''], css: ['/* ', ' */'], html: ['<!-- ', ' -->'], md: ['<!-- ', ' -->'] };
 
 /* ================= Syntax checks (red error lines) ================= */
 // Quick structural checks that work everywhere: brackets, strings, comments, tags, JSON, Python blocks.

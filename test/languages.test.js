@@ -105,6 +105,11 @@ test('re-lexing after an edit matches a full lex', () => {
     bat: '@echo off\n:loop\nset /a N=%N%+1\n',
     docker: 'FROM a AS b\nRUN x \\\n  && y\n',
     env: 'A=1\nB="two"\n# c\n',
+    go: 'a := `x\ny` // c\n',
+    rb: '=begin\nx\n=end\nputs :a # c\n',
+    ex: '@doc """\nhi\n"""\n~r/a/ # c\n',
+    hs: "{- a\nb -}\nf x' = 1 -- c\n",
+    zig: 'const s =\n  \\\\a\n  \\\\b\n;\n',
   };
   for (const [lexer, text] of Object.entries(samples)) {
     for (let at = 0; at <= text.length; at++) {
@@ -145,4 +150,93 @@ test('SQL: keywords in any case, quoted names, doubled quotes and parameters', (
   assert.deepEqual(plain(ofKind(text, 'sql', 'str')), ["'it''s'"]);
   assert.deepEqual(plain(ofKind(text, 'sql', 'attr')), [':id']);
   assert.deepEqual(plain(ofKind(text, 'sql', 'com')), ['-- all']);
+});
+
+test('Go, Ruby, Kotlin, Swift, Dart, Zig, Scala, Elixir, Haskell, R, Perl and Groovy pick their lexer', () => {
+  const files = {
+    'main.go': 'go', 'go.mod': 'go', 'go.sum': 'go', 'app.rb': 'rb', 'tasks.rake': 'rb', 'x.gemspec': 'rb', 'Gemfile': 'rb', 'Rakefile': 'rb',
+    'Main.kt': 'kt', 'build.gradle.kts': 'kt', 'App.swift': 'swift', 'main.dart': 'dart', 'build.zig': 'zig', 'A.scala': 'scala', 'w.sc': 'scala',
+    'lib/a.ex': 'ex', 'mix.exs': 'ex', 'Main.hs': 'hs', 'plot.R': 'r', 'x.pl': 'pl', 'X.pm': 'pl', 'a.groovy': 'groovy', 'build.gradle': 'groovy',
+  };
+  for (const [p, lexer] of Object.entries(files)) assert.equal(langOf(p)[0], lexer, p);
+  assert.equal(langOf('Gemfile')[1], 'Ruby');
+});
+
+test('Go raw strings span lines and hide comments', () => {
+  const text = 'x := `a // b\nc` // d\nfunc main() {}';
+  assert.deepEqual(plain(ofKind(text, 'go', 'str')), ['`a // b\nc`']);
+  assert.deepEqual(plain(ofKind(text, 'go', 'com')), ['// d']);
+  assert.deepEqual(plain(ofKind(text, 'go', 'kw')), ['func']);
+  assert.deepEqual(plain(ofKind(text, 'go', 'prop')), ['main']);
+});
+
+test('Ruby: =begin blocks, :symbols and @ivars', () => {
+  const text = "=begin\nx = 1\n=end\nputs :sym, 'a#b', @n # c\nFoo::Bar\n";
+  assert.deepEqual(plain(ofKind(text, 'rb', 'com')), ['=begin\nx = 1\n=end', '# c']);
+  assert.deepEqual(plain(ofKind(text, 'rb', 'attr')), [':sym', '@n']);
+  assert.deepEqual(plain(ofKind(text, 'rb', 'str')), ["'a#b'"]);
+});
+
+test('Kotlin, Swift, Scala, Groovy and Dart: triple-quoted strings and @annotations', () => {
+  const kt = 'val s = """\n"q" // no\n"""\n@JvmStatic fun f() = 1L';
+  assert.deepEqual(plain(ofKind(kt, 'kt', 'str')), ['"""\n"q" // no\n"""']);
+  assert.deepEqual(plain(ofKind(kt, 'kt', 'attr')), ['@JvmStatic']);
+  assert.deepEqual(plain(ofKind(kt, 'kt', 'kw')), ['val', 'fun']);
+  const swift = '@MainActor\nlet s = """\nhi // x\n"""\nfunc f() {}';
+  assert.deepEqual(plain(ofKind(swift, 'swift', 'str')), ['"""\nhi // x\n"""']);
+  assert.deepEqual(plain(ofKind(swift, 'swift', 'attr')), ['@MainActor']);
+  assert.deepEqual(plain(ofKind(swift, 'swift', 'kw')), ['let', 'func']);
+  const scala = 'val s = """a "b" c"""\n// d\ndef f(x: Int) = s"$x"';
+  assert.deepEqual(plain(ofKind(scala, 'scala', 'str')), ['"""a "b" c"""', '"$x"']);
+  assert.deepEqual(plain(ofKind(scala, 'scala', 'kw')), ['val', 'def']);
+  const groovy = "def s = '''\nx // y\n'''\nprintln \"${s}\"";
+  assert.deepEqual(plain(ofKind(groovy, 'groovy', 'str')), ["'''\nx // y\n'''", '"${s}"']);
+  assert.deepEqual(plain(ofKind(groovy, 'groovy', 'kw')), ['def']);
+  const dart = "@override\nvar s = '''\nit's // x\n''';";
+  assert.deepEqual(plain(ofKind(dart, 'dart', 'str')), ["'''\nit's // x\n'''"]);
+  assert.deepEqual(plain(ofKind(dart, 'dart', 'attr')), ['@override']);
+  assert.deepEqual(plain(ofKind(dart, 'dart', 'kw')), ['var']);
+});
+
+test('Zig: \\ multiline string lines and @builtins', () => {
+  const text = String.raw`const s =
+    \\hello // not a comment
+    \\world
+;
+// done
+const x = @import("std");`;
+  assert.deepEqual(plain(ofKind(text, 'zig', 'str')), [String.raw`\\hello // not a comment`, String.raw`\\world`, '"std"']);
+  assert.deepEqual(plain(ofKind(text, 'zig', 'com')), ['// done']);
+  assert.deepEqual(plain(ofKind(text, 'zig', 'attr')), ['@import']);
+});
+
+test('Elixir: heredocs, ~r sigils, :atoms and @attributes', () => {
+  const text = '@moduledoc """\nhi # no\n"""\nRegex.match?(~r/a#b/i, :ok) # c\nx :: integer';
+  assert.deepEqual(plain(ofKind(text, 'ex', 'str')), ['"""\nhi # no\n"""', '~r/a#b/i']);
+  assert.deepEqual(plain(ofKind(text, 'ex', 'attr')), ['@moduledoc', ':ok']);
+  assert.deepEqual(plain(ofKind(text, 'ex', 'com')), ['# c']);
+  assert.deepEqual(plain(ofKind(text, 'ex', 'prop')), ['match?']);
+});
+
+test("Haskell: {- -} and -- comments, primes aren't quotes", () => {
+  const text = "{- block -}\nf x' = x' -- note\nc = 'a' where y = \"s\"";
+  assert.deepEqual(plain(ofKind(text, 'hs', 'com')), ['{- block -}', '-- note']);
+  assert.deepEqual(plain(ofKind(text, 'hs', 'str')), ["'a'", '"s"']);
+  assert.deepEqual(plain(ofKind(text, 'hs', 'kw')), ['where']);
+});
+
+test('R: # comments, dotted calls and TRUE', () => {
+  const text = 'x <- is.na(y) # check\nif (TRUE) "a#b"';
+  assert.deepEqual(plain(ofKind(text, 'r', 'com')), ['# check']);
+  assert.deepEqual(plain(ofKind(text, 'r', 'prop')), ['is.na']);
+  assert.deepEqual(plain(ofKind(text, 'r', 'kw')), ['if', 'TRUE']);
+  assert.deepEqual(plain(ofKind(text, 'r', 'str')), ['"a#b"']);
+});
+
+test('Perl: $@% sigils, $#array and # comments', () => {
+  const text = 'my @xs = (1); # c\nprint $#xs, %h, $a % 2, "a#b";';
+  assert.deepEqual(plain(ofKind(text, 'pl', 'attr')), ['@xs', '$#xs', '%h', '$a']);
+  assert.deepEqual(plain(ofKind(text, 'pl', 'com')), ['# c']);
+  assert.deepEqual(plain(ofKind(text, 'pl', 'str')), ['"a#b"']);
+  assert.deepEqual(plain(ofKind(text, 'pl', 'kw')), ['my', 'print']);
 });

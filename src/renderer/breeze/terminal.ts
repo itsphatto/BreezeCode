@@ -798,7 +798,7 @@ async function runCommand(cmd: string): Promise<void> {
   }
 }
 // C, C++, C#, Java, JavaScript, Lua, PHP, Python, Rust, SQL and TypeScript files run in the terminal; their input comes from the terminal's input line.
-function runnable(path: string | null): boolean { return !!path && /\.(?:c|cpp|cc|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql)$/i.test(path); }
+function runnable(path: string | null): boolean { return !!path && /\.(?:c|cpp|cc|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy)$/i.test(path); }
 async function runFile(): Promise<void> {
   const b = activeBuf();
   if (!active || b?.kind !== 'text') { toast('Save the file first'); return; }

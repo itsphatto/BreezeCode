@@ -860,6 +860,7 @@ const LANG_EXT: Record<string, string> = {
   javascript: 'js', js: 'js', jsx: 'jsx', typescript: 'ts', ts: 'ts', tsx: 'tsx', python: 'py', py: 'py', html: 'html', css: 'css',
   json: 'json', markdown: 'md', md: 'md', bash: 'sh', sh: 'sh', shell: 'sh', powershell: 'ps1', ps1: 'ps1', c: 'c', cpp: 'cpp', 'c++': 'cpp',
   java: 'java', go: 'go', rust: 'rs', rs: 'rs', sql: 'sql', yaml: 'yml', yml: 'yml', xml: 'xml', svg: 'svg', csharp: 'cs', cs: 'cs', php: 'php', ruby: 'rb',
+  golang: 'go', rb: 'rb', kotlin: 'kt', kt: 'kt', swift: 'swift', dart: 'dart', zig: 'zig', scala: 'scala', elixir: 'ex', ex: 'ex', haskell: 'hs', hs: 'hs', r: 'r', perl: 'pl', groovy: 'groovy',
 };
 // "html index.html", "index.html" or "python": the file name to show and to save as.
 function artifactName(info: string): string {

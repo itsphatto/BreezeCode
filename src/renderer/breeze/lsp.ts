@@ -21,7 +21,7 @@ async function lspOpen(b: EditorBuffer): Promise<void> {
   if (r.available) { lspOn.add(b.path); return; }
   if (r.install && !lspHinted.has(r.install)) {
     lspHinted.add(r.install);
-    toast(`For autocomplete and go to definition in .${extOf(b.path)} files, install a language server: ${r.install}`);
+    toast(`For autocomplete and go to definition in .${extOf(b.path)} files, install a language server: ${r.install}. It's also in Settings → Help & About → Language servers.`);
   }
 }
 // The server gets the whole text, a moment after typing stops.

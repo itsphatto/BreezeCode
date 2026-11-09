@@ -10,7 +10,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const vm = require('node:vm');
-const { findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
+const { LANG_KINDS, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
 const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
 const { AntigravityAgentService } = require('./antigravityAgentService.js');
 const { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } = require('./github');
@@ -19,7 +19,7 @@ const prconflict = require('./prconflict');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
-const { LspManager, SERVERS, findOnPath } = require('./lsp');
+const { LspManager, SERVERS, lspInstalls, findOnPath } = require('./lsp');
 const { Kernels } = require('./kernel');
 const skillsLib = require('./skills');
 const mcpLib = require('./mcp');
@@ -1257,9 +1257,9 @@ handle('nb:run', (_e, rel, id, code) => {
 handle('nb:stop', (_e, rel) => kernels.stop(String(rel)));
 app.on('will-quit', () => kernels.stopAll());
 
-// Runs a .c, .cpp, .cs, .java, .js, .lua, .php, .py, .rs, .sql or .ts file in the open folder, streaming into the terminal under one id.
+// Runs a source file Breeze knows how to run (toolchains.runPlan) in the open folder, streaming into the terminal under one id.
 let activeRun = null; // { id, cancel }
-const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql)$/i;
+const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy)$/i;
 // The nearest project file (a .csproj, a Cargo.toml) in the file's folder or a folder above it, without leaving the open project.
 function nearestProject(abs, isProject) {
   for (let dir = path.dirname(abs); ; dir = path.dirname(dir)) {
@@ -1601,10 +1601,20 @@ handle('sys:detect', async (_e, force) => {
     const bin = await which(cmd, pathValue);
     return { id: cmd, name, found: !!bin, version: bin ? await versionOf(bin) : null, hint: bin ? null : installHint(cmd, process.platform), cmd: bin ? null : installCmd(cmd, process.platform), url: bin ? null : installUrl(cmd, process.platform) };
   }));
-  for (const [id, name, t, kind] of [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs'], ['lua', 'Lua', found.lua, 'lua'], ['php', 'PHP', found.php, 'php'], ['sqlite', 'SQLite', found.sqlite, 'sql']]) {
+  for (const [id, name, t, kind] of [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs'], ['lua', 'Lua', found.lua, 'lua'], ['php', 'PHP', found.php, 'php'], ['sqlite', 'SQLite', found.sqlite, 'sql'],
+    ['go', 'Go', found.go, 'go'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
+    ['dart', 'Dart', found.dart, 'dart'], ['zig', 'Zig', found.zig, 'zig'], ['scala', 'Scala', found.scala, 'scala'], ['elixir', 'Elixir', found.elixir, 'ex'],
+    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy']]) {
     tools.push({ id, name, found: !!t, version: t ? versionIn(t.version) : null, optional: true, hint: t ? null : installHint(kind, process.platform), cmd: t ? null : installCmd(kind, process.platform), url: t ? null : installUrl(kind, process.platform) });
   }
-  return { agents, tools, platform: process.platform };
+  // Language servers, looked for the same way findServer does. TypeScript's comes with Breeze, so it isn't listed.
+  const env = await lspEnv();
+  const lspPath = env[Object.keys(env).find(k => k.toLowerCase() === 'path')];
+  const servers = lspInstalls(process.platform).map(({ kind, name, cmd, url }) => {
+    const found = (SERVERS[kind] ?? []).some(s => findOnPath([s.bin], lspPath));
+    return { id: `lsp-${kind}`, name, found, version: null, optional: true, hint: found ? null : cmd ?? url, cmd: found ? null : cmd, url: found ? null : url };
+  });
+  return { agents, tools, servers, platform: process.platform };
 });
 
 /* ================= Window & shell IPC ================= */
@@ -1617,8 +1627,9 @@ handle('sys:runCommand', async (_e, cmd) => {
   if (typeof cmd !== 'string') return false;
   const command = cmd.trim();
   const allowed = [
-    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'lua', 'php', 'sql'].map(kind => installCmd(kind, process.platform)),
+    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'lua', 'php', 'sql', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
     ...['claude', 'codex', 'local'].map(id => agentInstallCmd(id, process.platform)),
+    ...lspInstalls(process.platform).map(i => i.cmd),
   ].filter(Boolean);
   if (!allowed.includes(command)) return false;
   const escaped = command.replaceAll(/[\\"]/g, String.raw`\$&`);

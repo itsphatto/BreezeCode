@@ -164,13 +164,38 @@ async function findTools(o) {
   // SQL runs in SQLite's shell, against an in-memory database.
   const sqlite = tool(await probe(pathDirs, 'sqlite3'));
 
+  // Some Windows installs launch through a batch file (kotlinc.bat, elixir.bat, groovy.bat). Those can't run
+  // without cmd.exe, so they're found by name alone and runPlan runs them through it.
+  const script = (candDirs, name) => {
+    if (!win) return null;
+    for (const dir of candDirs) for (const x of ['.bat', '.cmd']) { const p = P.join(dir, name + x); if (exists(p)) return { path: p, name, version: '' }; }
+    return null;
+  };
+  const find = async (candDirs, names, flag = '--version') => {
+    for (const n of names) { const t = tool(await probe(candDirs, n, [], flag)) || script(candDirs, n); if (t) return t; }
+    return null;
+  };
+  const extra = (list) => withExtra(win ? list : []);
+  const go = await find(extra(['C:\\Program Files\\Go\\bin']), ['go'], 'version');
+  const ruby = await find(extra(['C:\\Ruby*\\bin']), ['ruby']);
+  const kotlinc = await find(pathDirs, ['kotlinc']);
+  const swiftc = await find(pathDirs, ['swiftc']);
+  const dart = await find(pathDirs, ['dart']);
+  const zig = await find(pathDirs, ['zig'], 'version');
+  const scala = await find(pathDirs, ['scala-cli', 'scala']);
+  const elixir = await find(pathDirs, ['elixir']);
+  const runghc = await find(extra(['C:\\ghcup\\bin']), ['runghc']);
+  const rscript = await find(extra(['C:\\Program Files\\R\\R-*\\bin']), ['Rscript']);
+  const perl = await find(extra(['C:\\Strawberry\\perl\\bin']), ['perl']);
+  const groovy = await find(pathDirs, ['groovy']);
+
   const binDirs = [];
-  for (const t of [cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite]) {
+  for (const t of [cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy]) {
     if (!t) continue;
     const d = P.dirname(t.path);
     if (!pathDirs.some((x) => same(x, d)) && !binDirs.some((x) => same(x, d))) binDirs.push(d);
   }
-  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, binDirs };
+  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, binDirs };
 }
 
 async function freshPath(platform, run) {
@@ -259,7 +284,31 @@ const MISSING = {
     darwin: { lead: "SQLite wasn't found. Install it with:", cmd: 'brew install sqlite', url: SQLITE_URL },
     other: { lead: 'Install SQLite with your package manager (e.g. sudo apt install sqlite3)', url: SQLITE_URL },
   },
+  ...langMissing(),
 };
+// The other languages' compilers and interpreters: name, download page, and the install command on Windows and macOS
+// where there is one. Elsewhere, the package manager.
+function langMissing() {
+  const LANG = {
+    go: ['Go', 'https://go.dev/dl/', 'winget install GoLang.Go', 'brew install go'],
+    rb: ['Ruby', 'https://www.ruby-lang.org/en/downloads/', 'winget install RubyInstallerTeam.Ruby.3.3', 'brew install ruby'],
+    kt: ['Kotlin', 'https://kotlinlang.org/docs/command-line.html', null, 'brew install kotlin'],
+    swift: ['Swift', 'https://www.swift.org/install/', 'winget install Swift.Toolchain', 'xcode-select --install'],
+    dart: ['Dart', 'https://dart.dev/get-dart', null, 'brew install dart-lang/dart/dart'],
+    zig: ['Zig', 'https://ziglang.org/download/', 'winget install zig.zig', 'brew install zig'],
+    scala: ['Scala', 'https://www.scala-lang.org/download/', null, 'brew install Virtuslab/scala-cli/scala-cli'],
+    ex: ['Elixir', 'https://elixir-lang.org/install.html', null, 'brew install elixir'],
+    hs: ['Haskell', 'https://www.haskell.org/ghcup/', null, 'brew install ghc'],
+    r: ['R', 'https://cran.r-project.org/', 'winget install RProject.R', 'brew install r'],
+    pl: ['Perl', 'https://www.perl.org/get.html', 'winget install StrawberryPerl.StrawberryPerl', null],
+    groovy: ['Groovy', 'https://groovy.apache.org/download.html', null, 'brew install groovy'],
+  };
+  const one = (name, url, cmd, other) => (cmd ? { lead: `${name} wasn't found. Install it with:`, cmd, url } : { lead: `${name} wasn't found.${other ? ' Install it with your package manager' : ''}`, url });
+  return Object.fromEntries(Object.entries(LANG).map(([kind, [name, url, win, mac]]) =>
+    [kind, { win32: one(name, url, win), darwin: one(name, url, mac), other: one(name, url, null, true) }]));
+}
+// The kinds of tool the Tools list shows an install button for (main.js allows only their commands).
+const LANG_KINDS = ['go', 'rb', 'kt', 'swift', 'dart', 'zig', 'scala', 'ex', 'hs', 'r', 'pl', 'groovy'];
 const entry = (kind, platform) => MISSING[kind][platform] || MISSING[kind].other;
 // The lead and command, then the download page when there is one.
 const download = (m) => (m.url ? `\n${m.cmd ? 'Or download it from' : 'Download it from'} ${m.url}` : '');
@@ -284,6 +333,23 @@ function mergePath(fresh, inherited, platform) {
     out.push(d.trim());
   }
   return out.join(delim);
+}
+
+// Files that run in one step: extension → [findTools key, install kind, arguments before the file].
+const ONE_STEP = {
+  '.go': ['go', 'go', ['run']], '.rb': ['ruby', 'rb', []], '.dart': ['dart', 'dart', ['run']], '.zig': ['zig', 'zig', ['run']],
+  '.scala': ['scala', 'scala', ['run']], '.sc': ['scala', 'scala', ['run']], '.ex': ['elixir', 'ex', []], '.exs': ['elixir', 'ex', []],
+  '.hs': ['runghc', 'hs', []], '.r': ['rscript', 'r', []], '.pl': ['perl', 'pl', []], '.groovy': ['groovy', 'groovy', []],
+  '.kts': ['kotlinc', 'kt', ['-script']],
+};
+// Windows can only start a .bat/.cmd launcher through cmd.exe. Each part goes in quotes, which keeps spaces, & and
+// parentheses literal; cmd still expands % inside quotes and a " would end them, so a path with either is refused.
+function viaCmd(step, platform) {
+  if (platform !== 'win32' || !/\.(?:bat|cmd)$/i.test(step.file)) return step;
+  const parts = [step.file, ...step.args];
+  const bad = parts.find((p) => /["%\r\n]/.test(p));
+  if (bad != null) return { error: `Breeze can't pass ${bad} to ${path.win32.basename(step.file)} through cmd.exe: it has a % or " in it. Rename it and run again.` };
+  return { display: step.display, file: parts.map((p) => `"${p}"`).join(' '), args: [], cwd: step.cwd, ...(step.env ? { env: step.env } : {}), shell: true };
 }
 
 // `opts.csproj` is the nearest .csproj at or above a .cs file, and `opts.cargoToml` the nearest Cargo.toml at or
@@ -354,6 +420,34 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
   const out = P.join('build', name + (platform === 'win32' ? '.exe' : ''));
   const runOut = { display: platform === 'win32' ? out : './' + out, file: P.join(cwd, out), args: [], cwd };
 
+  // Batch-file launchers run through cmd.exe (viaCmd); a step that can't be passed safely fails the plan.
+  const plan = (...steps) => {
+    const s = steps.map((x) => viaCmd(x, platform));
+    const bad = s.find((x) => x.error);
+    return bad ? { error: bad.error } : { steps: s };
+  };
+  const script = ONE_STEP[e];
+  if (script) {
+    const [key, kind, pre] = script;
+    const t = tools[key];
+    if (!t) return { error: missing(kind, platform) };
+    return plan({ display: [t.name, ...pre, `"${base}"`].join(' '), file: t.path, args: [...pre, absFile], cwd });
+  }
+  // Kotlin: kotlinc builds a jar with the Kotlin runtime inside, and the JDK's java runs it.
+  if (e === '.kt') {
+    if (!tools.kotlinc) return { error: missing('kt', platform) };
+    if (!tools.java) return { error: missing('java', platform) };
+    const jar = P.join('build', name + '.jar');
+    return plan(
+      { display: `kotlinc "${base}" -include-runtime -d "${jar}"`, file: tools.kotlinc.path, args: [absFile, '-include-runtime', '-d', jar], cwd },
+      { display: `java -jar "${jar}"`, file: tools.java.path, args: ['-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8', '-jar', jar], cwd },
+    );
+  }
+  if (e === '.swift') {
+    if (!tools.swiftc) return { error: missing('swift', platform) };
+    return plan({ display: `swiftc "${base}" -o "${out}"`, file: tools.swiftc.path, args: [absFile, '-o', out], cwd }, runOut);
+  }
+
   if (e === '.java') {
     const java = tools.java;
     if (!java) return { error: missing('java', platform) };
@@ -387,7 +481,7 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
   }
 
   const cpp = ['.cpp', '.cc', '.cxx'].includes(e);
-  if (e !== '.c' && !cpp) return { error: 'Breeze can run .c, .cpp, .cs, .java, .js, .lua, .php, .py, .rs, .sql and .ts files' };
+  if (e !== '.c' && !cpp) return { error: 'Breeze can run .c, .cpp, .cs, .dart, .ex, .exs, .go, .groovy, .hs, .java, .js, .kt, .kts, .lua, .php, .pl, .py, .r, .rb, .rs, .sc, .scala, .sql, .swift, .ts and .zig files' };
   const compiler = cpp ? tools.cxx : tools.cc;
   if (!compiler) return { error: missing('c', platform) };
 
@@ -488,7 +582,7 @@ function runSteps(steps, { spawn, env, onStart, onData, onChild, onDone }) {
       else if (code !== 0 || i === steps.length - 1) finish(code);
       else next(i + 1);
     };
-    child = spawn(step.file, step.args, { cwd: step.cwd, env: step.env ? { ...env, ...step.env } : env, windowsHide: true });
+    child = spawn(step.file, step.args, { cwd: step.cwd, env: step.env ? { ...env, ...step.env } : env, windowsHide: true, ...(step.shell ? { shell: true } : {}) });
     onChild(child);
     // one decoder per stream so a multi-byte character split across chunks stays whole
     const decoders = [new StringDecoder('utf8'), new StringDecoder('utf8')];
@@ -526,4 +620,4 @@ function ensureBuildIgnored(rootDir) {
   fs.appendFileSync(file, (text === '' || text.endsWith('\n') ? '' : '\n') + 'build/\n');
 }
 
-module.exports = { nodeSupportsTs, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };
+module.exports = { LANG_KINDS, nodeSupportsTs, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };

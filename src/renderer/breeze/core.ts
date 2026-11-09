@@ -127,7 +127,7 @@ interface FriendsIncoming { count: number; }
 interface FriendsPresence { state: 'online' | 'away'; project: string | null; activity: FriendActivity; }
 interface Completion { text: string; dir: boolean; }
 interface DetectedTool { id: string; name: string; found: boolean; version: string | null; optional?: boolean; hint?: string | null; cmd?: string | null; url?: string | null; }
-interface Detection { agents: DetectedAgent[]; tools: DetectedTool[]; platform: string; demo?: boolean; }
+interface Detection { agents: DetectedAgent[]; tools: DetectedTool[]; servers?: DetectedTool[]; platform: string; demo?: boolean; }
 interface Rect { x: number; y: number; width: number; height: number; }
 interface DiscordActivity { details?: string; state?: string; start?: number; icon?: string; lang?: string; dev?: boolean; }
 interface RecentFolder { path: string; name: string; openedAt?: number | null; missing?: boolean; }

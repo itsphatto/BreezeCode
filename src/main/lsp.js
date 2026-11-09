@@ -18,6 +18,11 @@ const LANGS = {
   css: ['css', 'css'], scss: ['scss', 'css'], less: ['less', 'css'],
   html: ['html', 'html'], htm: ['html', 'html'],
   json: ['json', 'json'], jsonc: ['jsonc', 'json'],
+  java: ['java', 'java'], php: ['php', 'php'], phtml: ['php', 'php'],
+  rb: ['ruby', 'ruby'], rake: ['ruby', 'ruby'], gemspec: ['ruby', 'ruby'], kt: ['kotlin', 'kotlin'], kts: ['kotlin', 'kotlin'],
+  swift: ['swift', 'swift'], dart: ['dart', 'dart'], zig: ['zig', 'zig'], scala: ['scala', 'scala'], sc: ['scala', 'scala'],
+  ex: ['elixir', 'elixir'], exs: ['elixir', 'elixir'], hs: ['haskell', 'haskell'], r: ['r', 'r'], pl: ['perl', 'perl'], pm: ['perl', 'perl'],
+  groovy: ['groovy', 'groovy'], gradle: ['groovy', 'groovy'],
 };
 const langOf = rel => LANGS[path.extname(rel).slice(1).toLowerCase()] ?? null;
 
@@ -32,13 +37,56 @@ const SERVERS = {
   css: [{ bin: 'vscode-css-language-server', args: ['--stdio'] }],
   html: [{ bin: 'vscode-html-language-server', args: ['--stdio'] }],
   json: [{ bin: 'vscode-json-language-server', args: ['--stdio'] }],
+  // Windows installs several of these as .cmd/.bat shims (npm, gem, the elixir-ls zip), which findServer runs through
+  // cmd.exe; their arguments are all plain words. R is R.exe, so its -e expression never goes through a shell.
+  java: [{ bin: 'jdtls', args: [] }],
+  php: [{ bin: 'intelephense', args: ['--stdio'] }],
+  ruby: [{ bin: 'solargraph', args: ['stdio'] }],
+  kotlin: [{ bin: 'kotlin-language-server', args: [] }],
+  swift: [{ bin: 'sourcekit-lsp', args: [] }],
+  dart: [{ bin: 'dart', args: ['language-server'] }],
+  zig: [{ bin: 'zls', args: [] }],
+  scala: [{ bin: 'metals', args: [] }],
+  elixir: [{ bin: 'elixir-ls', args: [] }, { bin: 'language_server', args: [] }],
+  haskell: [{ bin: 'haskell-language-server-wrapper', args: ['--lsp'] }],
+  r: [{ bin: 'R', args: ['--slave', '-e', 'languageserver::run()'] }],
+  perl: [{ bin: 'perlnavigator', args: [] }],
+  groovy: [{ bin: 'groovy-language-server', args: [] }],
 };
-// Where to get each one, for the "no language server" hint.
+// Where to get each one, for Settings → Tools and the "no language server" hint. `cmd` is what the Install button
+// runs in a terminal (one string, or one per platform); `url` is the download page. Nothing installs on its own.
+const WEB = { name: 'CSS, HTML and JSON', cmd: 'npm i -g vscode-langservers-extracted', url: 'https://github.com/hrsh7th/vscode-langservers-extracted' };
 const INSTALL = {
-  python: 'npm i -g pyright', rust: 'rustup component add rust-analyzer', go: 'go install golang.org/x/tools/gopls@latest',
-  clangd: 'winget install LLVM.LLVM', csharp: 'dotnet tool install -g csharp-ls',
-  css: 'npm i -g vscode-langservers-extracted', html: 'npm i -g vscode-langservers-extracted', json: 'npm i -g vscode-langservers-extracted',
+  python: { name: 'Python (Pyright)', cmd: 'npm i -g pyright', url: 'https://github.com/microsoft/pyright' },
+  rust: { name: 'Rust (rust-analyzer)', cmd: 'rustup component add rust-analyzer', url: 'https://rust-analyzer.github.io' },
+  go: { name: 'Go (gopls)', cmd: 'go install golang.org/x/tools/gopls@latest', url: 'https://go.dev/gopls' },
+  clangd: { name: 'C/C++ (clangd)', cmd: { win32: 'winget install LLVM.LLVM', darwin: 'brew install llvm' }, url: 'https://clangd.llvm.org/installation' },
+  csharp: { name: 'C# (csharp-ls)', cmd: 'dotnet tool install -g csharp-ls', url: 'https://github.com/razzmatazz/csharp-language-server' },
+  css: WEB, html: WEB, json: WEB,
+  java: { name: 'Java (jdtls)', cmd: { darwin: 'brew install jdtls' }, url: 'https://download.eclipse.org/jdtls/milestones/' },
+  php: { name: 'PHP (Intelephense)', cmd: 'npm i -g intelephense', url: 'https://intelephense.com' },
+  ruby: { name: 'Ruby (Solargraph)', cmd: 'gem install solargraph', url: 'https://solargraph.org' },
+  kotlin: { name: 'Kotlin', cmd: { darwin: 'brew install kotlin-language-server' }, url: 'https://github.com/fwcd/kotlin-language-server/releases' },
+  swift: { name: 'Swift (sourcekit-lsp, comes with Swift)', url: 'https://www.swift.org/install/' },
+  dart: { name: 'Dart (comes with the Dart SDK)', url: 'https://dart.dev/get-dart' },
+  zig: { name: 'Zig (zls)', cmd: { darwin: 'brew install zls' }, url: 'https://github.com/zigtools/zls/releases' },
+  scala: { name: 'Scala (Metals)', cmd: 'cs install metals', url: 'https://scalameta.org/metals/' },
+  elixir: { name: 'Elixir (ElixirLS)', cmd: { darwin: 'brew install elixir-ls' }, url: 'https://github.com/elixir-lsp/elixir-ls/releases' },
+  haskell: { name: 'Haskell (HLS)', cmd: 'ghcup install hls', url: 'https://www.haskell.org/ghcup/' },
+  r: { name: 'R (languageserver)', cmd: `R -e "install.packages('languageserver', repos='https://cloud.r-project.org')"`, url: 'https://github.com/REditorSupport/languageserver' },
+  perl: { name: 'Perl (Perl Navigator)', cmd: 'npm i -g perlnavigator-server', url: 'https://github.com/bscan/PerlNavigator' },
+  groovy: { name: 'Groovy', url: 'https://github.com/GroovyLanguageServer/groovy-language-server' },
 };
+const installOf = (kind, platform = process.platform) => {
+  const i = INSTALL[kind];
+  if (!i) return null;
+  return { kind, name: i.name, cmd: (typeof i.cmd === 'object' ? i.cmd[platform] : i.cmd) ?? null, url: i.url ?? null };
+};
+// One entry per server (CSS, HTML and JSON share one), for the Tools list.
+const lspInstalls = (platform = process.platform) =>
+  Object.keys(INSTALL).filter((k, n, all) => all.findIndex(o => INSTALL[o] === INSTALL[k]) === n).map(k => installOf(k, platform));
+// The editor's one-line hint when a file's server is missing.
+const installHint = (kind) => { const i = installOf(kind); return i && (i.cmd ?? `download it from ${i.url}`); };
 
 /* ----- Messages: JSON with a Content-Length header ----- */
 function frame(msg) {
@@ -165,7 +213,8 @@ class LspManager {
     if (!this.clients.has(kind)) {
       const started = (async () => {
         const spec = await this.findServer(kind);
-        if (!spec) return null;
+        // None installed yet: look again when the next file opens, so an install from Settings → Tools is picked up.
+        if (!spec) { if (this.clients.get(kind) === started) this.clients.delete(kind); return null; }
         const c = new Client({ ...spec, cwd: this.root, env: await this.env(), onNotify: (method, params) => this.notified(method, params) });
         await c.start(this.root);
         if (this.clients.get(kind) !== started) { c.stop(); return null; } // another folder opened while it started
@@ -188,7 +237,7 @@ class LspManager {
     this.docs.set(rel, doc);
     let c;
     try { c = await this.client(kind); } catch (e) { this.docs.delete(rel); return { available: false, error: e.message }; }
-    if (!c) { this.docs.delete(rel); return { available: false, install: INSTALL[kind] ?? null }; }
+    if (!c) { this.docs.delete(rel); return { available: false, install: installHint(kind) }; }
     if (this.docs.get(rel) !== doc) return { available: false }; // closed, or another folder opened, meanwhile
     c.notify('textDocument/didOpen', { textDocument: { uri: this.uri(rel), languageId: lang, version: 1, text } });
     void this.pull(rel, c);
@@ -352,4 +401,4 @@ function findOnPath(names, pathValue, platform = process.platform) {
   return null;
 }
 
-module.exports = { LANGS, SERVERS, langOf, frame, Reader, Client, LspManager, lspPos, plainSnippet, hoverText, findOnPath, toDiags };
+module.exports = { LANGS, SERVERS, INSTALL, lspInstalls, langOf, frame, Reader, Client, LspManager, lspPos, plainSnippet, hoverText, findOnPath, toDiags };

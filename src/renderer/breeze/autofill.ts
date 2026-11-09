@@ -78,6 +78,7 @@ const EDITOR_WORDS: Record<string, string[]> = {
   css: CSS_PROPS.split(' '),
   html: HTML_TAGS.split(' '),
   json: ['true', 'false', 'null'],
+  ...Object.fromEntries(Object.entries({ go: GO_KW, rb: RB_KW, kt: KT_KW, swift: SWIFT_KW, dart: DART_KW, zig: ZIG_KW, scala: SCALA_KW, groovy: GROOVY_KW, ex: EX_KW, hs: HS_KW, r: R_KW, pl: PL_KW }).map(([id, kw]) => [id, kw.split(' ')])),
 };
 // Word counts per open file, refreshed at most every second and a half while typing.
 const wordCache = new WeakMap<EditorBuffer, { at: number; counts: Map<string, number> }>();

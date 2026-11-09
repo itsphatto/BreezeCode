@@ -386,16 +386,20 @@ function settingsBody(tab: SettingsTab): string {
     case 'help': {
       const engine = /Electron\/[\d.]+|Chrome\/[\d.]+/.exec(navigator.userAgent)?.[0] ?? '';
       // Git, Node.js and the compilers, each with the setup card's installer when it's missing (bindToolButtons).
-      const tools = (appState.detect?.tools ?? []).map(t => {
+      const toolRow = (t: DetectedTool) => {
         if (t.found) return settingRow(esc(t.name), esc(versionLabel(t.version) || 'Installed'), '<span class="pill ok">Ready</span>');
         const { attrs, does } = toolInstall(t);
         return settingRow(esc(t.name), attrs ? 'Not installed' : esc(does),
           attrs ? `<button class="btn btn-sm" ${attrs} title="${escAttr(does)}" aria-label="${escAttr(`Install ${t.name}. ${does}`)}">${attrs.startsWith('data-get') ? 'Download' : 'Install'}</button>` : '');
-      }).join('') || '<p class="set-sub shimmer-text">Checking this computer</p>';
+      };
+      const tools = (appState.detect?.tools ?? []).map(toolRow).join('') || '<p class="set-sub shimmer-text">Checking this computer</p>';
+      // Language servers: autocomplete, go to definition and problems for each language. Optional, one row each.
+      const servers = (appState.detect?.servers ?? []).map(toolRow).join('');
       return `<h4>Help & About</h4>
       ${settingRow('Keyboard shortcuts', '', '<button class="btn btn-sm" data-set-cmd="help.keys">Show</button>')}
       <h5>Tools</h5>
       <div class="set-tools">${tools}</div>
+      ${servers ? `<h5>Language servers</h5><p class="set-sub">Autocomplete, go to definition and problems for each language.</p><div class="set-tools">${servers}</div>` : ''}
       ${settingRow('About Breeze Code', `${engine ? `${esc(engine)} · ` : ''}v${esc(appVersion)}`, '')}`;
     }
     case 'dev': return `<h4>Developer</h4>

@@ -34,6 +34,42 @@ test('langOf maps extensions to a server', () => {
   assert.equal(langOf('README.md'), null);
 });
 
+test('langOf maps the added languages to their servers, each with an install hint', () => {
+  const { SERVERS, INSTALL } = require('../src/main/lsp');
+  const want = {
+    go: ['go', 'go'], rb: ['ruby', 'ruby'], rake: ['ruby', 'ruby'], gemspec: ['ruby', 'ruby'], kt: ['kotlin', 'kotlin'], kts: ['kotlin', 'kotlin'],
+    swift: ['swift', 'swift'], dart: ['dart', 'dart'], zig: ['zig', 'zig'], scala: ['scala', 'scala'], sc: ['scala', 'scala'],
+    ex: ['elixir', 'elixir'], exs: ['elixir', 'elixir'], hs: ['haskell', 'haskell'], r: ['r', 'r'], pl: ['perl', 'perl'], pm: ['perl', 'perl'],
+    groovy: ['groovy', 'groovy'], gradle: ['groovy', 'groovy'], java: ['java', 'java'], php: ['php', 'php'],
+  };
+  for (const [ext, pair] of Object.entries(want)) {
+    assert.deepEqual(langOf(`a/file.${ext}`), pair, ext);
+    assert.ok(SERVERS[pair[1]]?.length && INSTALL[pair[1]], pair[1]);
+  }
+  assert.deepEqual(SERVERS.dart[0], { bin: 'dart', args: ['language-server'] });
+});
+
+test('lspInstalls lists each server once for the Tools list, with a command or a download page', () => {
+  const { lspInstalls } = require('../src/main/lsp');
+  const list = lspInstalls('win32');
+  assert.equal(new Set(list.map(i => i.name)).size, list.length);
+  assert.ok(list.every(i => i.cmd || i.url));
+  assert.ok(list.some(i => i.kind === 'css') && !list.some(i => i.kind === 'html' || i.kind === 'ts'));
+  assert.equal(list.find(i => i.kind === 'clangd').cmd, 'winget install LLVM.LLVM');
+  assert.equal(lspInstalls('linux').find(i => i.kind === 'clangd').cmd, null);
+});
+
+test('a missing language server is looked for again on the next open', async () => {
+  let calls = 0;
+  const m = new LspManager({ findServer: async () => { calls++; return null; }, env: async () => process.env });
+  m.setRoot(os.tmpdir());
+  const r = await m.open('a.go', 'package a');
+  assert.equal(r.available, false);
+  assert.match(r.install, /gopls/);
+  await m.open('b.go', 'package b');
+  assert.equal(calls, 2);
+});
+
 test('findOnPath finds a program with a Windows extension', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-lsp-'));
   fs.writeFileSync(path.join(dir, 'gopls.exe'), '');
