@@ -156,6 +156,11 @@ function githubClient({ token, fetch: f = fetch }) {
       if (body.length > MAX_COMMENT_LEN) throw new Error('That comment is too long for GitHub');
       return normalizeComment(await request('POST', `${rp(o, r)}/issues/${n}/comments`, { body }));
     },
+    // Approves the pull request: a review with the APPROVE event. GitHub refuses (422) an approval of your own pull request.
+    async approvePull(o, r, n, sha) {
+      const d = await request('POST', `${rp(o, r)}/pulls/${n}/reviews`, { event: 'APPROVE', ...(sha ? { commit_id: sha } : {}) });
+      return { approved: d?.state === 'APPROVED' };
+    },
     async closePull(o, r, n) {
       const d = await request('PATCH', `${rp(o, r)}/pulls/${n}`, { state: 'closed' });
       return { closed: d?.state === 'closed' };

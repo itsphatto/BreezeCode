@@ -188,6 +188,7 @@ contextBridge.exposeInMainWorld('breeze', {
     comments: n => invoke('gh:comments', n),
     comment: (n, body) => invoke('gh:comment', n, body),
     close: n => invoke('gh:close', n),
+    approve: (n, sha) => invoke('gh:approve', n, sha),
     contributions: () => invoke('gh:contributions'),
   },
   auth: {

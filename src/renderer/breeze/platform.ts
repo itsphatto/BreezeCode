@@ -603,6 +603,9 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
         (demoPrComments[n] ||= []).push(c);
         return { ok: true, data: c };
       },
+      async approve() {
+        return { ok: true as const, data: { approved: true } };
+      },
       async close(n) {
         const i = demoPulls.findIndex(p => p.number === n);
         if (i >= 0) demoPulls.splice(i, 1);

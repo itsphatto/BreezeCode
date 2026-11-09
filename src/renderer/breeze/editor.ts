@@ -103,7 +103,10 @@ function lineMeasurer(lines: HTMLElement, first: () => number, text: () => strin
   };
   const measured = (line: number): Text[] | null => {
     const t = lineText(line);
-    return t != null && /[^\x00-\x7f]/.test(t) ? nodesOf(line, t) : null;
+    if (t == null) return null;
+    // Lines with colour boxes too: the boxes push the text after them right.
+    const boxed = t.includes('#') && !!lines.children[line - first()]?.querySelector('.color-swatch');
+    return boxed || /[^\x00-\x7f]/.test(t) ? nodesOf(line, t) : null;
   };
   return {
     xAt(line, col) {
@@ -278,7 +281,7 @@ function findBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
   return vis.filter(off => { const ln = lineOfOffset(starts, off); return ln >= winFirst && ln < winLast; }).map(off => {
     const ln = lineOfOffset(starts, off), ls = starts[ln];
     const lt = b.text.slice(ls, lineEnd(b.text, ls));
-    const x = visualCol(lt, off - ls) * cw, w = (visualCol(lt, off - ls + findLen) * cw) - x;
+    const x = codeX(lt, off - ls, cw), w = codeX(lt, off - ls + findLen, cw) - x;
     return box(off === findHits[findIdx] ? 'hit cur' : 'hit', ln * LINE_H, x, Math.max(w, 2));
   });
 }
@@ -300,8 +303,8 @@ function squiggles(b: EditorBuffer, lineCount: number, cw: number): HTMLElement[
   return b.diags.map(d => {
     const ln = Math.min(d.line, starts.length - 1), lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
     const from = Math.min(d.col, lt.length), to = Math.min(lt.length, d.col + d.len);
-    const x = visualCol(lt, from) * cw;
-    return box(d.sev === 2 ? 'squig warn' : 'squig', ln * LINE_H + LINE_H - 6, x, Math.max(visualCol(lt, to) * cw - x, cw));
+    const x = codeX(lt, from, cw);
+    return box(d.sev === 2 ? 'squig warn' : 'squig', ln * LINE_H + LINE_H - 6, x, Math.max(codeX(lt, to, cw) - x, cw));
   });
 }
 /* ----- Matching tags: with the caret in an opening or closing tag, both halves light up ----- */
@@ -349,8 +352,8 @@ function tagBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
   return tagMarks(b).map(([from, to]) => {
     const ln = lineAt(b.text, from), ls = lineStart(b.text, from);
     const lt = b.text.slice(ls, lineEnd(b.text, ls));
-    const x = visualCol(lt, from - ls) * cw;
-    return box('tagpair', ln * LINE_H, x, Math.max(visualCol(lt, to - ls) * cw - x, 2));
+    const x = codeX(lt, from - ls, cw);
+    return box('tagpair', ln * LINE_H, x, Math.max(codeX(lt, to - ls, cw) - x, 2));
   });
 }
 /* ----- Scope guides: a thin line from a tag's or block's first line down to its end ----- */
@@ -636,11 +639,14 @@ function renderCode(): void {
   winFirst = Math.max(0, vf - OVERSCAN);
   winLast = Math.min(count, vl + OVERSCAN);
   const rows: string[] = [], nums: string[] = [];
+  swatchCss = CSS_FILE.test(b.path);
   for (let i = winFirst; i < winLast; i++) {
-    rows.push(lineHtml(lineHtmlOf(doc, i, shownOf(b, i)), i, add, errAt.get(i)));
+    const lt = doc.text.slice(doc.lines[i], lineEnd(doc.text, doc.lines[i]));
+    rows.push(lineHtml(withSwatches(lineHtmlOf(doc, i, shownOf(b, i)), lt), i, add, errAt.get(i)));
     nums.push(gutterHtml(b.path, i, errAt.get(i), marks?.get(i), !!marked?.has(i)));
   }
   patchRows(hlLines, rows);
+  paintSwatches(hlLines);
   hlLines.style.top = `${winFirst * LINE_H}px`;
   patchRows(gutLines, nums);
   gutLines.style.top = `${winFirst * LINE_H}px`;

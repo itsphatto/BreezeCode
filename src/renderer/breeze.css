@@ -98,7 +98,7 @@
   /* Ink is the colour of hover washes and hairlines, as an "r, g, b" triple for rgba(var(--ink), alpha):
      white over the dark themes, black over the light one. */
   --ink: 255, 255, 255;
-  --blue-text: #7aa9ff;
+  --blue-text: #5981ca;
   --text-soft: #cccccc;
   --line-hi: #48484a;
   --line-strong: #636366;
@@ -4040,7 +4040,8 @@ svg.ico-svg:active {
   position: absolute;
   top: 6px;
   right: 22px;
-  z-index: 3;
+  /* Above the minimap (z-index 4) and the sliders, so Ctrl+F / Ctrl+H is never covered. */
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -17224,4 +17225,118 @@ input.dbg-edit.bad:focus-visible {
   .shimmer-text {
     -webkit-text-fill-color: var(--text-3);
   }
+}
+
+/* Source Control's Refresh button turns while it re-reads. */
+#scmRefresh.busy svg {
+  animation: spin .8s linear infinite;
+}
+
+/* Hex colour swatches in the editor (colorpick.ts): drawn over the code, clicked through position matching. */
+.color-swatch {
+  display: inline-block;
+  width: .8em;
+  height: .8em;
+  margin: 0 .4em 0 .15em;
+  vertical-align: -.06em;
+  border-radius: 2px;
+  /* A checkerboard under the colour, so a see-through colour reads as one. */
+  background: linear-gradient(var(--sw), var(--sw)), repeating-conic-gradient(#bbb 0 25%, #fff 0 50%) 0 0 / 6px 6px;
+  box-shadow: 0 0 0 1px rgba(var(--ink), .35);
+}
+
+.code.over-swatch .code-scroll {
+  cursor: pointer;
+}
+
+.color-picker {
+  position: fixed;
+  z-index: 1000;
+  width: 220px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
+  backdrop-filter: var(--glass-blur);
+  animation: dropIn .16s cubic-bezier(.2, .8, .2, 1);
+}
+
+.cp-sv {
+  position: relative;
+  height: 140px;
+  border-radius: 8px;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.cp-sv-knob,
+.cp-knob {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .4), 0 1px 3px rgba(0, 0, 0, .4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cp-preview {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(var(--sw), var(--sw)), repeating-conic-gradient(#bbb 0 25%, #fff 0 50%) 0 0 / 8px 8px;
+  box-shadow: 0 0 0 1px rgba(var(--ink), .2);
+}
+
+.cp-sliders {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cp-hue,
+.cp-alpha {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.cp-hue {
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+
+.cp-alpha {
+  background: repeating-conic-gradient(#bbb 0 25%, #fff 0 50%) 0 0 / 8px 8px;
+}
+
+.cp-alpha-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.cp-hue .cp-knob,
+.cp-alpha .cp-knob {
+  top: 50%;
+}
+
+.cp-hex {
+  width: 100%;
+  font: 12px var(--font-code, monospace);
+  text-align: center;
 }

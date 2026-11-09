@@ -322,6 +322,7 @@ interface BreezeApi {
     comments(n: number): Promise<GhResult<GhComment[]>>;
     comment(n: number, body: string): Promise<GhResult<GhComment>>;
     close(n: number): Promise<GhResult<{ closed: boolean }>>;
+    approve(n: number, sha?: string): Promise<GhResult<{ approved: boolean }>>;
     // The active account's last year of contributions; error 'not-github' when the active account isn't GitHub.
     contributions(): Promise<GhResult<GhContributions>>;
   };

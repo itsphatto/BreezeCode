@@ -307,6 +307,7 @@
         <span class="spacer"></span>
         <span class="project">Breeze Code</span>
         <span class="spacer"></span>
+        <button class="update-btn" id="homeUpdateBtn" data-update hidden>Update</button>
         <button class="btn btn-sm space-btn" id="homeSpace">Breeze Space</button>
         <button class="avatars" id="homeProfile" aria-haspopup="menu" aria-label="Account"></button>
       </header>
@@ -423,7 +424,7 @@
       <span class="spacer"></span>
       <span class="project" id="projectName">No folder</span>
       <span class="spacer"></span>
-      <button class="update-btn" id="updateBtn" hidden>Update</button>
+      <button class="update-btn" id="updateBtn" data-update hidden>Update</button>
       <button class="btn btn-sm space-btn" data-act="mode.box">Breeze Space</button>
       <div class="layout-btns">
         <button class="icon-btn" id="tglSide" title="Toggle Primary Side Bar (Ctrl+B)"><svg width="16" height="16">
@@ -586,6 +587,7 @@
           <div class="scm-left" id="scmLeft">
             <div class="side-head"><span>Source Control</span><span class="head-actions">
                 <button class="icon-btn hidden" id="scmGenMsg" data-act="git.genCommitMsg" title="Generate commit message" data-tooltip="Generate commit message"><svg data-i="sparkles" data-size="14"></svg></button>
+                <button class="icon-btn" id="scmRefresh" title="Refresh" aria-label="Refresh Source Control"><svg width="14" height="14"><use href="#i-refresh" /></svg></button>
                 <button class="icon-btn" data-act="git.more" title="More actions"><svg data-i="more"></svg></button>
                 <button class="icon-btn" id="scmClose" title="Close Source Control"><svg data-i="x" data-size="14"></svg></button>
               </span></div>
@@ -680,6 +682,7 @@
       <button class="icon-btn box-side-show" id="boxSideShow" type="button" title="Show chats" aria-controls="boxSide"><svg data-i="panelLeft" data-size="16"></svg></button>
       <button class="logo logo-home" id="boxLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeSpace.png" alt=""></button>
       <span class="spacer"></span>
+      <button class="update-btn" id="boxUpdateBtn" data-update hidden>Update</button>
       <button class="btn btn-sm" data-act="mode.ide">Breeze Code</button>
       <button class="icon-btn box-gear" id="boxSettings" title="Settings" aria-haspopup="dialog"><svg width="18"
           height="18">
@@ -862,6 +865,7 @@
   <script src="breeze/buffers.js" defer></script>
   <script src="breeze/explorer.js" defer></script>
   <script src="breeze/tabs.js" defer></script>
+  <script src="breeze/colorpick.js" defer></script>
   <script src="breeze/editor.js" defer></script>
   <script src="breeze/preview.js" defer></script>
   <script src="breeze/terminal.js" defer></script>

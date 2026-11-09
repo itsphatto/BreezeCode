@@ -113,10 +113,13 @@ function configureAutoUpdater() {
 
   // No dialog on launch: the titlebar shows an Update button (update:state) and the user starts it from there.
   autoUpdater.on('update-available', info => setUpdateState({ state: 'available', version: info.version }));
+  // A download the user started from the Update button restarts straight into the new version when it finishes.
   autoUpdater.on('update-downloaded', info => {
+    const restart = downloading;
     downloading = false;
     win?.setProgressBar(-1);
     setUpdateState({ state: 'ready', version: info.version });
+    if (restart) setTimeout(() => installUpdate(), 400); // let the renderer paint "ready" first
   });
 
   startUpdateDownload = () => {
@@ -3344,6 +3347,10 @@ handle('gh:comments', async (_e, n) => (prNumberOk(n) ? ghCall(({ client, owner,
 handle('gh:comment', async (_e, n, body) => {
   if (!prNumberOk(n) || typeof body !== 'string' || !body.trim() || body.length > MAX_COMMENT_LEN) return GH_INVALID;
   return ghCall(({ client, owner, repo }) => client.addComment(owner, repo, n, body));
+});
+handle('gh:approve', async (_e, n, sha) => {
+  if (!prNumberOk(n) || (sha !== undefined && (typeof sha !== 'string' || !SHA40.test(sha)))) return GH_INVALID;
+  return ghCall(({ client, owner, repo }) => client.approvePull(owner, repo, n, sha));
 });
 handle('gh:close', async (_e, n) => {
   if (!prNumberOk(n)) return GH_INVALID;

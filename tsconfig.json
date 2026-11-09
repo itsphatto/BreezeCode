@@ -16,7 +16,7 @@
     "src/renderer/breeze/greetings.ts", "src/renderer/breeze/onboarding.ts", "src/renderer/breeze/sync.ts", "src/renderer/breeze/setup.ts",
     "src/renderer/breeze/languages.ts", "src/renderer/breeze/workspace.ts", "src/renderer/breeze/drop.ts",
     "src/renderer/breeze/buffers.ts", "src/renderer/breeze/explorer.ts", "src/renderer/breeze/tabs.ts",
-    "src/renderer/breeze/editor.ts", "src/renderer/breeze/preview.ts", "src/renderer/breeze/terminal.ts",
+    "src/renderer/breeze/editor.ts", "src/renderer/breeze/colorpick.ts", "src/renderer/breeze/preview.ts", "src/renderer/breeze/terminal.ts",
     "src/renderer/breeze/autofill.ts", "src/renderer/breeze/layout.ts", "src/renderer/breeze/commands.ts",
     "src/renderer/breeze/settings.ts", "src/renderer/breeze/lsp.ts", "src/renderer/breeze/notebook.ts", "src/renderer/breeze/agents.ts", "src/renderer/breeze/history.ts",
     "src/renderer/breeze/mentions.ts", "src/renderer/breeze/teams.ts", "src/renderer/breeze/live.ts", "src/renderer/breeze/space.ts","src/renderer/breeze/dropdowns.ts",

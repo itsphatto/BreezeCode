@@ -1,8 +1,10 @@
 /* ================= Init ================= */
-// A reload or a fresh launch comes back to the screen the window was on (the editor or Breeze Space) instead of Home,
-// so closing Breeze in the editor reopens it in the editor. The screen is remembered by swapScreen.
+// A fresh launch always opens on Home. Only a reload of the window (Ctrl+R, a settings change that reloads) comes back
+// to the screen it was on (the editor or Breeze Space), remembered by swapScreen.
 const reloadedMode: WorkMode | null = (() => {
   if (!appState.onboarded) return null;
+  const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+  if (nav?.type !== 'reload') return null;
   const s = store.get<string>(SCREEN_KEY, '');
   return s === '#ide' || s === '#debug' ? 'ide' : s === '#box' ? 'box' : null; // a debug session doesn't survive: back to the editor
 })();

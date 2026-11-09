@@ -729,10 +729,10 @@ function mountAgentDash(slot: HTMLElement | null): void {
   if (dashOnScreen()) { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
 }
 // Main reads the agents' logs afresh on each ask (only changed logs are re-read), so a page left open asks again every
-// 15 seconds, like Settings' usage, while it is on screen and the window is shown.
+// minute while it is on screen and the window is shown.
 setInterval(() => {
   if (document.visibilityState === 'visible' && dashOnScreen()) refreshAgentDash();
-}, 15_000);
+}, 60_000);
 function refreshAgentDash(): void {
   const seq = ++dashSeq;
   background(Promise.all([api.agent.usage(), api.agent.history()]).then(([u, h]) => {

@@ -58,6 +58,13 @@ function scmEmptyDetail(): void {
 }
 
 $('#scmClose').onclick = () => scmFade(() => closeScmPage(true, true));
+// Refresh: re-reads the working tree, branches and graph, and asks GitHub for the pull requests again (skipping its cache).
+$('#scmRefresh').onclick = async () => {
+  const btn = $<HTMLButtonElement>('#scmRefresh');
+  if (btn.classList.contains('busy')) return;
+  btn.classList.add('busy');
+  try { await Promise.all([refreshGit(), refreshPrs(true)]); } finally { btn.classList.remove('busy'); }
+};
 
 // Going to or from the Source Control page morphs the side bar's box into the page's column (and back), and the editor
 // slides over to make room; neither is faded out. A view transition (.scm-fade, breeze.css), so `change` runs once the
@@ -312,6 +319,37 @@ async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
   }
 }
 
+/* ----- Pull requests: approving (a review with no comment) ----- */
+let prApproving = 0; // the pull request being approved now (0: none)
+const prApproved = new Set<number>(); // approved from here this session
+function prApproveBtnHtml(pr: GhPull): string {
+  const done = prApproved.has(pr.number);
+  return `<button class="btn btn-sm" id="prApprove"${prApproving || done ? ' disabled' : ''}>${prApproving === pr.number ? 'Approving…' : done ? 'Approved' : 'Approve'}</button>`;
+}
+function syncApproveUi(pr: GhPull): void {
+  const btn = document.querySelector(`#scmDetail .pr-view[data-n="${pr.number}"] #prApprove`);
+  if (btn) btn.outerHTML = prApproveBtnHtml(pr);
+}
+async function approvePr(pr: GhPull): Promise<void> {
+  if (prApproving) return;
+  const n = pr.number;
+  prApproving = n;
+  syncApproveUi(pr);
+  const res = await ghSafe(api.gh.approve(n, pr.head.sha));
+  prApproving = 0;
+  if (!res.ok || !res.data.approved) {
+    const text = !res.ok && res.error === 'rate-limit' ? prRateLimitText(res.resetAt)
+      : !res.ok && res.error === 'forbidden' ? "You don't have permission to approve this pull request"
+      : (!res.ok && res.message) || "Couldn't approve this pull request";
+    toast(text);
+    syncApproveUi(pr);
+    return;
+  }
+  prApproved.add(n);
+  syncApproveUi(pr);
+  toast(`Approved #${n}`);
+}
+
 /* ----- Pull requests: closing without merging ----- */
 let prClosing = 0; // the pull request being closed now (0: none)
 function prCloseBtnHtml(pr: GhPull): string {
@@ -408,7 +446,7 @@ function prDetailShell(pr: GhPull, tab: PrTab, commits: GhResult<GhCommit[]>, fi
   return `<div class="pr-head">
       <div class="pr-title"><h3>${esc(pr.title)}</h3><span class="pr-n">#${pr.number}</span>${pr.draft ? '<span class="pill">Draft</span>' : ''}</div>
       <div class="pr-meta"><span class="pr-st"><span class="pr-dot ${st}"></span>${PR_STATUS_LABEL[st]}</span><span class="pr-br">${esc(pr.head.label)} → ${esc(pr.base)}</span>${prAvatar(pr.author, pr.avatar)}<span>${esc(pr.author)}</span>${when ? `<span>${esc(when)}</span>` : ''}</div>
-      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${prMergeBtnHtml(pr)}${prCloseBtnHtml(pr)}</div>
+      <div class="pr-actions"><button class="btn btn-sm" data-ext="${escAttr(pr.url)}">Open on GitHub ${svgIcon('external', 12)}</button>${prApproveBtnHtml(pr)}${prMergeBtnHtml(pr)}${prCloseBtnHtml(pr)}</div>
       <div class="pr-merge-note" id="prMergeNote" role="alert">${prMergeNoteHtml(pr.number)}</div>
     </div>
     <div class="pr-tabs" role="tablist">${tabs.map(([k, label, n]) => `<button class="pr-tab ${k === tab ? 'on' : ''}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n === null ? '' : ` <span class="count">${n}</span>`}</button>`).join('')}</div>
@@ -576,6 +614,8 @@ async function openPr(n: number): Promise<void> {
     if (t.closest('#prCommentAttach')) { view.querySelector<HTMLInputElement>('#prCommentPick')?.click(); return; }
     const un = t.closest<HTMLElement>('[data-unattach]');
     if (un) { atts.splice(Number(un.dataset.unattach), 1); syncComposer(''); return; }
+    const approveBtn = t.closest<HTMLElement>('#prApprove');
+    if (approveBtn) { if (!approveBtn.hasAttribute('disabled')) void approvePr(pr); return; }
     const closeBtn = t.closest<HTMLElement>('#prClose');
     if (closeBtn) { if (!closeBtn.hasAttribute('disabled')) confirmClosePr(pr); return; }
     const tabBtn = t.closest<HTMLElement>('[data-tab]');

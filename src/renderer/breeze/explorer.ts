@@ -683,7 +683,7 @@ function typingCaretBox(b: EditorBuffer, cw: number): HTMLElement[] {
   const off = typingCaret.get(b.path);
   if (off == null) return [];
   const ls = lineStart(b.text, off);
-  return [box('type-caret', lineAt(b.text, off) * LINE_H, visualCol(b.text.slice(ls, lineEnd(b.text, ls)), off - ls) * cw)];
+  return [box('type-caret', lineAt(b.text, off) * LINE_H, codeX(b.text.slice(ls, lineEnd(b.text, ls)), off - ls, cw))];
 }
 // The agent's mouse cursor, drawn like the crew that rebuilds the window for the debugger, riding just behind its caret.
 // One element kept outside the boxes that are redrawn every frame, so its arrow is only painted when the agent changes.

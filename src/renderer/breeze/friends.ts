@@ -1,8 +1,8 @@
 /* ================= Friends ================= */
 // Home → Friends: add people by email, answer requests, and see what accepted friends are building. Main (friends.js)
 // talks to Firebase; every call answers plain data, or { error, code } for a failure.
-const FRIENDS_POLL_OPEN = 30_000;    // while the Friends view is on screen
-const FRIENDS_POLL_HIDDEN = 120_000; // otherwise, only to keep the request badge current
+const FRIENDS_POLL_OPEN = 60_000;    // while the Friends view is on screen: every minute
+const FRIENDS_POLL_HIDDEN = 60_000;  // otherwise, only to keep the request badge current
 const FRIENDS_COPY: Record<string, string> = {
   'invalid-email': "That doesn't look like an email address.",
   self: "That's you.",
