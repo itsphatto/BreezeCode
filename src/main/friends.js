@@ -329,7 +329,13 @@ function friendsApi({ projectId, session, fetch: fetchFn = globalThis.fetch, me 
     const data = await res.json().catch(() => ({}));
     if (res.ok || allow.includes(res.status)) return { status: res.status, data };
     if (res.status === 401) throw new FriendsError('reauth');
-    if (res.status === 403) throw new FriendsError('denied');
+    if (res.status === 403) {
+      if (process.env.BREEZE_FRIENDS_DEBUG) {
+        const what = String(url).replace(/^.*\/documents/, '') || url;
+        console.log(`[friends] 403 ${method} ${what}: ${data?.error?.message || JSON.stringify(data).slice(0, 300)}`);
+      }
+      throw new FriendsError('denied');
+    }
     const why = data && data.error && data.error.message;
     throw new FriendsError('network', why ? `Friends: ${why}` : undefined);
   }
