@@ -99,3 +99,23 @@ async function openPreviewPages(): Promise<void> {
 $('#previewUrl').onclick = () => void openPreviewPages();
 $('#previewUrl').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void openPreviewPages(); } };
 
+
+// Inspect on hover: the mouse button outlines whatever element the cursor is over in the preview, with its tag, id,
+// classes and size (previewInspector.js draws it inside the page). The page can't be reached directly, so the state
+// is posted to it, and posted again each time a page loads; Escape in the page turns it off and posts that back.
+let previewInspecting = false;
+const inspectBtn = $<HTMLButtonElement>('#previewInspect');
+function sendPreviewInspect(): void {
+  frame.contentWindow?.postMessage({ breezeInspector: 'hover', on: previewInspecting }, '*');
+}
+function setPreviewInspect(on: boolean): void {
+  previewInspecting = on;
+  inspectBtn.classList.toggle('on', on);
+  inspectBtn.setAttribute('aria-pressed', String(on));
+  sendPreviewInspect();
+}
+inspectBtn.onclick = () => setPreviewInspect(!previewInspecting);
+frame.addEventListener('load', sendPreviewInspect);
+addEventListener('message', e => {
+  if (e.source === frame.contentWindow && (e.data as { breezeInspector?: string } | null)?.breezeInspector === 'hover-off') setPreviewInspect(false);
+});

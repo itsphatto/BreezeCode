@@ -1,5 +1,8 @@
 // The preview's element inspector. Right-clicking an element in the preview outlines it in blue with its
 // tag, id and classes on a label above it; a left click, Escape or right-clicking empty space clears it.
+// Hover mode (the mouse button in the preview bar, which posts { breezeInspector: 'hover', on } to the page) does the
+// same for whatever is under the cursor, the outline gliding from one element to the next as the cursor moves. A left click pins it where it is; a click on
+// the pinned element lets it follow the cursor again, and a click on another element pins it there instead.
 // The preview frame is sandboxed (an opaque origin), so Breeze can't reach into it: this runs inside the page,
 // injected by main.js's servePreview as an inline <script>. It draws in a closed shadow root so the page's CSS
 // can't restyle it, and the overlay never takes pointer events, so the page underneath still works.
@@ -8,7 +11,7 @@ function previewInspector() {
   window.__breezeInspector = true;
 
   const BLUE = '#0a6cd8';
-  let host = null, box = null, label = null, target = null;
+  let host = null, box = null, label = null, target = null, hover = false, pinned = false;
 
   function mount() {
     host = document.createElement('breeze-inspector');
@@ -20,6 +23,9 @@ function previewInspector() {
         font:600 11px/16px ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .label .tag{opacity:.75;font-weight:500}
       .label .size{opacity:.75;font-weight:500;margin-left:6px}
+      .morph{transition:left .16s ease-in,top .16s ease-in,width .16s ease-in,height .16s ease-in}
+      .box.pinned{border-style:solid;background:rgba(10,108,216,.2)}
+      @media (prefers-reduced-motion:reduce){.morph{transition:none}}
     </style><div class="box"></div><div class="label"></div>`;
     box = shadow.querySelector('.box');
     label = shadow.querySelector('.label');
@@ -33,6 +39,12 @@ function previewInspector() {
     return { tag, name: id + classes };
   }
 
+  // Morphing glides the outline to its new element; a fresh outline, or one following a scroll, jumps straight there.
+  function setMorph(on) {
+    box.classList.toggle('morph', on);
+    label.classList.toggle('morph', on);
+  }
+
   function place() {
     if (!target || !target.isConnected) { clear(); return; }
     const r = target.getBoundingClientRect();
@@ -44,9 +56,11 @@ function previewInspector() {
     Object.assign(label.style, { left: `${left}px`, top: `${top}px` });
   }
 
-  function show(el) {
+  function show(el, morph = false) {
     if (!host) mount();
-    if (!host.isConnected) document.documentElement.appendChild(host);
+    const fresh = !host.isConnected;
+    if (fresh) document.documentElement.appendChild(host);
+    setMorph(morph && !fresh);
     target = el;
     const { tag, name } = describe(el);
     const r = el.getBoundingClientRect();
@@ -62,22 +76,58 @@ function previewInspector() {
     place();
   }
 
+  function setPinned(on) {
+    pinned = on;
+    box?.classList.toggle('pinned', on);
+  }
+
   function clear() {
+    setPinned(false);
     target = null;
     host?.remove();
   }
 
+  const inspectable = el => el instanceof Element && el !== document.documentElement && el !== document.body;
+
+  function setHover(on) {
+    hover = on;
+    if (!on) clear();
+  }
+
   addEventListener('contextmenu', e => {
-    const el = e.target instanceof Element ? e.target : null;
     e.preventDefault();
-    if (!el || el === document.documentElement || el === document.body) { clear(); return; }
-    show(el);
+    if (!inspectable(e.target)) { clear(); return; }
+    show(e.target);
   }, true);
-  addEventListener('mousedown', e => { if (e.button === 0 && target) clear(); }, true);
-  addEventListener('keydown', e => { if (e.key === 'Escape' && target) clear(); }, true);
+  // In hover mode clicks still go through to the page; they pin the outline rather than clear it.
+  addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    if (!hover) { if (target) clear(); return; }
+    if (!inspectable(e.target)) return;
+    if (pinned && e.target === target) { setPinned(false); return; }
+    if (e.target !== target) show(e.target, true);
+    setPinned(true);
+  }, true);
+  addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    // Escape leaves hover mode too; Breeze is told so its mouse button turns off.
+    if (hover) { setHover(false); parent.postMessage({ breezeInspector: 'hover-off' }, '*'); }
+    else if (target) clear();
+  }, true);
+  addEventListener('mousemove', e => {
+    if (!hover || pinned) return;
+    if (!inspectable(e.target)) { clear(); return; }
+    if (e.target !== target) show(e.target, true);
+  }, true);
+  // The cursor leaving the page (into Breeze around it) takes the hover outline with it.
+  document.addEventListener('mouseout', e => { if (hover && !pinned && !e.relatedTarget) clear(); }, true);
+  addEventListener('message', e => {
+    if (e.source !== parent || e.data?.breezeInspector !== 'hover') return;
+    setHover(!!e.data.on);
+  });
   // Keeps the outline on the element as the page scrolls, resizes or animates.
-  addEventListener('scroll', () => target && place(), true);
-  addEventListener('resize', () => target && place());
+  addEventListener('scroll', () => { if (target) { setMorph(false); place(); } }, true);
+  addEventListener('resize', () => { if (target) { setMorph(false); place(); } });
 }
 
 const PREVIEW_INSPECTOR = `<script data-breeze-inspector>(${previewInspector.toString()})();</script>`;

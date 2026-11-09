@@ -133,8 +133,8 @@ const settingRow = (title: string, sub: string, control: string) =>
 const segHtml = (id: string, opts: [string, string][], cur: string) =>
   `<div class="seg set-seg" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
 //change from "Active" to "Developer"
-const DEVELOPER_EMAILS = new Set(['itsphatto@icloud.com', 'yell0wcircle12345@gmail.com']);
-
+const DEVELOPER_EMAILS = new Set(['lovephatto@gmail.com', 'itsphatto@icloud.com', 'yell0wcircle12345@gmail.com']);
+const TESTERS_EMAILS = new Set([''])
 
 // Settings → Appearance. Each card shows a small picture of the window in that theme.
 // The fourth field marks a description written as a (tongue-in-cheek) warning: it shows in red.
