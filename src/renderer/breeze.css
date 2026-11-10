@@ -3956,6 +3956,15 @@ svg.ico-svg:active {
   background: color-mix(in srgb, var(--accent, var(--blue-text)) 70%, transparent);
 }
 
+/* #bigHost (bigfile.ts): where huge files' surfaces live. It covers the editor as the code view does, over the gutter
+   and code layers (opaque, so they never show through) and under the find bar (z-index 20). */
+.big-host {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: var(--bg);
+}
+
 .editor-empty {
   position: absolute;
   inset: 0;

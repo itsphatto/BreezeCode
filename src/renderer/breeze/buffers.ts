@@ -77,7 +77,7 @@ async function swapWorkspace(info: RootInfo): Promise<void> {
   term.cwd = await api.term.cwd(); renderPs();
 }
 function resetWorkspace(): void {
-  for (const b of buffers.values()) b.ta?.remove();
+  for (const b of buffers.values()) { b.ta?.remove(); b.big?.surface.remove(); }
   lspOn.clear(); // the main process stops the servers with the folder
   buffers.clear(); dirCache.clear(); expanded.clear();
   treeOrder = {};
@@ -118,6 +118,7 @@ async function loadBuffer(path: string): Promise<EditorBuffer | null> {
   b.saved = b.text;
   if (b.kind === 'image' || b.kind === 'video') b.url = await api.fs.fileUrl(path).catch(() => '');
   if (b.kind === 'pdf') b.url = await api.fs.previewUrl(path).catch(() => ''); // file: frames are blocked by the CSP
+  if (b.kind === 'large') await openBig(b);
   if (b.kind === 'text') { b.ta = createSurface(b); scheduleLint(b, 0); }
   buffers.set(path, b);
   void lspOpen(b);

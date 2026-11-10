@@ -451,6 +451,8 @@ function dropTab(path: string): void {
   if (i === -1) return;
   openTabs.splice(i, 1);
   buffers.get(path)?.ta?.remove();
+  const gone = buffers.get(path);
+  if (gone?.big) closeBig(gone);
   buffers.delete(path);
   lspClosed(path);
   nbClosed(path);
@@ -510,6 +512,7 @@ function closeTab(path: string): void {
 }
 async function saveFile(path: string | null = active): Promise<boolean> {
   const b = path ? buffers.get(path) : undefined;
+  if (b?.big) return saveBig(b);
   if (b?.kind !== 'text') return false;
   nbFlush(b);
   if (b.untitled) return saveUntitled(b);
