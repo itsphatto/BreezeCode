@@ -604,8 +604,22 @@ function followAgentTo(path: string): void {
   if (!openTabs.includes(path)) openTabs.push(path);
   setActive(path);
 }
+// The agent's file changes are shown one at a time, in the order they came: each switches the editor to its file and
+// only then types the change, so no file is changed off screen while another one is still typing out.
+let agentTurn: Promise<unknown> = Promise.resolve();
+function inAgentTurn<T>(job: () => Promise<T> | T): Promise<T> {
+  const run = agentTurn.then(job, job);
+  agentTurn = run.catch(() => { /* the next one still runs */ });
+  return run;
+}
 async function typeAgentEdit(b: EditorBuffer, text: string): Promise<void> {
-  typingTo.set(b.path, text);
+  typingTo.set(b.path, text); // a newer write while it waits for its turn only moves the target
+  await inAgentTurn(() => typeAgentEditNow(b));
+}
+async function typeAgentEditNow(b: EditorBuffer): Promise<void> {
+  const text = typingTo.get(b.path);
+  if (text == null) return;
+  followAgentTo(b.path);
   remember(b, 'reload');
   try {
     // Keep going while newer text arrives (the agent edited the file again meanwhile).
@@ -627,7 +641,7 @@ async function typeAgentEdit(b: EditorBuffer, text: string): Promise<void> {
 function typeAgentDraft(path: string, text: string): boolean {
   const b = buffers.get(path) ?? blankBuffer(path);
   if (b?.kind !== 'text' || holdsUserEdits(b)) return false;
-  followAgentTo(path);
+  // Its tab is opened and shown when its turn comes (typeAgentEditNow), then the text types in.
   if (typingTo.has(path)) typingTo.set(path, text);
   else void typeAgentEdit(b, text);
   return true;

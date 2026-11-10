@@ -406,16 +406,30 @@ function errorCard(text: string, hint?: string, tab?: AgentTabState): void {
   addMsg(`<div class="card error"><h5>${svgIcon('alert', 14)} The agent hit a problem</h5><pre>${esc(text)}</pre>${hintHtml}</div>`, tab);
 }
 
-function onAgentFile(r: Run, path: string, created = false): void {
+function onAgentFile(r: Run, path: string, created = false, written = false): void {
   r.files.add(path);
   locks[path] = { phase: r.phase, agent: r.agent };
   renderTree(); renderTabs();
   queueGitRefresh();
-  if (r.surfaceName === 'ide') background(openAgentFile(path, created));
+  if (r.surfaceName === 'ide') background(openAgentFile(path, created, written));
   else liveFile(path);
 }
+// The agent is about to change `path` (`before`: the file as it is now). Its tab opens with that text and is shown
+// first; the write then types out in it (fs.onChange → reloadText → typeAgentEdit).
+function onAgentOpening(r: Run, path: string, before: string | undefined): void {
+  if (r.surfaceName !== 'ide' || !rootInfo || baseName(path).startsWith('.env')) return;
+  locks[path] = { phase: r.phase, agent: r.agent };
+  if (!buffers.has(path)) {
+    if (before == null) { background(openAgentFile(path)); return; }
+    if (!blankBuffer(path, before)) return;
+    renderTabs();
+  }
+  void inAgentTurn(() => followAgentTo(path));
+}
 // Opens the file an agent is editing and shows it, so its changes type out in front of the person.
-async function openAgentFile(path: string, created = false): Promise<void> {
+// `written`: the agent reported the change after making it (Codex), so the file opens as committed and the change
+// types out from there, instead of the tab opening with the change already in it.
+async function openAgentFile(path: string, created = false, written = false): Promise<void> {
   if (baseName(path).startsWith('.env') || !rootInfo) return;
   if (!buffers.has(path)) {
     // A new file opens empty, so its text types in instead of appearing all at once.
@@ -424,10 +438,16 @@ async function openAgentFile(path: string, created = false): Promise<void> {
     } else {
       const r = await api.fs.readFile(path).catch(() => null);
       if (r?.text == null || kindOf(r) !== 'text') return; // deleted, binary or too large
-      if (!await loadBuffer(path)) return;
+      const head = written && !buffers.has(path) ? await api.git.headText(path).catch(() => null) : null;
+      if (head != null && !buffers.has(path)) {
+        const b = blankBuffer(path, head);
+        if (b && head.replaceAll('\r\n', '\n') !== r.text.replaceAll('\r\n', '\n')) void typeAgentEdit(b, r.text.replaceAll('\r\n', '\n'));
+      }
+      if (!buffers.has(path) && !await loadBuffer(path)) return;
     }
   }
-  followAgentTo(path);
+  // Shown in its turn, after any change still typing out in another file.
+  void inAgentTurn(() => followAgentTo(path));
   // Some agents report the file before writing it: catch a write that landed while it was opening.
   const b = buffers.get(path);
   if (b?.kind === 'text') for (const ms of created ? [0, 400, 1500] : [400, 1500]) setTimeout(() => { if (!holdsUserEdits(b)) void reloadText(b); }, ms);
@@ -509,7 +529,8 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
     toolLine(ev.kind ?? 'tool', ev.label ?? '', tab);
     setAgent(r.phase, 'working', ev.label ?? 'Working', r.tools);
   },
-  file: (r, ev) => { if (ev.path) onAgentFile(r, ev.path, !!ev.created); },
+  opening: (r, ev) => { if (ev.path) onAgentOpening(r, ev.path, ev.text); },
+  file: (r, ev) => { if (ev.path) onAgentFile(r, ev.path, !!ev.created, !!ev.written); },
   draft: (r, ev) => { if (ev.path) onAgentDraft(r, ev.path, ev.text ?? ''); },
   plan: (r, ev) => { r.plan = ev.text ?? ''; },
   approve: (r, ev, tab) => approveCard(r, ev, tab),

@@ -2611,7 +2611,8 @@ const CODEX_ITEMS = {
   file_change: (runId, it) => {
     for (const ch of it.changes || []) {
       emit(runId, { t: 'tool', kind: 'edit', label: `${CHANGE_VERB[ch.kind] || 'Edited'} ${relOut(ch.path)}` });
-      emit(runId, { t: 'file', path: relOut(ch.path), created: ch.kind === 'add' });
+      // Codex reports a change once it is on disk (`written`): the editor replays it from the committed text.
+      emit(runId, { t: 'file', path: relOut(ch.path), created: ch.kind === 'add', written: true });
     }
   },
   mcp_tool_call: (runId, it) => emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }),
@@ -2820,7 +2821,10 @@ const LLM_TOOL_FNS = {
     const abs = agentPath(ctx, a.path);
     const rel = relTo(ctx.base, abs);
     await checkTeamWrite(ctx, rel);
-    const { text, line } = brain.applyEdit(await fsp.readFile(abs, 'utf8'), a.old_text, a.new_text);
+    const before = await fsp.readFile(abs, 'utf8');
+    const { text, line } = brain.applyEdit(before, a.old_text, a.new_text);
+    // The editor switches to the file first, showing it as it is now, so the change then types out in front of the user.
+    emit(ctx.runId, { t: 'opening', path: relOut(abs), text: before });
     await fsp.writeFile(abs, text, 'utf8');
     ctx.touched.add(rel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Edited ${rel}` });
@@ -2832,6 +2836,12 @@ const LLM_TOOL_FNS = {
     await checkTeamWrite(ctx, relTo(ctx.base, abs));
     const content = String(a.content ?? '');
     const created = !fs.existsSync(abs);
+    // Rewriting a file: the editor shows it as it was first, then the new text types over it (a new file's tab
+    // opens empty from its draft).
+    if (!created) {
+      const before = await fsp.readFile(abs, 'utf8').catch(() => null);
+      if (before != null) emit(ctx.runId, { t: 'opening', path: relOut(abs), text: before });
+    }
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     await fsp.writeFile(abs, content, 'utf8');
     ctx.touched.add(relTo(ctx.base, abs));

@@ -9407,6 +9407,8 @@ body.layout-animating .box > .terminal.open {
   resize: none;
   outline: none;
   min-height: 48px;
+  overflow-y: hidden; /* mentions.ts (fitBoxPrompt) grows it with its text and turns scrolling on past the cap */
+  box-sizing: border-box;
 }
 
 /* The text is drawn by the layer behind (so a "/skill" can be blue): same font, the textarea's own text hidden. */
@@ -13183,6 +13185,20 @@ body.layout-animating #previewPane {
 
 .composer-access.on {
   color: var(--warn);
+}
+
+/* The Agents tab's prompt: Full access only shows once something is typed (mentions.ts sets .has-text), next to the
+   model chip that comes in at the same time. */
+.composer .composer-box:not(.has-text) .composer-access {
+  display: none;
+}
+
+.composer .composer-box.has-text .composer-access {
+  animation: composer-access-in .2s ease both;
+}
+
+@keyframes composer-access-in {
+  from { opacity: 0; transform: translateX(4px); }
 }
 
 /* Liquid switch: Jhey Tompkins' liquid toggle (codepen), in Breeze blue. settings.ts adds the parts below into
