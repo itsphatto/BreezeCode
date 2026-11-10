@@ -4,6 +4,8 @@
 
 // The engine returns a line cut to this many UTF-16 units; its full length comes back as `len`.
 const BIG_LONG_LINE = 10000;
+// An edit that would put more new lines than this into the cache clears it instead: the surface refetches its window.
+const BIG_CACHE_EDIT_LINES = 2000;
 
 function posCmp(a: DocPos, b: DocPos): number { return a.line - b.line || a.col - b.col; }
 function posMin(a: DocPos, b: DocPos): DocPos { return posCmp(a, b) <= 0 ? a : b; }
@@ -56,12 +58,15 @@ class LineCache {
     const lo = posMin(start, end), hi = posMax(start, end);
     const a = this.get(lo.line), b = this.get(hi.line);
     if (!a || !b || a.len > a.text.length || b.len > b.text.length) { this.clear(); return; }
+    let made = 1;
+    for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) made++;
+    if (made > BIG_CACHE_EDIT_LINES) { this.clear(); return; }
     const joined = a.text.slice(0, lo.col) + text + b.text.slice(hi.col);
-    const made: DocLine[] = joined.split('\n').map(t => {
-      // Like the engine, a line grown past the cut is held cut, with its full length in `len`.
-      return t.length > BIG_LONG_LINE ? { text: t.slice(0, BIG_LONG_LINE), len: t.length } : { text: t, len: t.length };
-    });
-    this.items.splice(lo.line - this.first, hi.line - lo.line + 1, ...made);
+    // Like the engine, a line grown past the cut is held cut, with its full length in `len`.
+    const lines: DocLine[] = joined.split('\n').map(t => t.length > BIG_LONG_LINE ? { text: t.slice(0, BIG_LONG_LINE), len: t.length } : { text: t, len: t.length });
+    const at = lo.line - this.first;
+    // Not splice(..., ...lines): spreading into a call has an argument limit.
+    this.items = this.items.slice(0, at).concat(lines, this.items.slice(at + hi.line - lo.line + 1));
   }
 
   clear(): void {
@@ -75,7 +80,9 @@ interface BigMods { shift: boolean; ctrl: boolean }
 // Columns never sit between the two halves of a surrogate pair.
 const isLowSurrogate = (c: number) => c >= 0xDC00 && c <= 0xDFFF;
 const isHighSurrogate = (c: number) => c >= 0xD800 && c <= 0xDBFF;
+// A line the engine cut ends at BIG_LONG_LINE, so a high surrogate as the last unit there is half of a pair cut in two.
 function snapCol(text: string | undefined, col: number): number {
+  if (text && col === BIG_LONG_LINE && col === text.length && isHighSurrogate(text.charCodeAt(col - 1))) return col - 1;
   if (text && col > 0 && col < text.length && isLowSurrogate(text.charCodeAt(col)) && isHighSurrogate(text.charCodeAt(col - 1))) return col - 1;
   return col;
 }
@@ -93,7 +100,7 @@ function bigMove(head: DocPos, key: string, mods: BigMods, lines: number, page: 
   lenOf: (line: number) => number | undefined, textOf?: (line: number) => string | undefined): { head: DocPos; goal: number | null } {
   const to = (line: number, col: number, g: number | null = null) => ({ head: { line, col }, goal: g });
   const lastLine = Math.max(0, lines - 1);
-  const endOf = (line: number) => lenOf(line) ?? BIG_LONG_LINE;
+  const endOf = (line: number) => snapCol(textOf?.(line), lenOf(line) ?? BIG_LONG_LINE);
   const { line, col } = head;
   switch (key) {
     case 'ArrowLeft':

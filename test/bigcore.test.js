@@ -73,3 +73,30 @@ test('bigMove: a vertical move never lands inside a surrogate pair', () => {
   const lenOf = l => [4, 4][l], textOf = l => ['abcd', 'a😀b'][l], m = { shift: false, ctrl: false };
   eq(bigMove(P(0, 2), 'ArrowDown', m, 2, 2, null, lenOf, textOf).head, P(1, 1));
 });
+test('apply: a huge paste never throws, and clears the cache with rev bumped once', () => {
+  const c = new LineCache(); c.put(0, L('ab'), 0);
+  assert.doesNotThrow(() => c.apply(P(0, 1), P(0, 1), 'x\n'.repeat(300000)));
+  assert.equal(c.items.length, 0); assert.equal(c.rev, 1);
+});
+test('apply: a paste of exactly the line bound is held, one line over clears', () => {
+  const max = vm.runInContext('BIG_CACHE_EDIT_LINES', ctx);
+  assert.equal(max, 2000);
+  const c = new LineCache(); c.put(0, L('ab', 'cd'), 0);
+  c.apply(P(0, 1), P(0, 1), '\n'.repeat(max - 1));            // max new lines in all from the first line
+  assert.equal(c.items.length, max + 1); assert.equal(c.items[0].text, 'a'); assert.equal(c.items[max - 1].text, 'b'); assert.equal(c.items[max].text, 'cd'); assert.equal(c.rev, 1);
+  const d = new LineCache(); d.put(0, L('ab', 'cd'), 0);
+  d.apply(P(0, 1), P(0, 1), '\n'.repeat(max));
+  assert.equal(d.items.length, 0); assert.equal(d.rev, 1);
+});
+test('apply: an ordinary 3-line paste in the middle of the cache', () => {
+  const c = new LineCache(); c.put(4, L('one', 'two', 'three'), 0);
+  c.apply(P(5, 1), P(5, 2), 'A\nB\nC'); eq(texts(c), ['one', 'tA', 'B', 'Co', 'three']); assert.equal(c.first, 4);
+});
+test('bigMove: End and Down past the last line never land inside a cut surrogate pair', () => {
+  const text = 'x'.repeat(9999) + '\uD83D', m = { shift: false, ctrl: false };   // the engine cut a pair after its high half
+  const lenOf = () => 10000, textOf = () => text;
+  eq(bigMove(P(0, 5), 'End', m, 1, 2, null, lenOf, textOf).head, P(0, 9999));
+  eq(bigMove(P(0, 5), 'ArrowDown', m, 1, 2, null, lenOf, textOf).head, P(0, 9999));
+  eq(bigMove(P(0, 5), 'End', { shift: false, ctrl: true }, 1, 2, null, lenOf, textOf).head, P(0, 9999));
+  eq(bigMove(P(0, 5), 'End', m, 1, 2, null, lenOf).head, P(0, 10000));            // no text: the caller clamps
+});
