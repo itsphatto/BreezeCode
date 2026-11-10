@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use ropey::{Rope, RopeSlice};
 
+use crate::disk::{self, Stamp};
 use crate::history::{History, Step};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -28,10 +29,10 @@ pub enum EditKind { Type, Delete, Paste, Other }
 /// The error for an edit to a file that isn't valid UTF-8.
 pub const READ_ONLY_MSG: &str = "This file isn't valid UTF-8, so it can't be edited here";
 
+const NO_PATH_MSG: &str = "This file has no path";
+
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
-// Some fields are only read by later tasks (saving, editing, undo).
-#[allow(dead_code)]
 pub struct Doc {
     rope: Rope,
     path: Option<PathBuf>,
@@ -41,30 +42,70 @@ pub struct Doc {
     bytes: u64,
     rev: u64,
     saved_rev: u64,
+    stamp: Option<Stamp>,
     history: History,
 }
 
 impl Doc {
     pub fn load(path: &Path) -> Result<Doc, String> {
-        let meta = std::fs::metadata(path).map_err(|e| format!("Couldn't open that file: {e}"))?;
-        if meta.len() > MAX_BYTES { return Err("This file is larger than 2 GB".to_string()); }
-        let bytes = std::fs::read(path).map_err(|e| format!("Couldn't read that file: {e}"))?;
+        let (bytes, stamp) = read_disk(path)?;
         let mut doc = Doc::from_bytes(bytes);
         doc.path = Some(path.to_path_buf());
+        doc.stamp = stamp;
         Ok(doc)
     }
 
     /// A document with no path, built from raw file bytes.
     pub fn from_bytes(bytes: Vec<u8>) -> Doc {
-        let size = bytes.len() as u64;
-        let bom = bytes.starts_with(BOM);
-        let body = if bom { &bytes[BOM.len()..] } else { &bytes[..] };
-        let (rope, read_only) = match std::str::from_utf8(body) {
-            Ok(s) => (Rope::from_str(s), false),
-            Err(_) => (Rope::from_str(&String::from_utf8_lossy(body)), true),
-        };
-        let eol = if has_crlf(&rope) { "\r\n" } else { "\n" };
-        Doc { rope, path: None, eol, bom, read_only, bytes: size, rev: 0, saved_rev: 0, history: History::default() }
+        let content = Content::parse(bytes);
+        Doc {
+            rope: content.rope, path: None, eol: content.eol, bom: content.bom, read_only: content.read_only,
+            bytes: content.bytes, rev: 0, saved_rev: 0, stamp: None, history: History::default(),
+        }
+    }
+
+    pub fn path(&self) -> Option<&Path> { self.path.as_deref() }
+
+    /// The file's stamp as of the last load, reload or save.
+    pub fn stamp(&self) -> Option<Stamp> { self.stamp }
+
+    /// Whether the file's stamp differs from ours, or the file is gone. A document with no path
+    /// never changes on disk.
+    pub fn changed_on_disk(&self) -> bool {
+        match &self.path {
+            None => false,
+            Some(path) => disk::stamp(path).ok() != self.stamp,
+        }
+    }
+
+    /// Writes the document over its file. A failed save leaves the file, the text and the dirty
+    /// state untouched. Returns the bytes written.
+    pub fn save(&mut self) -> Result<u64, String> {
+        if self.read_only { return Err(READ_ONLY_MSG.to_string()); }
+        let path = self.path.clone().ok_or_else(|| NO_PATH_MSG.to_string())?;
+        let written = disk::write_atomic(&path, self.bom, self.rope.chunks())?;
+        self.bytes = written;
+        self.saved_rev = self.rev;
+        self.stamp = disk::stamp(&path).ok();   // taken after the rename, so our own save is not seen as an outside change
+        Ok(written)
+    }
+
+    /// Re-reads the file, replacing the text. Undo history is dropped: its steps point into text
+    /// that no longer exists. The reloaded text counts as saved. A failed read changes nothing.
+    pub fn reload(&mut self) -> Result<(), String> {
+        let path = self.path.clone().ok_or_else(|| NO_PATH_MSG.to_string())?;
+        let (bytes, stamp) = read_disk(&path)?;
+        let content = Content::parse(bytes);
+        self.rope = content.rope;
+        self.eol = content.eol;
+        self.bom = content.bom;
+        self.read_only = content.read_only;
+        self.bytes = content.bytes;
+        self.stamp = stamp;
+        self.history.clear();
+        self.rev += 1;
+        self.saved_rev = self.rev;
+        Ok(())
     }
 
     pub fn line_count(&self) -> usize { self.rope.len_lines() }
@@ -187,6 +228,33 @@ impl Doc {
     }
 }
 
+/// The facts derived from a file's bytes: shared by loading and reloading.
+struct Content { rope: Rope, eol: &'static str, bom: bool, read_only: bool, bytes: u64 }
+
+impl Content {
+    fn parse(bytes: Vec<u8>) -> Content {
+        let size = bytes.len() as u64;
+        let bom = bytes.starts_with(BOM);
+        let body = if bom { &bytes[BOM.len()..] } else { &bytes[..] };
+        let (rope, read_only) = match std::str::from_utf8(body) {
+            Ok(s) => (Rope::from_str(s), false),
+            Err(_) => (Rope::from_str(&String::from_utf8_lossy(body)), true),
+        };
+        let eol = if has_crlf(&rope) { "\r\n" } else { "\n" };
+        Content { rope, eol, bom, read_only, bytes: size }
+    }
+}
+
+/// The file's bytes and its stamp. The stamp is taken before the read, so a change that lands
+/// in between is noticed later rather than missed.
+fn read_disk(path: &Path) -> Result<(Vec<u8>, Option<Stamp>), String> {
+    let meta = std::fs::metadata(path).map_err(|e| format!("Couldn't open that file: {e}"))?;
+    if meta.len() > MAX_BYTES { return Err("This file is larger than 2 GB".to_string()); }
+    let stamp = disk::stamp(path).ok();
+    let bytes = std::fs::read(path).map_err(|e| format!("Couldn't read that file: {e}"))?;
+    Ok((bytes, stamp))
+}
+
 /// Whether the text holds `\r\n` anywhere, including across a chunk boundary.
 fn has_crlf(rope: &Rope) -> bool {
     let finder = memchr::memmem::Finder::new(b"\r\n");
@@ -203,6 +271,7 @@ fn has_crlf(rope: &Rope) -> bool {
 mod tests {
     use super::*;
     use crate::search::{Hit, COUNT_CAP, TEXT_CAP_BYTES, TEXT_CAP_MSG};
+    use crate::testutil::TempDir;
 
     fn doc(s: &str) -> Doc { Doc::from_bytes(s.as_bytes().to_vec()) }
     fn texts(d: &Doc, first: usize, count: usize) -> Vec<String> { d.lines(first, count).into_iter().map(|l| l.text).collect() }
@@ -333,6 +402,44 @@ mod tests {
                 }
             }
         }
+    }
+    #[test] fn unedited_round_trip_is_byte_identical() {   // CRLF, mixed endings, BOM, no trailing newline
+        for bytes in [&b"a\r\nb\nc"[..], b"\xEF\xBB\xBFx\r\n", b"", b"one line"] {
+            let t = TempDir::new(); let f = t.file("f.txt", bytes);
+            let mut d = Doc::load(&f).unwrap(); d.save().unwrap();
+            assert_eq!(std::fs::read(&f).unwrap(), bytes);
+        }
+    }
+    #[test] fn edits_land_and_dirty_clears() { let t = TempDir::new(); let f = t.file("f.txt", b"ab"); let mut d = Doc::load(&f).unwrap(); d.edit(p(0,2),p(0,2),"c",EditKind::Type).unwrap(); assert!(d.dirty()); assert_eq!(d.save().unwrap(), 3); assert!(!d.dirty()); assert_eq!(std::fs::read(&f).unwrap(), b"abc"); assert!(!d.changed_on_disk()); }
+    #[test] fn no_temp_file_left_behind() { let t = TempDir::new(); let f = t.file("f.txt", b"a"); Doc::load(&f).unwrap().save().unwrap(); assert_eq!(std::fs::read_dir(t.path()).unwrap().count(), 1); }
+    #[test] fn external_change_is_seen_and_reload_takes_it() { let t = TempDir::new(); let f = t.file("f.txt", b"a"); let mut d = Doc::load(&f).unwrap(); assert!(!d.changed_on_disk()); std::fs::write(&f, b"longer").unwrap(); assert!(d.changed_on_disk()); d.reload().unwrap(); assert_eq!(d.whole(), "longer"); assert!(!d.dirty()); assert_eq!(d.undo(), None); assert!(!d.changed_on_disk()); }
+    #[test] fn deleted_file_counts_as_changed() { let t = TempDir::new(); let f = t.file("f.txt", b"a"); let d = Doc::load(&f).unwrap(); std::fs::remove_file(&f).unwrap(); assert!(d.changed_on_disk()); }
+    #[test] fn read_only_cannot_save() { let t = TempDir::new(); let f = t.file("f.bin", &[0xFF]); assert_eq!(Doc::load(&f).unwrap().save().unwrap_err(), READ_ONLY_MSG); }
+    #[test] fn save_without_a_path_fails() { let mut d = doc("a"); assert_eq!(d.save().unwrap_err(), "This file has no path"); assert_eq!(d.reload().unwrap_err(), "This file has no path"); assert!(!d.changed_on_disk()); assert_eq!(d.path(), None); assert_eq!(d.stamp(), None); }
+    #[test] fn bom_survives_an_edit_and_save() { let t = TempDir::new(); let f = t.file("f.txt", b"\xEF\xBB\xBFab\r\n"); let mut d = Doc::load(&f).unwrap(); d.edit(p(0,2),p(0,2),"c\nd",EditKind::Type).unwrap(); assert_eq!(d.save().unwrap(), 11); assert_eq!(std::fs::read(&f).unwrap(), b"\xEF\xBB\xBFabc\r\nd\r\n"); assert_eq!(d.bytes(), 11); }
+    #[test] fn reload_redetects_ending_bom_and_read_only() {
+        let t = TempDir::new(); let f = t.file("f.txt", b"a\nb");
+        let mut d = Doc::load(&f).unwrap(); assert_eq!(d.eol(), "\n");
+        d.edit(p(0,0),p(0,0),"x",EditKind::Type).unwrap();
+        std::fs::write(&f, b"\xEF\xBB\xBFq\r\nr").unwrap(); d.reload().unwrap();
+        assert_eq!(d.eol(), "\r\n"); assert_eq!(d.whole(), "q\r\nr"); assert_eq!(d.bytes(), 7); assert!(!d.dirty());
+        d.save().unwrap(); assert_eq!(std::fs::read(&f).unwrap(), b"\xEF\xBB\xBFq\r\nr");   // BOM kept
+        std::fs::write(&f, [0xFF, b'a']).unwrap(); d.reload().unwrap(); assert!(d.read_only());
+    }
+    #[test] fn reload_of_a_vanished_file_fails_and_keeps_the_text() { let t = TempDir::new(); let f = t.file("f.txt", b"a"); let mut d = Doc::load(&f).unwrap(); d.edit(p(0,1),p(0,1),"b",EditKind::Type).unwrap(); std::fs::remove_file(&f).unwrap(); assert!(d.reload().is_err()); assert_eq!(d.whole(), "ab"); assert!(d.dirty()); assert!(d.undo().is_some()); }
+    #[test] fn save_recreates_a_deleted_file() { let t = TempDir::new(); let f = t.file("f.txt", b"a"); let mut d = Doc::load(&f).unwrap(); std::fs::remove_file(&f).unwrap(); d.save().unwrap(); assert_eq!(std::fs::read(&f).unwrap(), b"a"); assert!(!d.changed_on_disk()); }
+    #[test] fn failed_save_into_a_missing_folder_changes_nothing() { let t = TempDir::new(); let sub = t.dir("sub"); let f = sub.join("f.txt"); std::fs::write(&f, b"a").unwrap(); let mut d = Doc::load(&f).unwrap(); d.edit(p(0,1),p(0,1),"b",EditKind::Type).unwrap(); std::fs::remove_dir_all(&sub).unwrap(); assert!(d.save().is_err()); assert!(d.dirty()); assert_eq!(d.whole(), "ab"); }
+    #[cfg(windows)]
+    #[test] fn locked_file_fails_cleanly() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = TempDir::new(); let f = t.file("f.txt", b"old");
+        let mut d = Doc::load(&f).unwrap(); d.edit(p(0,3),p(0,3),"!",EditKind::Type).unwrap();
+        let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&f).unwrap();   // no sharing: rename over it must fail
+        assert!(d.save().is_err());
+        assert!(d.dirty()); assert_eq!(d.whole(), "old!");
+        assert_eq!(std::fs::read_dir(t.path()).unwrap().count(), 1);   // temp file removed
+        drop(held); assert_eq!(std::fs::read(&f).unwrap(), b"old");
+        assert_eq!(d.save().unwrap(), 4); assert_eq!(std::fs::read(&f).unwrap(), b"old!");   // and a retry works
     }
     #[test] fn edit_inside_a_cut_line() { let mut d = doc(&"x".repeat(30_000)); d.edit(p(0,5), p(0,5), "Y", EditKind::Type).unwrap(); assert_eq!(d.lines(0,1)[0].len, 30_001); assert_eq!(&d.lines(0,1)[0].text[..7], "xxxxxYx"); }
 }

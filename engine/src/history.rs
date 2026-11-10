@@ -96,7 +96,6 @@ impl History {
     }
 
     /// Forgets every step.
-    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.undo.clear();
         self.redo.clear();
