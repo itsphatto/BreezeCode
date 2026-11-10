@@ -1509,7 +1509,13 @@ const AGENTS = [
   },
 ];
 // Claude Code takes these aliases for --model; "default" leaves the choice to its own settings.
-const CLAUDE_MODELS = ['default', 'opus', 'sonnet', 'haiku'];
+const CLAUDE_MODELS = ['default', 'fable', 'opus', 'sonnet', 'haiku'];
+// An older Claude Code has no fable alias, so it's offered only when this one's --help names it.
+function claudeOffersFable(bin) {
+  return new Promise(res => {
+    exec(`"${bin}" --help`, { windowsHide: true, timeout: 8000 }, (err, stdout) => res(!err && /\bfable\b/i.test(stdout)));
+  });
+}
 const agentBins = new Map(); // agent id -> executable found by the last scan
 // Folders of the agents found off PATH, so the Terminal panel can run them by name.
 const agentDirs = () => [...new Set([...agentBins.values()].filter(b => !b.endsWith('.app')).map(b => path.dirname(b)))];
@@ -1579,8 +1585,9 @@ async function detectAgent(a) {
     models = bin ? await antigravityModels(bin) : [...AntigravityAgentService.DEFAULT_MODELS];
     version = loadState().antigravityModel || models[0] || 'claude-sonnet-4-6';
   } else if (a.id === 'claude') {
-    models = CLAUDE_MODELS;
-    version = loadState().claudeModel || 'default';
+    models = bin && await claudeOffersFable(bin) ? CLAUDE_MODELS : CLAUDE_MODELS.filter(m => m !== 'fable');
+    const saved = loadState().claudeModel;
+    version = models.includes(saved) ? saved : 'default';
   } else if (bin) {
     version = await versionOf(bin);
   }
@@ -1928,7 +1935,8 @@ const windowLabel = min => ({ 300: '5-hour', 10080: 'Weekly', 43200: 'Monthly' }
 // A window whose reset time has passed is empty again until the agent next reports.
 const limitWindow = (label, usedPct, resetsAt) =>
   resetsAt && resetsAt * 1000 < Date.now() ? { label, used: 0, resetsAt: null } : { label, used: Math.min(100, Math.max(0, usedPct)), resetsAt: resetsAt || null };
-const CLAUDE_WINDOWS = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
+const FABLE_WEEK = 'Weekly (Fable)';
+const CLAUDE_WINDOWS = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_overage_included: FABLE_WEEK, seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
 // The last numbers seen, from a Breeze run (rate_limit_event: utilization 0–1, resetsAt in seconds) or the live ask
 // below. Only a fallback: they go stale as soon as Claude is used anywhere else.
 function claudeLimits() {
@@ -1971,6 +1979,9 @@ async function claudeLiveLimits() {
     if (res.status === 401 || res.status === 403) return claudeLiveFailed('Claude Code\'s sign-in can\'t read plan limits. Sign in to it again');
     if (!res.ok) return claudeLiveFailed('Claude couldn\'t send its plan limits. Trying again soon');
     const d = await res.json();
+    // Fable's week has no field of its own in this reply: it is a row of limits[] (percent 0–100), named by the server.
+    const fable = Array.isArray(d?.limits) && d.limits.find(l => l?.kind === 'weekly_scoped' && /fable/i.test(l.scope?.model?.display_name || ''));
+    if (d) d.seven_day_overage_included = typeof fable?.percent === 'number' ? { utilization: fable.percent, resets_at: fable.resets_at } : undefined;
     const shown = Object.keys(CLAUDE_WINDOWS).filter(k => typeof d?.[k]?.utilization === 'number');
     if (!shown.length) return claudeLiveFailed('Claude sent no plan limits for this account');
     const resets = k => (d[k].resets_at ? Date.parse(d[k].resets_at) / 1000 : null);
@@ -2039,6 +2050,21 @@ async function claudeTokens() {
   }
   return [...byMsg.values()].reduce((a, b) => a + b, 0);
 }
+// Has any Claude Code session ever run on Fable? Remembered once seen, so it holds after old logs are gone; until then
+// each check only reads the logs that changed since the last one.
+let fableLogsRead = 0;
+async function claudeUsedFable() {
+  if (loadState().claudeUsedFable) return true;
+  const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+  const since = fableLogsRead;
+  fableLogsRead = Date.now();
+  for (const file of await recentLogs(base, 3, since)) {
+    if (!(await fs.promises.readFile(file, 'utf8').catch(() => '')).includes('"model":"claude-fable')) continue;
+    saveState({ claudeUsedFable: true });
+    return true;
+  }
+  return false;
+}
 // A Codex session keeps a running total; this month's share is its last total less the last one from before the month.
 async function codexTokens() {
   const base = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
@@ -2066,7 +2092,8 @@ async function agentUsage() {
   // The logs include Breeze's own runs; Breeze's count stays as a floor in case an agent logs somewhere else.
   usage.claude = Math.max(usage.claude || 0, await claudeTokens());
   usage.codex = Math.max(usage.codex || 0, await codexTokens());
-  return { usage, limits: { claude: (await claudeLiveLimits()) ?? claudeLimits(), codex: codexLimits() }, notes: { claude: claudeLive.why } };
+  const claude = (await claudeLiveLimits()) ?? claudeLimits();
+  return { usage, limits: { claude: await claudeUsedFable() ? claude : claude.filter(w => w.label !== FABLE_WEEK), codex: codexLimits() }, notes: { claude: claudeLive.why } };
 }
 handle('agent:usage', () => (usageJob ??= agentUsage().finally(() => { usageJob = null; })));
 

@@ -352,7 +352,8 @@ Instructions:
    grows in, one that's gone (the last change committed) shrinks away where it was, and the commit button's new label
    comes into focus. A file moving between Changes and Staged slides across, being the same block. */
 const SCM_BLOCKS = '.commit-box, .scm-sec:not(.graph):not(.prs) > .scm-head, .scm-sec:not(.graph):not(.prs) .scm-row, .scm-sec.graph, .scm-sec.prs, #scm > .side-note';
-type ScmShot = { blocks: Map<string, { el: HTMLElement; r: DOMRect }>; label: string };
+type ScmSync = { el: HTMLElement; w: number };
+type ScmShot = { blocks: Map<string, { el: HTMLElement; r: DOMRect }>; label: string; sync: ScmSync | null };
 function scmBlockKey(el: HTMLElement): string {
   const sec = el.closest<HTMLElement>('.scm-sec')?.dataset.sec;
   if (el.matches('.scm-row')) return `row:${el.dataset.file ?? `${sec}:${el.title}`}`;
@@ -367,7 +368,27 @@ const scmLabel = () => document.querySelector('#scm [data-act="git.commit"]')?.t
 function shootScm(): ScmShot | null {
   const el = $('#scm');
   if (!el.querySelector('.commit-box') || !el.offsetParent || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
-  return { blocks: new Map(Array.from(scmBlocks(), ([k, b]) => [k, { el: b, r: b.getBoundingClientRect() }])), label: scmLabel() };
+  const sync = el.querySelector<HTMLElement>('[data-act="git.sync"]');
+  const beside = sync && sync.offsetTop === el.querySelector<HTMLElement>('[data-act="git.commit"]')?.offsetTop;
+  return { blocks: new Map(Array.from(scmBlocks(), ([k, b]) => [k, { el: b, r: b.getBoundingClientRect() }])), label: scmLabel(), sync: beside ? { el: sync, w: sync.getBoundingClientRect().width } : null };
+}
+// Push (or Sync) comes and goes by growing out of Commit's right edge and folding back into it; Commit, which fills the
+// row, follows on its own. It starts from the width just measured, so a redraw in the middle carries on instead of snapping.
+function morphScmSync(was: ScmSync | null, easing: string): void {
+  const commit = document.querySelector<HTMLElement>('#scm [data-act="git.commit"]'), row = commit?.parentElement;
+  if (!commit || !row) return;
+  const now = row.querySelector<HTMLElement>('[data-act="git.sync"]'), btn = now ?? was?.el;
+  if (!btn || (now && now.offsetTop !== commit.offsetTop)) return; // a narrow panel wraps it onto its own line: nothing to morph
+  const gap = parseFloat(getComputedStyle(row).columnGap), full = (row.getBoundingClientRect().width - gap) / 2;
+  const from = was?.w ?? 0, to = now ? full : 0;
+  if (Math.abs(from - to) < 1) return;
+  if (!now) { btn.inert = true; row.append(btn); } // the old button itself, put back to fold away
+  btn.getAnimations().forEach(a => a.cancel());
+  const pad = parseFloat(getComputedStyle(btn).paddingLeft);
+  const morph = btn.animate([scmSyncFrame(from, full, gap, pad), scmSyncFrame(to, full, gap, pad)], { duration: 340, easing, fill: now ? 'none' : 'forwards' });
+  if (now) return;
+  morph.onfinish = () => btn.remove();
+  setTimeout(() => btn.remove(), 400); // a hidden window runs no animations
 }
 function playScm(shot: ScmShot | null): void {
   if (!shot) return;
@@ -390,6 +411,7 @@ function playScm(shot: ScmShot | null): void {
     host.append(ghost);
     ghost.animate([...grow].reverse(), { duration: 220, easing: 'ease-in', fill: 'forwards' }).onfinish = () => ghost.remove();
   }
+  morphScmSync(shot.sync, ease);
   const btn = document.querySelector<HTMLElement>('#scm [data-act="git.commit"]');
   if (btn && shot.label && btn.textContent !== shot.label) {
     const fg = getComputedStyle(btn).color;

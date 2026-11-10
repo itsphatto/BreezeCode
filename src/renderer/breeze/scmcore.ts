@@ -43,3 +43,10 @@ function prListState(s: { signedIn: boolean; branch: string | null; result: GhRe
   if (!s.result.ok) return s.result.error;
   return 'ok';
 }
+
+// The Push or Sync button beside Commit at a given width. Shut (0) it takes up no room at all, so Commit fills the row;
+// open (`full`) it matches its resting box, so nothing jumps when the morph ends.
+function scmSyncFrame(w: number, full: number, gap: number, pad: number): Keyframe {
+  const t = Math.min(1, w / full);
+  return { flexGrow: 0, flexBasis: `${w}px`, minWidth: '0px', marginLeft: `${(t - 1) * gap}px`, paddingLeft: `${pad * t}px`, paddingRight: `${pad * t}px`, borderLeftWidth: `${t}px`, borderRightWidth: `${t}px`, opacity: t, overflow: 'hidden', whiteSpace: 'nowrap' };
+}

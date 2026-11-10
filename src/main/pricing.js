@@ -28,7 +28,7 @@ const PRICES = [
 ];
 const HAIKU_LONG = { over: 100_000, price: [0.5, 0.625, 0.05, 2.5] };
 // Claude Code can log the short names it was started with.
-const ALIASES = { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
+const ALIASES = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
 
 function priceOf(model) {
   const id = String(model || '').toLowerCase().trim();

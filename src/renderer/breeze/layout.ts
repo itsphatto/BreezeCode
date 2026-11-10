@@ -1,9 +1,12 @@
 /* ================= Layout: resizable, collapsible panels ================= */
 // termDock: the IDE's terminal under the editor ('bottom') or beside it as a side bar ('side', termW wide).
-interface Layout { side: number; agents: number; term: number; termW: number; termDock: 'bottom' | 'side'; preview: number; scmLeft: number; sideOpen: boolean; agentsOpen: boolean; termOpen: boolean; previewOpen: boolean; view: string; }
-type SashKind = 'side' | 'agents' | 'preview' | 'term' | 'scm';
-const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, termW: 420, termDock: 'bottom', preview: 460, scmLeft: 320, sideOpen: true, agentsOpen: true, termOpen: false, previewOpen: true, view: 'files' };
+// boxSide, boxTerm: Breeze Space's chats side bar and terminal. boxTerm is 0 until it's dragged: it follows the window.
+interface Layout { side: number; agents: number; term: number; termW: number; termDock: 'bottom' | 'side'; preview: number; scmLeft: number; boxSide: number; boxTerm: number; sideOpen: boolean; agentsOpen: boolean; termOpen: boolean; previewOpen: boolean; view: string; }
+type SashKind = 'side' | 'agents' | 'preview' | 'term' | 'scm' | 'boxSide' | 'boxTerm';
+const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, termW: 420, termDock: 'bottom', preview: 460, scmLeft: 320, boxSide: 248, boxTerm: 0, sideOpen: true, agentsOpen: true, termOpen: false, previewOpen: true, view: 'files' };
 const layout: Layout = { ...DEFAULT_LAYOUT, ...store.get<Partial<Layout>>('breeze.layout', {}) };
+const boxTermDefault = () => clamp(innerWidth * .34, 320, 560);
+const boxTermMax = () => Math.max(280, innerWidth - layout.boxSide - 420); // leaves the conversation usable
 // The terminal's own window while it is popped out (popOutTerminal, below).
 let termPopup: Window | null = null;
 function termPopped(): boolean { return !!termPopup && !termPopup.closed; }
@@ -33,6 +36,8 @@ function applyLayout(): void {
   // The Source Control page's left column (prs.ts); the editor beside it is pushed over by as much. A layout saved
   // before it existed has no scmLeft.
   main.style.setProperty('--scm-left', `${clamp(layout.scmLeft, 240, 560)}px`);
+  $('#box').style.setProperty('--box-side-w', `${clamp(layout.boxSide, 180, 480)}px`);
+  $('#box').style.setProperty('--box-term-w', `${Math.min(layout.boxTerm || boxTermDefault(), boxTermMax())}px`);
   main.classList.toggle('no-side', !layout.sideOpen);
   main.classList.toggle('no-agents', !layout.agentsOpen);
   // The work area is hidden while the Source Control page shows a diff or pull request, so it has no width to size the
@@ -74,6 +79,8 @@ const SASH_DRAG: Record<SashKind, (start: Layout, dx: number, dy: number) => voi
   agents: (start, dx) => { const w = start.agents - dx; layout.agentsOpen = w >= 180; if (layout.agentsOpen) layout.agents = clamp(w, 260, 720); },
   preview: (start, dx) => { const w = start.preview - dx; layout.previewOpen = w >= 140; if (layout.previewOpen) layout.preview = clamp(w, 220, $('#work').clientWidth - 220); },
   scm: (start, dx) => { layout.scmLeft = clamp(start.scmLeft + dx, 240, 560); },
+  boxSide: (start, dx) => { layout.boxSide = clamp(start.boxSide + dx, 180, 480); },
+  boxTerm: (start, dx) => { layout.boxTerm = clamp((start.boxTerm || boxTermDefault()) - dx, 280, boxTermMax()); },
   term: (start, dx, dy) => {
     if (layout.termDock === 'side') { const w = start.termW - dx; layout.termOpen = w >= 160; if (layout.termOpen) layout.termW = clamp(w, 260, innerWidth - 560); return; }
     const h = start.term - dy; layout.termOpen = h >= 60; if (layout.termOpen) layout.term = clamp(h, 80, innerHeight - 220);
@@ -94,6 +101,7 @@ function sashGap(sash: HTMLElement): [number, number, number, number] | null {
   if (!cardEl?.offsetParent) return null;
   const kind = sash.dataset.sash;
   if (kind === 'term' && (!cardEl.classList.contains('open') || cardEl.parentElement?.id === 'box' || termPopped())) return null; // it sets the height, which Breeze Space's side bar doesn't use
+  if (kind === 'boxTerm' && (cardEl.parentElement?.id !== 'box' || !cardEl.classList.contains('open') || termPopped())) return null;
   // A closed preview keeps its (zero-width) card in the layout; its sash would sit on the editor's edge and resize
   // nothing useful, since the editor and agents already share the sash beside the agents panel.
   if (kind === 'preview' && !layout.previewOpen) return null;
@@ -102,7 +110,7 @@ function sashGap(sash: HTMLElement): [number, number, number, number] | null {
   const half = (Number.parseFloat(getComputedStyle($('#main')).getPropertyValue('--gap')) || 6) / 2;
   return kind === 'term' && layout.termDock !== 'side'
     ? [card.left, card.top - half, card.width, 0]
-    : [kind === 'side' || kind === 'scm' ? card.right + half : card.left - half, card.top, 0, card.height];
+    : [kind === 'side' || kind === 'scm' || kind === 'boxSide' ? card.right + half : card.left - half, card.top, 0, card.height];
 }
 function placeSashes(): void {
   for (const sash of sashCards.keys()) {
@@ -116,14 +124,14 @@ function placeSashes(): void {
 }
 const sashWatch = new ResizeObserver(() => placeSashes());
 new Set(sashCards.values()).forEach(c => sashWatch.observe(c));
-[document.body, $('#main'), $('#work')].forEach(el => sashWatch.observe(el));
+[document.body, $('#main'), $('#work'), $('#box')].forEach(el => sashWatch.observe(el));
 // Panels slide when they open, close or reset; settle the sashes once the slide ends.
 [$('#main'), $('#work')].forEach(el => el.addEventListener('transitionend', e => { if (e.target === el) placeSashes(); }));
 placeSashes();
 addEventListener('load', placeSashes);
 // The app's intro scales the whole window in; boxes measured mid-intro are off, so settle again when it ends.
 $('#ide').addEventListener('animationend', e => { if (e.target === e.currentTarget) placeSashes(); });
-$('#main').addEventListener('pointerenter', placeSashes); // a cheap re-check whenever the pointer comes back to the panels
+[$('#main'), $('#box')].forEach(el => el.addEventListener('pointerenter', placeSashes)); // a cheap re-check whenever the pointer comes back to the panels
 void document.fonts.ready.then(placeSashes);
 function placeSashLine(sash: HTMLElement | null): void {
   sashLine.classList.toggle('on', !!sash);
@@ -144,7 +152,7 @@ function startSashDrag(sash: HTMLElement, kind: SashKind, e: PointerEvent): void
     removeEventListener('pointermove', move); removeEventListener('pointerup', up);
     document.body.classList.remove('resizing', 'resizing-h'); sash.classList.remove('active');
     placeSashLine((ev.target as HTMLElement)?.closest?.<HTMLElement>('[data-sash]') === sash ? sash : null);
-    if (layout.side !== start.side || layout.agents !== start.agents || layout.preview !== start.preview || layout.scmLeft !== start.scmLeft || layout.term !== start.term || layout.termW !== start.termW || layout.sideOpen !== start.sideOpen || layout.agentsOpen !== start.agentsOpen || layout.previewOpen !== start.previewOpen || layout.termOpen !== start.termOpen) {
+    if (layout.side !== start.side || layout.agents !== start.agents || layout.preview !== start.preview || layout.scmLeft !== start.scmLeft || layout.boxSide !== start.boxSide || layout.boxTerm !== start.boxTerm || layout.term !== start.term || layout.termW !== start.termW || layout.sideOpen !== start.sideOpen || layout.agentsOpen !== start.agentsOpen || layout.previewOpen !== start.previewOpen || layout.termOpen !== start.termOpen) {
       pushAppAction({ type: 'layout', prev: start, next: { ...layout } });
     }
   };

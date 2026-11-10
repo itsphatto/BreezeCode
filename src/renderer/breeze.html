@@ -27,6 +27,27 @@
         <feColorMatrix result="goo" in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 16 -10" />
         <feComposite in="goo" operator="atop" />
       </filter>
+      <!-- Scroll edges (breeze.css, .set-main and the lists after it): rows squeeze toward the edge they leave by.
+           Each map is as tall as its layer and wider than any pane; green says how far out a row looks, from the
+           edge (half the layer's height) easing to nothing at its inner side. The thin pair is for the prompt.
+           The maps are 1x40 bitmaps stretched to fit, not SVG: a vector map that wide was redrawn on every frame
+           and took the whole app down to 18fps. -->
+      <filter id="squeeze-top" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feImage result="map" x="0" y="0" width="9999" height="40" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAIAAACw1AcgAAAAXklEQVR42j3DoQrCUAAAwAdLtpWlJYtpZWXBsrJgWDAYBMEwGIgwRJiIw8336V4QDy7EJIS4MjUzd+3GwtLKrbWNO1v3Hjx68mxn78Wrgzfvjj58+nLy7ezy+zH+fwF2PSFa+3VveQAAAABJRU5ErkJggg==" />
+        <feDisplacementMap in="SourceGraphic" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+      <filter id="squeeze-bot" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feImage result="map" x="0" y="0" width="9999" height="40" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAIAAACw1AcgAAAAXUlEQVR42j3DoQrCABQAwPfpm4riGAMRxkAYLAiGhQXDgsFisaysWEwmk8lk2AXZwUWSRMxTF/9LV67duDUzt3Dn3tLKg7WNR0+2dp7tvXj15t3B0YdPX779+PUXE5z/Lp1gDkX1AAAAAElFTkSuQmCC" />
+        <feDisplacementMap in="SourceGraphic" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+      <filter id="squeeze-top-thin" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feImage result="map" x="0" y="0" width="9999" height="12" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAIAAACw1AcgAAAAXklEQVR42j3DoQrCUAAAwAdLtpWlJYtpZWXBsrJgWDAYBMEwGIgwRJiIw8336V4QDy7EJIS4MjUzd+3GwtLKrbWNO1v3Hjx68mxn78Wrgzfvjj58+nLy7ezy+zH+fwF2PSFa+3VveQAAAABJRU5ErkJggg==" />
+        <feDisplacementMap in="SourceGraphic" in2="map" scale="12" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+      <filter id="squeeze-bot-thin" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feImage result="map" x="0" y="0" width="9999" height="12" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAIAAACw1AcgAAAAXUlEQVR42j3DoQrCABQAwPfpm4riGAMRxkAYLAiGhQXDgsFisaysWEwmk8lk2AXZwUWSRMxTF/9LV67duDUzt3Dn3tLKg7WNR0+2dp7tvXj15t3B0YdPX779+PUXE5z/Lp1gDkX1AAAAAElFTkSuQmCC" />
+        <feDisplacementMap in="SourceGraphic" in2="map" scale="12" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
       <filter id="knockout" color-interpolation-filters="sRGB">
         <feColorMatrix result="knocked" type="matrix" values="
         1 0 0 0 0  
@@ -601,6 +622,7 @@
 
         <div class="terminal" id="terminal">
           <div class="sash sash-h" data-sash="term"></div>
+          <div class="sash sash-v sash-left" data-sash="boxTerm"></div>
           <div class="term-head" id="termToggle">
             <span id="termTitle"><svg data-i="chevronRight" data-size="14"></svg> <span id="termTitleText">Terminal</span></span>
             <div class="term-tabs" id="termTabs"></div>
@@ -695,6 +717,7 @@
     </header>
     <!-- Chats, grouped by the folder they were in: switching chats happens here (the tab bar stays hidden in Box). -->
     <aside class="box-side" id="boxSide" aria-label="Chats">
+      <div class="sash sash-v" data-sash="boxSide"></div>
       <div class="box-side-top">
         <button class="box-side-row" id="boxSideNew" type="button"><svg data-i="plus" data-size="15"></svg><span>New chat</span></button>
         <button class="icon-btn box-side-hide" id="boxSideHide" type="button" title="Hide chats" aria-controls="boxSide"><svg data-i="panelLeft" data-size="16"></svg></button>

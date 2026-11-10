@@ -16,10 +16,11 @@ function lspSend(b: EditorBuffer): Promise<void> {
 async function lspOpen(b: EditorBuffer): Promise<void> {
   if (b.kind !== 'text') return;
   lspSent.set(b.path, b.text);
+  const startup = launching; // tabs coming back with the app: nobody just opened this file, so no install hint
   const r = await api.lsp.open(b.path, b.text).catch(() => ({ available: false }) as LspOpen);
   if (!buffers.has(b.path)) { void api.lsp.close(b.path); return; } // closed while the server started
   if (r.available) { lspOn.add(b.path); return; }
-  if (r.install && !lspHinted.has(r.install)) {
+  if (r.install && !startup && !lspHinted.has(r.install)) {
     lspHinted.add(r.install);
     toast(`For autocomplete and go to definition in .${extOf(b.path)} files, install a language server: ${r.install}. It's also in Settings → Help & About → Language servers.`);
   }
