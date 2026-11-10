@@ -48,6 +48,7 @@ class BigSurface extends EventTarget {
   private gen = 0;                         // bumped by reset: replies asked for before it are dropped
   private pending = 0;                     // edits sent and not answered
   private historyBusy = false;             // an undo or redo is waiting for the engine
+  private failed = false;                  // a fetch failed: no more fetching until reset (see stop)
   private held = 0;                        // while > 0, input waits in `queue` (see hold)
   private queue: (() => void)[] = [];
   private font = '';
@@ -150,11 +151,13 @@ class BigSurface extends EventTarget {
 
   async selectedText(): Promise<string> {
     if (!this.hasSelection) return '';
-    return this.src.text(posMin(this.anchor, this.head), posMax(this.anchor, this.head));
+    const [lo, hi] = await this.textRange();
+    return this.src.text(lo, hi);
   }
 
   async reset(state: DocState): Promise<void> {
     this.gen++;
+    this.failed = false;
     this.cache.clear();
     this.cache.rev = state.rev;
     this.n = Math.max(1, state.lines);
@@ -201,12 +204,16 @@ class BigSurface extends EventTarget {
   // them first.
   private act(fn: () => void) {
     this.run(() => {
-      const l = this.head.line, ok = (k: number) => k < 0 || k >= this.n || !!this.cache.get(k);
-      if (ok(l) && ok(l - 1) && ok(l + 1)) { fn(); return; }
-      this.queue.push(fn);
+      if (this.lineReady()) { fn(); return; }
+      // Still not cached once the fetch is over: it failed (and said so), so the edit is dropped.
+      this.queue.push(() => { if (this.lineReady()) fn(); });
       this.revealCaret();
       this.hold(this.ensure());
     });
+  }
+  private lineReady() {
+    const l = this.head.line, ok = (k: number) => k < 0 || k >= this.n || !!this.cache.get(k);
+    return ok(l) && ok(l - 1) && ok(l + 1);
   }
 
   // Applied to the cache and painted before the engine hears of it; the reply only reports rev and dirty.
@@ -242,7 +249,9 @@ class BigSurface extends EventTarget {
   }
 
   private history(which: 'undo' | 'redo'): Promise<void> {
-    if (this.refuse() || this.held) return Promise.resolve(); // a second press while one is in flight is dropped
+    if (this.refuse() || this.historyBusy) return Promise.resolve(); // a second press while one is in flight is dropped
+    // Held by something else (a keystroke waiting for its line, Select All): wait behind it, in order.
+    if (this.held) return new Promise(done => this.queue.push(() => { void this.history(which).then(done); }));
     const p = (async () => {
       this.historyBusy = true;
       try {
@@ -267,8 +276,19 @@ class BigSurface extends EventTarget {
   private emitChange(r: DocState) { this.dispatchEvent(new CustomEvent<DocState>('change', { detail: { rev: r.rev, lines: r.lines, dirty: r.dirty } })); }
   private fail(e: unknown) { this.dispatchEvent(new CustomEvent<string>('error', { detail: e instanceof Error ? e.message : String(e) })); }
   // After a failed call the local copy can't be trusted: start again from what the engine has.
+  // If even that fails, the optimistic text is dropped from the screen (rows paint blank) and fetching stops.
   private async recover() {
-    try { await this.reset(await this.src.lines(this.topLine, 1)); } catch { /* the engine is down; its own error says so */ }
+    try { await this.reset(await this.src.lines(this.topLine, 1)); } catch (e) {
+      this.cache.clear();
+      this.stop(e);
+      this.paint();
+    }
+  }
+  // A failed fetch latches: no more fetching (each repaint would ask again) and one 'error', until reset.
+  private stop(e: unknown) {
+    if (this.failed) return;
+    this.failed = true;
+    this.fail(e);
   }
 
   private del(back: boolean) {
@@ -325,24 +345,46 @@ class BigSurface extends EventTarget {
     const last = this.n - 1, len = this.editLen(last);
     this.goal = null;
     this.select({ line: 0, col: 0 }, { line: last, col: len ?? BIG_LONG_LINE });
-    if (len !== undefined) return;
     // The last line's length is unknown: ask for it, holding input (a copy) until the selection is right.
-    const gen = this.gen;
-    this.hold(this.src.lines(last, 1).then(r => {
-      const it = r.items[0];
-      if (gen !== this.gen || !it || this.head.line !== last || this.head.col !== BIG_LONG_LINE) return;
-      this.select(this.anchor, { line: last, col: snapCol(it.text, Math.min(it.len, BIG_LONG_LINE)) });
-    }, e => this.fail(e)));
+    if (len === undefined) this.hold(this.textRange().catch(e => this.fail(e)));
   }
 
+  // The selection as the engine should read it. An end on an uncached line (left at the placeholder column by End
+  // or Select All) is fetched and clamped first, and the selection takes the clamped spot. An end at a cut line's
+  // cut reaches the line's real end, since the caret can go no further.
+  private async textRange(): Promise<[DocPos, DocPos]> {
+    const a0 = this.anchor, h0 = this.head, gen = this.gen;
+    const [a, h] = await Promise.all([this.settle(a0), this.settle(h0)]);
+    if (gen === this.gen && this.anchor === a0 && this.head === h0) this.select(a.pos, h.pos);
+    const [lo, hi] = posCmp(a.pos, h.pos) <= 0 ? [a, h] : [h, a];
+    const end = hi.pos.col >= BIG_LONG_LINE && hi.len > BIG_LONG_LINE ? { line: hi.pos.line, col: hi.len } : hi.pos;
+    return [lo.pos, end];
+  }
+  private async settle(p: DocPos): Promise<{ pos: DocPos; len: number }> {
+    let it = this.cache.get(p.line);
+    if (!it) {
+      it = (await this.src.lines(p.line, 1)).items[0];
+      if (!it) throw new Error('That line is gone'); // the document changed under the request
+    }
+    return { pos: { line: p.line, col: snapCol(it.text, Math.min(p.col, it.len, BIG_LONG_LINE)) }, len: it.len };
+  }
+
+  // Held from the start, so input made meanwhile runs after it, in order. A cut deletes only once its text is safely
+  // on the clipboard: a refused copy (too large) deletes nothing.
   private onCopy(e: ClipboardEvent, cut: boolean) {
     e.preventDefault();
     if (cut && this.refuse()) return;
     this.run(() => {
       if (!this.hasSelection) return;
-      // Asked before the cut's edit is sent; the engine answers in order, so this is the text before the cut.
-      this.selectedText().then(t => navigator.clipboard.writeText(t)).catch(err => this.fail(err));
-      if (cut) this.insert('', 'delete');
+      this.hold((async () => {
+        try {
+          const [lo, hi] = await this.textRange();
+          await navigator.clipboard.writeText(await this.src.text(lo, hi));
+          if (cut) this.edit(lo, hi, '', 'delete'); // not insert(): that would queue behind this very hold
+        } catch (err) {
+          this.fail(err);
+        }
+      })());
     });
   }
 
@@ -464,13 +506,18 @@ class BigSurface extends EventTarget {
   }
   // One fetch at a time; each round asks for what the view needs now, so a newer need replaces an older one.
   private ensure(): Promise<void> {
-    if (!this.fetching && this.need()) this.fetching = this.pump();
+    if (!this.fetching && !this.failed && this.need()) this.fetching = this.pump();
     return this.fetching ?? Promise.resolve();
   }
   private async pump() {
     try {
-      for (let w = this.need(); w; w = this.need()) {
-        const gen = this.gen, r = await this.src.lines(w.first, w.count);
+      for (let w = this.need(); w && !this.failed; w = this.need()) {
+        const gen = this.gen;
+        let r: DocState & { items: DocLine[] };
+        try { r = await this.src.lines(w.first, w.count); } catch (e) {
+          if (gen === this.gen) this.stop(e); // one asked before a reset doesn't count against the new state
+          continue;
+        }
         if (gen !== this.gen) continue;
         const idle = !this.pending && !this.historyBusy;
         // Nothing in flight: this reply reflects every edit, so a rev it lacks means the count went wrong.
@@ -484,7 +531,7 @@ class BigSurface extends EventTarget {
         this.paint();
       }
     } catch (e) {
-      this.fail(e);
+      this.stop(e);
     } finally {
       this.fetching = null;
     }

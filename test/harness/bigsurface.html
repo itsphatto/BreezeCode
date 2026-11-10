@@ -49,19 +49,23 @@
         this.last = 0; // when the latest reply is due
         this.chain = Promise.resolve();
         this.log = [];
+        this.textCap = 100 * 1024 * 1024; // bytes `text` answers; lower it to test a refused copy
+        this.down = false;                // true: every `lines` call fails, as with the engine stopped
+        this.calls = 0;                   // `lines` calls made
         const self = this;
         this.src = {
-          lines: (first, count) => self.reply(() => ({ ...self.state(), items: self.lines.slice(first, first + count).map(t => t.length > 10000 ? { text: t.slice(0, 10000), len: t.length } : { text: t, len: t.length }) })),
+          lines: (first, count) => (self.calls++, self.reply(() => self.down ? self.fail() : ({ ...self.state(), items: self.lines.slice(first, first + count).map(t => t.length > 10000 ? { text: t.slice(0, 10000), len: t.length } : { text: t, len: t.length }) }))),
           edit: (start, end, text, kind) => self.reply(() => { self.log.push({ start, end, text, kind }); const caret = self.replace(start, end, text, true); return { ...self.state(), caret }; }),
           undo: () => self.reply(() => self.history(self.undos, self.redos)),
           redo: () => self.reply(() => self.history(self.redos, self.undos)),
           text: (start, end) => self.reply(() => {
             const t = self.slice(start, end);
-            if (new Blob([t]).size > 100 * 1024 * 1024) throw new Error('That selection is too large to copy');
+            if (new Blob([t]).size > self.textCap) throw new Error('That selection is too large to copy');
             return t;
           }),
         };
       }
+      fail() { throw new Error('The Breeze engine stopped'); }
       state() { return { rev: this.rev, lines: this.lines.length, dirty: this.dirty }; }
       // The answer is worked out now, in request order; only its delivery waits.
       reply(fn) {
