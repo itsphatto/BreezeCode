@@ -156,6 +156,13 @@ interface DebugStartOptions { stopOnEntry?: boolean; breakpoints?: Record<string
 // The titlebar Update button's state, sent by main.js's updater.
 interface UpdateState { state: 'idle' | 'available' | 'downloading' | 'ready'; version?: string; percent?: number; }
 
+// The text engine's large-file documents (main.js "doc:" channels). Positions are 0-based; col counts UTF-16 units.
+interface DocPos { line: number; col: number }
+interface DocState { rev: number; lines: number; dirty: boolean }
+interface DocLine { text: string; len: number }
+interface DocOpen extends DocState { doc: number; bytes: number; eol: '\n' | '\r\n'; readOnly: boolean; recovered: boolean }
+type DocKind = 'type' | 'delete' | 'paste' | 'other';
+
 interface BreezeApi {
   version?: string;
   platform?: string;
@@ -220,6 +227,22 @@ interface BreezeApi {
     stop(rel: string): Promise<void>;
     onMessage(cb: (rel: string, msg: NbMessage) => void): () => void;
     onState(cb: (rel: string, state: 'idle' | 'busy' | 'dead') => void): () => void;
+  };
+  doc: {
+    open(rel: string): Promise<DocOpen>;
+    lines(id: number, first: number, count: number): Promise<DocState & { items: DocLine[] }>;
+    edit(id: number, start: DocPos, end: DocPos, text: string, kind: DocKind): Promise<DocState & { caret: DocPos }>;
+    undo(id: number): Promise<DocState & { caret?: DocPos; none?: true }>;
+    redo(id: number): Promise<DocState & { caret?: DocPos; none?: true }>;
+    text(id: number, start: DocPos, end: DocPos): Promise<DocState & { text: string }>;
+    find(id: number, query: string, matchCase: boolean, from: DocPos, backward: boolean): Promise<DocState & { hit: (DocPos & { len: number }) | null }>;
+    count(id: number, query: string, matchCase: boolean): Promise<DocState & { count: number; capped: boolean }>;
+    save(id: number): Promise<DocState & { bytes: number }>;
+    changed(id: number): Promise<DocState & { changed: boolean }>;
+    reload(id: number): Promise<DocOpen>;
+    close(id: number): Promise<void>;
+    // The engine stopped and every open document is gone: open again what is shown.
+    onDown(cb: () => void): () => void;
   };
   lsp: {
     open(rel: string, text: string): Promise<LspOpen>;
