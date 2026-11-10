@@ -79,7 +79,7 @@ async function swapWorkspace(info: RootInfo): Promise<void> {
 function resetWorkspace(): void {
   for (const b of buffers.values()) { b.ta?.remove(); b.big?.surface.remove(); }
   lspOn.clear(); // the main process stops the servers with the folder
-  buffers.clear(); dirCache.clear(); expanded.clear();
+  buffers.clear(); dirCache.clear(); expanded.clear(); loadingBuffers.clear();
   treeOrder = {};
   openTabs = []; active = null; rootInfo = null;
   stopPreview();
@@ -103,9 +103,19 @@ function kindOf(r: FileRead): EditorBuffer['kind'] {
   if (r.binary) return 'binary';
   return r.tooLarge ? 'large' : 'text';
 }
-async function loadBuffer(path: string): Promise<EditorBuffer | null> {
+// Loads in flight, by path: a second call while one is still reading (a double-click; a huge file takes seconds to
+// open in the engine) gets the same buffer instead of building another.
+const loadingBuffers = new Map<string, Promise<EditorBuffer | null>>();
+function loadBuffer(path: string): Promise<EditorBuffer | null> {
   const existing = buffers.get(path);
-  if (existing) return existing;
+  if (existing) return Promise.resolve(existing);
+  const pending = loadingBuffers.get(path);
+  if (pending) return pending;
+  const p = readBuffer(path).finally(() => { if (loadingBuffers.get(path) === p) loadingBuffers.delete(path); });
+  loadingBuffers.set(path, p);
+  return p;
+}
+async function readBuffer(path: string): Promise<EditorBuffer | null> {
   let r: FileRead;
   try { r = await api.fs.readFile(path); } catch (e) { toast(`Couldn't open ${baseName(path)}: ${errMsg(e)}`); return null; }
   const raw = r.text ?? '';

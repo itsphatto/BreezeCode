@@ -16,7 +16,7 @@ function setCodeSize(size: number): void {
   store.set('breeze.codeSize', next);
   showCodeSize();
   charW = 0; // measured again in the new size
-  for (const b of buffers.values()) if (b.kind === 'text') b.ta?.refresh();
+  for (const b of buffers.values()) { if (b.kind === 'text') b.ta?.refresh(); b.big?.surface.refresh(); }
   splitTa.refresh();
   dbgTa.refresh();
   renderCode();
@@ -61,7 +61,10 @@ function measureChar(): number {
   if (w > 0 && (!document.fonts || document.fonts.check('12px "Google Sans Code"') || document.fonts.status === 'loaded')) charW = w;
   return w || 7.8;
 }
-void document.fonts?.ready.then(() => { charW = 0; renderCode(); activeText()?.ta.refresh(); splitTa.refresh(); });
+void document.fonts?.ready.then(() => {
+  charW = 0; renderCode(); activeText()?.ta.refresh(); splitTa.refresh();
+  for (const b of buffers.values()) b.big?.surface.refresh();
+});
 
 // The caret stops of a line: 0, each grapheme's end. Remembered for the last line asked about (clicks and drags repeat it).
 const graphemeSeg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -1502,11 +1505,11 @@ function selectHit(): void {
 findInput.addEventListener('input', () => runFind(true));
 findInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); sfx.play('tick'); stepFind(e.shiftKey ? -1 : 1); }
-  if (e.key === 'Escape') { e.stopPropagation(); closeFind(); activeText()?.ta.focus(); }
+  if (e.key === 'Escape') { e.stopPropagation(); closeFind(); activeText()?.ta.focus(); activeBig()?.big?.surface.focus(); }
 });
 $('#findNext').onclick = () => { sfx.play('tick'); stepFind(1); };
 $('#findPrev').onclick = () => { sfx.play('tick'); stepFind(-1); };
-$('#findClose').onclick = () => { closeFind(); activeText()?.ta.focus(); };
+$('#findClose').onclick = () => { closeFind(); activeText()?.ta.focus(); activeBig()?.big?.surface.focus(); };
 $('#findCase').onclick = () => { findCase = !findCase; $('#findCase').classList.toggle('on', findCase); runFind(false); };
 $('#findToggle').onclick = () => {
   const on = $('#replaceRow').classList.contains('hidden');

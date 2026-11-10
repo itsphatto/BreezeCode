@@ -412,6 +412,7 @@ async function renameEntry(p: string): Promise<void> {
   const name = await nameInTree({ dir: dirName(p), folder: false, rename: p }, 'Rename', baseName(p), 'Rename');
   if (!name || name === baseName(p)) return;
   if (/[\\/]/.test(name)) { toast('Names cannot contain slashes'); return; }
+  if (bigMoveRefused(p)) return;
   const to = joinPath(dirName(p), name);
   const dir = dirName(p);
   if (treeOrder[dir]) {
@@ -421,7 +422,7 @@ async function renameEntry(p: string): Promise<void> {
   await moveEntry(p, to);
 }
 async function moveEntry(p: string, to: string): Promise<void> {
-  if (p === to) return;
+  if (p === to || bigMoveRefused(p)) return;
   try { await api.fs.rename(p, to); } catch (e) { toast(errMsg(e)); return; }
   const move = (x: string) => {
     if (x === p) return to;
@@ -433,6 +434,7 @@ async function moveEntry(p: string, to: string): Promise<void> {
   for (const b of moved) { const from = b.path; buffers.delete(b.path); b.path = move(b.path); buffers.set(b.path, b); scheduleLint(b, 0); lspRenamed(from, b); }
   await Promise.all(moved.filter(b => b.kind === 'image' || b.kind === 'video').map(async b => { b.url = await api.fs.fileUrl(b.path).catch(() => ''); }));
   await Promise.all(moved.filter(b => b.kind === 'pdf').map(async b => { b.url = await api.fs.previewUrl(b.path).catch(() => ''); }));
+  await Promise.all(moved.filter(b => b.big).map(bigMoved)); // clean ones only: dirty ones were refused above
   openTabs = openTabs.map(move);
   if (active) active = move(active);
   const dirs = [...expanded];
@@ -491,6 +493,7 @@ async function pasteEntry(dir: string): Promise<void> {
   try { taken = new Set((await api.fs.readDir(dir)).map(x => x.name.toLowerCase())); } catch (e) { toast(errMsg(e)); return; }
   const to = joinPath(dir, freeName(baseName(src), taken));
   if (clip.cut) {
+    if (bigMoveRefused(src)) return;
     treeClip = null;
     await moveEntry(src, to);
   } else {

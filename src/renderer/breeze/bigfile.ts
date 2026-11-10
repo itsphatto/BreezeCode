@@ -10,6 +10,9 @@ const nextBigOpen = (b: EditorBuffer) => { const n = (bigOpens.get(b) ?? 0) + 1;
 // Buffers already told they can't be edited (the toast comes once each).
 const bigWarned = new WeakSet<EditorBuffer>();
 let bigCountSeq = 0;
+// The find count waits for typing to pause (it can scan hundreds of megabytes); `bigCountDone` ends a superseded wait.
+let bigCountTimer: TimeoutId | undefined;
+let bigCountDone: (() => void) | null = null;
 // The buffer last shown in #bigHost, so a switch between huge files counts the open search again.
 let bigShown: EditorBuffer | undefined;
 
@@ -27,7 +30,7 @@ async function openBig(b: EditorBuffer): Promise<void> {
   const seq = nextBigOpen(b);
   let r: DocOpen;
   try { r = await api.doc.open(b.path); } catch (e) { b.bigError = errMsg(e); return; }
-  if (bigOpens.get(b) !== seq) return;
+  if (bigOpens.get(b) !== seq) { void api.doc.close(r.doc).catch(() => {}); return; }
   // The source reads big.doc on every call, so a reopen (see api.doc.onDown) only has to change the id.
   const big = { doc: r.doc, readOnly: r.readOnly, dirty: r.dirty, lines: r.lines, changedOnDisk: false } as BigDoc;
   const src: BigSource = {
@@ -81,7 +84,7 @@ async function saveBig(b: EditorBuffer): Promise<boolean> {
   let r: DocState & { bytes: number };
   try { r = await api.doc.save(big.doc); } catch (e) { toast(`Couldn't save ${baseName(b.path)}: ${errMsg(e)}`); return false; }
   if (b.big !== big) return false; // the engine went down meanwhile and the reopen failed
-  big.dirty = false;
+  bigState(b, big, r); // an edit made during a long save keeps the unsaved dot
   big.changedOnDisk = false;
   b.size = r.bytes;
   renderTabs(); renderTree(); flushSession();
@@ -125,9 +128,20 @@ async function bigFindStep(b: EditorBuffer, dir: 1 | -1): Promise<void> {
   await big.surface.reveal(start);
 }
 
-// The count beside the find field (the engine stops counting at 9,999).
-async function bigFindCount(b: EditorBuffer): Promise<void> {
-  const seq = ++bigCountSeq, big = b.big, q = findInput.value, out = $('#findCount');
+// The count beside the find field (the engine stops counting at 9,999), 200 ms after the last call.
+function bigFindCount(b: EditorBuffer): Promise<void> {
+  const seq = ++bigCountSeq;
+  clearTimeout(bigCountTimer);
+  bigCountDone?.();
+  bigCountDone = null;
+  if (!b.big || !findInput.value) { $('#findCount').textContent = ''; return Promise.resolve(); }
+  return new Promise(done => {
+    bigCountDone = done;
+    bigCountTimer = setTimeout(() => { bigCountDone = null; void bigCountNow(b, seq).then(done); }, 200);
+  });
+}
+async function bigCountNow(b: EditorBuffer, seq: number): Promise<void> {
+  const big = b.big, q = findInput.value, out = $('#findCount');
   if (!big || !q) { out.textContent = ''; return; }
   let r: DocState & { count: number; capped: boolean };
   try { r = await api.doc.count(big.doc, q, findCase); } catch (e) { if (seq === bigCountSeq) toast(errMsg(e)); return; }
@@ -188,13 +202,41 @@ async function reopenBig(b: EditorBuffer, big: BigDoc): Promise<void> {
     if (b.path === active) renderEditor();
     return;
   }
-  // Closed meanwhile (its tab, or the folder): the document opened for it isn't wanted.
-  if (buffers.get(b.path) !== b) { void api.doc.close(r.doc).catch(() => {}); return; }
-  if (bigOpens.get(b) !== seq || b.big !== big) return; // a newer reopen is on its way
+  // A newer reopen is on its way (or the buffer was closed): this document isn't wanted.
+  if (buffers.get(b.path) !== b || bigOpens.get(b) !== seq || b.big !== big) { void api.doc.close(r.doc).catch(() => {}); return; }
   big.doc = r.doc;
   bigState(b, big, r);
   await s.reset(r);
   if (bigOpens.get(b) !== seq || b.big !== big) return;
   s.topLine = top;
   s.setSelection(anchor, head);
+}
+
+// A move that would carry a huge file with unsaved edits is refused before anything moves: the engine saves to the
+// path it opened, so the edits would land at the old one. True (with a toast) when `p`, or anything under it, is one.
+function bigMoveRefused(p: string): boolean {
+  const b = [...buffers.values()].find(x => x.big?.dirty && (x.path === p || x.path.startsWith(p + '/')));
+  if (b) toast(`Save ${baseName(b.path)} before moving it`);
+  return !!b;
+}
+// After a move: a (clean) huge file is opened again in the engine at its new path.
+async function bigMoved(b: EditorBuffer): Promise<void> {
+  if (!b.big) return;
+  closeBig(b);
+  b.big = undefined;
+  await openBig(b);
+}
+// "Don't Save" on leaving the folder: the engine's close drops each dirty huge file's crash journal, so the thrown-away
+// edits don't come back as "Restored unsaved edits". Each then opens again as it is on disk, in case the folder stays.
+async function discardBig(list: EditorBuffer[]): Promise<void> {
+  const dirty = list.filter(b => b.big?.dirty);
+  await Promise.all(dirty.map(b => api.doc.close(b.big!.doc).catch(() => {})));
+  for (const b of dirty) if (b.big) void reopenBig(b, b.big);
+}
+// Menu Select All: the surface's own Ctrl+A (its selectAll is private), sent to its input without bubbling.
+function bigSelectAll(b: EditorBuffer): void {
+  const s = b.big?.surface;
+  if (!s) return;
+  s.focus();
+  s.input.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, cancelable: true }));
 }
