@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use crate::doc::{Doc, EditKind, Pos, MAX_BYTES};
+use crate::doc::{Doc, EditKind, Pos};
 use crate::journal::{Entry, Journal};
 
 const BAD_REQUEST: &str = "Bad request";
@@ -26,15 +26,10 @@ pub struct Engine {
     journal_dir: Option<PathBuf>,
 }
 
-/// Refuses a file above `MAX_BYTES`.
-pub fn check_size(bytes: u64) -> Result<(), String> {
-    if bytes > MAX_BYTES { Err("This file is larger than 2 GB".to_string()) } else { Ok(()) }
-}
-
 /// A number from the page, clamped to what this machine can index.
 fn clamp(n: u64) -> usize { usize::try_from(n).unwrap_or(usize::MAX) }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 struct WirePos { line: u64, col: u64 }
 
 impl WirePos {
@@ -47,9 +42,9 @@ impl WirePos {
 #[derive(Deserialize)] struct EditArgs { doc: u64, start: WirePos, end: WirePos, text: String, kind: EditKind }
 #[derive(Deserialize)] struct TextArgs { doc: u64, start: WirePos, end: WirePos }
 #[derive(Deserialize)] #[serde(rename_all = "camelCase")]
-struct FindArgs { doc: u64, query: String, #[serde(default)] match_case: bool, #[serde(default)] from: WirePos, #[serde(default)] backward: bool }
+struct FindArgs { doc: u64, query: String, match_case: bool, from: WirePos, backward: bool }
 #[derive(Deserialize)] #[serde(rename_all = "camelCase")]
-struct CountArgs { doc: u64, query: String, #[serde(default)] match_case: bool }
+struct CountArgs { doc: u64, query: String, match_case: bool }
 
 /// Reads the arguments of a request. Anything missing or of the wrong type is a bad request.
 fn args<T: DeserializeOwned>(req: &Value) -> Result<T, String> {
@@ -196,20 +191,27 @@ impl Engine {
         u32::try_from(id).ok().and_then(|id| self.docs.get_mut(&id)).ok_or_else(|| NOT_OPEN.to_string())
     }
 
+    /// Opens `path` as a new document. If the same path (compared as given) is already open, that
+    /// document is dropped first and its journal file is left on disk: the new document replays
+    /// it, so the unsaved edits carry over and two documents never share one journal.
     fn open(&mut self, path: &Path) -> Result<Fields, String> {
-        // Doc::load refuses a large file too; checking first keeps the message and the size rule in one place.
-        let meta = std::fs::metadata(path).map_err(|e| format!("Couldn't open that file: {e}"))?;
-        check_size(meta.len())?;
+        self.docs.retain(|_, (doc, _)| doc.path().map(Path::as_os_str) != Some(path.as_os_str()));
         let mut doc = Doc::load(path)?;
         let (journal, recovered) = self.start_journal(&mut doc);
-        let mut id = self.next_id;
-        while self.docs.contains_key(&id) { id = id.wrapping_add(1).max(1); }
-        self.next_id = id.wrapping_add(1).max(1);
+        let id = self.fresh_id();
         let mut f = fields(json!({ "doc": id }));
         f.extend(open_fields(&doc, recovered));
         let f = with_state(&doc, f);
         self.docs.insert(id, (doc, journal));
         Ok(f)
+    }
+
+    /// The next document id that is not in use (ids start at 1 and skip any still open on wrap-around).
+    fn fresh_id(&mut self) -> u32 {
+        while self.docs.contains_key(&self.next_id) { self.next_id = self.next_id.wrapping_add(1).max(1); }
+        let id = self.next_id;
+        self.next_id = id.wrapping_add(1).max(1);
+        id
     }
 
     /// The journal of a freshly opened document, with whatever it held replayed into the text.
@@ -242,7 +244,7 @@ impl Engine {
             match (old, doc.stamp(), doc.read_only()) {
                 (Some(mut j), Some(stamp), false) => { j.restart(stamp); Some(j) }
                 (Some(mut j), _, _) => { j.delete(); None }
-                (None, _, _) => self.new_journal(&doc).map(|mut j| { j.delete(); j }),   // clears a stale file left by an earlier run
+                (None, _, _) => self.new_journal(&doc).map(|mut j| { j.delete(); j }),   // no journal yet: start one, removing any file an earlier run left for this path
             }
         };
         let answer = result.map(|()| {
@@ -264,6 +266,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::doc::{check_size, MAX_BYTES};
     use crate::testutil::TempDir;
     use serde_json::{json, Value};
 
@@ -362,7 +365,7 @@ mod tests {
             assert_eq!(call(&mut e, json!({"id":3,"op":"lines","doc":1,"first":l,"count":u32::MAX}))["ok"], json!(true));
             assert_eq!(call(&mut e, json!({"id":4,"op":"lines","doc":1,"first":0,"count":u64::MAX}))["ok"], json!(true));
             assert_eq!(call(&mut e, json!({"id":5,"op":"text","doc":1,"start":{"line":l,"col":c},"end":{"line":0,"col":0}}))["ok"], json!(true));
-            assert_eq!(call(&mut e, json!({"id":6,"op":"find","doc":1,"query":"x","from":{"line":l,"col":c}}))["ok"], json!(true));
+            assert_eq!(call(&mut e, json!({"id":6,"op":"find","doc":1,"query":"x","matchCase":false,"from":{"line":l,"col":c},"backward":false}))["ok"], json!(true));
         }
     }
     #[test] fn crash_then_open_recovers() {
@@ -436,8 +439,50 @@ mod tests {
     }
     #[test] fn read_only_documents_get_no_journal() {
         let t = TempDir::new(); let f = t.file("f.bin", &[0xFF]); let jd = t.dir("j"); let mut e = Engine::new(Some(jd.clone()));
-        call(&mut e, json!({"id":1,"op":"open","path":f}));
+        assert_eq!(call(&mut e, json!({"id":1,"op":"open","path":f}))["readOnly"], json!(true));
+        assert!(e.docs[&1].1.is_none());
         call(&mut e, edit(2, 0, 0, "x"));
+        assert!(e.docs[&1].1.is_none());
+        assert_eq!(journal_files(&jd), 0);
+        // an ordinary document in the same engine does get one
+        let g = t.file("g.txt", b"ab");
+        call(&mut e, json!({"id":3,"op":"open","path":g}));
+        assert!(e.docs[&2].1.is_some());
+    }
+    #[test] fn find_and_count_require_all_their_fields() {
+        let t = TempDir::new(); let f = t.file("f.txt", b"ab"); let mut e = Engine::new(None);
+        call(&mut e, json!({"id":1,"op":"open","path":f}));
+        let bad = json!({"id":2,"ok":false,"error":"Bad request"});
+        assert_eq!(call(&mut e, json!({"id":2,"op":"find","doc":1,"query":"a","from":{"line":0,"col":0},"backward":false})), bad);
+        assert_eq!(call(&mut e, json!({"id":2,"op":"find","doc":1,"query":"a","matchCase":true,"backward":false})), bad);
+        assert_eq!(call(&mut e, json!({"id":2,"op":"find","doc":1,"query":"a","matchCase":true,"from":{"line":0,"col":0}})), bad);
+        assert_eq!(call(&mut e, json!({"id":2,"op":"count","doc":1,"query":"a"})), bad);
+        assert_eq!(call(&mut e, json!({"id":2,"op":"count","doc":1,"query":"a","matchCase":true}))["count"], json!(1));
+    }
+    #[test] fn opening_an_open_path_again_carries_the_unsaved_edits_over() {
+        let t = TempDir::new(); let f = t.file("f.txt", b"ab"); let jd = t.dir("j"); let mut e = Engine::new(Some(jd.clone()));
+        assert_eq!(call(&mut e, json!({"id":1,"op":"open","path":f}))["doc"], json!(1));
+        call(&mut e, edit(2, 0, 0, "X"));
+        let o = call(&mut e, json!({"id":3,"op":"open","path":f}));
+        assert_eq!(o["doc"], json!(2));
+        assert_eq!((o["recovered"].clone(), o["dirty"].clone()), (json!(true), json!(true)));
+        assert_eq!(call(&mut e, json!({"id":4,"op":"lines","doc":2,"first":0,"count":1}))["items"][0]["text"], json!("Xab"));
+        assert_eq!(call(&mut e, json!({"id":5,"op":"lines","doc":1,"first":0,"count":1})), json!({"id":5,"ok":false,"error":"That file isn't open"}));
+        assert_eq!(journal_files(&jd), 1);
+        // the new document keeps journaling into the same single file
+        call(&mut e, json!({"id":6,"op":"edit","doc":2,"start":{"line":0,"col":0},"end":{"line":0,"col":0},"text":"Y","kind":"type"}));
+        assert_eq!(journal_files(&jd), 1);
+        drop(e);
+        let mut e = Engine::new(Some(jd));
+        call(&mut e, json!({"id":1,"op":"open","path":f}));
+        assert_eq!(call(&mut e, json!({"id":2,"op":"lines","doc":1,"first":0,"count":1}))["items"][0]["text"], json!("YXab"));
+    }
+    #[test] fn opening_a_clean_open_path_again_is_not_recovered() {
+        let t = TempDir::new(); let f = t.file("f.txt", b"ab"); let jd = t.dir("j"); let mut e = Engine::new(Some(jd.clone()));
+        call(&mut e, json!({"id":1,"op":"open","path":f}));
+        let o = call(&mut e, json!({"id":2,"op":"open","path":f}));
+        assert_eq!((o["doc"].clone(), o["recovered"].clone(), o["dirty"].clone()), (json!(2), json!(false), json!(false)));
+        assert_eq!(call(&mut e, json!({"id":3,"op":"lines","doc":1,"first":0,"count":1}))["error"], json!("That file isn't open"));
         assert_eq!(journal_files(&jd), 0);
     }
     #[test] fn too_large_is_refused() {

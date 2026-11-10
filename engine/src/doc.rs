@@ -21,6 +21,11 @@ pub const LONG_LINE: usize = 10_000;
 /// Files above this size are refused.
 pub const MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
+/// Refuses a file above `MAX_BYTES`.
+pub fn check_size(bytes: u64) -> Result<(), String> {
+    if bytes > MAX_BYTES { Err("This file is larger than 2 GB".to_string()) } else { Ok(()) }
+}
+
 /// Why an edit was made. Undo history uses it to decide which edits merge into one step.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -249,7 +254,7 @@ impl Content {
 /// in between is noticed later rather than missed.
 fn read_disk(path: &Path) -> Result<(Vec<u8>, Option<Stamp>), String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("Couldn't open that file: {e}"))?;
-    if meta.len() > MAX_BYTES { return Err("This file is larger than 2 GB".to_string()); }
+    check_size(meta.len())?;
     let stamp = disk::stamp(path).ok();
     let bytes = std::fs::read(path).map_err(|e| format!("Couldn't read that file: {e}"))?;
     Ok((bytes, stamp))
