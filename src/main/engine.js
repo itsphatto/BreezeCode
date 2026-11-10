@@ -16,7 +16,7 @@ class Engine extends EventEmitter {
     this.child = null;   // the current ChildProcess, or null; public so a test can kill it
     this.stderr = '';    // the end of the engine's stderr, for a debugger only
     this.nextId = 1;
-    this.session = null; // { pending: Map(id → { resolve, reject }), buf } for the current child
+    this.session = null; // { pending: Map(id → { resolve, reject }), parts } for the current child
   }
 
   get running() { return this.child !== null; }
@@ -42,32 +42,27 @@ class Engine extends EventEmitter {
       throw e?.code === 'ENOENT' ? new Error(NOT_BUILT) : e;
     }
     // Each process gets its own session, so a late event from a dead one can't touch the next one's requests.
-    const s = { pending: new Map(), buf: '' };
+    const s = { pending: new Map(), parts: [] };
     this.child = child;
     this.session = s;
     // A multi-byte character can be split between two chunks; the decoder holds the partial one back.
     const dec = new StringDecoder('utf8');
     child.stdout.on('data', b => {
-      s.buf += dec.write(b);
-      for (let i = s.buf.indexOf('\n'); i !== -1; i = s.buf.indexOf('\n')) {
-        const line = s.buf.slice(0, i);
-        s.buf = s.buf.slice(i + 1);
-        let reply;
-        try { reply = JSON.parse(line); } catch { continue; }
-        const p = reply && s.pending.get(reply.id);
-        if (!p) continue;
-        s.pending.delete(reply.id);
-        if (reply.ok) {
-          const { id, ok, ...rest } = reply;
-          p.resolve(rest);
-        } else {
-          p.reject(new Error(reply.error));
-        }
+      // A reply is one line and can be tens of MB, so the newline is looked for only in the piece just decoded,
+      // and the pieces are joined once, when the line ends. (Re-scanning everything received would be quadratic.)
+      let piece = dec.write(b);
+      for (let i = piece.indexOf('\n'); i !== -1; i = piece.indexOf('\n')) {
+        s.parts.push(piece.slice(0, i));
+        const line = s.parts.join('');
+        s.parts = [];
+        piece = piece.slice(i + 1);
+        this.reply(s, line);
       }
+      if (piece) s.parts.push(piece);
     });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', t => { this.stderr = (this.stderr + t).slice(-2000); });
-    // Writing to a process that just died raises EPIPE here; the exit event rejects what was waiting.
+    // Writing to a process that just died raises EPIPE here; the close event rejects what was waiting.
     child.stdin.on('error', () => {});
     const gone = e => {
       if (this.child !== child) return; // stop() already let go of it
@@ -79,8 +74,24 @@ class Engine extends EventEmitter {
       this.emit('down');
     };
     child.on('error', gone);
-    child.on('exit', () => gone());
+    // 'close', not 'exit': it comes after stdout has been read to its end, so a reply written just before the exit isn't lost.
+    child.on('close', () => gone());
     return s;
+  }
+
+  // One reply line: settle the request it names. A line that isn't JSON, or names nobody, is ignored.
+  reply(s, line) {
+    let reply;
+    try { reply = JSON.parse(line); } catch { return; }
+    const p = reply && s.pending.get(reply.id);
+    if (!p) return;
+    s.pending.delete(reply.id);
+    if (reply.ok) {
+      const { id, ok, ...rest } = reply;
+      p.resolve(rest);
+    } else {
+      p.reject(new Error(reply.error));
+    }
   }
 
   stop() {

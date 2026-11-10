@@ -115,3 +115,21 @@ test('a missing executable says how to build it', async () => {
   await assert.rejects(e.request('open', { path: 'x' }), { message: NOT_BUILT });
   assert.equal(e.running, false);
 });
+test('a 50 MB reply arrives intact and without quadratic scanning', { skip, timeout: 30000 }, async () => {
+  const dir = tmp(), file = path.join(dir, 'big.txt');
+  // A reply is one line, so its newline only shows up at the very end: re-scanning everything received so far
+  // on each chunk would make this quadratic. 5,000 lines of 10,000 characters: none is cut by the engine.
+  const rows = Array.from({ length: 5000 }, (_, i) => String.fromCharCode(97 + (i % 26)).repeat(9990) + String(i).padStart(10, '0'));
+  const all = rows.join('\n');
+  fs.writeFileSync(file, all);
+  const e = new Engine({ exe, journalDir: path.join(dir, 'j') });
+  try {
+    const { doc } = await e.request('open', { path: file });
+    const t0 = process.hrtime.bigint();
+    const got = await e.request('text', { doc, start: { line: 0, col: 0 }, end: { line: rows.length - 1, col: 10000 } });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(got.text.length, all.length);
+    assert.ok(got.text === all, 'the text came back unchanged');
+    assert.ok(ms < 2000, `took ${Math.round(ms)} ms`);
+  } finally { e.stop(); }
+});
