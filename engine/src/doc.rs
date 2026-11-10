@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use ropey::{Rope, RopeSlice};
 
+use crate::history::{History, Step};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Pos { pub line: usize, pub col: usize }
 
@@ -39,6 +41,7 @@ pub struct Doc {
     bytes: u64,
     rev: u64,
     saved_rev: u64,
+    history: History,
 }
 
 impl Doc {
@@ -61,7 +64,7 @@ impl Doc {
             Err(_) => (Rope::from_str(&String::from_utf8_lossy(body)), true),
         };
         let eol = if has_crlf(&rope) { "\r\n" } else { "\n" };
-        Doc { rope, path: None, eol, bom, read_only, bytes: size, rev: 0, saved_rev: 0 }
+        Doc { rope, path: None, eol, bom, read_only, bytes: size, rev: 0, saved_rev: 0, history: History::default() }
     }
 
     pub fn line_count(&self) -> usize { self.rope.len_lines() }
@@ -91,16 +94,40 @@ impl Doc {
     /// Replaces `start..end` with `text`. Returns the caret: the position just after the inserted
     /// text. `text` uses `\n`; every `\r` is dropped and each `\n` becomes the file's line ending.
     /// An `end` before `start` is swapped; positions past the end clamp.
-    pub fn edit(&mut self, start: Pos, end: Pos, text: &str, _kind: EditKind) -> Result<Pos, String> {
+    pub fn edit(&mut self, start: Pos, end: Pos, text: &str, kind: EditKind) -> Result<Pos, String> {
         if self.read_only { return Err(READ_ONLY_MSG.to_string()); }
         let (start, end) = if end < start { (end, start) } else { (start, end) };
         let (from, to) = (self.char_at(start), self.char_at(end));
         let inserted = self.normalise_eol(text);
         let inserted_chars = inserted.chars().count();
-        // Task 3 records the undo step here, from the text `splice` returns.
-        self.splice(from, to, &inserted);
+        let removed = self.splice(from, to, &inserted);
+        if !removed.is_empty() || !inserted.is_empty() {
+            self.history.record(Step { at: from, removed, inserted, kind });
+        }
         self.rev += 1;
         Ok(self.pos_at(from + inserted_chars))
+    }
+
+    /// Reverses the latest step. Returns the caret just after the restored text, or `None` when
+    /// there is nothing to undo.
+    pub fn undo(&mut self) -> Option<Pos> {
+        let step = self.history.pop_undo()?;
+        self.splice(step.at, step.at + step.inserted.chars().count(), &step.removed);
+        let caret = self.pos_at(step.at + step.removed.chars().count());
+        self.history.push_redo(step);
+        self.rev += 1;
+        Some(caret)
+    }
+
+    /// Applies the latest undone step again. Returns the caret just after the re-inserted text, or
+    /// `None` when there is nothing to redo.
+    pub fn redo(&mut self) -> Option<Pos> {
+        let step = self.history.pop_redo()?;
+        self.splice(step.at, step.at + step.removed.chars().count(), &step.inserted);
+        let caret = self.pos_at(step.at + step.inserted.chars().count());
+        self.history.push_undo(step);
+        self.rev += 1;
+        Some(caret)
     }
 
     /// The same replacement by rope char index, with no history entry. Returns the removed text.
@@ -220,5 +247,23 @@ mod tests {
     #[test] fn out_of_range_clamps() { let mut d = doc("ab"); assert_eq!(d.edit(p(9,9), p(9,9), "!", EditKind::Type).unwrap(), p(0,3)); assert_eq!(d.whole(), "ab!"); }
     #[test] fn reversed_range_is_swapped() { let mut d = doc("abc"); d.edit(p(0,2), p(0,1), "", EditKind::Delete).unwrap(); assert_eq!(d.whole(), "ac"); }
     #[test] fn read_only_refuses() { let mut d = Doc::from_bytes(vec![0xFF]); assert_eq!(d.edit(p(0,0), p(0,0), "a", EditKind::Type).unwrap_err(), READ_ONLY_MSG); }
+    fn ty(d: &mut Doc, line: usize, col: usize, s: &str) { d.edit(p(line,col), p(line,col), s, EditKind::Type).unwrap(); }
+    #[test] fn typed_word_is_one_step() { let mut d = doc(""); ty(&mut d,0,0,"a"); ty(&mut d,0,1,"b"); ty(&mut d,0,2,"c"); assert_eq!(d.undo(), Some(p(0,0))); assert_eq!(d.whole(), ""); assert_eq!(d.undo(), None); }
+    #[test] fn newline_breaks_the_group() { let mut d = doc(""); ty(&mut d,0,0,"a"); ty(&mut d,0,1,"\n"); ty(&mut d,1,0,"b"); d.undo(); assert_eq!(d.whole(), "a\n"); d.undo(); assert_eq!(d.whole(), "a"); }
+    #[test] fn typing_elsewhere_breaks_the_group() { let mut d = doc("xy"); ty(&mut d,0,0,"a"); ty(&mut d,0,3,"b"); d.undo(); assert_eq!(d.whole(), "axy"); }
+    #[test] fn backspaces_group() { let mut d = doc("abc"); d.edit(p(0,2),p(0,3),"",EditKind::Delete).unwrap(); d.edit(p(0,1),p(0,2),"",EditKind::Delete).unwrap(); assert_eq!(d.undo(), Some(p(0,3))); assert_eq!(d.whole(), "abc"); }
+    #[test] fn delete_key_presses_group() { let mut d = doc("abcd"); d.edit(p(0,1),p(0,2),"",EditKind::Delete).unwrap(); d.edit(p(0,1),p(0,2),"",EditKind::Delete).unwrap(); assert_eq!(d.whole(), "ad"); assert_eq!(d.undo(), Some(p(0,3))); assert_eq!(d.whole(), "abcd"); assert_eq!(d.redo(), Some(p(0,1))); assert_eq!(d.whole(), "ad"); }
+    #[test] fn paste_never_groups() { let mut d = doc(""); d.edit(p(0,0),p(0,0),"a",EditKind::Paste).unwrap(); d.edit(p(0,1),p(0,1),"b",EditKind::Paste).unwrap(); d.undo(); assert_eq!(d.whole(), "a"); }
+    #[test] fn redo_restores_and_new_edit_clears_it() { let mut d = doc(""); ty(&mut d,0,0,"a"); d.undo(); assert_eq!(d.redo(), Some(p(0,1))); assert_eq!(d.whole(), "a"); d.undo(); ty(&mut d,0,0,"z"); assert_eq!(d.redo(), None); }
+    #[test] fn undo_replace_restores_removed_text() { let mut d = doc("hello"); d.edit(p(0,0),p(0,5),"x",EditKind::Other).unwrap(); d.undo(); assert_eq!(d.whole(), "hello"); }
+    #[test] fn undo_and_redo_bump_rev_and_stay_dirty() { let mut d = doc("a"); ty(&mut d,0,1,"b"); assert_eq!(d.rev(), 1); d.undo(); assert_eq!(d.rev(), 2); assert!(d.dirty()); d.redo(); assert_eq!(d.rev(), 3); }
+    #[test] fn undo_with_nothing_changes_nothing() { let mut d = doc("a"); assert_eq!(d.undo(), None); assert_eq!(d.redo(), None); assert_eq!(d.rev(), 0); }
+    #[test] fn undo_keeps_crlf_and_utf16_columns() {
+        let mut d = doc("a\r\nb");
+        d.edit(p(0,1), p(1,0), "😀", EditKind::Other).unwrap();
+        assert_eq!(d.whole(), "a😀b");
+        assert_eq!(d.undo(), Some(p(1,0))); assert_eq!(d.whole(), "a\r\nb");
+        assert_eq!(d.redo(), Some(p(0,3))); assert_eq!(d.whole(), "a😀b");
+    }
     #[test] fn edit_inside_a_cut_line() { let mut d = doc(&"x".repeat(30_000)); d.edit(p(0,5), p(0,5), "Y", EditKind::Type).unwrap(); assert_eq!(d.lines(0,1)[0].len, 30_001); assert_eq!(&d.lines(0,1)[0].text[..7], "xxxxxYx"); }
 }
