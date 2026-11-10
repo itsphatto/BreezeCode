@@ -69,6 +69,8 @@ impl Doc {
 
     pub fn line_count(&self) -> usize { self.rope.len_lines() }
 
+    pub(crate) fn rope(&self) -> &Rope { &self.rope }
+
     /// Up to `count` lines starting at `first`, clamped to the end of the document. Lines longer
     /// than `LONG_LINE` units come back cut, with their full length in `len`.
     pub fn lines(&self, first: usize, count: usize) -> Vec<LineItem> {
@@ -200,6 +202,7 @@ fn has_crlf(rope: &Rope) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search::{Hit, COUNT_CAP, TEXT_CAP_BYTES, TEXT_CAP_MSG};
 
     fn doc(s: &str) -> Doc { Doc::from_bytes(s.as_bytes().to_vec()) }
     fn texts(d: &Doc, first: usize, count: usize) -> Vec<String> { d.lines(first, count).into_iter().map(|l| l.text).collect() }
@@ -264,6 +267,72 @@ mod tests {
         assert_eq!(d.whole(), "a😀b");
         assert_eq!(d.undo(), Some(p(1,0))); assert_eq!(d.whole(), "a\r\nb");
         assert_eq!(d.redo(), Some(p(0,3))); assert_eq!(d.whole(), "a😀b");
+    }
+    #[test] fn forward_from_caret_and_wrap() { let d = doc("foo\nbar foo"); assert_eq!(d.find("foo", true, p(0,1), false), Some(Hit { line: 1, col: 4, len: 3 })); assert_eq!(d.find("foo", true, p(1,5), false), Some(Hit { line: 0, col: 0, len: 3 })); }
+    #[test] fn backward_and_wrap() { let d = doc("foo\nbar foo"); assert_eq!(d.find("foo", true, p(1,4), true), Some(Hit { line: 0, col: 0, len: 3 })); assert_eq!(d.find("foo", true, p(0,0), true), Some(Hit { line: 1, col: 4, len: 3 })); }
+    #[test] fn case_folding_is_ascii() { let d = doc("Foo É"); assert!(d.find("foo", false, p(0,0), false).is_some()); assert!(d.find("foo", true, p(0,0), false).is_none()); assert!(d.find("é", false, p(0,0), false).is_none()); }
+    #[test] fn col_and_len_are_utf16() { let d = doc("😀😀x"); assert_eq!(d.find("😀x", true, p(0,0), false), Some(Hit { line: 0, col: 2, len: 3 })); }
+    #[test] fn hit_across_chunk_edges() {   // ropey chunks are about 1 KB: a needle placed every 997 bytes crosses many edges
+        let mut s = String::new(); for _ in 0..200 { s.push_str(&"a".repeat(990)); s.push_str("NEEDLE!"); }
+        assert_eq!(doc(&s).count("NEEDLE!", true), (200, false));
+    }
+    #[test] fn count_caps() { assert_eq!(doc(&"ab".repeat(20_000)).count("ab", true), (COUNT_CAP, true)); }
+    #[test] fn no_overlap() { assert_eq!(doc("aaaa").count("aa", true), (2, false)); }
+    #[test] fn empty_query() { let d = doc("abc"); assert_eq!(d.find("", true, p(0,0), false), None); assert_eq!(d.count("", true), (0, false)); }
+    #[test] fn text_normalises_endings() { assert_eq!(doc("a\r\nb\r\nc").text(p(0,0), p(2,1)).unwrap(), "a\nb\nc"); }
+    #[test] fn text_cap() { let d = doc(&"x".repeat(TEXT_CAP_BYTES + 1)); assert_eq!(d.text(p(0,0), p(0, usize::MAX)).unwrap_err(), TEXT_CAP_MSG); }
+
+    // Hits found through the carry buffer keep their absolute position and are reported once.
+    fn cols_of_all_hits(needle: &str, match_case: bool, text: &str) -> Vec<usize> {
+        let d = doc(text); let mut out: Vec<usize> = Vec::new(); let mut from = p(0, 0);
+        while let Some(h) = d.find(needle, match_case, from, false) {
+            if out.last().map_or(false, |&c| c >= h.col) { break; }   // wrapped round
+            out.push(h.col); from = p(0, h.col + needle.len());
+        }
+        out
+    }
+    #[test] fn chunk_edge_hits_have_exact_positions() {
+        let mut s = String::new(); let mut want = Vec::new();
+        for _ in 0..50 { s.push_str(&"a".repeat(990)); want.push(s.len()); s.push_str("NEEDLE!"); }
+        assert_eq!(cols_of_all_hits("NEEDLE!", true, &s), want);
+        assert_eq!(cols_of_all_hits("needle!", false, &s), want);
+    }
+    #[test] fn no_overlap_across_chunk_edges() {
+        for len in 1990..2010 {
+            assert_eq!(doc(&"a".repeat(len)).count("aaa", true), (len / 3, false));
+            assert_eq!(doc(&"a".repeat(len)).count("AAA", false), (len / 3, false));
+        }
+    }
+    #[test] fn case_insensitive_finds_mixed_case() { let d = doc("xx HeLLo x"); assert_eq!(d.find("hello", false, p(0,0), false), Some(Hit { line: 0, col: 3, len: 5 })); assert_eq!(d.count("HELLO", false), (1, false)); }
+    #[test] fn needle_longer_than_text() { let d = doc("ab"); assert_eq!(d.find("abc", true, p(0,0), false), None); assert_eq!(d.count("abc", false), (0, false)); }
+    #[test] fn exactly_the_cap_is_not_capped() { assert_eq!(doc(&"ab".repeat(COUNT_CAP)).count("ab", true), (COUNT_CAP, false)); }
+    #[test] fn text_range_and_clamp() { let d = doc("ab\ncd\nef"); assert_eq!(d.text(p(0,1), p(1,1)).unwrap(), "b\nc"); assert_eq!(d.text(p(1,1), p(0,1)).unwrap(), "b\nc"); assert_eq!(d.text(p(2,0), p(9,9)).unwrap(), "ef"); }
+    #[test] fn text_keeps_lone_cr_and_chunk_edge_crlf() {
+        assert_eq!(doc("a\rb\nc").text(p(0,0), p(1,1)).unwrap(), "a\rb\nc");
+        let s = format!("{}\r\n{}", "x".repeat(2000), "y".repeat(2000));
+        assert_eq!(doc(&s).text(p(0,0), p(1,2000)).unwrap(), format!("{}\n{}", "x".repeat(2000), "y".repeat(2000)));
+    }
+    #[test] fn scan_matches_a_naive_search_on_random_text() {
+        use crate::search::scan;
+        let mut seed = 12345u64;
+        let mut next = move || { seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (seed >> 33) as usize };
+        for _ in 0..40 {
+            let text: String = (0..4000).map(|_| ['a', 'A', 'b', 'é'][next() % 4]).collect();
+            let rope = ropey::Rope::from_str(&text);
+            for needle in ["a", "ab", "aAb", "bbb", "éa", "abAbaAb"] {
+                for match_case in [true, false] {
+                    let (from, to) = { let a = next() % (text.len() + 1); let b = next() % (text.len() + 1); (a.min(b), a.max(b)) };
+                    let (from, to) = (rope.char_to_byte(rope.byte_to_char(from)), rope.char_to_byte(rope.byte_to_char(to)));
+                    let eq = |a: &[u8], b: &[u8]| if match_case { a == b } else { a.eq_ignore_ascii_case(b) };
+                    let (hay, nb) = (text.as_bytes(), needle.as_bytes());
+                    let mut want = Vec::new(); let mut i = from;
+                    while i < to && i + nb.len() <= hay.len() { if eq(&hay[i..i + nb.len()], nb) { want.push(i); i += nb.len(); } else { i += 1; } }
+                    let mut got = Vec::new();
+                    scan(&rope, nb, match_case, from, to, &mut |b| { got.push(b); true });
+                    assert_eq!(got, want, "needle {needle} case {match_case} range {from}..{to}");
+                }
+            }
+        }
     }
     #[test] fn edit_inside_a_cut_line() { let mut d = doc(&"x".repeat(30_000)); d.edit(p(0,5), p(0,5), "Y", EditKind::Type).unwrap(); assert_eq!(d.lines(0,1)[0].len, 30_001); assert_eq!(&d.lines(0,1)[0].text[..7], "xxxxxYx"); }
 }
