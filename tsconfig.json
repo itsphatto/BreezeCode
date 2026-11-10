@@ -11,7 +11,7 @@
     "outDir": "src"
   },
   "files": [
-    "src/renderer/editcore.ts", "src/renderer/codeview.ts",
+    "src/renderer/editcore.ts", "src/renderer/codeview.ts", "src/renderer/bigcore.ts",
     "src/renderer/breeze/core.ts", "src/renderer/breeze/sound.ts", "src/renderer/breeze/platform.ts",
     "src/renderer/breeze/greetings.ts", "src/renderer/breeze/onboarding.ts", "src/renderer/breeze/sync.ts", "src/renderer/breeze/setup.ts",
     "src/renderer/breeze/languages.ts", "src/renderer/breeze/workspace.ts", "src/renderer/breeze/drop.ts",
