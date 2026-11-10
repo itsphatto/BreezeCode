@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>BigSurface harness</title>
+  <style>
+    :root { --text: #f5f5f7; --text-3: #71717a; --panel: #18181b; --ink: 255, 255, 255; --font-ui: system-ui, sans-serif; --blue-text: #4d9bff; }
+    body { margin: 0; background: #0f0f11; color: var(--text); font: 13px/21px Consolas, monospace; }
+    #host { position: relative; width: 900px; height: 600px; }
+    /* Copied from src/renderer/breeze.css */
+    .code-caret { position: absolute; width: 2px; height: 19px; margin-top: 1px; background: var(--text); pointer-events: none; animation: caret-blink 1.06s steps(1) infinite; }
+    @keyframes caret-blink { 50% { opacity: 0; } }
+    .ta.code-input { position: absolute; inset: auto; width: 1px; height: 21px; padding: 0; border: 0; outline: 0; resize: none; opacity: 0; overflow: hidden; white-space: pre; font: inherit; caret-color: transparent; background: transparent; color: transparent; }
+    .ta.code-input.composing { width: auto; min-width: 1px; opacity: 1; z-index: 3; background: var(--panel, #18181b); color: var(--text); box-shadow: 0 1px 0 var(--text); }
+    .big-surface { position: absolute; inset: 0; display: flex; overflow: hidden; cursor: text; }
+    .big-gutter { position: relative; align-self: flex-start; flex-shrink: 0; overflow: hidden; color: var(--text-3); text-align: right; user-select: none; }
+    .big-nums { position: absolute; left: 0; right: 16px; }
+    .big-nums>div, .big-line { height: var(--big-line, 21px); }
+    .big-code { position: relative; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+    .big-lines { position: absolute; left: 0; min-width: 100%; box-sizing: border-box; padding: 0 24px 0 4px; pointer-events: none; }
+    .big-line { white-space: pre; }
+    .big-more { margin-left: 8px; padding: 1px 6px; border-radius: 4px; background: rgba(var(--ink), .1); color: var(--text-3); font: 11px var(--font-ui); }
+    .big-sel { position: absolute; height: var(--big-line, 21px); background: rgba(0, 122, 255, .4); pointer-events: none; }
+    .big-surface .code-caret { height: calc(var(--big-line, 21px) - 2px); }
+    .big-surface:not(.focused) .code-caret { display: none; }
+    .big-slider { position: absolute; top: 0; right: 0; bottom: 0; width: 12px; z-index: 5; cursor: default; }
+    .big-thumb { position: absolute; right: 2px; width: 8px; border-radius: 4px; background: rgba(var(--ink), .16); box-shadow: inset 0 0 0 1px rgba(var(--ink), .1); transition: background-color .15s, box-shadow .15s; }
+    .big-slider:hover .big-thumb { background: rgba(var(--ink), .3); }
+    .big-slider.drag .big-thumb { background: color-mix(in srgb, var(--accent, var(--blue-text)) 70%, transparent); }
+  </style>
+</head>
+
+<body>
+  <div id="host"></div>
+  <script src="../../src/renderer/editcore.js"></script>
+  <script src="../../src/renderer/bigcore.js"></script>
+  <script src="../../src/renderer/bigsurface.js"></script>
+  <script>
+    // A stand-in for the engine: positions in UTF-16 units, lines over 10,000 units come back cut with `len` the full
+    // length, rev goes up per edit, and replies come after 5 to 60 ms but in request order, as the engine's do.
+    class FakeEngine {
+      constructor(lines) {
+        this.lines = lines;
+        this.rev = 0;
+        this.dirty = false;
+        this.undos = [];
+        this.redos = [];
+        this.last = 0; // when the latest reply is due
+        this.chain = Promise.resolve();
+        this.log = [];
+        const self = this;
+        this.src = {
+          lines: (first, count) => self.reply(() => ({ ...self.state(), items: self.lines.slice(first, first + count).map(t => t.length > 10000 ? { text: t.slice(0, 10000), len: t.length } : { text: t, len: t.length }) })),
+          edit: (start, end, text, kind) => self.reply(() => { self.log.push({ start, end, text, kind }); const caret = self.replace(start, end, text, true); return { ...self.state(), caret }; }),
+          undo: () => self.reply(() => self.history(self.undos, self.redos)),
+          redo: () => self.reply(() => self.history(self.redos, self.undos)),
+          text: (start, end) => self.reply(() => {
+            const t = self.slice(start, end);
+            if (new Blob([t]).size > 100 * 1024 * 1024) throw new Error('That selection is too large to copy');
+            return t;
+          }),
+        };
+      }
+      state() { return { rev: this.rev, lines: this.lines.length, dirty: this.dirty }; }
+      // The answer is worked out now, in request order; only its delivery waits.
+      reply(fn) {
+        let out, err;
+        try { out = fn(); } catch (e) { err = e; }
+        const now = performance.now();
+        this.last = Math.max(this.last, now + 5 + Math.random() * 55);
+        const due = this.last;
+        const p = this.chain.then(() => new Promise(r => setTimeout(r, Math.max(0, due - performance.now())))).then(() => { if (err) throw err; return out; });
+        this.chain = p.catch(() => {});
+        return p;
+      }
+      check(p) {
+        if (!(p.line >= 0 && p.line < this.lines.length && p.col >= 0 && p.col <= this.lines[p.line].length)) throw new Error(`Bad position ${p.line}:${p.col}`);
+      }
+      slice(s, e) {
+        this.check(s); this.check(e);
+        if (s.line === e.line) return this.lines[s.line].slice(s.col, e.col);
+        const out = [this.lines[s.line].slice(s.col)];
+        for (let l = s.line + 1; l < e.line; l++) out.push(this.lines[l]);
+        out.push(this.lines[e.line].slice(0, e.col));
+        return out.join('\n');
+      }
+      after(start, text) {
+        const parts = text.split('\n');
+        return parts.length === 1 ? { line: start.line, col: start.col + text.length } : { line: start.line + parts.length - 1, col: parts[parts.length - 1].length };
+      }
+      replace(start, end, text, record) {
+        const removed = this.slice(start, end);
+        const joined = this.lines[start.line].slice(0, start.col) + text + this.lines[end.line].slice(end.col);
+        const made = joined.split('\n');
+        if (made.length < 10000) this.lines.splice(start.line, end.line - start.line + 1, ...made);
+        else this.lines = this.lines.slice(0, start.line).concat(made, this.lines.slice(end.line + 1));
+        this.rev++;
+        this.dirty = true;
+        if (record) { this.undos.push({ start, removed, text }); this.redos = []; }
+        return this.after(start, text);
+      }
+      history(from, to) {
+        const step = from.pop();
+        if (!step) return { ...this.state(), none: true };
+        // Undo puts `removed` back where `text` went; redo does the reverse.
+        const end = this.after(step.start, step.text);
+        const caret = this.replace(step.start, end, step.removed, false);
+        to.push({ start: step.start, removed: step.text, text: step.removed });
+        return { ...this.state(), caret };
+      }
+    }
+
+    function makeLines(n) {
+      const a = new Array(n);
+      for (let i = 0; i < n; i++) a[i] = `line ${i}`;
+      if (n > 7) { a[5] = 'x'.repeat(30000); a[6] = 'a\tb\tc'; a[7] = '日本語 😀 é end'; }
+      return a;
+    }
+    // Measured once, like breezescript's measureChar.
+    const probe = document.createElement('span');
+    probe.textContent = 'x'.repeat(200);
+    document.body.append(probe);
+    const cw = probe.getBoundingClientRect().width / 200;
+    probe.remove();
+    window.events = [];
+    // mount(3) for a small document (checklist item 12); mount() for the 3,000,000-line one.
+    window.mount = (n = 3000000, lines = makeLines(n)) => {
+      window.surface?.remove();
+      window.fake = new FakeEngine(lines);
+      window.surface = new BigSurface(document.getElementById('host'), fake.src, { lineHeight: () => 21, charWidth: () => cw, tabSize: 4, label: 'Harness', readOnly: false, lines: lines.length, rev: 0 });
+      for (const t of ['change', 'error', 'readonly']) surface.addEventListener(t, e => events.push({ type: t, detail: e.detail }));
+      return surface;
+    };
+    mount();
+  </script>
+</body>
+
+</html>
