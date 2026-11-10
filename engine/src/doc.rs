@@ -18,6 +18,14 @@ pub const LONG_LINE: usize = 10_000;
 /// Files above this size are refused.
 pub const MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
+/// Why an edit was made. Undo history uses it to decide which edits merge into one step.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EditKind { Type, Delete, Paste, Other }
+
+/// The error for an edit to a file that isn't valid UTF-8.
+pub const READ_ONLY_MSG: &str = "This file isn't valid UTF-8, so it can't be edited here";
+
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
 // Some fields are only read by later tasks (saving, editing, undo).
@@ -80,10 +88,49 @@ impl Doc {
     pub fn rev(&self) -> u64 { self.rev }
     pub fn dirty(&self) -> bool { self.rev != self.saved_rev }
 
+    /// Replaces `start..end` with `text`. Returns the caret: the position just after the inserted
+    /// text. `text` uses `\n`; every `\r` is dropped and each `\n` becomes the file's line ending.
+    /// An `end` before `start` is swapped; positions past the end clamp.
+    pub fn edit(&mut self, start: Pos, end: Pos, text: &str, _kind: EditKind) -> Result<Pos, String> {
+        if self.read_only { return Err(READ_ONLY_MSG.to_string()); }
+        let (start, end) = if end < start { (end, start) } else { (start, end) };
+        let (from, to) = (self.char_at(start), self.char_at(end));
+        let inserted = self.normalise_eol(text);
+        let inserted_chars = inserted.chars().count();
+        // Task 3 records the undo step here, from the text `splice` returns.
+        self.splice(from, to, &inserted);
+        self.rev += 1;
+        Ok(self.pos_at(from + inserted_chars))
+    }
+
+    /// The same replacement by rope char index, with no history entry. Returns the removed text.
+    pub(crate) fn splice(&mut self, from: usize, to: usize, text: &str) -> String {
+        let removed = self.rope.slice(from..to).to_string();
+        if to > from { self.rope.remove(from..to); }
+        if !text.is_empty() { self.rope.insert(from, text); }
+        removed
+    }
+
+    /// The full text, line endings included. For tests.
+    #[cfg(test)]
+    pub fn whole(&self) -> String { self.rope.to_string() }
+
+    /// `text` with every `\r` removed and each `\n` replaced by the file's line ending.
+    fn normalise_eol(&self, text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        for c in text.chars() {
+            match c {
+                '\r' => {}
+                '\n' => out.push_str(self.eol),
+                c => out.push(c),
+            }
+        }
+        out
+    }
+
     /// The rope char index for `pos`. A line past the end clamps to the end of the document, a
     /// column past the end of its line clamps to that end, and a column inside a surrogate pair
     /// rounds down to the pair's start.
-    #[allow(dead_code)] // used by the edit commands in later tasks
     pub(crate) fn char_at(&self, pos: Pos) -> usize {
         if pos.line >= self.line_count() { return self.rope.len_chars(); }
         let content = self.line_content(pos.line);
@@ -91,7 +138,6 @@ impl Doc {
         self.rope.line_to_char(pos.line) + content.utf16_cu_to_char(col)
     }
 
-    #[allow(dead_code)] // used by the edit commands in later tasks
     pub(crate) fn pos_at(&self, char_idx: usize) -> Pos {
         let char_idx = char_idx.min(self.rope.len_chars());
         let line = self.rope.char_to_line(char_idx);
@@ -163,4 +209,16 @@ mod tests {
         assert_eq!(d.pos_at(d.char_at(Pos { line: 1, col: 1 })), Pos { line: 1, col: 0 });   // inside the pair: back to its start
     }
     #[test] fn load_refuses_missing_file() { assert!(Doc::load(std::path::Path::new("no/such/file")).is_err()); }
+
+    fn p(line: usize, col: usize) -> Pos { Pos { line, col } }
+    #[test] fn insert_and_caret() { let mut d = doc("ab\ncd"); assert_eq!(d.edit(p(0,1), p(0,1), "X", EditKind::Type).unwrap(), p(0,2)); assert_eq!(d.whole(), "aXb\ncd"); assert!(d.dirty()); assert_eq!(d.rev(), 1); }
+    #[test] fn replace_across_lines() { let mut d = doc("ab\ncd\nef"); d.edit(p(0,1), p(2,1), "-", EditKind::Other).unwrap(); assert_eq!(d.whole(), "a-f"); assert_eq!(d.line_count(), 1); }
+    #[test] fn newline_uses_file_ending() { let mut d = doc("a\r\nb"); assert_eq!(d.edit(p(0,1), p(0,1), "\nx", EditKind::Type).unwrap(), p(1,1)); assert_eq!(d.whole(), "a\r\nx\r\nb"); }
+    #[test] fn pasted_crlf_into_lf_file_is_normalised() { let mut d = doc("a"); d.edit(p(0,1), p(0,1), "\r\nb", EditKind::Paste).unwrap(); assert_eq!(d.whole(), "a\nb"); }
+    #[test] fn utf16_columns() { let mut d = doc("😀b"); d.edit(p(0,2), p(0,3), "", EditKind::Delete).unwrap(); assert_eq!(d.whole(), "😀"); }
+    #[test] fn backspace_at_line_start_joins_crlf_lines() { let mut d = doc("a\r\nb"); d.edit(p(0,1), p(1,0), "", EditKind::Delete).unwrap(); assert_eq!(d.whole(), "ab"); }
+    #[test] fn out_of_range_clamps() { let mut d = doc("ab"); assert_eq!(d.edit(p(9,9), p(9,9), "!", EditKind::Type).unwrap(), p(0,3)); assert_eq!(d.whole(), "ab!"); }
+    #[test] fn reversed_range_is_swapped() { let mut d = doc("abc"); d.edit(p(0,2), p(0,1), "", EditKind::Delete).unwrap(); assert_eq!(d.whole(), "ac"); }
+    #[test] fn read_only_refuses() { let mut d = Doc::from_bytes(vec![0xFF]); assert_eq!(d.edit(p(0,0), p(0,0), "a", EditKind::Type).unwrap_err(), READ_ONLY_MSG); }
+    #[test] fn edit_inside_a_cut_line() { let mut d = doc(&"x".repeat(30_000)); d.edit(p(0,5), p(0,5), "Y", EditKind::Type).unwrap(); assert_eq!(d.lines(0,1)[0].len, 30_001); assert_eq!(&d.lines(0,1)[0].text[..7], "xxxxxYx"); }
 }
