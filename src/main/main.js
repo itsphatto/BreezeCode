@@ -967,10 +967,10 @@ async function searchFiles(find, base, skip) {
 // The page reaches large files through the Rust engine (engine.js) by document id. The page is sandboxed, so each
 // path goes through resolveIn, each id must be one this session opened, and each argument is checked (docargs.js).
 const docargs = require('./docargs');
+const { DocRegistry } = require('./docregistry');
 const { Engine } = require('./engine');
 let engine = null; // created on the first doc:open
-const openDocs = new Set(); // ids the page may use
-const docIds = new Map(); // absolute path → its current id; the engine's open of an open path gives a new id and drops the old one
+const docs = new DocRegistry(); // the ids the page may use
 function textEngine() {
   if (!engine) {
     engine = new Engine({
@@ -978,35 +978,31 @@ function textEngine() {
       journalDir: path.join(app.getPath('userData'), 'engine-journal'),
     });
     // A dead engine has lost every document: the page is told, so it can open again what it shows.
-    engine.on('down', () => { openDocs.clear(); docIds.clear(); win?.webContents.send('doc:down'); });
+    engine.on('down', () => { docs.clear(); win?.webContents.send('doc:down'); });
   }
   return engine;
 }
 // The id the page sent, if it is valid and open.
 function openDocId(id) {
   const doc = docargs.docId(id);
-  if (!openDocs.has(doc)) throw new Error("That file isn't open");
+  if (!docs.isOpen(doc)) throw new Error("That file isn't open");
   return doc;
-}
-function forgetDoc(doc) {
-  openDocs.delete(doc);
-  for (const [abs, id] of docIds) if (id === doc) docIds.delete(abs);
 }
 // Root change or folder close: the documents belong to the old folder. Closing is best effort and nothing waits for it.
 function closeAllDocs() {
-  const ids = [...openDocs];
-  openDocs.clear();
-  docIds.clear();
+  const ids = docs.clear();
   if (engine?.running) for (const doc of ids) engine.request('close', { doc }).catch(() => {});
 }
 handle('doc:open', async (_e, rel) => {
   if (typeof rel !== 'string') throw new Error('Bad request');
   const abs = resolveIn(rel);
+  const generation = docs.generation;
   const reply = await textEngine().request('open', { path: abs });
-  const old = docIds.get(abs);
-  if (old !== undefined) openDocs.delete(old);
-  docIds.set(abs, reply.doc);
-  openDocs.add(reply.doc);
+  if (!docs.record(abs, reply.doc, generation)) {
+    // The folder changed (or the engine stopped) while the file was opening: it is not this page's to use any more.
+    if (engine?.running) engine.request('close', { doc: reply.doc }).catch(() => {});
+    throw new Error("That file isn't open");
+  }
   return reply;
 });
 handle('doc:lines', (_e, id, first, count) => {
@@ -1037,7 +1033,7 @@ handle('doc:reload', (_e, id) => textEngine().request('reload', { doc: openDocId
 handle('doc:close', async (_e, id) => {
   const doc = openDocId(id);
   await textEngine().request('close', { doc });
-  forgetDoc(doc);
+  docs.forget(doc);
 });
 app.on('will-quit', () => engine?.stop());
 

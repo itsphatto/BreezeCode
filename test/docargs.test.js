@@ -9,3 +9,11 @@ test('docCount', () => { assert.equal(a.docCount(5000), 5000); bad(() => a.docCo
 test('docText', () => { assert.equal(a.docText(''), ''); bad(() => a.docText(5)); bad(() => a.docText({ length: 1 })); });
 test('docQuery', () => { assert.equal(a.docQuery('x'), 'x'); for (const v of ['', 'a\nb', 'a\rb', 'x'.repeat(1001), 7]) bad(() => a.docQuery(v)); });
 test('docKind', () => { for (const k of ['type', 'delete', 'paste', 'other']) assert.equal(a.docKind(k), k); bad(() => a.docKind('eval')); });
+test('boundaries', () => {
+  assert.equal(a.docText('x'.repeat(52428800)).length, 52428800);
+  bad(() => a.docText('x'.repeat(52428801)));
+  bad(() => a.docPos({ line: 0, col: 2 ** 31 }));
+  assert.deepEqual(a.docPos({ line: 2 ** 31 - 1, col: 2 ** 31 - 1 }), { line: 2 ** 31 - 1, col: 2 ** 31 - 1 });
+  assert.equal(a.docCount(0), 0);
+  assert.equal(a.docQuery('x'.repeat(1000)).length, 1000);
+});
