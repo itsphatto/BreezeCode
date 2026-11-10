@@ -14,6 +14,8 @@ src/renderer/editcore.js
 src/renderer/codeview.js
 src/renderer/termwin.js
 *.tsbuildinfo
+engine/target/
+runtime/breeze-engine.exe
 
 # Logs
 *.log
