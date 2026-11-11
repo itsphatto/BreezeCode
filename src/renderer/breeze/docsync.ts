@@ -44,11 +44,13 @@ function docAttach(b: EditorBuffer, r: DocOpen): void {
   b.eol = r.eol;
 }
 
-// Opens b.path in the engine and attaches it. `base` is the text the engine opens with, when known; it is fetched
-// when null, or when the crash journal was replayed. `first`: readBuffer's open, before the buffer is in `buffers`;
-// any other open then brings the engine to the page's text. Returns the engine's text as opened, or null with no
-// document (the failure recorded; a reply no longer wanted is closed).
-async function docStart(b: EditorBuffer, base: string | null, first: boolean): Promise<{ text: string; recovered: boolean } | null> {
+// Opens b.path in the engine and attaches it, then (unless the engine holds the truth: a first open whose crash
+// journal was replayed) brings the engine to the page's text. `base` is the text the engine opens with, when known;
+// it is fetched when null, when the crash journal was replayed, or when `bytes` (the size of the file the page read)
+// isn't what the engine read: the file changed between the two reads. `first`: readBuffer's open, before the buffer
+// is in `buffers`. Returns the engine's text as opened, or null with no document (the failure recorded; a reply no
+// longer wanted is closed).
+async function docStart(b: EditorBuffer, base: string | null, first: boolean, bytes?: number): Promise<{ text: string; recovered: boolean } | null> {
   if (engineOff) return null;
   const seq = nextDocOpen(b);
   // No newer open or close since, and (once it is in `buffers`) the tab is still open in this folder.
@@ -59,12 +61,12 @@ async function docStart(b: EditorBuffer, base: string | null, first: boolean): P
   if (!wanted()) return drop();
   if (r.readOnly) { b.docSkip = true; return drop(); } // not UTF-8: the old path, as before
   let text = base;
-  if (text == null || r.recovered) {
+  if (text == null || r.recovered || (bytes != null && r.bytes !== bytes)) {
     try { text = (await api.doc.text(r.doc, DOC_TOP, DOC_END)).text; } catch (e) { if (wanted()) docFailed(b, e); return drop(); }
     if (!wanted()) return drop();
   }
   docAttach(b, r);
-  if (!first) docSync(b, text, b.text); // in the same turn as the attach, so no edit falls between
+  if (!(first && r.recovered)) docSync(b, text, b.text); // in the same turn as the attach, so no edit falls between
   return { text, recovered: r.recovered };
 }
 
@@ -75,9 +77,11 @@ async function docOpen(b: EditorBuffer, base: string | null): Promise<void> {
 }
 
 /** readBuffer's first open, where the engine may hold the truth: the engine's whole text when its crash journal was
- *  replayed (unsaved edits from before a crash), else null. Does not sync. */
-async function docOpenFirst(b: EditorBuffer): Promise<string | null> {
-  const got = await docStart(b, b.text, true);
+ *  replayed (unsaved edits from before a crash), else null. `bytes`: the file's size as the page read it (BOM
+ *  included, as the engine counts it); when the engine read another size, the file changed between the two reads,
+ *  and the engine is brought to the page's text. */
+async function docOpenFirst(b: EditorBuffer, bytes: number): Promise<string | null> {
+  const got = await docStart(b, b.text, true, bytes);
   return got?.recovered ? got.text : null;
 }
 
@@ -100,10 +104,11 @@ function docClose(b: EditorBuffer): void {
   b.doc = b.docQ = undefined;
 }
 
-/** After a move: the document opens again at the buffer's new path, where the file is `b.saved`. */
+/** After a move: the document opens again at the buffer's new path. The file there needn't be `b.saved` (it may have
+ *  changed on disk), so the engine's text is read and the page's text synced onto it. */
 async function docMoved(b: EditorBuffer): Promise<void> {
   docClose(b);
-  await docOpen(b, b.saved);
+  await docOpen(b, null);
 }
 
 // The engine stopped, and every document with it: each opens again and is brought up to the page's text. bigfile.ts

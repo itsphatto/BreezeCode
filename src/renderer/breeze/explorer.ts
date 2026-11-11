@@ -571,7 +571,10 @@ async function reloadImage(b: EditorBuffer): Promise<void> {
 async function reloadText(b: EditorBuffer): Promise<void> {
   const r = await api.fs.readFile(b.path).catch(() => null); // deleted or unreadable: keep the buffer
   if (r?.text == null) return;
-  const text = r.text.replaceAll('\r\n', '\n');
+  // As readBuffer reads it: a leading byte order mark stays out of the text (the engine keeps it out too).
+  const plain = stripBom(r.text);
+  b.bom = plain.length !== r.text.length;
+  const text = plain.replaceAll('\r\n', '\n');
   if (typingTo.has(b.path)) { typingTo.set(b.path, text); return; } // the running animation heads for the newest text
   if (text === b.saved) { b.disk = undefined; return; }
   if (holdsUserEdits(b)) {
