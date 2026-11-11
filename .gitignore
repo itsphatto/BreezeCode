@@ -16,6 +16,7 @@ src/renderer/bigcore.js
 src/renderer/doccore.js
 src/renderer/bigsurface.js
 src/renderer/termwin.js
+src/main/*.js
 *.tsbuildinfo
 engine/target/
 runtime/breeze-engine.exe
