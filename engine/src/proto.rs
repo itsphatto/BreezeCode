@@ -137,10 +137,14 @@ impl Engine {
                 let a: DocArgs = args(req)?;
                 let (doc, journal) = self.open_doc(a.doc)?;
                 let undo = op == "undo";
+                // Journaled as the replacement it performs: a replay has no undo history to consult.
+                let replacement = if journal.is_some() { doc.next_undo_redo(undo) } else { None };
                 let moved = if undo { doc.undo() } else { doc.redo() };
                 let f = match moved {
                     Some(at) => {
-                        if let Some(j) = journal { j.append(if undo { &Entry::Undo } else { &Entry::Redo }); }
+                        if let (Some(j), Some(r)) = (journal, replacement) {
+                            j.append(&if undo { Entry::Undone(r) } else { Entry::Redone(r) });
+                        }
                         fields(json!({ "caret": caret(at) }))
                     }
                     None => fields(json!({ "none": true })),   // nothing happened, so nothing is journaled
@@ -170,7 +174,7 @@ impl Engine {
                 let (doc, journal) = self.open_doc(a.doc)?;
                 let bytes = doc.save()?;   // a failed save returns here and leaves the journal alone
                 match (journal.as_mut(), doc.stamp()) {
-                    (Some(j), Some(stamp)) => j.restart(stamp),
+                    (Some(j), Some(stamp)) => j.restart(stamp, doc.eol()),
                     (Some(j), None) => { j.delete(); *journal = None; }
                     (None, _) => {}
                 }
@@ -231,7 +235,7 @@ impl Engine {
         let stamp = doc.stamp()?;
         if doc.read_only() { return None; }
         let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-        Some(Journal::for_doc(dir, &path, stamp))
+        Some(Journal::for_doc(dir, &path, stamp, doc.eol()))
     }
 
     fn reload(&mut self, id: u64) -> Result<Fields, String> {
@@ -242,7 +246,7 @@ impl Engine {
         // A failed reload changes nothing, so the old journal is kept as it was.
         let journal = if result.is_err() { old } else {
             match (old, doc.stamp(), doc.read_only()) {
-                (Some(mut j), Some(stamp), false) => { j.restart(stamp); Some(j) }
+                (Some(mut j), Some(stamp), false) => { j.restart(stamp, doc.eol()); Some(j) }
                 (Some(mut j), _, _) => { j.delete(); None }
                 (None, _, _) => self.new_journal(&doc).map(|mut j| { j.delete(); j }),   // no journal yet: start one, removing any file an earlier run left for this path
             }
@@ -496,6 +500,181 @@ mod tests {
         assert_eq!(call(&mut e, json!({"id":3,"op":"lines","doc":1,"first":0,"count":1}))["error"], json!("That file isn't open"));
         assert_eq!(call(&mut e, json!({"id":4,"op":"open","path":f}))["doc"], json!(2));   // the engine keeps serving
     }
+    // ---- crash journal replay after save + undo/redo (final review C1) ----
+
+    fn whole_text(e: &mut Engine, doc: u64) -> String {
+        let r = call(e, json!({"id":90,"op":"text","doc":doc,"start":{"line":0,"col":0},"end":{"line":u32::MAX,"col":u32::MAX}}));
+        assert_eq!(r["ok"], json!(true), "{r}");
+        r["text"].as_str().unwrap().to_string()
+    }
+    fn op(e: &mut Engine, name: &str, doc: u64) -> Value {
+        let r = call(e, json!({"id":91,"op":name,"doc":doc}));
+        assert_eq!(r["ok"], json!(true), "{name}: {r}");
+        r
+    }
+    fn edit_at(e: &mut Engine, doc: u64, start: (u64, u64), end: (u64, u64), text: &str, kind: &str) -> Value {
+        let r = call(e, json!({"id":92,"op":"edit","doc":doc,"start":{"line":start.0,"col":start.1},"end":{"line":end.0,"col":end.1},"text":text,"kind":kind}));
+        assert_eq!(r["ok"], json!(true), "{r}");
+        r
+    }
+    fn open_path(e: &mut Engine, f: &std::path::Path) -> Value {
+        let o = call(e, json!({"id":93,"op":"open","path":f}));
+        assert_eq!(o["ok"], json!(true), "{o}");
+        o
+    }
+    fn numbered_lines(n: usize) -> Vec<u8> { (0..n).map(|i| format!("line {i}\n")).collect::<String>().into_bytes() }
+
+    #[test] fn replay_after_save_then_undo_then_edit_elsewhere_keeps_the_text() {   // C1 (a)
+        let t = TempDir::new(); let f = t.file("f.txt", &numbered_lines(300)); let jd = t.dir("j");
+        let before = {
+            let mut e = Engine::new(Some(jd.clone())); open_path(&mut e, &f);
+            let pasted: String = (0..100).map(|i| format!("pasted {i}\n")).collect();
+            edit_at(&mut e, 1, (0, 0), (0, 0), &pasted, "paste");
+            op(&mut e, "save", 1);
+            op(&mut e, "undo", 1);
+            edit_at(&mut e, 1, (200, 0), (200, 0), "TYPED", "type");
+            whole_text(&mut e, 1)
+        };
+        let mut e = Engine::new(Some(jd)); let o = open_path(&mut e, &f);
+        assert_eq!((o["recovered"].clone(), o["dirty"].clone()), (json!(true), json!(true)));
+        assert_eq!(whole_text(&mut e, 1), before);
+        assert!(before.contains("line 199\nTYPEDline 200\n"));
+    }
+    #[test] fn replay_after_save_then_undo_keeps_the_text() {   // C1 (b)
+        let t = TempDir::new(); let f = t.file("f.txt", b"ab\ncd"); let jd = t.dir("j");
+        let before = {
+            let mut e = Engine::new(Some(jd.clone())); open_path(&mut e, &f);
+            edit_at(&mut e, 1, (1, 0), (1, 0), "XY", "type");
+            op(&mut e, "save", 1);
+            op(&mut e, "undo", 1);
+            whole_text(&mut e, 1)
+        };
+        assert_eq!(before, "ab\ncd");
+        let mut e = Engine::new(Some(jd)); let o = open_path(&mut e, &f);
+        assert_eq!((o["recovered"].clone(), o["dirty"].clone()), (json!(true), json!(true)));
+        assert_eq!(whole_text(&mut e, 1), before);
+    }
+    #[test] fn replay_of_edit_edit_undo_redo_edit_keeps_the_text() {   // C1 (c)
+        let t = TempDir::new(); let f = t.file("f.txt", b"one\r\ntwo\r\n"); let jd = t.dir("j");
+        let before = {
+            let mut e = Engine::new(Some(jd.clone())); open_path(&mut e, &f);
+            edit_at(&mut e, 1, (0, 3), (0, 3), "!\n", "paste");
+            edit_at(&mut e, 1, (2, 0), (2, 0), "Z", "type");
+            op(&mut e, "undo", 1);
+            op(&mut e, "redo", 1);
+            edit_at(&mut e, 1, (0, 0), (1, 0), "", "delete");
+            whole_text(&mut e, 1)
+        };
+        let mut e = Engine::new(Some(jd)); open_path(&mut e, &f);
+        assert_eq!(whole_text(&mut e, 1), before);
+    }
+    #[test] fn replay_keeps_the_line_ending_a_save_does_not_reset() {
+        // A CRLF document saved with no CRLF left: a fresh load would detect "\n", but the live
+        // document still inserts "\r\n". The replay must insert the same bytes.
+        let t = TempDir::new(); let f = t.file("f.txt", b"a\r\nb"); let jd = t.dir("j");
+        {
+            let mut e = Engine::new(Some(jd.clone())); open_path(&mut e, &f);
+            edit_at(&mut e, 1, (0, 1), (1, 0), "", "delete");
+            op(&mut e, "save", 1);
+            assert_eq!(std::fs::read(&f).unwrap(), b"ab");
+            edit_at(&mut e, 1, (0, 1), (0, 1), "\n", "type");
+            op(&mut e, "undo", 1); op(&mut e, "redo", 1);
+            edit_at(&mut e, 1, (1, 1), (1, 1), "!", "type");
+        }
+        let mut e = Engine::new(Some(jd)); open_path(&mut e, &f);
+        assert_eq!(whole_text(&mut e, 1), "a\nb!");
+        op(&mut e, "save", 1);
+        assert_eq!(std::fs::read(&f).unwrap(), b"a\r\nb!");
+    }
+    #[test] fn an_old_format_undo_line_ends_the_replay() {   // C1 (f)
+        let t = TempDir::new(); let f = t.file("f.txt", b"ab"); let jd = t.dir("j");
+        { let mut e = Engine::new(Some(jd.clone())); open_path(&mut e, &f); edit_at(&mut e, 1, (0, 0), (0, 0), "X", "type"); }
+        let jf = std::fs::read_dir(&jd).unwrap().next().unwrap().unwrap().path();
+        let mut body = std::fs::read(&jf).unwrap();
+        let good_len = body.len();
+        body.extend_from_slice(b"{\"op\":\"undo\"}\n{\"op\":\"edit\",\"start\":{\"line\":0,\"col\":0},\"end\":{\"line\":0,\"col\":0},\"text\":\"Z\",\"kind\":\"type\"}\n");
+        std::fs::write(&jf, &body).unwrap();
+        let mut e = Engine::new(Some(jd)); let o = open_path(&mut e, &f);
+        assert_eq!((o["recovered"].clone(), o["dirty"].clone()), (json!(true), json!(true)));
+        assert_eq!(whole_text(&mut e, 1), "Xab");
+        assert_eq!(std::fs::read(&jf).unwrap().len(), good_len);   // the old-format tail is cut off
+    }
+
+    /// A small deterministic generator (an LCG), so a failure names its seed and step.
+    struct Rng(u64);
+    impl Rng {
+        fn below(&mut self, n: usize) -> usize {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((self.0 >> 33) as usize) % n
+        }
+    }
+
+    /// Presses undo until there is nothing left; every undo must answer ok and leave a text that
+    /// existed at some earlier point.
+    fn undo_to_the_bottom(e: &mut Engine, doc: u64, seen: &std::collections::HashSet<String>, ctx: &str) {
+        for _ in 0..10_000 {
+            let r = call(e, json!({"id":94,"op":"undo","doc":doc}));
+            assert_eq!(r["ok"], json!(true), "{ctx}: undo failed: {r}");
+            if r["none"] == json!(true) { return; }
+            let text = whole_text(e, doc);
+            assert!(seen.contains(&text), "{ctx}: undo produced a text that never existed: {text:?}");
+        }
+        panic!("{ctx}: undo never ran out");
+    }
+
+    #[test] fn replay_matches_the_live_text_under_random_edits_undos_redos_saves_and_drops() {   // C1 (d) and (e)
+        const PIECES: [&str; 9] = ["", "x", "yz", "\n", "😀", "a\nb", "\r\n", "long piece of text", "q"];
+        const KINDS: [&str; 4] = ["type", "delete", "paste", "other"];
+        let mut reopens = 0;
+        for seed in 1..=32u64 {
+            let t = TempDir::new(); let f = t.file("f.txt", b"one\r\ntwo\r\nthree"); let jd = t.dir("j");
+            let mut rng = Rng(seed);
+            let mut e = Engine::new(Some(jd.clone()));
+            let mut doc = open_path(&mut e, &f)["doc"].as_u64().unwrap();
+            let mut seen = std::collections::HashSet::new();
+            seen.insert(whole_text(&mut e, doc));
+            let mut caret = (0u64, 0u64);
+            for step in 0..300 {
+                let ctx = format!("seed {seed} step {step}");
+                match rng.below(12) {
+                    0..=2 => {   // keep typing at the caret, so typed steps join
+                        let r = edit_at(&mut e, doc, caret, caret, ["a", "b", " "][rng.below(3)], "type");
+                        caret = (r["caret"]["line"].as_u64().unwrap(), r["caret"]["col"].as_u64().unwrap());
+                    }
+                    3..=5 => {
+                        let lines = call(&mut e, json!({"id":95,"op":"lines","doc":doc,"first":0,"count":0}))["lines"].as_u64().unwrap();
+                        let mut pos = || (rng.below(lines as usize + 1) as u64, rng.below(14) as u64);
+                        let (a, b) = (pos(), pos());
+                        let b = if rng.below(2) == 0 { a } else { b };
+                        let r = edit_at(&mut e, doc, a, b, PIECES[rng.below(PIECES.len())], KINDS[rng.below(KINDS.len())]);
+                        caret = (r["caret"]["line"].as_u64().unwrap(), r["caret"]["col"].as_u64().unwrap());
+                    }
+                    6 | 7 => { op(&mut e, "undo", doc); }
+                    8 => { op(&mut e, "redo", doc); }
+                    9 => { op(&mut e, "save", doc); }
+                    _ => {
+                        reopens += 1;
+                        let (text, dirty) = (whole_text(&mut e, doc), op(&mut e, "changed", doc)["dirty"].clone());
+                        if rng.below(2) == 0 { drop(e); e = Engine::new(Some(jd.clone())); }   // a crash; otherwise a page reload re-opening the path
+                        let o = open_path(&mut e, &f);
+                        doc = o["doc"].as_u64().unwrap();
+                        assert_eq!(whole_text(&mut e, doc), text, "{ctx}: replayed text differs");
+                        assert_eq!(o["dirty"], dirty, "{ctx}: dirty differs");
+                        if rng.below(3) == 0 { undo_to_the_bottom(&mut e, doc, &seen, &ctx); }
+                    }
+                }
+                seen.insert(whole_text(&mut e, doc));
+            }
+            // a final drop at the very end, then undo all the way down
+            let text = whole_text(&mut e, doc);
+            drop(e); let mut e = Engine::new(Some(jd.clone()));
+            let doc = open_path(&mut e, &f)["doc"].as_u64().unwrap();
+            assert_eq!(whole_text(&mut e, doc), text, "seed {seed}: final replay differs");
+            undo_to_the_bottom(&mut e, doc, &seen, &format!("seed {seed} final"));
+        }
+        assert!(reopens > 100, "only {reopens} reopens");
+    }
+
     #[test] fn edit_kind_wire_names() {
         use crate::doc::EditKind;
         assert_eq!(serde_json::to_string(&EditKind::Type).unwrap(), r#""type""#);

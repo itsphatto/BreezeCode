@@ -88,6 +88,10 @@ impl History {
 
     pub fn pop_redo(&mut self) -> Option<Step> { self.redo.pop() }
 
+    /// The step the next `pop_undo` / `pop_redo` would return.
+    pub fn peek_undo(&self) -> Option<&Step> { self.undo.back() }
+    pub fn peek_redo(&self) -> Option<&Step> { self.redo.last() }
+
     /// Puts a redone step back on the undo stack. Unlike `record`, it keeps the redo stack.
     pub fn push_undo(&mut self, step: Step) {
         self.bytes += step.bytes();

@@ -31,6 +31,11 @@ pub fn check_size(bytes: u64) -> Result<(), String> {
 #[serde(rename_all = "lowercase")]
 pub enum EditKind { Type, Delete, Paste, Other }
 
+/// A replacement by rope char index: at `at`, `removed` chars were replaced by `text`, which is
+/// exactly as it sits in the rope (line endings included).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Replacement { pub at: usize, pub removed: usize, pub text: String }
+
 /// The error for an edit to a file that isn't valid UTF-8.
 pub const READ_ONLY_MSG: &str = "This file isn't valid UTF-8, so it can't be edited here";
 
@@ -134,6 +139,12 @@ impl Doc {
     }
 
     pub fn eol(&self) -> &'static str { self.eol }
+
+    /// Sets the line ending a typed newline becomes. Only `"\n"` and `"\r\n"` are taken; anything
+    /// else (a garbled journal header) leaves it as it is.
+    pub(crate) fn set_eol(&mut self, eol: &str) {
+        match eol { "\n" => self.eol = "\n", "\r\n" => self.eol = "\r\n", _ => {} }
+    }
     pub fn read_only(&self) -> bool { self.read_only }
     pub fn bytes(&self) -> u64 { self.bytes }
     pub fn rev(&self) -> u64 { self.rev }
@@ -176,6 +187,37 @@ impl Doc {
         self.history.push_undo(step);
         self.rev += 1;
         Some(caret)
+    }
+
+    /// What the next `undo` (or, with `undo` false, `redo`) would do, as a plain replacement: at
+    /// rope char index `at`, `removed` chars are replaced by `text` (as it sits in the rope).
+    pub fn next_undo_redo(&self, undo: bool) -> Option<Replacement> {
+        let (step, gone, put) = if undo {
+            let s = self.history.peek_undo()?; (s, &s.inserted, &s.removed)
+        } else {
+            let s = self.history.peek_redo()?; (s, &s.removed, &s.inserted)
+        };
+        Some(Replacement { at: step.at, removed: gone.chars().count(), text: put.clone() })
+    }
+
+    /// Re-applies a journaled undo (or redo) from the replacement it performed, so the text never
+    /// depends on the undo history (which a save keeps but a fresh load does not have). When our
+    /// own history's next step is that very replacement, it is undone (redone) through the history
+    /// so the history stays usable; otherwise the replacement is spliced in and the history is
+    /// cleared, since its steps no longer describe the text. False (nothing changed) for a
+    /// replacement outside the text or a read-only document.
+    pub fn replay_undo_redo(&mut self, undo: bool, r: &Replacement) -> bool {
+        if self.read_only { return false; }
+        let len = self.rope.len_chars();
+        if r.at > len || r.removed > len - r.at { return false; }
+        if self.next_undo_redo(undo).as_ref() == Some(r) {
+            if undo { self.undo(); } else { self.redo(); }
+            return true;
+        }
+        self.splice(r.at, r.at + r.removed, &r.text);
+        self.history.clear();
+        self.rev += 1;
+        true
     }
 
     /// The same replacement by rope char index, with no history entry. Returns the removed text.
