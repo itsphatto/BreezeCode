@@ -24,6 +24,6 @@
     "src/renderer/breeze/discord.ts", "src/renderer/breeze/friends.ts", "src/renderer/breeze/ui.ts", "src/renderer/breeze/init.ts",
     "src/renderer/termwin.ts",
     "src/main/antigravityAgentService.ts",
-    "src/main/sniff.ts", "src/main/docargs.ts", "src/main/docregistry.ts", "src/main/pathguard.ts", "src/main/emmet.ts", "src/main/mentions.ts", "src/main/pricing.ts", "src/main/kernel.ts", "src/main/termPreload.ts", "src/main/ambient.d.ts"
+    "src/main/sniff.ts", "src/main/docargs.ts", "src/main/docregistry.ts", "src/main/pathguard.ts", "src/main/emmet.ts", "src/main/mentions.ts", "src/main/pricing.ts", "src/main/kernel.ts", "src/main/termPreload.ts", "src/main/ambient.d.ts", "src/main/guard.ts", "src/main/markdown.ts", "src/main/previewInspector.ts", "src/main/previewServer.ts", "src/main/mcp.ts", "src/main/dap.ts"
   ]
 }

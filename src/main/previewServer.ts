@@ -2,14 +2,14 @@
 // Chromium won't let a sandboxed frame load file:// stylesheets, scripts or images, so the preview has its own
 // scheme. The frame keeps allow-same-origin (preview.ts): its origin is then breeze-preview://project, still not
 // Breeze's file:// page, and without it every CORS load (fonts, module scripts, fetch, workers) and storage failed.
-const { net } = require('electron');
-const fs = require('node:fs');
-const fsp = require('node:fs/promises');
-const path = require('node:path');
-const { Readable } = require('node:stream');
-const { pathToFileURL } = require('node:url');
-const { PREVIEW_INSPECTOR } = require('./previewInspector');
-const { markdownPage } = require('./markdown');
+import { net } from 'electron';
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
+import { Readable } from 'node:stream';
+import { pathToFileURL } from 'node:url';
+import { PREVIEW_INSPECTOR } from './previewInspector';
+import { markdownPage } from './markdown';
 
 const PREVIEW_SCHEME = 'breeze-preview';
 const PREVIEW_PRIVILEGES = { standard: true, secure: true, supportFetchAPI: true, stream: true };
@@ -17,14 +17,14 @@ const PREVIEW_PRIVILEGES = { standard: true, secure: true, supportFetchAPI: true
 // outside), and get the right-click element inspector (previewInspector.js).
 const PREVIEW_STYLE = '<style data-breeze-preview>html,body{scrollbar-width:none}::-webkit-scrollbar{display:none;width:0;height:0}</style>' + PREVIEW_INSPECTOR;
 // Goes right after <head> (or <html>) so the doctype stays first and the page keeps standards mode.
-function withPreviewExtras(html) {
+function withPreviewExtras(html: string): string {
   const at = /<head\b[^>]*>/i.exec(html) || /<html\b[^>]*>/i.exec(html);
   return at ? html.slice(0, at.index + at[0].length) + PREVIEW_STYLE + html.slice(at.index + at[0].length) : html + PREVIEW_STYLE;
 }
 
 // `resolveIn(rel)` maps a project-relative path to an absolute one, throwing when it leaves the project.
-function createPreviewHandler(resolveIn) {
-  return async function servePreview(req) {
+function createPreviewHandler(resolveIn: (rel: string) => string) {
+  return async function servePreview(req: Request): Promise<Response> {
     try {
       const rel = decodeURIComponent(new URL(req.url).pathname).replace(/^\/+/, '');
       let abs = resolveIn(rel);
@@ -46,7 +46,7 @@ function createPreviewHandler(resolveIn) {
         const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
         const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
         if (start >= size || start > end) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
-        const stream = Readable.toWeb(fs.createReadStream(abs, { start, end }));
+        const stream = Readable.toWeb(fs.createReadStream(abs, { start, end })) as ReadableStream;
         return new Response(stream, { status: 206, headers: { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1) } });
       }
       return new Response(res.body, { status: res.status, headers });
@@ -56,4 +56,4 @@ function createPreviewHandler(resolveIn) {
   };
 }
 
-module.exports = { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler, withPreviewExtras };
+export { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler, withPreviewExtras };

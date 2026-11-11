@@ -3,49 +3,49 @@
 // inline code. HTML in the file passes through like on GitHub, scripts aside.
 // shortcut: no reference-style links, footnotes or setext headings; reach for a full parser if READMEs need them.
 
-const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // Text with its own HTML kept: a `<` that doesn't start a tag, and a `&` that doesn't start an entity, are escaped.
-const keepTags = s => s.replace(/&(?!#?\w+;)/g, '&amp;').replace(/<(?!\/?[a-zA-Z][^<>]*>|!--)/g, '&lt;');
-const safeUrl = u => (/^\s*(javascript|vbscript|data):/i.test(u) && !/^\s*data:image\//i.test(u) ? '#' : u.replace(/"/g, '%22'));
+const keepTags = (s: string) => s.replace(/&(?!#?\w+;)/g, '&amp;').replace(/<(?!\/?[a-zA-Z][^<>]*>|!--)/g, '&lt;');
+const safeUrl = (u: string) => (/^\s*(javascript|vbscript|data):/i.test(u) && !/^\s*data:image\//i.test(u) ? '#' : u.replace(/"/g, '%22'));
 
-function inline(text) {
-  const codes = [];
+function inline(text: string): string {
+  const codes: string[] = [];
   // Code spans first, held aside so nothing inside them is read as Markdown.
-  let s = text.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (_, _t, c) => `\u0000${codes.push(`<code>${esc(c.trim())}</code>`) - 1}\u0000`);
+  let s = text.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (_: string, _t: string, c: string) => `\u0000${codes.push(`<code>${esc(c.trim())}</code>`) - 1}\u0000`);
   s = keepTags(s)
-    .replace(/!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"([^"]*)")?\s*\)/g, (_, alt, src, t) => `<img src="${safeUrl(src)}" alt="${alt}"${t ? ` title="${t}"` : ''}>`)
-    .replace(/\[([^\]]+)\]\(\s*<?([^)\s>]+)>?(?:\s+"([^"]*)")?\s*\)/g, (_, label, href, t) => `<a href="${safeUrl(href)}"${t ? ` title="${t}"` : ''}>${label}</a>`)
+    .replace(/!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"([^"]*)")?\s*\)/g, (_: string, alt: string, src: string, t?: string) => `<img src="${safeUrl(src)}" alt="${alt}"${t ? ` title="${t}"` : ''}>`)
+    .replace(/\[([^\]]+)\]\(\s*<?([^)\s>]+)>?(?:\s+"([^"]*)")?\s*\)/g, (_: string, label: string, href: string, t?: string) => `<a href="${safeUrl(href)}"${t ? ` title="${t}"` : ''}>${label}</a>`)
     .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2">$2</a>')
     .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '<strong>$2</strong>')
     .replace(/(^|[^\w*])[*_](?=\S)([^*_]*?\S)[*_](?![\w*])/g, '$1<em>$2</em>')
     .replace(/~~(?=\S)([\s\S]*?\S)~~/g, '<del>$1</del>')
     .replace(/ {2,}\n|\\\n/g, '<br>\n');
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => codes[i]);
+  return s.replace(/\u0000(\d+)\u0000/g, (_: string, i: string) => codes[Number(i)]);
 }
 
-const cells = row => row.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
-const isRule = l => /^ {0,3}([-*_])( *\1){2,} *$/.test(l);
-const isTableSep = l => /^ *\|? *:?-+:? *(\| *:?-+:? *)*\|? *$/.test(l) && l.includes('-');
+const cells = (row: string): string[] => row.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
+const isRule = (l: string) => /^ {0,3}([-*_])( *\1){2,} *$/.test(l);
+const isTableSep = (l: string) => /^ *\|? *:?-+:? *(\| *:?-+:? *)*\|? *$/.test(l) && l.includes('-');
 const HTML_BLOCK = /^ {0,3}(<!--|<\/?(address|article|aside|blockquote|center|details|div|dl|dd|dt|fieldset|figure|figcaption|footer|form|h[1-6]|header|hr|li|main|nav|ol|p|picture|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul))/i;
-const listItem = l => /^( *)([-*+]|\d+[.)]) +(.*)$/.exec(l);
+const listItem = (l: string) => /^( *)([-*+]|\d+[.)]) +(.*)$/.exec(l);
 
 // Lines starting at `i` that make up one list; nested lists are the lines indented under an item.
-function list(lines, i) {
-  const first = listItem(lines[i]);
+function list(lines: string[], i: number): { html: string; next: number } {
+  const first = listItem(lines[i])!;
   const indent = first[1].length, ordered = /\d/.test(first[2]);
   // An item of this list: as indented, and the same kind (a numbered list after a bulleted one is a list of its own).
-  const mine = l => { const m = listItem(l); return m && m[1].length === indent && /\d/.test(m[2]) === ordered ? m : null; };
-  const items = [];
+  const mine = (l: string) => { const m = listItem(l); return m && m[1].length === indent && /\d/.test(m[2]) === ordered ? m : null; };
+  const items: string[][] = [];
   while (i < lines.length) {
     const m = mine(lines[i]);
     if (m) { items.push([m[3]]); i++; continue; }
     if (listItem(lines[i])?.[1].length === indent) break;
-    if (lines[i].trim() && (/^ +/.exec(lines[i])?.[0].length ?? 0) > indent) { items.at(-1).push(lines[i].slice(indent + 2)); i++; continue; }
-    if (!lines[i].trim() && lines[i + 1] && (mine(lines[i + 1]) || (/^ */.exec(lines[i + 1])[0].length > indent && lines[i + 1].trim()))) { i++; continue; }
+    if (lines[i].trim() && (/^ +/.exec(lines[i])?.[0].length ?? 0) > indent) { items.at(-1)!.push(lines[i].slice(indent + 2)); i++; continue; }
+    if (!lines[i].trim() && lines[i + 1] && (mine(lines[i + 1]) || (/^ */.exec(lines[i + 1])![0].length > indent && lines[i + 1].trim()))) { i++; continue; }
     break;
   }
   const start = ordered && parseInt(first[2], 10) !== 1 ? ` start="${parseInt(first[2], 10)}"` : '';
-  const html = items.map(body => {
+  const html: string = items.map(body => {
     let text = body.join('\n');
     const task = /^\[([ xX])\] +/.exec(text);
     if (task) text = text.slice(task[0].length);
@@ -56,15 +56,15 @@ function list(lines, i) {
   return { html: ordered ? `<ol${start}>${html}</ol>` : `<ul>${html}</ul>`, next: i };
 }
 
-function blocks(lines) {
-  const out = [];
+function blocks(lines: string[]): string {
+  const out: string[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
     const fence = /^ *(```+|~~~+) *([^`\s]*)/.exec(line);
     if (fence) {
-      const body = [];
+      const body: string[] = [];
       for (i++; i < lines.length && !lines[i].trim().startsWith(fence[1]); i++) body.push(lines[i]);
       i++;
       out.push(`<pre><code${fence[2] ? ` class="language-${esc(fence[2])}"` : ''}>${esc(body.join('\n'))}</code></pre>`);
@@ -74,16 +74,16 @@ function blocks(lines) {
     if (h) { out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); i++; continue; }
     if (isRule(line)) { out.push('<hr>'); i++; continue; }
     if (/^ {0,3}>/.test(line)) {
-      const body = [];
+      const body: string[] = [];
       for (; i < lines.length && /^ {0,3}>/.test(lines[i]); i++) body.push(lines[i].replace(/^ {0,3}> ?/, ''));
       out.push(`<blockquote>${blocks(body)}</blockquote>`);
       continue;
     }
-    if (listItem(line)) { const l = list(lines, i); out.push(l.html); i = l.next; continue; }
+    if (listItem(line)) { const l: { html: string; next: number } = list(lines, i); out.push(l.html); i = l.next; continue; }
     if (line.includes('|') && lines[i + 1] && isTableSep(lines[i + 1])) {
       const align = cells(lines[i + 1]).map(c => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : ''));
-      const row = (r, tag) => `<tr>${cells(r).map((c, n) => `<${tag}${align[n] ? ` align="${align[n]}"` : ''}>${inline(c)}</${tag}>`).join('')}</tr>`;
-      const body = [];
+      const row = (r: string, tag: string) => `<tr>${cells(r).map((c, n) => `<${tag}${align[n] ? ` align="${align[n]}"` : ''}>${inline(c)}</${tag}>`).join('')}</tr>`;
+      const body: string[] = [];
       for (i += 2; i < lines.length && lines[i].includes('|') && lines[i].trim(); i++) body.push(row(lines[i], 'td'));
       out.push(`<table><thead>${row(line, 'th')}</thead><tbody>${body.join('')}</tbody></table>`);
       continue;
@@ -91,12 +91,12 @@ function blocks(lines) {
     // An HTML block runs to the next blank line, as it is: a block tag, a comment, or a tag alone on its line. A line
     // that only starts with an inline tag (<sub>[a](b)</sub>) is a paragraph, whose Markdown is read.
     if (HTML_BLOCK.test(line) || /^ {0,3}<\/?[a-zA-Z][^<>]*> *$/.test(line)) {
-      const body = [];
+      const body: string[] = [];
       for (; i < lines.length && lines[i].trim(); i++) body.push(lines[i]);
       out.push(body.join('\n'));
       continue;
     }
-    const para = [];
+    const para: string[] = [];
     for (; i < lines.length && lines[i].trim() && !/^ *(```|~~~|#{1,6} |>)/.test(lines[i]) && !listItem(lines[i]) && !isRule(lines[i]); i++) para.push(lines[i]);
     out.push(`<p>${inline(para.join('\n'))}</p>`);
   }
@@ -179,9 +179,11 @@ const BODY_SCRIPT = `<script>(() => {
 
 // A whole page for the preview frame; `title` is the file's name. Scripts in the file are dropped; the page's own
 // (the theme toggle and the slider) are added after that.
-function markdownPage(text, title = '') {
+function markdownPage(text: string, title = ''): string {
   const body = blocks(text.replace(/\r\n?/g, '\n').split('\n')).replace(/<script\b[\s\S]*?<\/script\s*>/gi, '');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>${STYLE}${HEAD_SCRIPT}</head><body>${body}${BODY_SCRIPT}</body></html>`;
 }
 
-module.exports = { markdownPage, markdownBody: text => blocks(text.replace(/\r\n?/g, '\n').split('\n')) };
+const markdownBody = (text: string) => blocks(text.replace(/\r\n?/g, '\n').split('\n'));
+
+export { markdownPage, markdownBody };

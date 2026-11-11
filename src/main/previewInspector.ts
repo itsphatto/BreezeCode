@@ -6,12 +6,15 @@
 // The preview frame is sandboxed (an opaque origin), so Breeze can't reach into it: this runs inside the page,
 // injected by main.js's servePreview as an inline <script>. It draws in a closed shadow root so the page's CSS
 // can't restyle it, and the overlay never takes pointer events, so the page underneath still works.
-function previewInspector() {
-  if (window.__breezeInspector) return;
-  window.__breezeInspector = true;
+function previewInspector(): void {
+  // This function is stringified into the page (PREVIEW_INSPECTOR below), so it may only use what the page has: no
+  // imports, no helpers from this file, and type annotations only (they are erased).
+  const flag = window as Window & { __breezeInspector?: boolean };
+  if (flag.__breezeInspector) return;
+  flag.__breezeInspector = true;
 
   const BLUE = '#0a6cd8';
-  let host = null, box = null, label = null, target = null, hover = false, pinned = false;
+  let host: HTMLElement | null = null, box: HTMLElement | null = null, label: HTMLElement | null = null, target: Element | null = null, hover = false, pinned = false;
 
   function mount() {
     host = document.createElement('breeze-inspector');
@@ -27,12 +30,12 @@ function previewInspector() {
       .box.pinned{border-style:solid;background:rgba(10,108,216,.2)}
       @media (prefers-reduced-motion:reduce){.morph{transition:none}}
     </style><div class="box"></div><div class="label"></div>`;
-    box = shadow.querySelector('.box');
-    label = shadow.querySelector('.label');
+    box = shadow.querySelector<HTMLElement>('.box');
+    label = shadow.querySelector<HTMLElement>('.label');
   }
 
   // "div#hero.card.wide": the id and classes are what the label is for, the tag says what they sit on.
-  function describe(el) {
+  function describe(el: Element) {
     const tag = el.tagName.toLowerCase();
     const id = el.id ? `#${el.id}` : '';
     const classes = [...el.classList].map(c => `.${c}`).join('');
@@ -40,31 +43,31 @@ function previewInspector() {
   }
 
   // Morphing glides the outline to its new element; a fresh outline, or one following a scroll, jumps straight there.
-  function setMorph(on) {
-    box.classList.toggle('morph', on);
-    label.classList.toggle('morph', on);
+  function setMorph(on: boolean) {
+    box!.classList.toggle('morph', on);
+    label!.classList.toggle('morph', on);
   }
 
   function place() {
     if (!target || !target.isConnected) { clear(); return; }
     const r = target.getBoundingClientRect();
-    Object.assign(box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    Object.assign(box!.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
     // Above the element, or just inside its top edge when there's no room above (an element at the top of the page).
-    const h = label.offsetHeight || 20;
+    const h = label!.offsetHeight || 20;
     const top = r.top - h - 2 >= 0 ? r.top - h - 2 : Math.max(0, r.top) + 2;
-    const left = Math.min(Math.max(0, r.left), Math.max(0, innerWidth - label.offsetWidth - 4));
-    Object.assign(label.style, { left: `${left}px`, top: `${top}px` });
+    const left = Math.min(Math.max(0, r.left), Math.max(0, innerWidth - label!.offsetWidth - 4));
+    Object.assign(label!.style, { left: `${left}px`, top: `${top}px` });
   }
 
-  function show(el, morph = false) {
+  function show(el: Element, morph = false) {
     if (!host) mount();
-    const fresh = !host.isConnected;
-    if (fresh) document.documentElement.appendChild(host);
+    const fresh = !host!.isConnected;
+    if (fresh) document.documentElement.appendChild(host!);
     setMorph(morph && !fresh);
     target = el;
     const { tag, name } = describe(el);
     const r = el.getBoundingClientRect();
-    label.innerHTML = '';
+    label!.innerHTML = '';
     const tagEl = document.createElement('span');
     tagEl.className = 'tag';
     tagEl.textContent = tag;
@@ -72,11 +75,11 @@ function previewInspector() {
     sizeEl.className = 'size';
     // The \u00d7 escape (a times sign) keeps the source ASCII, so it reads right on a page that declares no charset.
     sizeEl.textContent = `${Math.round(r.width)} \u00d7 ${Math.round(r.height)}`;
-    label.append(tagEl, name, sizeEl);
+    label!.append(tagEl, name, sizeEl);
     place();
   }
 
-  function setPinned(on) {
+  function setPinned(on: boolean) {
     pinned = on;
     box?.classList.toggle('pinned', on);
   }
@@ -87,9 +90,9 @@ function previewInspector() {
     host?.remove();
   }
 
-  const inspectable = el => el instanceof Element && el !== document.documentElement && el !== document.body;
+  const inspectable = (el: EventTarget | null): el is Element => el instanceof Element && el !== document.documentElement && el !== document.body;
 
-  function setHover(on) {
+  function setHover(on: boolean) {
     hover = on;
     if (!on) clear();
   }
@@ -132,4 +135,4 @@ function previewInspector() {
 
 const PREVIEW_INSPECTOR = `<script data-breeze-inspector>(${previewInspector.toString()})();</script>`;
 
-module.exports = { previewInspector, PREVIEW_INSPECTOR };
+export { previewInspector, PREVIEW_INSPECTOR };

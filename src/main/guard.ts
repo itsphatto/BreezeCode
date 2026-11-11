@@ -1,31 +1,32 @@
 // Checks that keep the window, the agents and git inside what the user opened.
 // Plain functions with no Electron, so test/guard.test.js can cover them.
-const fs = require('node:fs');
-const path = require('node:path');
-const { fileURLToPath } = require('node:url');
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /* ----- The app's own page ----- */
 // True when `url` is the file:// address of `file` (query and hash ignored).
-function isFileUrl(url, file, platform = process.platform) {
-  let p;
+function isFileUrl(url: string, file: string, platform: string = process.platform): boolean {
+  let p: string;
   try { p = fileURLToPath(url); } catch { return false; } // not a file URL (or no URL at all)
-  const norm = s => (platform === 'win32' ? path.resolve(s).toLowerCase() : path.resolve(s));
+  const norm = (s: string) => (platform === 'win32' ? path.resolve(s).toLowerCase() : path.resolve(s));
   return norm(p) === norm(file);
 }
 
 /* ----- Paths inside the project ----- */
 const OUTSIDE = 'That path is outside the project';
 // `back` is a path relative to some base; true when it leads out of that base.
-const leaves = back => back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back);
-const isLink = p => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
+const leaves = (back: string) => back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back);
+const isLink = (p: string) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
 // Where `abs` really is: its nearest existing ancestor with links and junctions followed, plus the part
 // that doesn't exist yet (a file about to be created).
-function realTarget(abs) {
+function realTarget(abs: string): string {
   let p = abs, rest = '';
   for (;;) {
     try { return path.join(fs.realpathSync.native(p), rest); }
     catch (err) {
-      if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') throw err;
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw err;
       // A broken link would be followed by a write to wherever it points.
       if (isLink(p)) throw new Error(OUTSIDE);
       const up = path.dirname(p);
@@ -35,9 +36,9 @@ function realTarget(abs) {
     }
   }
 }
-const realRelative = (base, abs) => path.relative(fs.realpathSync.native(base), realTarget(abs));
+const realRelative = (base: string, abs: string) => path.relative(fs.realpathSync.native(base), realTarget(abs));
 // Resolve `rel` inside `base` and refuse anything that leaves it, by `..` or through a symlink or junction.
-function resolveUnder(base, rel = '') {
+function resolveUnder(base: string, rel = ''): string {
   const abs = path.resolve(base, rel);
   if (leaves(path.relative(base, abs)) || leaves(realRelative(base, abs))) throw new Error(OUTSIDE);
   return abs;
@@ -46,7 +47,7 @@ function resolveUnder(base, rel = '') {
 /* ----- What agents may touch ----- */
 // Secrets (.env, .env.local…) and git's own folder, whose config and hooks run commands.
 // `rel` is relative to the project; returns why the path is off limits, or null.
-function blockedRel(rel) {
+function blockedRel(rel: unknown): string | null {
   const parts = String(rel).split(/[\\/]/).filter(p => p && p !== '.');
   if (parts.some(p => p.toLowerCase() === '.git')) return 'The .git folder is off limits to agents: its config and hooks can run commands.';
   const name = parts.at(-1) ?? '';
@@ -54,13 +55,13 @@ function blockedRel(rel) {
   return null;
 }
 // The same check on the path as written and on where it really leads (Windows also reaches .git as "GIT~1" or ".git.").
-function agentBlocked(base, abs) {
+function agentBlocked(base: string, abs: string): string | null {
   return blockedRel(path.relative(base, abs)) ?? blockedRel(realRelative(base, abs));
 }
 
 // A request to a local server is only Breeze's own when its Host header names this computer. Any other name
 // is a web page that pointed its domain at 127.0.0.1 (DNS rebinding) to read the project.
-function isLocalHost(host, port) {
+function isLocalHost(host: unknown, port: number | string): boolean {
   return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(String(host || '').toLowerCase());
 }
 
@@ -68,7 +69,7 @@ function isLocalHost(host, port) {
 // A repository's own config can name commands git runs by itself (core.fsmonitor on status, diff.external and
 // textconv drivers on diff and show). Breeze runs git whenever files change, so those are off for every call it makes.
 // Leading `-c name=value` pairs the caller put first (prconflict.js turns hooks off that way) stay ahead of the command.
-function safeGitArgs(args) {
+function safeGitArgs(args: string[]): string[] {
   let i = 0;
   while (args[i] === '-c' && i + 1 < args.length) i += 2;
   const pre = args.slice(0, i);
@@ -81,7 +82,7 @@ function safeGitArgs(args) {
 // npm's .cmd shims only run through a shell on Windows. The program is quoted, so a path with spaces works,
 // and only plain arguments are allowed, so nothing in them can act as shell syntax.
 const PLAIN_ARG = /^[\w.:=@/-]+$/;
-function shellCommand(bin, args) {
+function shellCommand(bin: string, args: string[]): string {
   if (bin.includes('"')) throw new Error(`Can't run ${bin} through a shell`);
   const bad = args.find(a => !PLAIN_ARG.test(a));
   if (bad != null) throw new Error(`Refusing to pass ${JSON.stringify(bad)} through a shell`);
@@ -99,7 +100,7 @@ const AUTO_COMMANDS = [
 ];
 // npm scripts run whatever package.json says, so they only skip the question while the agent hasn't changed it.
 const SCRIPT_COMMAND = /^(?:npm|pnpm|yarn) (?:test|run [\w:-]+)$/i;
-function autoCommand(command, { packageChanged = false } = {}) {
+function autoCommand(command: unknown, { packageChanged = false }: { packageChanged?: boolean } = {}): boolean {
   const c = String(command ?? '').trim().replace(/[ \t]+/g, ' ');
   if (!c || SHELL_SYNTAX.test(c) || /\s--(?:output|ext-diff|textconv)\b/i.test(c)) return false;
   if (SCRIPT_COMMAND.test(c)) return !packageChanged;
@@ -107,6 +108,6 @@ function autoCommand(command, { packageChanged = false } = {}) {
 }
 // The environment a command gets, minus anything that looks like a secret: what it prints goes to the LLM server.
 const SECRET_VAR = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE/i;
-const cleanEnv = env => Object.fromEntries(Object.entries(env).filter(([k]) => !SECRET_VAR.test(k)));
+const cleanEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => Object.fromEntries(Object.entries(env).filter(([k]) => !SECRET_VAR.test(k)));
 
-module.exports = { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv, OUTSIDE };
+export { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv, OUTSIDE };
