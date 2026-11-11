@@ -440,8 +440,11 @@ async function openAgentFile(path: string, created = false, written = false): Pr
       if (r?.text == null || kindOf(r) !== 'text') return; // deleted, binary or too large
       const head = written && !buffers.has(path) ? await api.git.headText(path).catch(() => null) : null;
       if (head != null && !buffers.has(path)) {
+        // blankBuffer keeps a byte order mark out of the text, as readBuffer does; so does the text typed out here.
         const b = blankBuffer(path, head);
-        if (b && head.replaceAll('\r\n', '\n') !== r.text.replaceAll('\r\n', '\n')) void typeAgentEdit(b, r.text.replaceAll('\r\n', '\n'));
+        const disk = stripBom(r.text);
+        if (b) b.bom = disk.length !== r.text.length; // the file's mark, not the committed one
+        if (b && b.text !== disk.replaceAll('\r\n', '\n')) void typeAgentEdit(b, disk.replaceAll('\r\n', '\n'));
       }
       if (!buffers.has(path) && !await loadBuffer(path)) return;
     }

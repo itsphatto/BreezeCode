@@ -148,8 +148,10 @@ function openColorPicker(b: EditorBuffer & { ta: CodeSurface }, off: number, len
     const next = toHex(hsvToRgb(hsv), orig);
     if (next === shown) return;
     if (b.text.slice(off, off + shown.length) !== shown) { closeColorPicker(); return; } // the file changed under it
+    const before = b.text;
     b.ta.setRangeText(next, off, off + shown.length, 'preserve');
     b.text = b.ta.value;
+    docSync(b, before, b.text);
     shown = next;
     queueRender();
   };
@@ -157,8 +159,10 @@ function openColorPicker(b: EditorBuffer & { ta: CodeSurface }, off: number, len
   const commit = () => {
     if (shown === committed || b.text.slice(off, off + shown.length) !== shown) return;
     const final = shown;
+    const before = b.text;
     b.ta.setRangeText(committed, off, off + final.length, 'preserve');
     b.text = b.ta.value;
+    docSync(b, before, b.text); // replaceRange below then makes the change through the surface's input handler
     const caret = b.ta.selectionStart;
     replaceRange(b.ta, off, off + committed.length, final, caret, caret);
     committed = shown = final;

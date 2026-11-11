@@ -588,7 +588,9 @@ async function reloadText(b: EditorBuffer): Promise<void> {
   // While an agent works, its edits are typed out instead of swapped in.
   if (hasAnyActiveRun()) { void typeAgentEdit(b, text); return; }
   remember(b, 'reload');
+  const before = b.text;
   b.text = b.saved = text;
+  docSync(b, before, b.text); // as edits, not doc:reload: a second read of the file could see another version
   if (b.ta) { const s = b.ta.selectionStart; b.ta.value = text; b.ta.setSelectionRange(s, s); }
   if (b.path === active) renderCode();
   scheduleLint(b, 0);
@@ -693,7 +695,9 @@ async function typeOut(b: EditorBuffer, after: string): Promise<boolean> {
 }
 // Replaces the buffer's text as saved on disk, keeping the person's caret where it was.
 function setBuffer(b: EditorBuffer, text: string): void {
+  const before = b.text;
   b.text = b.saved = text;
+  docSync(b, before, b.text);
   if (b.ta && b.ta.value !== text) {
     const { selectionStart: st, selectionEnd: en } = b.ta;
     b.ta.value = text;

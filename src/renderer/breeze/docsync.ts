@@ -39,6 +39,7 @@ function docAttach(b: EditorBuffer, r: DocOpen): void {
       b.docSkip = true;
     },
   });
+  q.lines = r.lines; // the engine's count as opened, so a save before any edit needn't resync
   b.doc = id;
   b.docQ = q;
   b.eol = r.eol;
@@ -95,6 +96,26 @@ function docSync(b: EditorBuffer, before: string, after: string, edits?: readonl
 /** Resolves once every edit sent so far has reached the engine (or the document was dropped). Never rejects. */
 function docFlush(b: EditorBuffer): Promise<void> {
   return b.docQ?.flush() ?? Promise.resolve();
+}
+
+/** The bytes a save without the engine writes for `text`: the buffer's line ending on every line, and the byte order
+ *  mark the file was read with (the engine puts both back itself). */
+function diskText(b: EditorBuffer, text: string): string {
+  const t = b.eol === '\r\n' ? text.replaceAll('\n', '\r\n') : text;
+  return b.bom ? '﻿' + t : t;
+}
+
+/** Saves the buffer through its engine document: once every edit has reached the engine, and (when the engine's line
+ *  count says a writer missed docSync) after sending the whole text again. If the document was dropped meanwhile,
+ *  the file is written the old way. Rejects with the engine's (or the write's) error. */
+async function docSave(b: EditorBuffer): Promise<void> {
+  await docFlush(b);
+  if (b.docQ && b.docQ.lines !== lineStartsOf(b.text).length) {
+    b.docQ.push([{ start: DOC_TOP, end: DOC_END, text: b.text }], 'other');
+    await docFlush(b);
+  }
+  if (b.doc == null) { await api.fs.writeFile(b.path, diskText(b, b.text)); return; } // the queue died: the old way
+  await api.doc.save(b.doc);
 }
 
 /** Closes the buffer's document (best effort); an open still on its way is dropped too. */

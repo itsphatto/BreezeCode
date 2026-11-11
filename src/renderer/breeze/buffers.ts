@@ -1,7 +1,12 @@
 /* ----- Loading a workspace: its folders, its files and the tabs from last time ----- */
 // Puts back a tab's unsaved text and caret from the last session.
 function restoreBuffer(b: EditorBuffer, s: Session, dirty: Record<string, string>): void {
-  if (b.kind === 'text' && dirty[b.path] != null) { b.text = dirty[b.path]; if (b.ta) b.ta.value = b.text; }
+  if (b.kind === 'text' && dirty[b.path] != null) {
+    const before = b.text;
+    b.text = dirty[b.path];
+    docSync(b, before, b.text);
+    if (b.ta) b.ta.value = b.text;
+  }
   const pos = s.pos[b.path];
   if (b.ta && pos) { b.ta.setSelectionRange(pos[0], pos[0]); b.ta.scrollTop = pos[1]; pendingScroll.set(b, pos[1]); }
 }
@@ -148,9 +153,12 @@ async function readBuffer(path: string): Promise<EditorBuffer | null> {
 // so its new text can type in. Null for a path outside the open folder or one that holds secrets.
 function blankBuffer(path: string, text = ''): EditorBuffer | null {
   if (!rootInfo || /^(?:[a-z]:|[\\/])/i.test(path) || path.split('/').includes('..') || baseName(path).startsWith('.env')) return null;
-  const plain = text.replaceAll('\r\n', '\n');
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  // As readBuffer reads it: a leading byte order mark stays out of the text (the engine keeps it out too).
+  const raw = stripBom(text);
+  const plain = raw.replaceAll('\r\n', '\n');
+  const eol = raw.includes('\r\n') ? '\r\n' : '\n';
   const b: EditorBuffer = { path, size: text.length, kind: 'text', eol, text: plain, saved: plain, ta: null, undo: [], redo: [], lastEdit: null };
+  if (raw.length !== text.length) b.bom = true;
   b.ta = createSurface(b);
   buffers.set(path, b);
   if (text) { scheduleLint(b, 0); void lspOpen(b); }
@@ -229,7 +237,9 @@ function createSurface(b: EditorBuffer): CodeSurface {
     const wasDirty = isDirty(b);
     shiftMarks(b.path, b.text, ta.value, ta.lastEdits);
     shiftBreakpoints(b.path, b.text, ta.value, ta.lastEdits);
+    const before = b.text;
     b.text = ta.value;
+    docSync(b, before, b.text, ta.lastEdits); // undo and redo come through here too (stepHistory dispatches 'input')
     if (wasDirty !== isDirty(b)) { renderTabs(); renderTree(); }
     if (b.path === splitPath) renderSplit();
     if (findOpen) runFind(false);

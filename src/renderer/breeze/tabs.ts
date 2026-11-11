@@ -528,8 +528,16 @@ async function saveFile(path: string | null = active): Promise<boolean> {
     if (choice !== 'overwrite') return false;
   }
   const text = b.text;
-  try { await api.fs.writeFile(b.path, b.eol === '\r\n' ? text.replaceAll('\n', '\r\n') : text); }
-  catch (e) { toast(`Couldn't save ${baseName(b.path)}: ${errMsg(e)}`); return false; }
+  try {
+    // No document yet (an agent's draft, or one the engine dropped): the file is made if it isn't there, opened in
+    // the engine (which reads what it holds now) and brought to this text, then saved through it.
+    if (!b.doc && !b.docSkip && !engineOff) {
+      try { await api.fs.createFile(b.path); } catch (e) { if (!/EEXIST/.test(errMsg(e))) throw e; }
+      if (!b.doc) await docOpen(b, null);
+    }
+    if (b.doc) await docSave(b);
+    else await api.fs.writeFile(b.path, diskText(b, text));
+  } catch (e) { toast(`Couldn't save ${baseName(b.path)}: ${errMsg(e)}`); return false; }
   b.saved = text;
   b.disk = undefined;
   renderTabs(); renderTree(); flushSession();
@@ -579,7 +587,9 @@ function askDiskConflict(b: EditorBuffer): Promise<'overwrite' | 'reload' | null
 function loadDiskVersion(b: EditorBuffer): void {
   if (b.disk == null) return;
   remember(b, 'reload');
+  const before = b.text;
   b.text = b.saved = b.disk;
+  docSync(b, before, b.text);
   b.disk = undefined;
   if (b.ta) { const s = Math.min(b.ta.selectionStart, b.text.length); b.ta.value = b.text; b.ta.setSelectionRange(s, s); }
   if (b.path === active) renderCode();
