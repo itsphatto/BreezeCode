@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ES2022",
+    "module": "CommonJS",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "noEmitOnError": true,
@@ -23,6 +23,7 @@
     "src/renderer/breeze/scmcore.ts", "src/renderer/breeze/conflictcore.ts", "src/renderer/breeze/git.ts", "src/renderer/breeze/prs.ts", "src/renderer/breeze/conflicts.ts", "src/renderer/breeze/skills.ts", "src/renderer/breeze/palette.ts", "src/renderer/breeze/emmet.ts", "src/renderer/breeze/teamswap.ts", "src/renderer/breeze/debug.ts", "src/renderer/breeze/debugview.ts", "src/renderer/breeze/debugpanels.ts", "src/renderer/breeze/views.ts", "src/renderer/breeze/vibe.ts",
     "src/renderer/breeze/discord.ts", "src/renderer/breeze/friends.ts", "src/renderer/breeze/ui.ts", "src/renderer/breeze/init.ts",
     "src/renderer/termwin.ts",
-    "src/main/antigravityAgentService.ts"
+    "src/main/antigravityAgentService.ts",
+    "src/main/sniff.ts", "src/main/docargs.ts", "src/main/docregistry.ts", "src/main/pathguard.ts", "src/main/emmet.ts", "src/main/mentions.ts", "src/main/pricing.ts", "src/main/kernel.ts", "src/main/termPreload.ts", "src/main/ambient.d.ts"
   ]
 }

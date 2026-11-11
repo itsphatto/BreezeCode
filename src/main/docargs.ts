@@ -7,30 +7,31 @@ const MAX_QUERY = 1000;
 const KINDS = ['type', 'delete', 'paste', 'other'];
 
 const bad = () => new Error('Bad request');
-const int = (v, min, max) => {
-  if (!Number.isInteger(v) || v < min || v > max) throw bad();
+const int = (v: unknown, min: number, max: number): number => {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) throw bad();
   return v;
 };
 
-const docId = v => int(v, 1, MAX_INT);
-const docLine = v => int(v, 0, MAX_INT);
-const docCount = v => int(v, 0, MAX_COUNT);
+const docId = (v: unknown) => int(v, 1, MAX_INT);
+const docLine = (v: unknown) => int(v, 0, MAX_INT);
+const docCount = (v: unknown) => int(v, 0, MAX_COUNT);
 // Only line and col are copied, so nothing else the page attached travels on.
-function docPos(v) {
+function docPos(v: unknown): { line: number; col: number } {
   if (!v || typeof v !== 'object') throw bad();
-  return { line: docLine(v.line), col: docLine(v.col) };
+  const p = v as { line?: unknown; col?: unknown };
+  return { line: docLine(p.line), col: docLine(p.col) };
 }
-function docText(v) {
+function docText(v: unknown): string {
   if (typeof v !== 'string' || v.length > MAX_TEXT) throw bad();
   return v;
 }
-function docQuery(v) {
+function docQuery(v: unknown): string {
   if (typeof v !== 'string' || v.length < 1 || v.length > MAX_QUERY || /[\r\n]/.test(v)) throw bad();
   return v;
 }
-function docKind(v) {
-  if (!KINDS.includes(v)) throw bad();
+function docKind(v: unknown): string {
+  if (typeof v !== 'string' || !KINDS.includes(v)) throw bad();
   return v;
 }
 
-module.exports = { docId, docPos, docLine, docCount, docText, docQuery, docKind };
+export { docId, docPos, docLine, docCount, docText, docQuery, docKind };

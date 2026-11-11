@@ -5,7 +5,8 @@
 // developers.openai.com/api/docs/pricing (standard tier, global routing). [input, 5-minute cache write, cache read,
 // output]; a 1-hour cache write is twice the input price on every Claude model, and OpenAI has no cache write.
 // The first pattern that matches wins, so narrower ids come first.
-const PRICES = [
+type Price = [input: number, cacheWrite: number, cacheRead: number, output: number];
+const PRICES: [RegExp, Price][] = [
   [/^claude-(fable|mythos)-5-1\b/, [10, 12.5, 0.25, 50]],
   [/^claude-(fable|mythos)-5\b/, [10, 12.5, 1, 50]],
   [/^claude-opus-5-5\b/, [4, 5, 0.2, 20]],
@@ -26,11 +27,11 @@ const PRICES = [
   [/^gpt-5\.6-sol\b/, [4, 0, 0.4, 20]],
   [/^gpt-5\.3-codex\b/, [1.75, 0, 0.175, 14]],
 ];
-const HAIKU_LONG = { over: 100_000, price: [0.5, 0.625, 0.05, 2.5] };
+const HAIKU_LONG: { over: number; price: Price } = { over: 100_000, price: [0.5, 0.625, 0.05, 2.5] };
 // Claude Code can log the short names it was started with.
-const ALIASES = { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
+const ALIASES: Record<string, string> = { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
 
-function priceOf(model) {
+function priceOf(model: unknown): Price | null {
   const id = String(model || '').toLowerCase().trim();
   const name = ALIASES[id] || id;
   return PRICES.find(([re]) => re.test(name))?.[1] ?? null;
@@ -39,7 +40,8 @@ function priceOf(model) {
 // One message's (or step's) cost in USD, or null when the model has no known price.
 // t: { input, output, cacheWrite (all cache writes), cacheWrite1h (the part of those kept for an hour), cacheRead }.
 // fast: Claude's fast mode, twice the standard price.
-function costOf(model, t, { fast = false } = {}) {
+interface Tokens { input?: number; output?: number; cacheWrite?: number; cacheWrite1h?: number; cacheRead?: number }
+function costOf(model: unknown, t: Tokens, { fast = false }: { fast?: boolean } = {}): number | null {
   let p = priceOf(model);
   if (!p) return null;
   const input = t.input || 0, output = t.output || 0, cacheRead = t.cacheRead || 0;
@@ -50,4 +52,4 @@ function costOf(model, t, { fast = false } = {}) {
   return fast ? usd * 2 : usd;
 }
 
-module.exports = { priceOf, costOf };
+export { priceOf, costOf };
