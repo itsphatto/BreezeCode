@@ -2,7 +2,7 @@
 // checked here before it reaches the engine. Each function returns a clean value or throws Error('Bad request').
 const MAX_INT = 2 ** 31 - 1;
 const MAX_COUNT = 5000;
-const MAX_TEXT = 52428800; // 100 MB as UTF-16 code units (2 bytes each)
+const MAX_TEXT = 52428800; // UTF-16 code units (string length): 50 Mi units, which is 100 MiB in memory at 2 bytes each
 const MAX_QUERY = 1000;
 const KINDS = ['type', 'delete', 'paste', 'other'];
 

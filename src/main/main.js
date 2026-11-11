@@ -16,6 +16,7 @@ const { AntigravityAgentService } = require('./antigravityAgentService.js');
 const { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } = require('./github');
 const { costOf } = require('./pricing');
 const prconflict = require('./prconflict');
+const { looksBinary } = require('./sniff');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
@@ -795,7 +796,9 @@ handle('fs:readFile', async (_e, rel) => {
   if (IMAGE_FILE.test(abs)) return { image: true, size: st.size };
   if (VIDEO_FILE.test(abs)) return { video: true, size: st.size };
   if (PDF_FILE.test(abs)) return { pdf: true, size: st.size };
-  if (st.size > MAX_FILE_BYTES) return { tooLarge: true, size: st.size };
+  // Over the limit: a text file opens in the engine, but a binary one (an archive, a disk image) gets the binary note.
+  // Only the first few KB are read to tell which.
+  if (st.size > MAX_FILE_BYTES) return (await looksBinary(abs)) ? { binary: true, size: st.size } : { tooLarge: true, size: st.size };
   const buf = await fsp.readFile(abs);
   if (buf.subarray(0, 8000).includes(0)) return { binary: true, size: st.size };
   return { text: buf.toString('utf8'), size: st.size };
