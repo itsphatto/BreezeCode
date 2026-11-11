@@ -1622,7 +1622,13 @@ const AGENTS: AgentDef[] = [
   },
 ];
 // Claude Code takes these aliases for --model; "default" leaves the choice to its own settings.
-const CLAUDE_MODELS = ['default', 'opus', 'sonnet', 'haiku'];
+const CLAUDE_MODELS = ['default', 'fable', 'opus', 'sonnet', 'haiku'];
+// An older Claude Code has no fable alias, so it's offered only when this one's --help names it.
+function claudeOffersFable(bin: string): Promise<boolean> {
+  return new Promise(res => {
+    exec(`"${bin}" --help`, { windowsHide: true, timeout: 8000 }, (err, stdout) => res(!err && /\bfable\b/i.test(stdout)));
+  });
+}
 const agentBins = new Map<string, string>(); // agent id -> executable found by the last scan
 // Folders of the agents found off PATH, so the Terminal panel can run them by name.
 const agentDirs = () => [...new Set([...agentBins.values()].filter(b => !b.endsWith('.app')).map(b => path.dirname(b)))];
@@ -2047,7 +2053,8 @@ const windowLabel = (min: number) => (({ 300: '5-hour', 10080: 'Weekly', 43200: 
 // A window whose reset time has passed is empty again until the agent next reports.
 const limitWindow = (label: string, usedPct: number, resetsAt?: number | null) =>
   resetsAt && resetsAt * 1000 < Date.now() ? { label, used: 0, resetsAt: null } : { label, used: Math.min(100, Math.max(0, usedPct)), resetsAt: resetsAt || null };
-const CLAUDE_WINDOWS: Record<string, string> = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
+const FABLE_WEEK = 'Weekly (Fable)';
+const CLAUDE_WINDOWS: Record<string, string> = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_overage_included: FABLE_WEEK, seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
 // The last numbers seen, from a Breeze run (rate_limit_event: utilization 0–1, resetsAt in seconds) or the live ask
 // below. Only a fallback: they go stale as soon as Claude is used anywhere else.
 function claudeLimits() {
@@ -2091,7 +2098,7 @@ async function claudeLiveLimits() {
     if (!res.ok) return claudeLiveFailed('Claude couldn\'t send its plan limits. Trying again soon');
     const d = await res.json();
     // Fable's week has no field of its own in this reply: it is a row of limits[] (percent 0–100), named by the server.
-    const fable = Array.isArray(d?.limits) && d.limits.find(l => l?.kind === 'weekly_scoped' && /fable/i.test(l.scope?.model?.display_name || ''));
+    const fable = Array.isArray(d?.limits) && d.limits.find((l: Loose) => l?.kind === 'weekly_scoped' && /fable/i.test(l.scope?.model?.display_name || ''));
     if (d) d.seven_day_overage_included = typeof fable?.percent === 'number' ? { utilization: fable.percent, resets_at: fable.resets_at } : undefined;
     const shown = Object.keys(CLAUDE_WINDOWS).filter(k => typeof d?.[k]?.utilization === 'number');
     if (!shown.length) return claudeLiveFailed('Claude sent no plan limits for this account');
