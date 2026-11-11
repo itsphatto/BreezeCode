@@ -33,11 +33,34 @@ async function roundTrip(fileText, after, expected, textEdits = null) {
   } finally { e.stop(); }
 }
 
+// Like roundTrip, through several page texts in turn (each change sent as docSync sends it).
+async function steps(fileText, texts, expected) {
+  const dir = tmp(), file = path.join(dir, 'f.txt');
+  fs.writeFileSync(file, fileText);
+  const e = new Engine({ exe, journalDir: path.join(dir, 'j') });
+  try {
+    const { doc } = await e.request('open', { path: file });
+    let before = stripBom(fileText).replaceAll('\r\n', '\n');
+    for (const after of texts) {
+      const edits = docEditsFor(before, after, null);
+      assert.ok(edits.every(ed => !ed.text.includes('\r')), 'no edit carries a \\r, so the buffer stays on the engine');
+      let last;
+      for (const ed of edits) last = await e.request('edit', { doc, start: ed.start, end: ed.end, text: ed.text, kind: 'other' });
+      assert.equal(last.lines, after.split('\n').length);
+      before = after;
+    }
+    await e.request('save', { doc });
+    assert.deepEqual(fs.readFileSync(file), Buffer.from(expected, 'utf8'));
+  } finally { e.stop(); }
+}
+
 test('lf', { skip }, () => roundTrip('a\nb', 'a\nXb', 'a\nXb'));
 test('crlf: a new line gets CRLF', { skip }, () => roundTrip('a\r\nb', 'a\nnew\nb', 'a\r\nnew\r\nb'));
 test('mixed endings stay mixed', { skip }, () => roundTrip('a\r\nb\nc', 'a\nb\ncZ', 'a\r\nb\ncZ'));
 test('bom', { skip }, () => roundTrip('﻿ab', 'aXb', '﻿aXb'));
 test('emoji', { skip }, () => roundTrip('😀a', '😀Xa', '😀Xa'));
 test('lone-cr untouched', { skip }, () => roundTrip('a\rb\nc', 'a\rb\ncZ', 'a\rb\ncZ'));
+test('crlf: delete a line, then undo it: the file comes back exactly', { skip }, () =>
+  steps('a\r\nb\r\nc', ['b\nc', 'a\nb\nc'], 'a\r\nb\r\nc'));
 test('several edits in one change', { skip }, () =>
   roundTrip('a\nb\nc', 'xa\nxb\nxc', 'xa\nxb\nxc', [{ start: 0, end: 0, text: 'x' }, { start: 2, end: 2, text: 'x' }, { start: 4, end: 4, text: 'x' }]));
