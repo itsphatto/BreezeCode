@@ -13,6 +13,7 @@ src/renderer/breeze/*.js
 src/renderer/editcore.js
 src/renderer/codeview.js
 src/renderer/bigcore.js
+src/renderer/doccore.js
 src/renderer/bigsurface.js
 src/renderer/termwin.js
 *.tsbuildinfo
