@@ -48,7 +48,7 @@ class CdpClient extends EventEmitter {
     });
   }
   // Resolves with the response's result; rejects with its message when the inspector says it failed.
-  send(method: string, params?: unknown): Promise<any> {
+  send<T = any>(method: string, params?: unknown): Promise<T> {
     if (this.closed) return Promise.reject(new Error('The inspector connection is closed'));
     const id = this.id++;
     return new Promise((resolve, reject) => {
@@ -189,7 +189,7 @@ function valueOf(name: string, ro: RemoteObject | null | undefined, refFor: (obj
 
 // Debugger.paused's callFrames as DebugFrames: 1-based line and column; `file` is project-relative with forward
 // slashes, or null for a script outside `root`, a node: internal, or one with no URL. `id` is the frame's index.
-interface CallFrame { functionName?: string; url?: string; location?: { scriptId?: string; lineNumber?: number; columnNumber?: number } }
+export interface CallFrame { functionName?: string; url?: string; location?: { scriptId?: string; lineNumber?: number; columnNumber?: number } }
 function framesOf(callFrames: CallFrame[], scripts: Map<string, string>, root: string) {
   return callFrames.map((cf, i) => {
     const loc = cf.location || {};

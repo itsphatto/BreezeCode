@@ -6,12 +6,25 @@
 // Inside the worktree HEAD is the pull request head and origin/<base> is merged into it, so "ours"
 // (stage 2) is the PR side and "theirs" (stage 3) is the base side.
 
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
-const hashOf = repoDir => crypto.createHash('sha1').update(path.resolve(repoDir)).digest('hex').slice(0, 8);
-const refOf = number => `refs/breeze/pr-${number}`;
+// Runs git in `cwd` with `args` (and `input` on stdin), resolving to its stdout.
+export type GitRun = (cwd: string, args: string[], input?: string) => Promise<string>;
+export interface ConflictFile {
+  path: string; kind: 'text' | 'binary'; ours: string | null; theirs: string | null; merged: string | null; hasOurs: boolean; hasTheirs: boolean;
+}
+interface Stage { mode: string; sha: string }
+export interface ConflictSession {
+  id: string; dir: string; number: number; base: string; headRef: string; clean: boolean; files: ConflictFile[];
+  repoDir: string; stages: Record<string, { ours: Stage | null; theirs: Stage | null }>;
+}
+export type Resolution = { path: string; text?: string | null; choice?: string };
+class StageError extends Error { stage?: string }
+
+const hashOf = (repoDir: string) => crypto.createHash('sha1').update(path.resolve(repoDir)).digest('hex').slice(0, 8);
+const refOf = (number: number) => `refs/breeze/pr-${number}`;
 const swallow = () => {};
 const BINARY_CHOICES = ['ours', 'theirs', 'delete'];
 
@@ -19,41 +32,41 @@ const BINARY_CHOICES = ['ours', 'theirs', 'delete'];
 // hooks from there (a relative core.hooksPath resolves inside the worktree, and hook managers read their
 // config from it), on checkout, commit and push. Every call made here points core.hooksPath at an empty
 // folder the caller owns, and nothing runs without one.
-function hooksOff(run, hooksDir) {
+function hooksOff(run: GitRun, hooksDir: unknown): GitRun {
   if (typeof hooksDir !== 'string' || !hooksDir) throw new Error('Refusing to run git without an empty hooks folder (hooksDir)');
-  return (cwd, args, input) => run(cwd, ['-c', `core.hooksPath=${hooksDir}`, ...args], input);
+  return (cwd: string, args: string[], input?: string) => run(cwd, ['-c', `core.hooksPath=${hooksDir}`, ...args], input);
 }
 
 // Marks which part of finishing failed, so the caller can tell "nothing was committed" from "only the push is left".
-function tagged(e, stage) {
-  const err = e instanceof Error ? e : new Error(String(e));
+function tagged(e: unknown, stage: string): StageError {
+  const err: StageError = e instanceof Error ? e : new Error(String(e));
   err.stage = stage;
   return err;
 }
 
 // A file can be shown and merged as text only when every version of it is UTF-8 without NUL bytes: anything
 // else would be changed by decoding it and writing it back.
-const isText = buf => !buf.includes(0) && Buffer.from(buf.toString('utf8'), 'utf8').equals(buf);
+const isText = (buf: Buffer) => !buf.includes(0) && Buffer.from(buf.toString('utf8'), 'utf8').equals(buf);
 
 // The unmerged index entries: path -> { 1|2|3: { mode, sha } }.
-async function unmergedStages(git, dir) {
+async function unmergedStages(git: GitRun, dir: string): Promise<Map<string, Record<string, Stage>>> {
   const out = await git(dir, ['ls-files', '-u', '-z']);
-  const map = new Map();
+  const map = new Map<string, Record<string, Stage>>();
   for (const rec of out.split('\0')) {
     const m = /^(\d+) ([0-9a-f]+) ([123])\t(.+)$/s.exec(rec);
     if (!m) continue;
     if (!map.has(m[4])) map.set(m[4], {});
-    map.get(m[4])[m[3]] = { mode: m[1], sha: m[2] };
+    map.get(m[4])![m[3]] = { mode: m[1], sha: m[2] };
   }
   return map;
 }
 
 // The raw bytes of each side of a conflicted file, written by git to temporary files (git's own output is read
 // as text, which would hide bytes that aren't UTF-8). null for a side that has no version.
-async function rawSides(git, dir, p) {
+async function rawSides(git: GitRun, dir: string, p: string): Promise<{ ours: Buffer | null; theirs: Buffer | null }> {
   const out = await git(dir, ['checkout-index', '--stage=all', '--temp', '--', p]);
   const names = out.split('\n')[0].split('\t')[0].split(' ');
-  const read = name => {
+  const read = (name: string | undefined): Buffer | null => {
     if (!name || name === '.') return null;
     const abs = path.join(dir, name);
     try { return fs.readFileSync(abs); } finally { try { fs.unlinkSync(abs); } catch {} }
@@ -64,7 +77,7 @@ async function rawSides(git, dir, p) {
 
 // Takes the worktree out of git's books and off the disk, then drops the PR ref. Best effort: this
 // runs on the way out of failures too, so nothing in it may throw.
-async function removeWorktree(git, repoDir, dir, number) {
+async function removeWorktree(git: GitRun, repoDir: string, dir: string, number: number): Promise<void> {
   try {
     await git(repoDir, ['worktree', 'remove', '--force', dir]);
   } catch {
@@ -78,12 +91,12 @@ async function removeWorktree(git, repoDir, dir, number) {
 // are the two sides (null: that side deleted it) and merged is the file with conflict markers. kind 'binary': a
 // file that isn't UTF-8 text, which is never decoded; ours / theirs / merged are null and hasOurs / hasTheirs
 // say which sides have a version. It is resolved by keeping one side or deleting it.
-async function startConflict({ run, hooksDir, repoDir, worktreesDir, number, base, headRef }) {
+async function startConflict({ run, hooksDir, repoDir, worktreesDir, number, base, headRef }: { run: GitRun; hooksDir: string; repoDir: string; worktreesDir: string; number: number; base: string; headRef: string }): Promise<ConflictSession> {
   const git = hooksOff(run, hooksDir);
   const id = `${hashOf(repoDir)}-${number}`;
   const dir = path.join(worktreesDir, id);
   const ref = refOf(number);
-  const session = { id, dir, number, base, headRef, clean: false, files: [], repoDir, stages: {} };
+  const session: ConflictSession = { id, dir, number, base, headRef, clean: false, files: [], repoDir, stages: {} };
   try {
     await git(repoDir, ['fetch', 'origin', `+pull/${number}/head:${ref}`]);
     await git(repoDir, ['fetch', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`]);
@@ -100,15 +113,15 @@ async function startConflict({ run, hooksDir, repoDir, worktreesDir, number, bas
     } catch (e) {
       // Exit 1 means "conflicts", but only when a merge is actually in progress; exit 1 also covers
       // "not something we can merge", and anything else is a real failure.
-      if (!e || e.code !== 1 || !(await git(dir, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).then(() => true, () => false))) throw e;
+      if (!e || (e as { code?: number }).code !== 1 || !(await git(dir, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).then(() => true, () => false))) throw e;
     }
     const paths = (await git(dir, ['diff', '--name-only', '-z', '--diff-filter=U'])).split('\0').filter(Boolean);
-    const stages = paths.length ? await unmergedStages(git, dir) : new Map();
+    const stages = paths.length ? await unmergedStages(git, dir) : new Map<string, Record<string, Stage>>();
     for (const p of paths) {
-      const st = stages.get(p) || {};
+      const st: Record<string, Stage> = stages.get(p) || {};
       session.stages[p] = { ours: st[2] ?? null, theirs: st[3] ?? null };
       const raw = await rawSides(git, dir, p);
-      let work = null;
+      let work: Buffer | null = null;
       try { work = fs.readFileSync(path.join(dir, p)); } catch { /* modify/delete: git leaves no file */ }
       if (![raw.ours, raw.theirs, work].every(b => b === null || isText(b))) {
         session.files.push({ path: p, kind: 'binary', ours: null, theirs: null, merged: null, hasOurs: raw.ours !== null, hasTheirs: raw.theirs !== null });
@@ -131,18 +144,18 @@ async function startConflict({ run, hooksDir, repoDir, worktreesDir, number, bas
 // for a binary one. A failure carries its stage on `.stage`: 'commit' (writing, staging or committing; nothing
 // was committed, so the resolution can still change) or 'push' (the resolution is committed in the worktree and
 // a retry only pushes).
-async function finishConflict({ run, hooksDir, session, results, pushTo = 'origin' }) {
+async function finishConflict({ run, hooksDir, session, results, pushTo = 'origin' }: { run: GitRun; hooksDir: string; session: ConflictSession; results: Resolution[]; pushTo?: string }): Promise<void> {
   const git = hooksOff(run, hooksDir);
   const { dir, number, headRef, base, repoDir } = session;
   const message = `Merge ${base} into ${headRef} (resolved in Breeze)`;
   const root = path.resolve(dir);
-  const kinds = new Map((session.files || []).map(f => [f.path, f.kind]));
+  const kinds = new Map((session.files || []).map(f => [f.path, f.kind] as const));
   try {
     const resolved = results.map(r => {
       const abs = path.resolve(root, r.path);
       if (abs !== root && !abs.startsWith(root + path.sep)) throw new Error(`Path is outside the conflict worktree: ${r.path}`);
       const binary = kinds.get(r.path) === 'binary';
-      if (binary && !BINARY_CHOICES.includes(r.choice)) throw new Error(`${r.path} can only be kept from one side or deleted`);
+      if (binary && !BINARY_CHOICES.includes(r.choice as string)) throw new Error(`${r.path} can only be kept from one side or deleted`);
       if (!binary && !(r.text === null || typeof r.text === 'string')) throw new Error(`No resolution for ${r.path}`);
       return { ...r, abs, binary };
     });
@@ -155,7 +168,7 @@ async function finishConflict({ run, hooksDir, session, results, pushTo = 'origi
         if (r.binary) {
           // The chosen side's blob goes into the index as it is, never through a decode. This also works on a
           // retry, when an earlier attempt already staged the file and the conflict stages are gone.
-          const blob = r.choice === 'delete' ? null : session.stages?.[r.path]?.[r.choice] ?? null;
+          const blob = r.choice === 'delete' ? null : session.stages?.[r.path]?.[r.choice as 'ours' | 'theirs'] ?? null;
           if (blob === null) {
             await git(dir, ['rm', '--force', '--quiet', '--ignore-unmatch', '--', r.path]);
           } else {
@@ -166,7 +179,7 @@ async function finishConflict({ run, hooksDir, session, results, pushTo = 'origi
           await git(dir, ['rm', '--force', '--quiet', '--ignore-unmatch', '--', r.path]);
         } else {
           fs.mkdirSync(path.dirname(r.abs), { recursive: true });
-          fs.writeFileSync(r.abs, r.text);
+          fs.writeFileSync(r.abs, r.text as string);
           await git(dir, ['add', '--', r.path]);
         }
       }
@@ -184,17 +197,17 @@ async function finishConflict({ run, hooksDir, session, results, pushTo = 'origi
   await removeWorktree(git, repoDir, dir, number);
 }
 
-async function abortConflict({ run, hooksDir, repoDir, session }) {
+async function abortConflict({ run, hooksDir, repoDir, session }: { run: GitRun; hooksDir: string; repoDir: string; session: ConflictSession }): Promise<void> {
   const git = hooksOff(run, hooksDir);
   await git(session.dir, ['merge', '--abort']).catch(swallow);
   await removeWorktree(git, repoDir, session.dir, session.number);
 }
 
-async function pruneConflicts({ run, hooksDir, repoDir, worktreesDir }) {
+async function pruneConflicts({ run, hooksDir, repoDir, worktreesDir }: { run: GitRun; hooksDir: string; repoDir: string; worktreesDir: string }): Promise<void> {
   const git = hooksOff(run, hooksDir);
   await git(repoDir, ['worktree', 'prune']).catch(swallow);
   const prefix = hashOf(repoDir) + '-';
-  let names = [];
+  let names: string[] = [];
   try { names = fs.readdirSync(worktreesDir); } catch { return; }
   for (const name of names) {
     if (!name.startsWith(prefix)) continue;
@@ -204,4 +217,4 @@ async function pruneConflicts({ run, hooksDir, repoDir, worktreesDir }) {
   await git(repoDir, ['worktree', 'prune']).catch(swallow);
 }
 
-module.exports = { startConflict, finishConflict, abortConflict, pruneConflicts };
+export { startConflict, finishConflict, abortConflict, pruneConflicts };

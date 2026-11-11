@@ -1,8 +1,32 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const { StringDecoder } = require('node:string_decoder');
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
+import type { ChildProcess } from 'node:child_process';
 
-const pathFor = (platform) => (platform === 'win32' ? path.win32 : path.posix);
+export interface Tool { path: string; name: string; version: string }
+const TOOL_KEYS = ['cc', 'cxx', 'gdb', 'python', 'dotnet', 'java', 'rustc', 'cargo', 'node', 'lua', 'php', 'sqlite', 'go', 'ruby', 'kotlinc', 'swiftc', 'dart', 'zig', 'scala', 'elixir', 'runghc', 'rscript', 'perl', 'groovy'] as const;
+export type ToolKey = typeof TOOL_KEYS[number];
+export type Tools = Record<ToolKey, Tool | null> & { binDirs: string[] };
+// What a program run returns: the exit code (null if it never ran) and what it printed.
+export interface RunResult { code: number | null; stdout?: string }
+export type RunFn = (file: string, args: string[]) => Promise<RunResult | null>;
+type Env = Record<string, string | undefined>;
+export interface FindOptions {
+  platform: string; pathValue?: string; env?: Env;
+  exists: (p: string) => boolean; glob: (pattern: string) => string[]; run: RunFn;
+}
+// One program to run: what to show, the file and arguments, and where and how.
+export interface Step {
+  display: string; file: string; args: string[]; cwd?: string; env?: Record<string, string>; shell?: boolean; mkdir?: string; cargo?: boolean;
+}
+export type Plan = { error: string; steps?: undefined } | { steps: Step[]; error?: undefined };
+export interface DebugPlan {
+  error?: string; steps?: Step[]; exe?: string | null; entry?: string | null; cpp?: boolean;
+}
+interface PlanOpts { csproj?: string | null; cargoToml?: string | null }
+interface MissingEntry { lead: string; cmd?: string | null; url?: string }
+
+const pathFor = (platform: string) => (platform === 'win32' ? path.win32 : path.posix);
 
 const WIN_EXTRA = [
   'C:\\msys64\\ucrt64\\bin',
@@ -14,27 +38,27 @@ const WIN_EXTRA = [
 ];
 const WINLIBS = '%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\BrechtSanders.WinLibs*\\mingw64\\bin';
 // Where the .NET SDK installs when it isn't on the PATH (installers, Homebrew, distro packages, dotnet-install script).
-const DOTNET_DIRS = (platform, env) => (platform === 'win32'
+const DOTNET_DIRS = (platform: string, env: Env): string[] => (platform === 'win32'
   ? [env.ProgramFiles && env.ProgramFiles + '\\dotnet', env.USERPROFILE && env.USERPROFILE + '\\.dotnet']
   : ['/usr/local/share/dotnet', '/usr/share/dotnet', '/usr/lib/dotnet', '/opt/homebrew/bin', env.HOME && env.HOME + '/.dotnet']
-).filter(Boolean);
+).filter(Boolean) as string[];
 // Where JDKs install when they aren't on the PATH: JAVA_HOME, then the usual vendors' folders (one `*` each, for glob).
-const JDK_DIRS = (platform, env) => [
+const JDK_DIRS = (platform: string, env: Env): string[] => [
   env.JAVA_HOME && pathFor(platform).join(env.JAVA_HOME, 'bin'),
   ...(platform === 'win32'
     ? ['Java\\jdk*', 'Eclipse Adoptium\\jdk*', 'Microsoft\\jdk*', 'Zulu\\zulu*', 'Amazon Corretto\\jdk*'].map(d => env.ProgramFiles && `${env.ProgramFiles}\\${d}\\bin`)
     : platform === 'darwin'
       ? ['/opt/homebrew/opt/openjdk/bin', '/usr/local/opt/openjdk/bin', '/Library/Java/JavaVirtualMachines/*/Contents/Home/bin']
       : ['/usr/lib/jvm/*/bin']),
-].filter(Boolean);
+].filter(Boolean) as string[];
 // rustup puts rustc and cargo in CARGO_HOME/bin, which is ~/.cargo/bin unless moved.
-const CARGO_DIRS = (platform, env) => {
+const CARGO_DIRS = (platform: string, env: Env): string[] => {
   const P = pathFor(platform);
   const home = platform === 'win32' ? env.USERPROFILE : env.HOME;
-  return [env.CARGO_HOME && P.join(env.CARGO_HOME, 'bin'), home && P.join(home, '.cargo', 'bin')].filter(Boolean);
+  return [env.CARGO_HOME && P.join(env.CARGO_HOME, 'bin'), home && P.join(home, '.cargo', 'bin')].filter(Boolean) as string[];
 };
 // Node strips TypeScript types without moving positions from 22.18 (23.6 on the 23 line).
-function nodeSupportsTs(version) {
+function nodeSupportsTs(version: unknown): boolean {
   const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(version || ''));
   if (!m) return false;
   const [major, minor] = [Number(m[1]), Number(m[2])];
@@ -44,34 +68,34 @@ function nodeSupportsTs(version) {
   return false;
 }
 // Newest version first when a wildcard matches several (jdk-21 before jdk-17).
-const newestFirst = (a, b) => b.localeCompare(a, undefined, { numeric: true });
+const newestFirst = (a: string, b: string) => b.localeCompare(a, undefined, { numeric: true });
 
 // Compilers in lookup order: [C compiler, its C++ partner]
-const COMPILERS = (platform) => [
+const COMPILERS = (platform: string): string[][] => [
   ['gcc', 'g++'],
   ['clang', 'clang++'],
   ...(platform === 'win32' ? [] : [['cc', 'c++']]),
 ];
 
-async function findTools(o) {
+async function findTools(o: FindOptions): Promise<Tools> {
   const { platform, pathValue, env, exists, glob, run } = o;
   const win = platform === 'win32';
   const P = pathFor(platform);
-  const clean = (d) => d.trim().replace(/^"(.*)"$/, '$1').replace(/[\\/]+$/, '');
-  const same = (a, b) => (win ? a.toLowerCase() === b.toLowerCase() : a === b);
+  const clean = (d: string) => d.trim().replace(/^"(.*)"$/, '$1').replace(/[\\/]+$/, '');
+  const same = (a: string, b: string) => (win ? a.toLowerCase() === b.toLowerCase() : a === b);
 
   const pathDirs = (pathValue || '').split(win ? ';' : ':').map(clean).filter(Boolean);
   const dirs = [...pathDirs];
   if (win) {
     const extra = [...WIN_EXTRA];
-    if (env.LOCALAPPDATA) extra.push(...glob(WINLIBS.replace('%LOCALAPPDATA%', env.LOCALAPPDATA)).map(clean));
+    if (env?.LOCALAPPDATA) extra.push(...glob(WINLIBS.replace('%LOCALAPPDATA%', env.LOCALAPPDATA)).map(clean));
     for (const d of extra) if (!dirs.some((x) => same(x, d))) dirs.push(d);
   }
 
-  const file = (dir, name) => P.join(dir, win ? name + '.exe' : name);
+  const file = (dir: string, name: string) => P.join(dir, win ? name + '.exe' : name);
   // First candidate that exists and passes `--version` (the Store python shortcut exits non-zero).
   // Lua has no --version; it takes -v.
-  const probe = async (candDirs, name, pre = [], flag = '--version') => {
+  const probe = async (candDirs: string[], name: string, pre: string[] = [], flag = '--version'): Promise<(Tool & { dir: string }) | null> => {
     for (const dir of candDirs) {
       const p = file(dir, name);
       if (!exists(p)) continue;
@@ -80,9 +104,9 @@ async function findTools(o) {
     }
     return null;
   };
-  const tool = (f) => f && { path: f.path, name: f.name, version: f.version };
+  const tool = (f: Tool | null): Tool | null => f && { path: f.path, name: f.name, version: f.version };
 
-  let cc = null, cxx = null, ccDir = null;
+  let cc: Tool | null = null, cxx: Tool | null = null, ccDir: string | null = null;
   for (const [c, cpp] of COMPILERS(platform)) {
     const f = await probe(dirs, c);
     if (!f) continue;
@@ -94,7 +118,7 @@ async function findTools(o) {
   // GDB debugs C, C++ and Rust (debugGdb.js); MinGW-w64 builds put it beside gcc.
   const gdb = tool(await probe(ccDir ? [ccDir, ...dirs] : dirs, 'gdb'));
 
-  let python = null;
+  let python: Tool | null = null;
   // `pip install x` then F5 should just work, but a PC can hold several Pythons (Store, python.org, MSYS2) and
   // `py -3` or `python` may not be the one `pip` installs into. So the first pip on PATH picks: whichever
   // Python imports pip from the folder that pip reports.
@@ -102,7 +126,7 @@ async function findTools(o) {
   const pipDir = /^pip \S+ from (.+) \(python [^)]*\)$/.exec(pip?.version || '')?.[1];
   if (pipDir) {
     const OWNER = "import os, sys, pip; print(sys.executable); print(os.path.dirname(pip.__file__)); print('Python ' + sys.version.split()[0])";
-    const cands = win ? [['py', ['-3']]] : [];
+    const cands: [string, string[]][] = win ? [['py', ['-3']]] : [];
     for (const dir of pathDirs) {
       const names = win ? ['python', 'python3'] : ['python3', 'python'];
       for (const n of names) cands.push([file(dir, n), []]);
@@ -113,8 +137,8 @@ async function findTools(o) {
       const p = c === 'py' ? pathDirs.map((d) => file(d, 'py')).find(exists) : c;
       if (!p || !exists(p)) continue;
       const r = await run(p, [...pre, '-c', OWNER]).catch(() => null);
-      const [exe, dir, version] = r && r.code === 0 ? String(r.stdout || '').split(/\r?\n/).map((s) => s.trim()) : [];
-      if (exe && dir && same(clean(dir), clean(pipDir))) { python = { path: exe, name: 'python', version }; break; }
+      const [exe, dir, version]: (string | undefined)[] = r && r.code === 0 ? String(r.stdout || '').split(/\r?\n/).map((s) => s.trim()) : [];
+      if (exe && dir && same(clean(dir), clean(pipDir))) { python = { path: exe, name: 'python', version: version ?? '' }; break; }
     }
   }
   if (!python && win) {
@@ -135,14 +159,14 @@ async function findTools(o) {
   for (const d of DOTNET_DIRS(platform, env || {})) if (!dotnetDirs.some((x) => same(x, d))) dotnetDirs.push(d);
   const dotnet = tool(await probe(dotnetDirs, 'dotnet'));
   // Extra folders after the PATH ones; a wildcard entry expands through glob.
-  const withExtra = (extra) => {
+  const withExtra = (extra: string[]) => {
     const out = [...pathDirs];
     for (const d of extra.flatMap(x => (x.includes('*') ? glob(x).map(clean).sort(newestFirst) : [x]))) if (!out.some((x) => same(x, d))) out.push(d);
     return out;
   };
 
   // Java: a JDK, found by its javac (`javac --version` needs JDK 9+); java is the launcher beside it.
-  let java = null;
+  let java: Tool | null = null;
   const jdk = await probe(withExtra(JDK_DIRS(platform, env || {})), 'javac');
   if (jdk) {
     const launcher = await probe([jdk.dir], 'java');
@@ -158,7 +182,7 @@ async function findTools(o) {
   const node = tool(await probe(pathDirs, 'node'));
 
   // Lua goes by several names (lua5.4 on Linux, lua54 in some Windows builds), with LuaJIT as a fallback.
-  let lua = null;
+  let lua: Tool | null = null;
   for (const n of ['lua', 'lua5.4', 'lua54', 'lua5.3', 'luajit']) if ((lua = tool(await probe(pathDirs, n, [], '-v')))) break;
   const php = tool(await probe(pathDirs, 'php'));
   // SQL runs in SQLite's shell, against an in-memory database.
@@ -166,16 +190,16 @@ async function findTools(o) {
 
   // Some Windows installs launch through a batch file (kotlinc.bat, elixir.bat, groovy.bat). Those can't run
   // without cmd.exe, so they're found by name alone and runPlan runs them through it.
-  const script = (candDirs, name) => {
+  const script = (candDirs: string[], name: string): Tool | null => {
     if (!win) return null;
     for (const dir of candDirs) for (const x of ['.bat', '.cmd']) { const p = P.join(dir, name + x); if (exists(p)) return { path: p, name, version: '' }; }
     return null;
   };
-  const find = async (candDirs, names, flag = '--version') => {
+  const find = async (candDirs: string[], names: string[], flag = '--version'): Promise<Tool | null> => {
     for (const n of names) { const t = tool(await probe(candDirs, n, [], flag)) || script(candDirs, n); if (t) return t; }
     return null;
   };
-  const extra = (list) => withExtra(win ? list : []);
+  const extra = (list: string[]) => withExtra(win ? list : []);
   const go = await find(extra(['C:\\Program Files\\Go\\bin']), ['go'], 'version');
   const ruby = await find(extra(['C:\\Ruby*\\bin']), ['ruby']);
   const kotlinc = await find(pathDirs, ['kotlinc']);
@@ -189,7 +213,7 @@ async function findTools(o) {
   const perl = await find(extra(['C:\\Strawberry\\perl\\bin']), ['perl']);
   const groovy = await find(pathDirs, ['groovy']);
 
-  const binDirs = [];
+  const binDirs: string[] = [];
   for (const t of [cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy]) {
     if (!t) continue;
     const d = P.dirname(t.path);
@@ -198,7 +222,7 @@ async function findTools(o) {
   return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, binDirs };
 }
 
-async function freshPath(platform, run) {
+async function freshPath(platform: string, run: RunFn): Promise<string> {
   const fallback = () => {
     const key = Object.keys(process.env).find((k) => k.toLowerCase() === 'path');
     return (key && process.env[key]) || '';
@@ -214,7 +238,7 @@ async function freshPath(platform, run) {
   }
 }
 
-function toolEnv(baseEnv, binDirs, platform, pathValue) {
+function toolEnv(baseEnv: Env, binDirs: string[], platform: string, pathValue?: string | null): Env {
   const env = { ...baseEnv };
   const key = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'PATH';
   const delim = platform === 'win32' ? ';' : ':';
@@ -233,7 +257,7 @@ const NODE_URL = 'https://nodejs.org/en/download';
 const LUA_URL = 'https://www.lua.org/download.html';
 const PHP_URL = 'https://www.php.net/downloads';
 const SQLITE_URL = 'https://sqlite.org/download.html';
-const MISSING = {
+const MISSING: Record<string, Record<string, MissingEntry>> = {
   git: {
     win32: { lead: "Git wasn't found. Install it with:", cmd: 'winget install Git.Git', url: GIT_URL },
     darwin: { lead: "Git wasn't found. Install it with:", cmd: 'xcode-select --install', url: GIT_URL },
@@ -288,8 +312,8 @@ const MISSING = {
 };
 // The other languages' compilers and interpreters: name, download page, and the install command on Windows and macOS
 // where there is one. Elsewhere, the package manager.
-function langMissing() {
-  const LANG = {
+function langMissing(): Record<string, Record<string, MissingEntry>> {
+  const LANG: Record<string, [string, string, string | null, string | null]> = {
     go: ['Go', 'https://go.dev/dl/', 'winget install GoLang.Go', 'brew install go'],
     rb: ['Ruby', 'https://www.ruby-lang.org/en/downloads/', 'winget install RubyInstallerTeam.Ruby.3.3', 'brew install ruby'],
     kt: ['Kotlin', 'https://kotlinlang.org/docs/command-line.html', null, 'brew install kotlin'],
@@ -303,29 +327,29 @@ function langMissing() {
     pl: ['Perl', 'https://www.perl.org/get.html', 'winget install StrawberryPerl.StrawberryPerl', null],
     groovy: ['Groovy', 'https://groovy.apache.org/download.html', null, 'brew install groovy'],
   };
-  const one = (name, url, cmd, other) => (cmd ? { lead: `${name} wasn't found. Install it with:`, cmd, url } : { lead: `${name} wasn't found.${other ? ' Install it with your package manager' : ''}`, url });
+  const one = (name: string, url: string, cmd: string | null, other?: boolean): MissingEntry => (cmd ? { lead: `${name} wasn't found. Install it with:`, cmd, url } : { lead: `${name} wasn't found.${other ? ' Install it with your package manager' : ''}`, url });
   return Object.fromEntries(Object.entries(LANG).map(([kind, [name, url, win, mac]]) =>
     [kind, { win32: one(name, url, win), darwin: one(name, url, mac), other: one(name, url, null, true) }]));
 }
 // The kinds of tool the Tools list shows an install button for (main.js allows only their commands).
 const LANG_KINDS = ['go', 'rb', 'kt', 'swift', 'dart', 'zig', 'scala', 'ex', 'hs', 'r', 'pl', 'groovy'];
-const entry = (kind, platform) => MISSING[kind][platform] || MISSING[kind].other;
+const entry = (kind: string, platform: string): MissingEntry => MISSING[kind][platform] || MISSING[kind].other;
 // The lead and command, then the download page when there is one.
-const download = (m) => (m.url ? `\n${m.cmd ? 'Or download it from' : 'Download it from'} ${m.url}` : '');
-const missing = (kind, platform) => { const m = entry(kind, platform); return (m.cmd ? m.lead + '\n' + m.cmd : m.lead) + download(m); };
+const download = (m: MissingEntry) => (m.url ? `\n${m.cmd ? 'Or download it from' : 'Download it from'} ${m.url}` : '');
+const missing = (kind: string, platform: string) => { const m = entry(kind, platform); return (m.cmd ? m.lead + '\n' + m.cmd : m.lead) + download(m); };
 // Short install hint for the tools list: the command, or the plain advice where there is none.
-const installHint = (kind, platform) => { const m = entry(kind, platform); return m.cmd || m.lead; };
-const installCmd = (kind, platform) => entry(kind, platform).cmd || null;
+const installHint = (kind: string, platform: string) => { const m = entry(kind, platform); return m.cmd || m.lead; };
+const installCmd = (kind: string, platform: string) => entry(kind, platform).cmd || null;
 // The download page for the tools list's "Get" button, if there is one.
-const installUrl = (kind, platform) => entry(kind, platform).url || null;
+const installUrl = (kind: string, platform: string) => entry(kind, platform).url || null;
 
 // PATH entries: `fresh` first, then those of `inherited` that `fresh` lacks (case-insensitive on Windows, trailing separators ignored).
-function mergePath(fresh, inherited, platform) {
+function mergePath(fresh: string | null | undefined, inherited: string | null | undefined, platform: string): string {
   const win = platform === 'win32';
   const delim = win ? ';' : ':';
-  const norm = (d) => { const c = d.trim().replace(/^"(.*)"$/, '$1').replace(/[\\/]+$/, ''); return win ? c.toLowerCase() : c; };
+  const norm = (d: string) => { const c = d.trim().replace(/^"(.*)"$/, '$1').replace(/[\\/]+$/, ''); return win ? c.toLowerCase() : c; };
   const seen = new Set();
-  const out = [];
+  const out: string[] = [];
   for (const d of [...(fresh || '').split(delim), ...(inherited || '').split(delim)]) {
     const k = norm(d);
     if (!k || seen.has(k)) continue;
@@ -336,7 +360,7 @@ function mergePath(fresh, inherited, platform) {
 }
 
 // Files that run in one step: extension → [findTools key, install kind, arguments before the file].
-const ONE_STEP = {
+const ONE_STEP: Record<string, [ToolKey, string, string[]]> = {
   '.go': ['go', 'go', ['run']], '.rb': ['ruby', 'rb', []], '.dart': ['dart', 'dart', ['run']], '.zig': ['zig', 'zig', ['run']],
   '.scala': ['scala', 'scala', ['run']], '.sc': ['scala', 'scala', ['run']], '.ex': ['elixir', 'ex', []], '.exs': ['elixir', 'ex', []],
   '.hs': ['runghc', 'hs', []], '.r': ['rscript', 'r', []], '.pl': ['perl', 'pl', []], '.groovy': ['groovy', 'groovy', []],
@@ -344,7 +368,7 @@ const ONE_STEP = {
 };
 // Windows can only start a .bat/.cmd launcher through cmd.exe. Each part goes in quotes, which keeps spaces, & and
 // parentheses literal; cmd still expands % inside quotes and a " would end them, so a path with either is refused.
-function viaCmd(step, platform) {
+function viaCmd(step: Step, platform: string): Step | { error: string } {
   if (platform !== 'win32' || !/\.(?:bat|cmd)$/i.test(step.file)) return step;
   const parts = [step.file, ...step.args];
   const bad = parts.find((p) => /["%\r\n]/.test(p));
@@ -354,7 +378,7 @@ function viaCmd(step, platform) {
 
 // `opts.csproj` is the nearest .csproj at or above a .cs file, and `opts.cargoToml` the nearest Cargo.toml at or
 // above a .rs file, if any (main.js looks them up).
-function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
+function runPlan(absFile: string, tools: Tools, platform: string, stdioHeader: string, opts: PlanOpts = {}): Plan {
   const P = pathFor(platform);
   const cwd = P.dirname(absFile);
   const { name, ext, base } = P.parse(absFile);
@@ -421,10 +445,10 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
   const runOut = { display: platform === 'win32' ? out : './' + out, file: P.join(cwd, out), args: [], cwd };
 
   // Batch-file launchers run through cmd.exe (viaCmd); a step that can't be passed safely fails the plan.
-  const plan = (...steps) => {
+  const plan = (...steps: Step[]): Plan => {
     const s = steps.map((x) => viaCmd(x, platform));
-    const bad = s.find((x) => x.error);
-    return bad ? { error: bad.error } : { steps: s };
+    const bad = s.find((x): x is { error: string } => 'error' in x);
+    return bad ? { error: bad.error } : { steps: s as Step[] };
   };
   const script = ONE_STEP[e];
   if (script) {
@@ -503,7 +527,7 @@ function runPlan(absFile, tools, platform, stdioHeader, opts = {}) {
 // How the debugger builds a C, C++ or Rust file: like runPlan, with no optimising and with `debugHeader`
 // (runtime/breeze_debug.h), which holds the program before main until GDB attaches. Returns { steps, exe, entry, cpp }
 // (`entry` is the function "stop on entry" stops at) or { error }.
-function debugPlan(absFile, tools, platform, { stdioHeader, debugHeader }, opts = {}) {
+function debugPlan(absFile: string, tools: Tools, platform: string, { stdioHeader, debugHeader }: { stdioHeader: string; debugHeader: string }, opts: PlanOpts = {}): DebugPlan {
   const P = pathFor(platform);
   const cwd = P.dirname(absFile);
   const { name, ext, base } = P.parse(absFile);
@@ -556,25 +580,33 @@ function debugPlan(absFile, tools, platform, { stdioHeader, debugHeader }, opts 
   };
 }
 
-function runSteps(steps, { spawn, env, onStart, onData, onChild, onDone }) {
-  let child = null;
+interface RunStepsOptions {
+  spawn: (file: string, args: string[], options: Record<string, unknown>) => ChildProcess;
+  env: Env;
+  onStart: (step: Step) => void;
+  onData: (text: string) => void;
+  onChild: (child: ChildProcess) => void;
+  onDone: (code: number | null, ms: number) => void;
+}
+function runSteps(steps: Step[], { spawn, env, onStart, onData, onChild, onDone }: RunStepsOptions): { cancel(): void } {
+  let child: ChildProcess | null = null;
   let cancelled = false;
   let finished = false;
   let t0 = 0;
 
-  const finish = (code) => {
+  const finish = (code: number | null) => {
     if (finished) return;
     finished = true;
     onDone(code, Date.now() - t0);
   };
 
-  const next = (i) => {
+  const next = (i: number): void => {
     if (cancelled) return finish(null);
     const step = steps[i];
     onStart(step);
     if (!t0) t0 = Date.now();
     let settled = false;
-    const end = (code) => {
+    const end = (code: number | null) => {
       if (settled) return;
       settled = true;
       for (const d of decoders) { const rest = d.end(); if (rest) onData(rest); }
@@ -586,9 +618,9 @@ function runSteps(steps, { spawn, env, onStart, onData, onChild, onDone }) {
     onChild(child);
     // one decoder per stream so a multi-byte character split across chunks stays whole
     const decoders = [new StringDecoder('utf8'), new StringDecoder('utf8')];
-    child.stdout.on('data', (b) => onData(decoders[0].write(b)));
-    child.stderr.on('data', (b) => onData(decoders[1].write(b)));
-    child.on('error', (err) => {
+    child.stdout!.on('data', (b: Buffer) => onData(decoders[0].write(b)));
+    child.stderr!.on('data', (b: Buffer) => onData(decoders[1].write(b)));
+    child.on('error', (err: Error) => {
       if (settled) return;
       onData(err.message + '\n');
       settled = true;
@@ -610,9 +642,9 @@ function runSteps(steps, { spawn, env, onStart, onData, onChild, onDone }) {
 
 // Outside programs (gcc reading the -include header) can't see into the packaged app's asar archive, so
 // electron-builder unpacks those files next to it (asarUnpack in package.json). In development nothing changes.
-const unpacked = (p) => p.replace(/([\\/])app\.asar(?=[\\/])/, '$1app.asar.unpacked');
+const unpacked = (p: string) => p.replace(/([\\/])app\.asar(?=[\\/])/, '$1app.asar.unpacked');
 
-function ensureBuildIgnored(rootDir) {
+function ensureBuildIgnored(rootDir: string): void {
   const file = path.join(rootDir, '.gitignore');
   if (!fs.existsSync(file)) return;
   const text = fs.readFileSync(file, 'utf8');
@@ -620,4 +652,4 @@ function ensureBuildIgnored(rootDir) {
   fs.appendFileSync(file, (text === '' || text.endsWith('\n') ? '' : '\n') + 'build/\n');
 }
 
-module.exports = { LANG_KINDS, nodeSupportsTs, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };
+export { LANG_KINDS, nodeSupportsTs, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };

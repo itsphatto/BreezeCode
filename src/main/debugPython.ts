@@ -1,11 +1,15 @@
 // The DebugManager's Python backend: `python -m debugpy --listen … --wait-for-client` driven over the Debug Adapter
 // Protocol (dap.js). The manager spawns the process and owns its stdio; this connects to debugpy's port and maps
 // DAP to the session API.
-const net = require('node:net');
-const fs = require('node:fs');
-const { execFile } = require('node:child_process');
-const { DapClient } = require('./dap');
-const { checkBp } = require('./cdp');
+import * as net from 'node:net';
+import * as fs from 'node:fs';
+import { execFile } from 'node:child_process';
+import type { ExecFileException } from 'node:child_process';
+import { DapClient } from './dap';
+import type { DapEvent, DapFrame, DapScope, DapVariable, DapBreakpoint, DapThread } from './dap';
+import type { Socket } from 'node:net';
+import type { Backend, Bp, DebugFrame, DebugValue, Host, Launch } from './debugTypes';
+import { checkBp } from './cdp';
 
 const CONNECT_MS = 15000;
 const DIAL_MS = 10000; // debugpy takes a moment to start listening
@@ -15,8 +19,8 @@ const ENTRY_MAX_LINES = 20000; // stop-on-entry puts a one-off breakpoint on eve
 const HIT_RE = /^\s*(>=|<=|==|=|>|<|%)?\s*(\d+)\s*$/;
 // The hit count as debugpy reads it. A bare number means "from that hit on" in both backends (debugpy alone would
 // read it as "only that hit"), and `=` is `==`.
-function pythonHit(text) {
-  const m = HIT_RE.exec(text || '');
+function pythonHit(text: unknown): string | null {
+  const m = HIT_RE.exec((text as string) || '');
   if (!m) return null;
   const op = !m[1] ? '>=' : m[1] === '=' ? '==' : m[1];
   return `${op} ${m[2]}`;
@@ -27,38 +31,44 @@ function pythonHit(text) {
 // puts the script's folder on sys.path itself before running it, so the program's imports match a plain run.
 // With -c, sys.argv is ['-c', …debugpy's args]; run_module(alter_sys=True) gives it debugpy's argv[0].
 const DEBUGPY_MAIN = "import sys; sys.path[0] == '' and sys.path.pop(0); import runpy; runpy.run_module('debugpy', run_name='__main__', alter_sys=True)";
-const debugpyArgs = args => ['-Xfrozen_modules=off', '-c', DEBUGPY_MAIN, ...args];
+const debugpyArgs = (args: string[]) => ['-Xfrozen_modules=off', '-c', DEBUGPY_MAIN, ...args];
 
-const freePort = () => new Promise((resolve, reject) => {
+const freePort = () => new Promise<number>((resolve, reject) => {
   const s = net.createServer();
   s.on('error', reject);
-  s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
+  s.listen(0, '127.0.0.1', () => { const { port } = s.address() as net.AddressInfo; s.close(() => resolve(port)); });
 });
 
-class PythonBackend {
-  constructor(host, { python, env }) {
+interface PyBreakpoint { id?: number; line: number; verified: boolean }
+
+class PythonBackend implements Backend {
+  host: Host;
+  cmd: string;
+  baseEnv: NodeJS.ProcessEnv;
+  port = 0;
+  client: DapClient | null = null;
+  socket: Socket | null = null;
+  threadId: number | null = null;
+  byFile = new Map<string, PyBreakpoint[]>();
+  queue: Promise<unknown> = Promise.resolve(); // breakpoint changes, one at a time
+  tempFiles = new Set<string>(); // files whose breakpoints carry one-off lines (runTo, stop on entry) until the next stop
+  entry = false;                 // the next stop is the stop on entry
+  ended = false;
+
+  constructor(host: Host, { python, env }: { python: string; env?: NodeJS.ProcessEnv }) {
     this.host = host;
     this.cmd = python;
     this.baseEnv = env || process.env;
-    this.port = 0;
-    this.client = null;
-    this.socket = null;
-    this.threadId = null;
-    this.byFile = new Map();  // abs → [{ id, line, verified }]
-    this.queue = Promise.resolve(); // breakpoint changes, one at a time
-    this.tempFiles = new Set(); // files whose breakpoints carry one-off lines (runTo, stop on entry) until the next stop
-    this.entry = false;         // the next stop is the stop on entry
-    this.ended = false;
   }
 
-  env() {
+  env(): NodeJS.ProcessEnv {
     // Unbuffered UTF-8, so print() reaches the Output as it happens; no frozen-modules warning from debugpy.
     return { ...this.baseEnv, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8', PYDEVD_DISABLE_FILE_VALIDATION: '1' };
   }
 
-  async prepare() {
+  async prepare(): Promise<Launch> {
     // Launched the same way, from the same folder, so it fails when the real launch would.
-    await new Promise((resolve, reject) => execFile(this.cmd, debugpyArgs(['--version']), { cwd: this.host.root, windowsHide: true, timeout: CONNECT_MS, env: this.env() }, e => {
+    await new Promise<void>((resolve, reject) => execFile(this.cmd, debugpyArgs(['--version']), { cwd: this.host.root, windowsHide: true, timeout: CONNECT_MS, env: this.env() }, (e: ExecFileException | null) => {
       if (!e) resolve();
       else if (e.code === 'ENOENT') reject(Object.assign(new Error(`Python wasn't found (${this.cmd})`), { hint: 'not-found' }));
       // `python` is the interpreter that needs it, so the page's Install button installs into this one.
@@ -68,15 +78,15 @@ class PythonBackend {
     return { port: this.port };
   }
 
-  stderr(text) { return text; }
+  stderr(text: string) { return text; }
   exited() { this.ended = true; }
 
   // Connects to debugpy's port, trying again every 100 ms for up to 10 s.
-  async dial() {
+  async dial(): Promise<Socket> {
     const end = Date.now() + DIAL_MS;
     for (;;) {
       if (!this.host.alive() || this.ended) throw new Error('The debug session ended');
-      const sock = await new Promise(resolve => {
+      const sock = await new Promise<Socket | null>(resolve => {
         const s = net.connect({ host: '127.0.0.1', port: this.port });
         s.once('connect', () => { s.removeAllListeners('error'); resolve(s); });
         s.once('error', () => { s.destroy(); resolve(null); });
@@ -87,19 +97,19 @@ class PythonBackend {
     }
   }
 
-  async connect() {
+  async connect(): Promise<void> {
     const { host } = this;
     const sock = this.socket = await this.dial();
     if (!host.alive()) { sock.destroy(); return; }
     const c = this.client = new DapClient(sock);
-    c.on('warn', e => host.warn(e));
-    let initialized;
-    const ready = new Promise(r => { initialized = r; });
-    c.on('event', e => {
+    c.on('warn', (e: unknown) => host.warn(e));
+    let initialized!: () => void;
+    const ready = new Promise<void>(r => { initialized = r; });
+    c.on('event', (e: DapEvent) => {
       if (e.event === 'initialized') initialized();
       else this.onEvent(e);
     });
-    const req = (cmd, args) => host.within(c.request(cmd, args), CONNECT_MS, cmd);
+    const req = (cmd: string, args?: unknown) => host.within(c.request(cmd, args), CONNECT_MS, cmd);
     await req('initialize', {
       clientID: 'breeze', clientName: 'Breeze Code', adapterID: 'debugpy', locale: 'en',
       pathFormat: 'path', linesStartAt1: true, columnsStartAt1: true,
@@ -126,12 +136,12 @@ class PythonBackend {
     await host.within(attached, CONNECT_MS, 'attach');
   }
 
-  request(cmd, args) {
+  request<T = any>(cmd: string, args?: unknown): Promise<T> {
     if (!this.client) return Promise.reject(new Error('The debugger is not connected'));
     return this.client.request(cmd, args);
   }
 
-  onEvent({ event, body = {} }) {
+  onEvent({ event, body = {} }: DapEvent): void {
     const { host } = this;
     switch (event) {
       case 'stopped': this.stopped(body).catch(e => host.warn(e)); break;
@@ -154,24 +164,24 @@ class PythonBackend {
     }
   }
 
-  async stopped(body) {
+  async stopped(body: { threadId?: number; reason?: string; text?: string; description?: string }): Promise<void> {
     const { host } = this;
     if (body.threadId !== undefined) this.threadId = body.threadId;
     for (const f of this.tempFiles) this.setBreakpoints(f, host.bps().get(f) ?? []).catch(e => host.warn(e));
     this.tempFiles.clear();
     const entry = this.entry;
     this.entry = false;
-    const { stackFrames = [] } = await host.within(this.request('stackTrace', { threadId: this.threadId, startFrame: 0, levels: 100 }), CONNECT_MS, 'stackTrace');
-    const frames = stackFrames.map(f => ({ id: f.id, name: f.name, file: host.rel(f.source?.path), line: f.line, col: f.column }));
+    const { stackFrames = [] } = await host.within(this.request<{ stackFrames?: DapFrame[] }>('stackTrace', { threadId: this.threadId, startFrame: 0, levels: 100 }), CONNECT_MS, 'stackTrace');
+    const frames: DebugFrame[] = stackFrames.map((f: DapFrame) => ({ id: f.id, name: f.name, file: host.rel(f.source?.path), line: f.line, col: f.column }));
     let reason = body.reason || 'pause';
     if (entry && reason === 'breakpoint') {
       const top = frames[0];
       const own = top && [...this.byFile].some(([f, list]) => host.rel(f) === top.file && list.some(b => b.line === top.line));
       if (!own) reason = 'entry';
     }
-    const ev = { type: 'paused', reason, frames };
+    const ev: { type: string; reason: string; frames: DebugFrame[]; exception?: string } = { type: 'paused', reason, frames };
     if (body.reason === 'exception') {
-      const info = await host.within(this.request('exceptionInfo', { threadId: this.threadId }), CONNECT_MS, 'exceptionInfo').catch(() => null);
+      const info = await host.within(this.request<{ exceptionId?: string; description?: string }>('exceptionInfo', { threadId: this.threadId }), CONNECT_MS, 'exceptionInfo').catch(() => null);
       ev.exception = info ? [info.exceptionId, info.description].filter(Boolean).join(': ') : (body.text || body.description || 'Exception');
     }
     host.setState('paused');
@@ -180,19 +190,19 @@ class PythonBackend {
 
   // ---- breakpoints ----
 
-  setBreakpoints(file, bps, extraLines) {
+  setBreakpoints(file: string, bps: Bp[], extraLines?: number[]): Promise<void> {
     const run = this.queue.then(() => this.applyBreakpoints(file, bps, extraLines));
     this.queue = run.catch(() => {});
     return run;
   }
   // `extraLines` are one-off stops (not the user's): sent plainly, never reported.
-  async applyBreakpoints(file, bps, extraLines = []) {
+  async applyBreakpoints(file: string, bps: Bp[], extraLines: number[] = []): Promise<void> {
     if (!this.client) return; // not connected yet: connect() sends what the manager holds then
-    const sent = [];
+    const sent: { line: number; condition?: string; hitCondition?: string | null; logMessage?: string; temp?: boolean }[] = [];
     for (const bp of bps) {
       if (!bp || bp.enabled === false || !(bp.line >= 1)) continue;
       if (bp.hitCondition && checkBp({ hitCondition: bp.hitCondition })) continue; // unverified: the page says why
-      const b = { line: bp.line };
+      const b: (typeof sent)[number] = { line: bp.line };
       if (bp.condition && bp.condition.trim()) b.condition = bp.condition;
       if (bp.hitCondition && bp.hitCondition.trim()) b.hitCondition = pythonHit(bp.hitCondition);
       if (bp.logMessage) b.logMessage = bp.logMessage;
@@ -200,20 +210,20 @@ class PythonBackend {
     }
     const own = new Set(sent.map(b => b.line));
     for (const line of extraLines) if (!own.has(line)) sent.push({ line, temp: true });
-    const { breakpoints = [] } = await this.request('setBreakpoints', {
+    const { breakpoints = [] } = await this.request<{ breakpoints?: DapBreakpoint[] }>('setBreakpoints', {
       source: { path: file }, breakpoints: sent.map(({ temp, ...b }) => b), sourceModified: false,
     });
     this.byFile.set(file, sent.filter(b => !b.temp).map((b, i) => ({ id: breakpoints[i]?.id, line: b.line, verified: !!breakpoints[i]?.verified })));
     this.reportBreakpoints(file);
   }
-  reportBreakpoints(file) {
+  reportBreakpoints(file: string): void {
     const rel = this.host.rel(file);
     if (rel === null) return;
     const lines = [...new Set((this.byFile.get(file) ?? []).filter(b => b.verified).map(b => b.line))].sort((a, b) => a - b);
     this.host.emit({ type: 'breakpoints', file: rel, lines });
   }
 
-  setExceptions(mode) {
+  setExceptions(mode: string): Promise<unknown> {
     if (!this.client) return Promise.resolve(); // not connected yet: connect() sends the manager's mode then
     const filters = mode === 'all' ? ['raised', 'uncaught'] : mode === 'uncaught' ? ['uncaught'] : [];
     return this.request('setExceptionBreakpoints', { filters });
@@ -221,21 +231,21 @@ class PythonBackend {
 
   // ---- running ----
 
-  async thread() {
+  async thread(): Promise<number> {
     if (this.threadId !== null) return this.threadId;
-    const { threads = [] } = await this.request('threads');
+    const { threads = [] } = await this.request<{ threads?: DapThread[] }>('threads');
     if (!threads.length) throw new Error('The program has no threads to pause');
     return (this.threadId = threads[0].id);
   }
-  async go(cmd) {
+  async go(cmd: string): Promise<void> {
     await this.request(cmd, { threadId: await this.thread() });
     this.host.setState('running'); // DAP sends no 'continued' for a request the client made
   }
-  async pause() { await this.request('pause', { threadId: await this.thread() }); }
-  resume() { return this.go('continue'); }
-  step(kind) { return this.go(kind === 'into' ? 'stepIn' : kind === 'out' ? 'stepOut' : 'next'); }
+  async pause(): Promise<void> { await this.request('pause', { threadId: await this.thread() }); }
+  resume(): Promise<void> { return this.go('continue'); }
+  step(kind: string): Promise<void> { return this.go(kind === 'into' ? 'stepIn' : kind === 'out' ? 'stepOut' : 'next'); }
   // The file's breakpoints plus one on `line`, until the next stop.
-  async runTo(file, line) {
+  async runTo(file: string, line: number): Promise<void> {
     this.tempFiles.add(file);
     await this.setBreakpoints(file, this.host.bps().get(file) ?? [], [line]);
     await this.go('continue');
@@ -243,32 +253,32 @@ class PythonBackend {
 
   // ---- values ----
 
-  async scopes(frameId) {
-    const { scopes = [] } = await this.request('scopes', { frameId });
-    return scopes.map(s => ({ name: s.name, value: '', type: 'scope', ref: s.variablesReference || 0 }));
+  async scopes(frameId: number): Promise<DebugValue[]> {
+    const { scopes = [] } = await this.request<{ scopes?: DapScope[] }>('scopes', { frameId });
+    return scopes.map((s: DapScope) => ({ name: s.name, value: '', type: 'scope', ref: s.variablesReference || 0 }));
   }
-  async children(ref) {
-    const { variables = [] } = await this.request('variables', { variablesReference: ref });
-    return variables.map(v => ({ name: v.name, value: v.value, type: v.type ?? '', ref: v.variablesReference || 0 }));
+  async children(ref: number): Promise<DebugValue[]> {
+    const { variables = [] } = await this.request<{ variables?: DapVariable[] }>('variables', { variablesReference: ref });
+    return variables.map((v: DapVariable) => ({ name: v.name, value: v.value, type: v.type ?? '', ref: v.variablesReference || 0 }));
   }
-  async evaluate(expr, frameId, context) {
+  async evaluate(expr: string, frameId: number | undefined, context: string): Promise<DebugValue> {
     const r = await this.request('evaluate', { expression: expr, ...(typeof frameId === 'number' ? { frameId } : {}), context });
     return { name: expr, value: r.result, type: r.type ?? '', ref: r.variablesReference || 0 };
   }
-  async setValue(ref, name, value) {
+  async setValue(ref: number, name: string, value: string): Promise<DebugValue> {
     const r = await this.request('setVariable', { variablesReference: ref, name, value });
     return { name, value: r.value, type: r.type ?? '', ref: r.variablesReference || 0 };
   }
 
   // ---- ending ----
 
-  async disconnect() {
+  async disconnect(): Promise<void> {
     if (this.client && !this.client.closed) await this.request('disconnect', { terminateDebuggee: true }).catch(() => {});
   }
-  close() {
+  close(): void {
     this.ended = true;
     if (this.client) this.client.close(); else this.socket?.destroy();
   }
 }
 
-module.exports = { PythonBackend, pythonHit, debugpyArgs, DEBUGPY_MAIN };
+export { PythonBackend, pythonHit, debugpyArgs, DEBUGPY_MAIN };

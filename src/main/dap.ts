@@ -4,6 +4,16 @@
 import { EventEmitter } from 'node:events';
 import type { Duplex } from 'node:stream';
 
+// The parts of DAP responses that Breeze reads.
+export interface DapSource { path?: string }
+export interface DapFrame { id: number; name: string; line: number; column: number; source?: DapSource }
+export interface DapScope { name: string; variablesReference?: number }
+export interface DapVariable { name: string; value: string; type?: string; variablesReference?: number }
+export interface DapBreakpoint { id?: number; line?: number; verified?: boolean; message?: string }
+export interface DapThread { id: number; name?: string }
+// An event the adapter pushes: its name and body.
+export interface DapEvent { event?: string; body?: any }
+
 // A message in either direction; the fields past `type` depend on which.
 interface DapMessage { seq?: number; type?: string; command?: string; event?: string; body?: any; request_seq?: number; success?: boolean; message?: string; arguments?: unknown }
 
@@ -54,7 +64,7 @@ class DapClient extends EventEmitter {
     stream.on('close', () => this.shutdown());
   }
   // Resolves with the response's body; rejects with its message when the adapter says it failed.
-  request(command: string, args?: unknown): Promise<any> {
+  request<T = any>(command: string, args?: unknown): Promise<T> {
     if (this.closed) return Promise.reject(new Error('The debug adapter connection is closed'));
     const seq = this.seq++;
     return new Promise((resolve, reject) => {
