@@ -134,6 +134,10 @@ count) and `dirty` (changed since the last save or load).
 
 After a save the engine records the file's new size and modified time, clears `dirty`, and restarts the journal.
 
+When the path is a symbolic link, the save writes through it: the temp file is written beside, and renamed over,
+the link's resolved target. An atomic save does not keep a file's hardlinks, ACLs, hidden/system attributes,
+alternate data streams or creation time.
+
 ### Crash journal
 
 The engine is started with `--journal-dir <folder>` (main passes a folder under Electron's `userData`).
@@ -144,6 +148,9 @@ The engine is started with `--journal-dir <folder>` (main passes a folder under 
 - On `open`: if a journal exists and its first line matches the file on disk, the engine replays it and replies
   `recovered: true`. Otherwise the journal is deleted.
 - The journal is deleted on `close` and restarted on `save` and `reload`.
+- Replay must not depend on state that a save or reload does not reset (the undo history, the line ending a
+  typed newline becomes): undo and redo are journaled as the replacement they performed, and the first line
+  also records the document's line ending.
 
 This protects unsaved edits from an engine crash and from an app crash. It does not protect from a power cut.
 

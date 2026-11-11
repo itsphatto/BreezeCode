@@ -499,6 +499,22 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       onMessage() { return () => { /* no kernels in the browser */ }; },
       onState() { return () => { /* no kernels in the browser */ }; },
     },
+    // The text engine is a program that ships with the desktop app.
+    doc: {
+      async open() { throw new Error('Large files need the desktop app'); },
+      async lines() { throw new Error('Large files need the desktop app'); },
+      async edit() { throw new Error('Large files need the desktop app'); },
+      async undo() { throw new Error('Large files need the desktop app'); },
+      async redo() { throw new Error('Large files need the desktop app'); },
+      async text() { throw new Error('Large files need the desktop app'); },
+      async find() { throw new Error('Large files need the desktop app'); },
+      async count() { throw new Error('Large files need the desktop app'); },
+      async save() { throw new Error('Large files need the desktop app'); },
+      async changed() { throw new Error('Large files need the desktop app'); },
+      async reload() { throw new Error('Large files need the desktop app'); },
+      async close() { },
+      onDown() { return () => { /* no engine in the browser */ }; },
+    },
     // Debugging runs the program on this computer, so the browser preview has nothing to attach to.
     debug: {
       async start() { throw new Error('Debugging needs the desktop app'); },

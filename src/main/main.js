@@ -16,6 +16,7 @@ const { AntigravityAgentService } = require('./antigravityAgentService.js');
 const { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } = require('./github');
 const { costOf } = require('./pricing');
 const prconflict = require('./prconflict');
+const { looksBinary } = require('./sniff');
 const syncEngine = require('./sync');
 const { TeamCoordinator, claudeDenyArgs } = require('./team');
 const { parseMentions, shortName } = require('./mentions');
@@ -494,7 +495,7 @@ function boxDir() {
 async function setRoot(dir) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
-  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); stopDebug(); }
+  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
   termCwd = dir;
   const saved = loadState();
@@ -722,7 +723,7 @@ handle('fs:restore', async () => {
 handle('fs:openLaunch', () => openLaunch(root));
 
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); stopDebug(); saveState({ lastRoot: null });
+  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {
@@ -795,7 +796,9 @@ handle('fs:readFile', async (_e, rel) => {
   if (IMAGE_FILE.test(abs)) return { image: true, size: st.size };
   if (VIDEO_FILE.test(abs)) return { video: true, size: st.size };
   if (PDF_FILE.test(abs)) return { pdf: true, size: st.size };
-  if (st.size > MAX_FILE_BYTES) return { tooLarge: true, size: st.size };
+  // Over the limit: a text file opens in the engine, but a binary one (an archive, a disk image) gets the binary note.
+  // Only the first few KB are read to tell which.
+  if (st.size > MAX_FILE_BYTES) return (await looksBinary(abs)) ? { binary: true, size: st.size } : { tooLarge: true, size: st.size };
   const buf = await fsp.readFile(abs);
   if (buf.subarray(0, 8000).includes(0)) return { binary: true, size: st.size };
   return { text: buf.toString('utf8'), size: st.size };
@@ -962,6 +965,80 @@ async function searchFiles(find, base, skip) {
   await batch(0);
   return results;
 }
+
+/* ================= Text engine (large files) ================= */
+// The page reaches large files through the Rust engine (engine.js) by document id. The page is sandboxed, so each
+// path goes through resolveIn, each id must be one this session opened, and each argument is checked (docargs.js).
+const docargs = require('./docargs');
+const { DocRegistry } = require('./docregistry');
+const { Engine } = require('./engine');
+let engine = null; // created on the first doc:open
+const docs = new DocRegistry(); // the ids the page may use
+function textEngine() {
+  if (!engine) {
+    engine = new Engine({
+      exe: unpacked(path.join(ROOT, 'runtime', process.platform === 'win32' ? 'breeze-engine.exe' : 'breeze-engine')),
+      journalDir: path.join(app.getPath('userData'), 'engine-journal'),
+    });
+    // A dead engine has lost every document: the page is told, so it can open again what it shows.
+    engine.on('down', () => { docs.clear(); win?.webContents.send('doc:down'); });
+  }
+  return engine;
+}
+// The id the page sent, if it is valid and open.
+function openDocId(id) {
+  const doc = docargs.docId(id);
+  if (!docs.isOpen(doc)) throw new Error("That file isn't open");
+  return doc;
+}
+// Root change or folder close: the documents belong to the old folder. Closing is best effort and nothing waits for it.
+function closeAllDocs() {
+  const ids = docs.clear();
+  if (engine?.running) for (const doc of ids) engine.request('close', { doc }).catch(() => {});
+}
+handle('doc:open', async (_e, rel) => {
+  if (typeof rel !== 'string') throw new Error('Bad request');
+  const abs = resolveIn(rel);
+  const generation = docs.generation;
+  const reply = await textEngine().request('open', { path: abs });
+  if (!docs.record(abs, reply.doc, generation)) {
+    // The folder changed (or the engine stopped) while the file was opening: it is not this page's to use any more.
+    if (engine?.running) engine.request('close', { doc: reply.doc }).catch(() => {});
+    throw new Error("That file isn't open");
+  }
+  return reply;
+});
+handle('doc:lines', (_e, id, first, count) => {
+  const doc = openDocId(id);
+  return textEngine().request('lines', { doc, first: docargs.docLine(first), count: docargs.docCount(count) });
+});
+handle('doc:edit', (_e, id, start, end, text, kind) => {
+  const doc = openDocId(id);
+  return textEngine().request('edit', { doc, start: docargs.docPos(start), end: docargs.docPos(end), text: docargs.docText(text), kind: docargs.docKind(kind) });
+});
+handle('doc:undo', (_e, id) => textEngine().request('undo', { doc: openDocId(id) }));
+handle('doc:redo', (_e, id) => textEngine().request('redo', { doc: openDocId(id) }));
+handle('doc:text', (_e, id, start, end) => {
+  const doc = openDocId(id);
+  return textEngine().request('text', { doc, start: docargs.docPos(start), end: docargs.docPos(end) });
+});
+handle('doc:find', (_e, id, query, matchCase, from, backward) => {
+  const doc = openDocId(id);
+  return textEngine().request('find', { doc, query: docargs.docQuery(query), matchCase: matchCase === true, from: docargs.docPos(from), backward: backward === true });
+});
+handle('doc:count', (_e, id, query, matchCase) => {
+  const doc = openDocId(id);
+  return textEngine().request('count', { doc, query: docargs.docQuery(query), matchCase: matchCase === true });
+});
+handle('doc:save', (_e, id) => textEngine().request('save', { doc: openDocId(id) }));
+handle('doc:changed', (_e, id) => textEngine().request('changed', { doc: openDocId(id) }));
+handle('doc:reload', (_e, id) => textEngine().request('reload', { doc: openDocId(id) }));
+handle('doc:close', async (_e, id) => {
+  const doc = openDocId(id);
+  await textEngine().request('close', { doc });
+  docs.forget(doc);
+});
+app.on('will-quit', () => engine?.stop());
 
 /* ================= Syntax check (JavaScript / TypeScript) ================= */
 // V8 compiles the code into a function that is never called, so this only finds syntax errors.

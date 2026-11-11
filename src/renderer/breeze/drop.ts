@@ -1084,6 +1084,8 @@ async function undoAppAction(): Promise<boolean> {
   }
 
   if (action.type === 'tree-move') {
+    // Refused (a huge file with unsaved edits would move): the step stays to undo once it is saved.
+    if (bigMoveRefused(action.from)) { actionRedoStack.pop(); actionUndoStack.push(action); return true; }
     if (action.prevFromOrder) {
       treeOrder[action.fromDir] = [...action.prevFromOrder];
       saveTreeOrder(action.fromDir, action.prevFromOrder);
@@ -1185,6 +1187,7 @@ async function redoAppAction(): Promise<boolean> {
   }
 
   if (action.type === 'tree-move') {
+    if (bigMoveRefused(action.to)) { actionUndoStack.pop(); actionRedoStack.push(action); return true; }
     await moveEntry(action.to, action.from);
     await refreshTree();
     flashUndoItem(action.from);
@@ -1270,6 +1273,7 @@ async function rearrangeTreeItem(fromPath: string, targetPath: string, pos: Tree
       }
       return;
     }
+    if (bigMoveRefused(fromPath)) return; // before the order or the undo step changes
 
     const prevFromOrder = (dirCache.get(fromDir) || []).map(e => e.name);
     const prevDestOrder = (dirCache.get(destDir) || []).map(e => e.name);
@@ -1337,6 +1341,7 @@ async function rearrangeTreeItem(fromPath: string, targetPath: string, pos: Tree
   const destPath = joinPath(targetDir, fromName);
   if (fromPath === destPath) return;
   if (fromPath === targetDir || targetDir.startsWith(fromPath + '/')) return;
+  if (bigMoveRefused(fromPath)) return;
 
   const prevFromOrder = (dirCache.get(fromDir) || []).map(e => e.name);
   const prevTargetOrder = (dirCache.get(targetDir) || []).map(e => e.name);
@@ -1592,7 +1597,7 @@ document.addEventListener('drop', e => {
       const destDir = mt.dir;
       const fromName = baseName(from);
       const destPath = joinPath(destDir, fromName);
-      if (from !== destPath && from !== destDir && !destDir.startsWith(from + '/')) {
+      if (from !== destPath && from !== destDir && !destDir.startsWith(from + '/') && !bigMoveRefused(from)) {
         if (destDir) expanded.add(destDir);
         const fromDir = dirName(from);
         const prevFromOrder = (dirCache.get(fromDir) || []).map(entry => entry.name);

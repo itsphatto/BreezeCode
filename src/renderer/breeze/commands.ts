@@ -220,6 +220,8 @@ function editRole(role: string): void {
       void undoAppAction();
       return;
     }
+    const big = activeBig();
+    if (big && !fe) { void big.big!.surface.undo(); return; } // the engine keeps a huge file's history (fe: the split has focus)
     if (b && b.undo.length > 0) {
       stepHistory(b, true, fe.ta);
       fe.ta.focus();
@@ -242,6 +244,8 @@ function editRole(role: string): void {
       void redoAppAction();
       return;
     }
+    const big = activeBig();
+    if (big && !fe) { void big.big!.surface.redo(); return; }
     if (b && b.redo.length > 0) {
       stepHistory(b, false, fe.ta);
       fe.ta.focus();
@@ -258,6 +262,8 @@ function editRole(role: string): void {
     }
   }
   // The surface's text isn't in the DOM, so the native select-all would only select its hidden input.
+  const big = activeBig();
+  if (role === 'selectAll' && big && !fe) { bigSelectAll(big); return; }
   if (role === 'selectAll' && fe) {
     fe.ta.focus();
     fe.ta.setSelectionRange(0, fe.ta.value.length);
@@ -305,7 +311,10 @@ function confirmDiscard(): Promise<boolean> {
       <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn" id="dDiscard">Don't Save</button><button class="btn btn-primary" id="dSave">Save All</button></div>`, m => {
       $('#dDiscard', m).onclick = () => {
         for (const b of dirty) { b.text = b.saved; if (b.ta) b.ta.value = b.saved; }
-        finish(true); closeModal();
+        // Huge files' edits live in the engine: drop them there (best effort) before the folder goes. Closed without
+        // cancelling, as Save All does.
+        modalOnClose = null; closeModal();
+        void discardBig(dirty).finally(() => finish(true));
       };
       // Closed first without cancelling: a file changed on disk may ask its own question while saving.
       $('#dSave', m).onclick = () => { modalOnClose = null; closeModal(); background(saveAll().then(finish, err => { finish(false); throw err; })); };

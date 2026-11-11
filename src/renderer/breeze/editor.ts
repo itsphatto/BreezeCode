@@ -16,7 +16,7 @@ function setCodeSize(size: number): void {
   store.set('breeze.codeSize', next);
   showCodeSize();
   charW = 0; // measured again in the new size
-  for (const b of buffers.values()) if (b.kind === 'text') b.ta?.refresh();
+  for (const b of buffers.values()) { if (b.kind === 'text') b.ta?.refresh(); b.big?.surface.refresh(); }
   splitTa.refresh();
   dbgTa.refresh();
   renderCode();
@@ -61,7 +61,10 @@ function measureChar(): number {
   if (w > 0 && (!document.fonts || document.fonts.check('12px "Google Sans Code"') || document.fonts.status === 'loaded')) charW = w;
   return w || 7.8;
 }
-void document.fonts?.ready.then(() => { charW = 0; renderCode(); activeText()?.ta.refresh(); splitTa.refresh(); });
+void document.fonts?.ready.then(() => {
+  charW = 0; renderCode(); activeText()?.ta.refresh(); splitTa.refresh();
+  for (const b of buffers.values()) b.big?.surface.refresh();
+});
 
 // The caret stops of a line: 0, each grapheme's end. Remembered for the last line asked about (clicks and drags repeat it).
 const graphemeSeg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -149,11 +152,13 @@ function editorNote(b: EditorBuffer): string {
   if (b.kind === 'image') return 'Breeze couldn\'t load this image.';
   if (b.kind === 'video') return 'Breeze couldn\'t play this video.';
   if (b.kind === 'pdf') return 'Breeze couldn\'t show this PDF.';
+  if (b.bigError) return `${b.bigError} (${(b.size / 1048576).toFixed(1)} MB)`;
   return `This file is too large to open (${(b.size / 1048576).toFixed(1)} MB).`;
 }
 function renderEditor(): void {
   hideSuggest();
   const b = activeBuf();
+  const big = showBig(b);
   for (const x of buffers.values()) x.ta?.classList.toggle('hidden', x !== b);
   const empty = $('#editorEmpty');
   // A notebook shows as cells (notebook.ts), over the editor, which keeps its JSON.
@@ -164,6 +169,17 @@ function renderEditor(): void {
     closeFind();
     queueMinimap();
     updateStatus();
+    return;
+  }
+  // A huge file shows its BigSurface in #bigHost, over the code layers (bigfile.ts).
+  if (big) {
+    empty.classList.add('hidden');
+    hlLines.replaceChildren(); hlBoxes.replaceChildren(); gutLines.replaceChildren();
+    if (typeHand) typeHand.el.hidden = true;
+    updateSliders();
+    updateStatus();
+    // As for code below: only take focus from nothing or another editor, never from a field being typed in.
+    if (document.activeElement === document.body || (document.activeElement?.classList.contains('ta') && document.activeElement !== splitTa.input)) b!.big!.surface.focus();
     return;
   }
   if (b?.kind !== 'text') {
@@ -1098,6 +1114,15 @@ function updateStatus(): void {
   const problemsHtml = `${svgIcon('circleX', 12)}<span>${plural(problems, 'problem')}</span>`;
   if ($('#sbProblems').dataset.html !== problemsHtml) { $('#sbProblems').innerHTML = problemsHtml; $('#sbProblems').dataset.html = problemsHtml; }
   $('#sbProblems').classList.toggle('hidden', !problems);
+  const bb = activeBig();
+  if (bb) {
+    const c = bb.big!.surface.caret;
+    $('#sbPos').classList.remove('hidden');
+    $('#sbPos').textContent = `Ln ${c.line + 1}, Col ${c.col + 1}`;
+    $('#sbEol').textContent = `${eol} · UTF-8 · ${fmtSize(bb.size)}${bb.big!.readOnly ? ' · Read only' : ''}`;
+    $('#sbEol').classList.remove('hidden');
+    return;
+  }
   if (!tb) return;
   if (tb.ta.multi) { $('#sbPos').textContent = plural(tb.ta.selections.length, 'selection'); return; }
   const { selectionStart: s, selectionEnd: e } = tb.ta;
@@ -1406,6 +1431,17 @@ let findCase = false;
 const findInput = $<HTMLInputElement>('#findInput');
 const replaceInput = $<HTMLInputElement>('#replaceInput');
 function openFind(replace = false): void {
+  // A huge file: find only (no replace), counted and stepped by the engine.
+  const big = activeBig();
+  if (big) {
+    findOpen = true;
+    $('#findbar').classList.remove('hidden');
+    showReplace(false);
+    $('#findToggle').classList.add('hidden');
+    findInput.focus(); findInput.select();
+    void bigFindCount(big);
+    return;
+  }
   const b = activeText();
   if (!b) return;
   const sel = b.ta.value.slice(b.ta.selectionStart, b.ta.selectionEnd);
@@ -1423,12 +1459,15 @@ function showReplace(on: boolean): void {
   $('#findToggle').setAttribute('aria-expanded', String(on));
 }
 function closeFind(): void {
+  $('#findToggle').classList.remove('hidden'); // hidden while the bar finds in a huge file
   if (!findOpen) return;
   findOpen = false; findHits = []; findLen = 0;
   $('#findbar').classList.add('hidden');
   renderCode();
 }
 function runFind(jump: boolean): void {
+  const big = activeBig();
+  if (big) { void bigFindCount(big); return; }
   const b = activeText();
   const q = findInput.value;
   findHits = []; findLen = q.length;
@@ -1447,6 +1486,8 @@ function renderFindCount(): void {
   $('#findCount').textContent = text;
 }
 function stepFind(d: number): void {
+  const big = activeBig();
+  if (big) { void bigFindStep(big, d < 0 ? -1 : 1); return; }
   if (!findHits.length) return;
   findIdx = (findIdx + d + findHits.length) % findHits.length;
   selectHit();
@@ -1464,11 +1505,11 @@ function selectHit(): void {
 findInput.addEventListener('input', () => runFind(true));
 findInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); sfx.play('tick'); stepFind(e.shiftKey ? -1 : 1); }
-  if (e.key === 'Escape') { e.stopPropagation(); closeFind(); activeText()?.ta.focus(); }
+  if (e.key === 'Escape') { e.stopPropagation(); closeFind(); activeText()?.ta.focus(); activeBig()?.big?.surface.focus(); }
 });
 $('#findNext').onclick = () => { sfx.play('tick'); stepFind(1); };
 $('#findPrev').onclick = () => { sfx.play('tick'); stepFind(-1); };
-$('#findClose').onclick = () => { closeFind(); activeText()?.ta.focus(); };
+$('#findClose').onclick = () => { closeFind(); activeText()?.ta.focus(); activeBig()?.big?.surface.focus(); };
 $('#findCase').onclick = () => { findCase = !findCase; $('#findCase').classList.toggle('on', findCase); runFind(false); };
 $('#findToggle').onclick = () => {
   const on = $('#replaceRow').classList.contains('hidden');
@@ -1510,6 +1551,8 @@ $('#replaceAll').onclick = replaceAll;
 
 /* ----- Go to line / file ----- */
 function goToLine(): void {
+  const big = activeBig();
+  if (big) { bigGoToLine(big); return; }
   const b = activeText();
   if (!b) { toast('Open a file first'); return; }
   const total = b.text.split('\n').length;
