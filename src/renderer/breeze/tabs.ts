@@ -527,7 +527,7 @@ async function saveFile(path: string | null = active): Promise<boolean> {
     if (choice === 'reload') { loadDiskVersion(b); return false; }
     if (choice !== 'overwrite') return false;
   }
-  const text = b.text;
+  let text: string;
   try {
     // No document yet (an agent's draft, or one the engine dropped): the file is made if it isn't there, opened in
     // the engine (which reads what it holds now) and brought to this text, then saved through it.
@@ -535,8 +535,9 @@ async function saveFile(path: string | null = active): Promise<boolean> {
       try { await api.fs.createFile(b.path); } catch (e) { if (!/EEXIST/.test(errMsg(e))) throw e; }
       if (!b.doc) await docOpen(b, null);
     }
-    if (b.doc) await docSave(b);
-    else await api.fs.writeFile(b.path, diskText(b, text));
+    // Through the engine, or the old way without a document; either way the text the file now holds, which is what
+    // counts as saved (typing during the save may have moved b.text on from when it began).
+    text = await docSave(b);
   } catch (e) { toast(`Couldn't save ${baseName(b.path)}: ${errMsg(e)}`); return false; }
   b.saved = text;
   b.disk = undefined;

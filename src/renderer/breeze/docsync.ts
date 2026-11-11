@@ -102,20 +102,33 @@ function docFlush(b: EditorBuffer): Promise<void> {
  *  mark the file was read with (the engine puts both back itself). */
 function diskText(b: EditorBuffer, text: string): string {
   const t = b.eol === '\r\n' ? text.replaceAll('\n', '\r\n') : text;
-  return b.bom ? '﻿' + t : t;
+  return b.bom ? '\uFEFF' + t : t;
 }
 
-/** Saves the buffer through its engine document: once every edit has reached the engine, and (when the engine's line
- *  count says a writer missed docSync) after sending the whole text again. If the document was dropped meanwhile,
- *  the file is written the old way. Rejects with the engine's (or the write's) error. */
-async function docSave(b: EditorBuffer): Promise<void> {
-  await docFlush(b);
-  if (b.docQ && b.docQ.lines !== lineStartsOf(b.text).length) {
-    b.docQ.push([{ start: DOC_TOP, end: DOC_END, text: b.text }], 'other');
-    await docFlush(b);
+/** Saves the buffer through its engine document and returns the page text the file now holds, so the caller marks
+ *  exactly that as saved. The save is sent only once the queue is idle (every edit pushed, even one typed during the
+ *  wait, has reached the engine), in the same turn as reading b.text, so the engine holds exactly that text. When the
+ *  engine's line count says a writer missed docSync, the whole text is sent first (once: the engine then holds the
+ *  page's text whatever it counts). With no document (the engine off, a file it won't hold) or one dropped meanwhile,
+ *  the file is written the old way (fs:writeFile, with the buffer's line ending and byte order mark). Rejects
+ *  with the engine's (or the write's) error. */
+async function docSave(b: EditorBuffer): Promise<string> {
+  let resynced = false;
+  for (let q = b.docQ; q && b.doc != null; q = b.docQ) {
+    await q.flush();
+    if (b.docQ !== q || !q.idle) continue; // reopened after an engine restart, or edits pushed during the wait
+    if (!resynced && q.lines !== lineStartsOf(b.text).length) {
+      resynced = true;
+      q.push([{ start: DOC_TOP, end: DOC_END, text: b.text }], 'other');
+      continue;
+    }
+    const t = b.text;
+    await api.doc.save(b.doc); // called in the same turn as `t` was read: nothing falls between
+    return t;
   }
-  if (b.doc == null) { await api.fs.writeFile(b.path, diskText(b, b.text)); return; } // the queue died: the old way
-  await api.doc.save(b.doc);
+  const t = b.text; // the queue died, or no document: the old way
+  await api.fs.writeFile(b.path, diskText(b, t));
+  return t;
 }
 
 /** Closes the buffer's document (best effort); an open still on its way is dropped too. */

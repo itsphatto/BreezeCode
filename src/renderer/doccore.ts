@@ -73,6 +73,10 @@ class DocQueue {
     if (!this.running) void this.run();
   }
 
+  /** True when every edit pushed has been sent or skipped and no send or resync is running: the engine holds the
+   *  text as of the newest push. */
+  get idle(): boolean { return !this.running && this.settled >= this.pushed; }
+
   /** Resolves when every edit pushed before this call has been sent or skipped, or the queue is dead. Never rejects. */
   flush(): Promise<void> {
     const upTo = this.pushed;
