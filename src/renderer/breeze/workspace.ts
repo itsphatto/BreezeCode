@@ -25,6 +25,10 @@ interface EditorBuffer {
   untitled?: boolean;    // a new file not saved anywhere yet (see untitledBuffer): saving asks where first
   big?: BigDoc;          // a 'large' file open in the engine, shown by a BigSurface (bigfile.ts)
   bigError?: string;     // why the engine could not open it; shown in the note
+  doc?: number;          // a 'text' file's engine document, which follows b.text (docsync.ts)
+  docQ?: DocQueue;       // the edits on their way to `doc`, in order
+  docSkip?: boolean;     // the engine won't hold this file (not UTF-8, or it couldn't open or keep it): saved the old way
+  bom?: boolean;         // the file starts with a byte order mark, kept out of `text` (the engine writes it back)
 }
 // A huge file's engine document: `dirty` and `lines` are the engine's last word; changedOnDisk makes the next save ask.
 interface BigDoc { doc: number; surface: BigSurface; readOnly: boolean; dirty: boolean; lines: number; changedOnDisk: boolean }

@@ -458,6 +458,7 @@ function dropTab(path: string): void {
   buffers.get(path)?.ta?.remove();
   const gone = buffers.get(path);
   if (gone?.big) closeBig(gone);
+  if (gone?.doc != null) docClose(gone);
   buffers.delete(path);
   lspClosed(path);
   nbClosed(path);

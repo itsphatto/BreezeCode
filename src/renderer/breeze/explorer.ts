@@ -435,6 +435,7 @@ async function moveEntry(p: string, to: string): Promise<void> {
   await Promise.all(moved.filter(b => b.kind === 'image' || b.kind === 'video').map(async b => { b.url = await api.fs.fileUrl(b.path).catch(() => ''); }));
   await Promise.all(moved.filter(b => b.kind === 'pdf').map(async b => { b.url = await api.fs.previewUrl(b.path).catch(() => ''); }));
   await Promise.all(moved.filter(b => b.big).map(bigMoved)); // clean ones only: dirty ones were refused above
+  await Promise.all(moved.filter(b => b.doc != null).map(docMoved)); // unsaved edits follow, sent after the reopen
   openTabs = openTabs.map(move);
   if (active) active = move(active);
   const dirs = [...expanded];

@@ -118,19 +118,28 @@ function loadBuffer(path: string): Promise<EditorBuffer | null> {
 async function readBuffer(path: string): Promise<EditorBuffer | null> {
   let r: FileRead;
   try { r = await api.fs.readFile(path); } catch (e) { toast(`Couldn't open ${baseName(path)}: ${errMsg(e)}`); return null; }
-  const raw = r.text ?? '';
+  const kind = kindOf(r), read = r.text ?? '';
+  // The engine keeps a leading byte order mark out of its text (and writes it back), so line 1 matches the page's.
+  const raw = kind === 'text' ? stripBom(read) : read;
   const b: EditorBuffer = {
-    path, size: r.size, kind: kindOf(r),
+    path, size: r.size, kind,
     eol: raw.includes('\r\n') ? '\r\n' : '\n',
     text: raw.replaceAll('\r\n', '\n'), saved: '', ta: null,
     undo: [], redo: [], lastEdit: null,
   };
   b.saved = b.text;
+  if (raw.length !== read.length) b.bom = true;
+  // Opens in the engine while the rest of the buffer is built; its own eol replaces the guess above.
+  const opening = kind === 'text' ? docOpenFirst(b) : null;
   if (b.kind === 'image' || b.kind === 'video') b.url = await api.fs.fileUrl(path).catch(() => '');
   if (b.kind === 'pdf') b.url = await api.fs.previewUrl(path).catch(() => ''); // file: frames are blocked by the CSP
   if (b.kind === 'large') await openBig(b);
-  if (b.kind === 'text') { b.ta = createSurface(b); scheduleLint(b, 0); }
+  if (b.kind === 'text') b.ta = createSurface(b);
+  // The engine replayed its crash journal: its text holds unsaved edits from before, so the tab shows as unsaved.
+  const recovered = await opening;
+  if (recovered != null && b.ta) { b.text = recovered; b.ta.value = recovered; }
   buffers.set(path, b);
+  if (b.kind === 'text') scheduleLint(b, 0); // after the set: a check of a buffer not in `buffers` is skipped
   void lspOpen(b);
   return b;
 }
