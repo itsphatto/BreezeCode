@@ -7602,8 +7602,8 @@ body.vibing .ide {
     max-height: 0;
   }
 
+  /* No end opacity: the row settles at its own (git-ignored rows stay dimmed). */
   to {
-    opacity: 1;
     transform: translateY(0);
     max-height: 32px;
   }
@@ -7637,8 +7637,8 @@ body.vibing .ide {
     max-height: 0;
   }
 
+  /* No end opacity: the row settles at its own (git-ignored rows stay dimmed). */
   to {
-    opacity: 1;
     transform: translateY(0);
     max-height: 32px;
   }
