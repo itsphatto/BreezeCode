@@ -54,42 +54,67 @@ A buffer gets an engine document when all of these hold:
 
 Files above 50 MB (`kind === 'large'`) keep using `BigSurface` and `bigfile.ts` unchanged.
 
-### New file: `src/renderer/breeze/docsync.ts`
+### New files: `src/renderer/doccore.ts` and `src/renderer/breeze/docsync.ts`
 
-Loaded before `buffers.ts` (script tag in `breeze.html`, entry in `tsconfig.json` `files`). It holds:
+The logic that needs no DOM lives in `src/renderer/doccore.ts`, so a Node test can load it
+(`test/doccore.test.js`, with `editcore.ts` loaded first):
 
-- `EditorBuffer.doc?: number`: the engine document id, set while the buffer is open in the engine.
-- `docOpen(b)`: calls `api.doc.open(b.path)` and records the id.
-- `docSync(b, before, after, edits?)`: sends the change from `before` to `after` to the engine.
-  - With `edits` (a keystroke's `ta.lastEdits`), each edit's offsets are turned into `{ line, col }` with the
-    surface's line index, so a keystroke never scans the file.
-  - Without them, the changed span comes from `editSpan(before, after)` (`languages.ts`), and offsets are turned
-    into positions by counting `\n` in `before`.
-  - Each change is one `doc:edit`. `kind` follows the editor's own `b.lastEdit.kind`: `type` stays `type`,
-    `deleteContentBackward` and `deleteContentForward` become `delete`, `insertFromPaste` becomes `paste`, and
-    everything else is `other`. The engine's undo grouping is unused in 2a, so `kind` only labels the journal.
-  - No-op when `b.doc` is unset.
-- A per-buffer queue. Edits go out in order; the page never waits for a reply before going on.
-- `docFlush(b)`: resolves when the queue is empty.
-- `docResync(b)`: replaces the engine's whole text with `b.text` in one edit.
-- `docClose(b)`: closes the document.
+- `docEditsFor(before, after, edits?)`: the engine edits that turn `before` into `after`.
+  - With `edits` (a keystroke's `ta.lastEdits`), each edit's offsets become `{ line, col }`.
+  - Without them, the changed span comes from `textEdit(before, after)` (`editcore.ts`).
+  - Positions are in `before`. The edits come last first, so each earlier position stays valid.
+- `docPosAt(starts, offset)`: an offset turned into `{ line, col }` (`col` is a UTF-16 index, the engine's unit) by
+  binary search on the line starts.
+- `docKindOf(kind)`: follows the editor's own `b.lastEdit.kind`: `type` stays `type`, `deleteContentBackward` and
+  `deleteContentForward` become `delete`, `insertFromPaste` becomes `paste`, and everything else is `other`. The
+  engine's undo grouping is unused in 2a, so `kind` only labels the journal.
+- `stripBom(text)`: the text without one leading byte order mark.
+- `DOC_END`: an end position past any line. The engine clamps it to the end of the document.
+- `DocQueue`: one per buffer. Edits go out in order; the page never waits for a reply before going on.
+  - `push(edits, kind)` queues edits. A failed send becomes one whole-text resync (the edits still waiting are in
+    that text, so they are skipped). If the resync fails too, the queue is dead and the document is dropped.
+  - `flush()` resolves when every edit pushed before the call has been sent or skipped. It never rejects.
+  - `idle` is true when nothing is queued and nothing is running: the engine holds the text as of the newest push.
+  - `lines` is the line count from the newest reply (piece 1 protocol).
 
-Each edit reply carries `lines` (piece 1 protocol). The queue keeps the newest one as `b.docLines`.
+A keystroke's positions never scan the file: `lineStartsOf` (`editcore.ts`) keeps the line starts of the last two
+texts, so a keystroke's `before` text is already indexed. `CodeSurface` does not change.
 
-### `CodeSurface` (`src/renderer/codeview.ts`)
+`src/renderer/breeze/docsync.ts` holds the per-buffer wiring. It loads before `buffers.ts` (script tag in
+`breeze.html`, entry in `tsconfig.json` `files`).
 
-Gains one public method, `lineCol(offset): { line: number; col: number }`, using the line-start index it already
-keeps (`starts`, built if missing). `col` is a UTF-16 index, the same unit the engine uses.
+| Function | What it does |
+|---|---|
+| `docOpen(b, base)` | Opens `b.path` in the engine, attaches the document and its queue, and syncs the page's text onto it. `base` is the text the engine opens with, or `null` to fetch it. |
+| `docOpenFirst(b, bytes)` | `readBuffer`'s first open. Returns the engine's whole text when its crash journal was replayed, else `null`. |
+| `docSync(b, before, after, edits?)` | Pushes the change from `before` to `after` onto the buffer's queue. No-op when `b.doc` is unset. |
+| `docFlush(b)` | Resolves when the queue has sent every edit. |
+| `docSave(b)` | Saves through the engine (see Save) and returns the text that reached disk. |
+| `docClose(b)` | Closes the document; an open still on its way is dropped too. |
+| `docMoved(b)` | After a move: closes the document and opens it again at the new path. |
+| `engineOff` | True once the engine couldn't start this session: every buffer saves the old way. |
+
+`EditorBuffer` gains these fields (`workspace.ts`):
+
+- `doc?: number`: the engine document id, set while the buffer is open in the engine.
+- `docQ?: DocQueue`: the edits on their way to `doc`, in order.
+- `docSkip?: boolean`: set when the engine opened the file read-only, or failed with an error other than
+  "can't start". Such a buffer saves the old way, with no further engine attempt.
+- `bom?: boolean`: the file starts with a byte order mark, which is kept out of `b.text`. Every old-way write puts it
+  back.
 
 ### Open (`readBuffer`, `buffers.ts`)
 
-1. `fs:readFile` and `doc:open` run at the same time.
-2. A leading byte order mark (`﻿`) is removed from the text. The engine removes it too and writes it back on
-   save, so positions on line 1 match.
+1. `fs:readFile` runs, then `doc:open` (`docOpenFirst`) runs while the rest of the buffer is built.
+2. A leading byte order mark (`﻿`) is removed from the text of every text file, engine on or off, and
+   `b.bom` records it. The engine removes it too and writes it back on save, so positions on line 1 match.
+   `reloadText` strips the mark the same way.
 3. `b.saved` is the text from disk, as today.
 4. When `doc:open` answers `recovered: true` (the crash journal was replayed), `b.text` is set from
    `doc:text` for the whole document and the tab shows as unsaved.
-5. `b.eol` comes from `doc:open` when there is a document.
+5. When the reply's `bytes` differs from the size `fs:readFile` saw, the file changed between the two reads. The page
+   fetches the engine's text and sends the difference.
+6. `b.eol` comes from `doc:open` when there is a document.
 
 ### Every writer of `b.text`
 
@@ -111,13 +136,19 @@ and the two reads could see different versions.
 
 ### Save (`saveFile`, `tabs.ts`)
 
-For a buffer with a document:
+For a buffer with a document, `docSave(b)` returns the exact text that reached disk:
 
-1. `docFlush(b)`.
-2. If `b.docLines` differs from the page's line count, `docResync(b)` and flush again. This catches a writer that
-   missed `docSync`.
-3. `doc:save`. The engine writes atomically, through symbolic links, and puts back the byte order mark.
-4. On success `b.saved = b.text`, as today.
+1. It waits until the queue is idle. It loops if edits arrive during the wait, or if the engine restarts and swaps
+   the queue.
+2. Only when idle, it checks the line count. If the queue's `lines` differs from the page's line count, it resyncs the
+   whole text once and waits again. This catches a writer that missed `docSync`, and runs at most once per save.
+3. It reads `b.text` and calls `doc:save` in the same turn, so the engine holds exactly that text. The engine writes
+   atomically, through symbolic links, and puts back the byte order mark.
+4. `saveFile` sets `b.saved` to the returned text, not to `b.text` as it is by then: typing during the save may have
+   moved `b.text` on.
+
+All old-way writes (engine off, read-only file, document dropped) go through `docSave` too. It writes with
+`fs:writeFile`, using the buffer's line ending and byte order mark.
 
 The changed-on-disk prompt, auto save, Save All and the close prompt keep calling `saveFile` and do not change.
 
@@ -131,7 +162,9 @@ the main one.
   other, with a document.
 - Agent drafts not yet on disk (`blankBuffer`): the first save creates the empty file (`fs:createFile`), opens it
   in the engine, resyncs, and saves.
-- Engine off or read-only file: today's `fs:writeFile`.
+- Engine off or read-only file: today's `fs:writeFile`, through `docSave`.
+- A moved or renamed file: the document reopens at the new path with the engine's own text fetched (not `b.saved`:
+  the file there may have changed on disk), and then the page's text is synced onto it (`docMoved`).
 
 ### Close
 
@@ -152,7 +185,7 @@ Closing a tab calls `docClose`. Closing the folder already closes every document
 |---|---|---|
 | The engine can't start (missing, blocked) | One toast per session: "The Breeze engine isn't running, so files save the old way" | Engine off for this session; every buffer uses the old path |
 | File isn't valid UTF-8 | Nothing new | Document closed; buffer uses the old path |
-| An edit fails | Nothing | `docResync(b)`; if that fails too, the document is dropped, the buffer uses the old path, and a toast says "Couldn't keep X in the engine; it saves the old way" |
+| An edit fails | Nothing | The queue resyncs the whole text; if that fails too, the document is dropped, the buffer uses the old path, and a toast says "Couldn't keep X in the engine; it saves the old way" |
 | A save fails | "Couldn't save X: reason", as today | `b.saved` unchanged |
 | The engine crashes (`doc:down`) | Nothing | Each document reopens; if its text differs from `b.text`, `docSync` sends the difference |
 
@@ -163,14 +196,15 @@ built..." or a spawn error), not by a per-file error such as a missing file.
 
 Typing must be no slower than today:
 
-- A keystroke uses `ta.lastEdits` and `CodeSurface.lineCol`, so there is no whole-text scan.
+- A keystroke uses `ta.lastEdits` and `lineStartsOf`, which already holds the line starts of its `before` text, so
+  there is no whole-text scan.
 - The edit is sent without waiting.
-- Writers without `lastEdits` (reload, agent typing, revert, restore) use `editSpan`, which they already pay for
+- Writers without `lastEdits` (reload, agent typing, revert, restore) use `textEdit`, which they already pay for
   today in `highlighted()`.
 
 ## Testing
 
-1. Unit tests, `test/docsync.test.js` (node:test, like the other tests):
+1. Unit tests, `test/doccore.test.js` (node:test, like the other tests):
    - Offset to `{ line, col }`: start, end, after `\n`, emoji (surrogate pairs), lone `\r`.
    - The edit made for insert, delete, replace and whole-text change.
    - The queue sends in order, resyncs once on a failed edit, drops the document after a second failure, and
