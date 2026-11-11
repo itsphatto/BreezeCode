@@ -35,7 +35,7 @@ desktop.ini
 # Tool-local state
 .impeccable/config.local.json
 **/.impeccable/config.local.json
-.claude/settings.local.json
+.claude/
 DemoVideo/
 
 # Source videos: far over GitHub's 100 MB file limit. The app and site use the compressed copies
