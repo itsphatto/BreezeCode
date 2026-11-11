@@ -238,7 +238,7 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
   } else if (s.name === 'box') {
     tab.panel.innerHTML = boxEmptyHtml();
   } else {
-    tab.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div class="empty-line">Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
+    tab.panel.innerHTML = `<div class="empty"><div>${idleLogo(40)}<h4>Your agents are ready</h4><div class="empty-line">Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
   }
   s.chat.appendChild(tab.panel);
   surfaceTabs[s.name].push(tab);
@@ -568,6 +568,7 @@ function newAgentTabAction(s: Surface = surface): void {
   if (cur) archiveChatTab(s, cur);
   const newTab = createAgentTab(s, undefined, undefined, null, true);
   switchAgentTab(s, newTab.id);
+  if (s.name === 'box') newTab.panel.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
   const bar = s.name === 'box' ? $('#boxAgentTabsBar') : $('#agentTabsBar');
   bar?.scrollTo({ left: bar.scrollWidth, behavior: 'smooth' });
 }
@@ -820,6 +821,12 @@ setInterval(() => {
   if (document.hidden) return;
   for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) blurSwap(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
 }, 5000);
+// The empty state's logo: Agent.png with its strokes rippling in a breeze, as a lossless animated WebP rendered from
+// that image. An image, not a video: a looping video shows a seam each time it restarts. Reduced motion gets the still.
+function idleLogo(size: number): string {
+  const file = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'Agent.png' : 'AgentIdle.webp';
+  return `<img class="idle-logo" src="../../assets/brand/${file}" alt="" width="${size}" height="${size}" draggable="false">`;
+}
 
 function boxEmptyWho(): string {
   const agent = selectedAgent();
@@ -827,7 +834,7 @@ function boxEmptyWho(): string {
 }
 // The greeting is BOX_HEADINGS[0], written out: a tab can be made before that list exists.
 function boxEmptyHtml(): string {
-  return `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="56" height="56"><h4>What can I help with?</h4><div class="empty-who">${esc(boxEmptyWho())}</div></div></div>`;
+  return `<div class="empty"><div>${idleLogo(56)}<h4>What can I help with?</h4><div class="empty-who">${esc(boxEmptyWho())}</div></div></div>`;
 }
 // Picking another agent rewrites the line under the greeting in place, with the same blur.
 function updateBoxEmptyWho(): void {
@@ -840,7 +847,7 @@ function emptyChat(s: Surface = SURFACES.ide, tab?: AgentTabState): void {
     t.panel.innerHTML = boxEmptyHtml();
     return;
   }
-  t.panel.innerHTML = `<div class="empty"><div><img src="../../assets/brand/Agent.png" alt="" width="40" height="40"><h4>Your agents are ready</h4><div class="empty-line">Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
+  t.panel.innerHTML = `<div class="empty"><div>${idleLogo(40)}<h4>Your agents are ready</h4><div class="empty-line">Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
 }
 // A small, safe subset of Markdown for agent replies: inline code, bold and line breaks. Fenced code blocks
 // become artifacts: a card with the file name, Copy and Download. A fence may name its file: ```html index.html

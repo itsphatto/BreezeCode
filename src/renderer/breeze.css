@@ -756,12 +756,16 @@ button {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
-  transition: background-color .15s ease, box-shadow .18s ease, transform .12s cubic-bezier(.2, .8, .2, 1);
+  transition: background-color .15s ease, color .15s ease, box-shadow .18s ease, transform .12s cubic-bezier(.2, .8, .2, 1);
 }
 
 .ob-start:hover {
   background: #eef3ff;
   box-shadow: 0 8px 28px rgba(10, 30, 120, .36);
+}
+
+.ob-step[data-step="0"] .ob-start:hover {
+  color: #fff;
 }
 
 .ob-start:active {
@@ -919,6 +923,7 @@ button {
   background: rgba(255, 255, 255, .86);
   color: #14161c;
   caret-color: #1f4dff;
+  font-family: var(--font-ui);
   font-size: 16px;
 }
 
@@ -1291,6 +1296,7 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  contain: size; /* takes its height from Theme and Extra animation, so the scan's answer can't resize them */
 }
 
 .prefs #agentList {
@@ -6263,6 +6269,7 @@ body.vibing .ide {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+  min-height: 118px; /* with Theme, tall enough for the full agent list */
 }
 
 .prefs .ob-motion .muted {
@@ -14847,6 +14854,7 @@ body.layout-animating #previewPane {
 /* The wordmarks and the swirl are white images: drawn dark here, except over the onboarding sky. */
 /* Home is off the sky (its own title bar), so its wordmark goes dark too. */
 :root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *),
+:root[data-theme="light"] .idle-logo,
 :root[data-theme="light"] .home-bar .logo img {
   filter: invert(.88);
 }

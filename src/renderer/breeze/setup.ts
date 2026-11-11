@@ -109,9 +109,11 @@ function detectTools(force = false): Promise<Detection> {
   $('#aiPill').className = 'pill'; swapText($('#aiPill'), 'Scanning');
   if (!appState.detect) $('#agentList').innerHTML = '<div class="row text-3"><div class="spinner sm"></div>Checking this computer</div>';
   detecting = api.sys.detect(force).then(d => {
+    const replacesSpinner = !!$('#agentList').querySelector('.spinner');
     appState.detect = d;
     fixSelectedAgent();
     renderDetection();
+    if (replacesSpinner && step === STEP.agent && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches) $$('#agentList > *').forEach((row, i) => riseIn(row, i * 60));
     return d;
   }).catch((e: unknown) => {
     $('#aiPill').className = 'pill warn'; swapText($('#aiPill'), 'Scan failed');

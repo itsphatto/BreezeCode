@@ -1,5 +1,5 @@
 // Electron main process for Breeze IDE: window, file system, search, terminal, git, agents, sign-in and Vibe Mode.
-const { app, BrowserWindow, Menu, WebContentsView, dialog, ipcMain, nativeImage, net, protocol, safeStorage, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, net, protocol, safeStorage, session, shell } = require('electron');
 const { spawn, execFile, exec } = require('node:child_process');
 const crypto = require('node:crypto');
 const http = require('node:http');
@@ -3890,6 +3890,7 @@ async function githubSignIn({ clientId }, signal) {
   })).json();
   const dc = await post('https://github.com/login/device/code', { client_id: clientId, scope: 'read:user user:email repo' }); // repo: workspace sync keeps a private breeze-sync repo
   if (dc.error) throw new Error(dc.error_description || dc.error);
+  clipboard.writeText(dc.user_code); // here, not in the page: the browser opening next takes focus, and an unfocused page can't write the clipboard
   authEmit({ t: 'code', provider: 'GitHub', code: dc.user_code, uri: dc.verification_uri });
   openInBrowser(dc.verification_uri);
   const deadline = Date.now() + (dc.expires_in || 900) * 1000;
