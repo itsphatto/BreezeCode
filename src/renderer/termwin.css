@@ -52,6 +52,7 @@
   --cmd-str: #34d399;
   --cmd-num: #fdba74;
   --ps: #cccccc;
+  --brand: #2f7bff; /* the logo's blue (assets/brand/Icon.png), a touch lighter to read on black */
   --ansi-0: var(--text-3); --ansi-1: var(--term-red); --ansi-2: var(--term-green); --ansi-3: var(--term-yellow);
   --ansi-4: var(--term-blue); --ansi-5: var(--term-magenta); --ansi-6: var(--term-cyan); --ansi-7: var(--text);
   --ansi-8: var(--text-3); --ansi-9: var(--term-red); --ansi-10: var(--term-green); --ansi-11: var(--term-yellow);
@@ -91,6 +92,7 @@
   --cmd-str: #137036;
   --cmd-num: #a8380a;
   --ps: #3b3731;
+  --brand: #005cff;
   color-scheme: light;
 }
 
@@ -336,6 +338,25 @@ body.focused .tw-caret {
   width: 1px;
   height: 1px;
   opacity: 0;
+}
+
+/* ---------- the welcome banner (termwin.ts banner): the PC's facts, like neofetch ---------- */
+.tw-fetch {
+  display: flex;
+  align-items: flex-start;
+  gap: 4ch;
+  margin: 4px 0 6px;
+  word-break: normal;
+}
+
+.tw-fetch-info {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.tw-fetch-key {
+  color: var(--brand);
+  font-weight: 700;
 }
 
 .a-b { font-weight: 700; color: var(--text); }

@@ -21,14 +21,18 @@ function previewInspector(): void {
     host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647';
     const shadow = host.attachShadow({ mode: 'closed' });
     shadow.innerHTML = `<style>
-      .box{position:fixed;box-sizing:border-box;border:2px solid ${BLUE};background:rgba(10,108,216,.12);border-radius:2px}
-      .label{position:fixed;max-width:calc(100vw - 8px);padding:2px 6px;border-radius:4px;background:${BLUE};color:#fff;
-        font:600 11px/16px ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .label .tag{opacity:.75;font-weight:500}
+      .box{position:fixed;box-sizing:border-box;border:1px solid rgba(10,108,216,.55);background:rgba(10,108,216,.06);border-radius:2px;
+        transition:background .2s ease-out,border-color .2s ease-out}
+      .label{position:fixed;max-width:calc(100vw - 8px);padding:0 5px;border-radius:3px;background:${BLUE};color:#fff;
+        font:600 10px/16px ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .label .tag{font-weight:700}
+      .label .tag:not(:last-child){margin-right:4px}
       .label .size{opacity:.75;font-weight:500;margin-left:6px}
-      .morph{transition:left .16s ease-in,top .16s ease-in,width .16s ease-in,height .16s ease-in}
-      .box.pinned{border-style:solid;background:rgba(10,108,216,.2)}
-      @media (prefers-reduced-motion:reduce){.morph{transition:none}}
+      /* A fast glide that settles softly: the box starts quickly toward the next element and eases into place. */
+      .box.morph{transition:left .18s cubic-bezier(.16,1,.3,1),top .18s cubic-bezier(.16,1,.3,1),width .18s cubic-bezier(.16,1,.3,1),height .18s cubic-bezier(.16,1,.3,1),background .2s ease-out,border-color .2s ease-out}
+      .label.morph{transition:left .18s cubic-bezier(.16,1,.3,1),top .18s cubic-bezier(.16,1,.3,1)}
+      .box.pinned{border-color:rgba(10,108,216,.9);background:rgba(10,108,216,.16)}
+      @media (prefers-reduced-motion:reduce){.box,.morph{transition:none!important}}
     </style><div class="box"></div><div class="label"></div>`;
     box = shadow.querySelector<HTMLElement>('.box');
     label = shadow.querySelector<HTMLElement>('.label');
@@ -53,8 +57,8 @@ function previewInspector(): void {
     const r = target.getBoundingClientRect();
     Object.assign(box!.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
     // Above the element, or just inside its top edge when there's no room above (an element at the top of the page).
-    const h = label!.offsetHeight || 20;
-    const top = r.top - h - 2 >= 0 ? r.top - h - 2 : Math.max(0, r.top) + 2;
+    const h = label!.offsetHeight || 16;
+    const top = r.top - h - 4 >= 0 ? r.top - h - 4 : Math.max(0, r.top) + 2;
     const left = Math.min(Math.max(0, r.left), Math.max(0, innerWidth - label!.offsetWidth - 4));
     Object.assign(label!.style, { left: `${left}px`, top: `${top}px` });
   }

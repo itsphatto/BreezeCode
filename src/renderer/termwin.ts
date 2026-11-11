@@ -4,7 +4,7 @@
 // names reach the global scope the main window's scripts share with it when they are type-checked together.
 (() => {
   interface TermApi {
-    info(): Promise<{ cwd: string; platform: string }>;
+    info(): Promise<{ cwd: string; platform: string; user?: string; sys?: [string, string][] }>;
     run(command: string): Promise<{ id?: number; cwd?: string; error?: string }>;
     write(id: number, text: string): Promise<void>;
     kill(id: number): Promise<void>;
@@ -347,7 +347,6 @@
 
   /* ----- Title bar ----- */
   el('twNew').onclick = () => quietly(api.win.newTerminal());
-  el('twClear').onclick = () => { out.textContent = ''; input.focus(); };
   killBtn.onclick = () => { stop(); input.focus(); };
   el('twMin').onclick = () => quietly(api.win.minimize());
   el('twMax').onclick = () => quietly(api.win.toggleMaximize());
@@ -363,9 +362,23 @@
   api.win.onMaximized(showMaximized);
   void api.win.isMaximized().then(showMaximized, () => { /* closing */ });
 
+  /* ----- The welcome banner: facts about this PC, like neofetch ----- */
+  function banner(user: string, sys: [string, string][]): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'tw-fetch';
+    const info = document.createElement('div');
+    info.className = 'tw-fetch-info';
+    const row = (...nodes: (Node | string)[]) => { const d = document.createElement('div'); d.append(...nodes); info.append(d); };
+    if (user) { row(tok(user, 'tw-fetch-key')); row('-'.repeat(user.length)); }
+    for (const [k, v] of sys) row(tok(`${k}: `, 'tw-fetch-key'), v);
+    box.append(info);
+    return box;
+  }
+
   void api.info().then(i => {
     cwd = i.cwd;
     platform = i.platform;
+    out.prepend(banner(i.user ?? '', i.sys ?? []));
     if (platform === 'darwin') document.documentElement.classList.add('mac');
     const folder = cwd.split(/[\\/]/).filter(Boolean).at(-1) || cwd;
     const title = `Terminal - ${folder} - Breeze Code`;

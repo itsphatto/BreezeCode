@@ -1,5 +1,5 @@
 // Electron main process for Breeze IDE: window, file system, search, terminal, git, agents, sign-in and Vibe Mode.
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, net, protocol, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, net, protocol, safeStorage, screen, session, shell } from 'electron';
 import { spawn, execFile, exec } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
@@ -1242,7 +1242,37 @@ function handleTerm(channel: string, fn: (st: TermState, ...args: any[]) => unkn
 }
 handle('win:newTerminal', () => openTermWindow());
 handleTerm('tw:new', () => openTermWindow());
-handleTerm('tw:info', st => ({ cwd: st.cwd, platform: process.platform }));
+handleTerm('tw:info', async st => ({ cwd: st.cwd, platform: process.platform, user: `${os.userInfo().username}@${os.hostname()}`, sys: await termSysInfo() }));
+// The facts the terminal window's welcome banner lists beside the logo (termwin.ts), like neofetch.
+async function termSysInfo(): Promise<[string, string][]> {
+  const fmtUptime = (s: number) => {
+    const d = Math.floor(s / 86400), h = Math.floor(s / 3600) % 24, m = Math.floor(s / 60) % 60;
+    return [d && `${d} day${d > 1 ? 's' : ''}`, h && `${h} hour${h > 1 ? 's' : ''}`, `${m} min${m === 1 ? '' : 's'}`].filter(Boolean).join(', ');
+  };
+  const mib = (b: number) => `${Math.round(b / 1048576)}MiB`;
+  const cpus = os.cpus();
+  const cpu = cpus.length ? `${cpus[0].model.trim().replace(/\s+/g, ' ')} (${cpus.length})` : '';
+  const shellName = process.platform === 'win32' ? path.basename(process.env.ComSpec || 'cmd.exe') : '/bin/sh';
+  let gpu = '';
+  try {
+    const info = await Promise.race([app.getGPUInfo('complete'), new Promise(done => setTimeout(() => done(null), 1500))]) as { gpuDevice?: { deviceString?: string; active?: boolean }[] } | null;
+    const devs = (info?.gpuDevice ?? []).filter(g => g.deviceString);
+    gpu = (devs.find(g => g.active) ?? devs[0])?.deviceString ?? '';
+  } catch { /* no GPU details on this system */ }
+  const { width, height } = screen.getPrimaryDisplay().size;
+  const rows: [string, string][] = [
+    ['OS', `${os.version()} ${os.arch()}`],
+    ['Kernel', os.release()],
+    ['Uptime', fmtUptime(os.uptime())],
+    ['Shell', shellName],
+    ['Resolution', `${width}x${height}`],
+    ['Terminal', `Breeze Code ${app.getVersion()}`],
+    ['CPU', cpu],
+    ['GPU', gpu],
+    ['Memory', `${mib(os.totalmem() - os.freemem())} / ${mib(os.totalmem())}`],
+  ];
+  return rows.filter(([, v]) => v);
+}
 handleTerm('tw:run', async (st, command) => {
   const cmd = String(command ?? '');
   const cd = changeDir(cmd, st.cwd);
