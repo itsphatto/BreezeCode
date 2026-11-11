@@ -51,6 +51,8 @@ A buffer gets an engine document when all of these hold:
 - The engine has not been found off this session (see Errors).
 - `doc:open` did not answer `readOnly: true` (not valid UTF-8). Such a file stays on the old path, as today, and
   its document is closed.
+- The page's text has no lone `\r` (the engine drops every `\r` in edit text). A lone-CR file uses the old path, and
+  an edit that brings one in (undo, reload, agent typing, the save backstop) closes the document first.
 
 Files above 50 MB (`kind === 'large'`) keep using `BigSurface` and `bigfile.ts` unchanged.
 
@@ -91,7 +93,6 @@ texts, so a keystroke's `before` text is already indexed. `CodeSurface` does not
 | `docFlush(b)` | Resolves when the queue has sent every edit. |
 | `docSave(b)` | Saves through the engine (see Save) and returns the text that reached disk. |
 | `docClose(b)` | Closes the document; an open still on its way is dropped too. |
-| `docMoved(b)` | After a move: closes the document and opens it again at the new path. |
 | `engineOff` | True once the engine couldn't start this session: every buffer saves the old way. |
 
 `EditorBuffer` gains these fields (`workspace.ts`):
@@ -108,7 +109,7 @@ texts, so a keystroke's `before` text is already indexed. `CodeSurface` does not
 1. `fs:readFile` runs, then `doc:open` (`docOpenFirst`) runs while the rest of the buffer is built.
 2. A leading byte order mark (`﻿`) is removed from the text of every text file, engine on or off, and
    `b.bom` records it. The engine removes it too and writes it back on save, so positions on line 1 match.
-   `reloadText` strips the mark the same way.
+   `reloadText` strips the mark the same way; when the mark was added or removed on disk, the document reopens.
 3. `b.saved` is the text from disk, as today.
 4. When `doc:open` answers `recovered: true` (the crash journal was replayed), `b.text` is set from
    `doc:text` for the whole document and the tab shows as unsaved.
@@ -162,9 +163,10 @@ the main one.
   other, with a document.
 - Agent drafts not yet on disk (`blankBuffer`): the first save creates the empty file (`fs:createFile`), opens it
   in the engine, resyncs, and saves.
-- Engine off or read-only file: today's `fs:writeFile`, through `docSave`.
-- A moved or renamed file: the document reopens at the new path with the engine's own text fetched (not `b.saved`:
-  the file there may have changed on disk), and then the page's text is synced onto it (`docMoved`).
+- Engine off, read-only or lone-CR file: today's `fs:writeFile`, through `docSave`.
+- A moved or renamed file: the document closes as the path changes (so no save writes the old path), then reopens
+  at the new path with the engine's own text fetched (not `b.saved`: the file there may have changed on disk), and
+  the page's text is synced onto it (`moveEntry`, `explorer.ts`).
 
 ### Close
 
@@ -185,12 +187,14 @@ Closing a tab calls `docClose`. Closing the folder already closes every document
 |---|---|---|
 | The engine can't start (missing, blocked) | One toast per session: "The Breeze engine isn't running, so files save the old way" | Engine off for this session; every buffer uses the old path |
 | File isn't valid UTF-8 | Nothing new | Document closed; buffer uses the old path |
+| The text has (or gets) a lone `\r` | Nothing | Document closed; buffer uses the old path |
 | An edit fails | Nothing | The queue resyncs the whole text; if that fails too, the document is dropped, the buffer uses the old path, and a toast says "Couldn't keep X in the engine; it saves the old way" |
 | A save fails | "Couldn't save X: reason", as today | `b.saved` unchanged |
 | The engine crashes (`doc:down`) | Nothing | Each document reopens; if its text differs from `b.text`, `docSync` sends the difference |
 
 "Can't start" is told apart from other failures by the engine module's message ("The Breeze engine isn't
-built..." or a spawn error), not by a per-file error such as a missing file.
+built..." or a spawn error, kept as "spawn ..." even when it arrives after spawn returns), not by a per-file error
+such as a missing file.
 
 ## Speed
 
@@ -211,7 +215,9 @@ Typing must be no slower than today:
      `docFlush` waits for every edit.
 2. Engine round trip, skipped when the engine isn't built (as `test/engine.test.js` does): open a file, apply edits
    through `docSync`'s positions, save, compare the bytes. Files: LF, CRLF, mixed endings, a byte order mark, emoji.
-3. By hand in the app: type and save, undo and redo, paste, split view, an agent edit typed out, hot exit after a
+3. `test/docsync.test.js`: `docsync.ts` against a fake engine (save with edits queued, save across `doc:down`, the
+   line-count backstop, a dropped queue, a close or move during an open, lone-CR files and edits).
+4. By hand in the app: type and save, undo and redo, paste, split view, an agent edit typed out, hot exit after a
    restart, a file changed on disk, and the engine exe renamed (fallback toast, files still save).
 
 ## Out of scope
