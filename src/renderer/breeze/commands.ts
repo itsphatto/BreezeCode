@@ -310,7 +310,7 @@ function confirmDiscard(): Promise<boolean> {
     openModal(`<h3>Save changes to ${plural(dirty.length, 'file')}?</h3><p class="sub">${dirty.map(b => esc(shownPath(b.path))).join('<br>')}</p>
       <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn" id="dDiscard">Don't Save</button><button class="btn btn-primary" id="dSave">Save All</button></div>`, m => {
       $('#dDiscard', m).onclick = () => {
-        for (const b of dirty) { b.text = b.saved; if (b.ta) b.ta.value = b.saved; }
+        for (const b of dirty) { const before = b.text; b.text = b.saved; docSync(b, before, b.text); if (b.ta) b.ta.value = b.saved; }
         // Huge files' edits live in the engine: drop them there (best effort) before the folder goes. Closed without
         // cancelling, as Save All does.
         modalOnClose = null; closeModal();

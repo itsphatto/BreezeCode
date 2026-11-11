@@ -431,10 +431,21 @@ async function moveEntry(p: string, to: string): Promise<void> {
   renameMarks(move);
   renameBreakpoints(move);
   const moved = [...buffers.values()].filter(b => move(b.path) !== b.path);
-  for (const b of moved) { const from = b.path; buffers.delete(b.path); b.path = move(b.path); buffers.set(b.path, b); scheduleLint(b, 0); lspRenamed(from, b); }
+  // A document is closed as its path changes, so no save in the awaits below writes the old path (and makes that
+  // file again); a save meanwhile opens one at the new path. Each reopens at the end.
+  const reopen = moved.filter(b => b.doc != null);
+  for (const b of moved) {
+    const from = b.path;
+    if (b.doc != null) docClose(b);
+    buffers.delete(b.path); b.path = move(b.path); buffers.set(b.path, b);
+    scheduleLint(b, 0); lspRenamed(from, b);
+  }
   await Promise.all(moved.filter(b => b.kind === 'image' || b.kind === 'video').map(async b => { b.url = await api.fs.fileUrl(b.path).catch(() => ''); }));
   await Promise.all(moved.filter(b => b.kind === 'pdf').map(async b => { b.url = await api.fs.previewUrl(b.path).catch(() => ''); }));
   await Promise.all(moved.filter(b => b.big).map(bigMoved)); // clean ones only: dirty ones were refused above
+  // The engine's text at the new path is read (it may have changed on disk), and the page's, unsaved edits and all,
+  // synced onto it. One a save already opened is left alone.
+  await Promise.all(reopen.filter(b => b.doc == null && !b.docSkip && buffers.get(b.path) === b).map(b => docOpen(b, null)));
   openTabs = openTabs.map(move);
   if (active) active = move(active);
   const dirs = [...expanded];
@@ -570,7 +581,14 @@ async function reloadImage(b: EditorBuffer): Promise<void> {
 async function reloadText(b: EditorBuffer): Promise<void> {
   const r = await api.fs.readFile(b.path).catch(() => null); // deleted or unreadable: keep the buffer
   if (r?.text == null) return;
-  const text = r.text.replaceAll('\r\n', '\n');
+  // As readBuffer reads it: a leading byte order mark stays out of the text (the engine keeps it out too).
+  const plain = stripBom(r.text);
+  const bom = plain.length !== r.text.length;
+  // The engine keeps the byte order mark it opened with, and the page's text doesn't show it, so a mark added or
+  // removed on disk reaches the engine only by opening the file again (the page's text is then synced onto it).
+  if (bom !== !!b.bom && b.doc != null) { docClose(b); void docOpen(b, null); }
+  b.bom = bom;
+  const text = plain.replaceAll('\r\n', '\n');
   if (typingTo.has(b.path)) { typingTo.set(b.path, text); return; } // the running animation heads for the newest text
   if (text === b.saved) { b.disk = undefined; return; }
   if (holdsUserEdits(b)) {
@@ -584,7 +602,9 @@ async function reloadText(b: EditorBuffer): Promise<void> {
   // While an agent works, its edits are typed out instead of swapped in.
   if (hasAnyActiveRun()) { void typeAgentEdit(b, text); return; }
   remember(b, 'reload');
+  const before = b.text;
   b.text = b.saved = text;
+  docSync(b, before, b.text); // as edits, not doc:reload: a second read of the file could see another version
   if (b.ta) { const s = b.ta.selectionStart; b.ta.value = text; b.ta.setSelectionRange(s, s); }
   if (b.path === active) renderCode();
   scheduleLint(b, 0);
@@ -689,7 +709,9 @@ async function typeOut(b: EditorBuffer, after: string): Promise<boolean> {
 }
 // Replaces the buffer's text as saved on disk, keeping the person's caret where it was.
 function setBuffer(b: EditorBuffer, text: string): void {
+  const before = b.text;
   b.text = b.saved = text;
+  docSync(b, before, b.text);
   if (b.ta && b.ta.value !== text) {
     const { selectionStart: st, selectionEnd: en } = b.ta;
     b.ta.value = text;

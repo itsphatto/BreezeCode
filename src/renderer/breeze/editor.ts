@@ -1027,7 +1027,9 @@ splitTa.addEventListener('input', () => {
   const wasDirty = isDirty(b);
   shiftMarks(b.path, b.text, splitTa.value, splitTa.lastEdits);
   shiftBreakpoints(b.path, b.text, splitTa.value, splitTa.lastEdits);
+  const before = b.text;
   b.text = splitTa.value;
+  docSync(b, before, b.text, splitTa.lastEdits);
   // The same file open on the left follows along, keeping its own caret.
   if (b.ta && b.ta.value !== b.text) {
     const { selectionStart: s, selectionEnd: e } = b.ta;

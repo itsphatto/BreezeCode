@@ -115,6 +115,40 @@ test('a missing executable says how to build it', async () => {
   await assert.rejects(e.request('open', { path: 'x' }), { message: NOT_BUILT });
   assert.equal(e.running, false);
 });
+// engine.js with child_process.spawn replaced by `fake` (which returns a stand-in child), so a spawn error that comes
+// after spawn returns (as a blocked exe's EACCES or EPERM does) can be made without a real executable.
+function engineWithSpawn(fake) {
+  const cp = require('node:child_process');
+  const real = cp.spawn, key = require.resolve('../src/main/engine.js'), cached = require.cache[key];
+  cp.spawn = fake;
+  delete require.cache[key];
+  try { return require('../src/main/engine.js'); } finally { cp.spawn = real; require.cache[key] = cached; }
+}
+function childThatFails(err) {
+  const { EventEmitter } = require('node:events');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.stdin = new EventEmitter();
+  child.stderr.setEncoding = () => {};
+  child.stdin.write = () => true;
+  child.kill = () => {};
+  process.nextTick(() => { child.emit('error', err); child.emit('close', -4058); });
+  return child;
+}
+const spawnError = (code, file) => Object.assign(new Error(`spawn ${file} ${code}`), { code, errno: -1, syscall: `spawn ${file}`, path: file });
+
+test('a spawn error after spawn returns rejects with the spawn message, so the page can tell the engine is off', async () => {
+  const exeFile = __filename; // exists, so start() gets as far as spawn
+  const { Engine: E } = engineWithSpawn(() => childThatFails(spawnError('EACCES', exeFile)));
+  const e = new E({ exe: exeFile, journalDir: tmp() });
+  await assert.rejects(e.request('open', { path: 'x' }), err => /^spawn .* EACCES$/.test(err.message));
+  assert.equal(e.running, false);
+});
+test('an ENOENT spawn error after spawn returns still says how to build it', async () => {
+  const exeFile = __filename;
+  const { Engine: E, NOT_BUILT: NB } = engineWithSpawn(() => childThatFails(spawnError('ENOENT', exeFile)));
+  const e = new E({ exe: exeFile, journalDir: tmp() });
+  await assert.rejects(e.request('open', { path: 'x' }), { message: NB });
+});
 test('a 50 MB reply arrives intact and without quadratic scanning', { skip, timeout: 30000 }, async () => {
   const dir = tmp(), file = path.join(dir, 'big.txt');
   // A reply is one line, so its newline only shows up at the very end: re-scanning everything received so far

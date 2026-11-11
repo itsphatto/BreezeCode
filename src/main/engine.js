@@ -68,7 +68,10 @@ class Engine extends EventEmitter {
       if (this.child !== child) return; // stop() already let go of it
       this.child = null;
       this.session = null;
-      const why = e?.code === 'ENOENT' ? new Error(NOT_BUILT) : new Error('The engine stopped');
+      // A spawn that failed after returning (a blocked exe: EACCES, EPERM) keeps its "spawn ..." message, so the page
+      // can tell the engine can't start from the engine stopping.
+      const fromSpawn = e && (String(e.syscall ?? '').startsWith('spawn') || String(e.message ?? '').startsWith('spawn'));
+      const why = e?.code === 'ENOENT' ? new Error(NOT_BUILT) : fromSpawn ? new Error(e.message) : new Error('The engine stopped');
       for (const p of s.pending.values()) p.reject(why);
       s.pending.clear();
       this.emit('down');
