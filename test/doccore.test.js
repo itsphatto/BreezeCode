@@ -133,6 +133,18 @@ test('DocQueue: a failed resync kills the queue and calls dropped once', async (
   assert.deepEqual(sent, ['A']);
   assert.equal(dropped.length, 1);
 });
+test('DocQueue: a dropped that throws still lets flush resolve', async () => {
+  const q = new DocQueue({
+    send: async () => { throw new Error('send'); },
+    resync: async () => { throw new Error('resync'); },
+    dropped() { throw new Error('dropped'); },
+  });
+  q.push([E('A')], 'type');
+  const flushed = q.flush().then(() => 'flushed', () => 'flushed');
+  assert.equal(await Promise.race([flushed, wait(200).then(() => 'hung')]), 'flushed');
+  assert.equal(q.dead, true);
+  assert.equal(q.idle, true);
+});
 test('DocQueue: idle is true when new, false right after a push, true after flush', async () => {
   const q = new DocQueue({ send: async () => { await wait(5); return state(1); }, resync: async () => state(0), dropped() {} });
   assert.equal(q.idle, true);

@@ -100,7 +100,9 @@ class DocQueue {
           this.lines = (await this.io.resync()).lines;
         } catch (err) {
           this.dead = true;
-          this.io.dropped(err);
+          // The queue is dead whatever dropped does: a throw there must not stop the accounting below (or the loop's
+          // end, which releases the waiters), or flush, and every save waiting on it, would never resolve.
+          try { this.io.dropped(err); } catch { /* the queue is dead either way */ }
         }
         this.settled += skipped;
       }
