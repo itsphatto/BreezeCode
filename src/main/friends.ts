@@ -39,9 +39,11 @@ const COPY: Record<string, string> = {
 // `message` is optional; each code has a default line.
 class FriendsError extends Error {
   code: string;
-  email?: string | null;
-  firebase?: string;
-  firebaseText?: string;
+  // Set by the code that throws it (declare: no field of their own until then).
+  declare email?: string | null;
+  declare firebase?: string;
+  declare firebaseText?: string;
+  declare idToken?: string;
   constructor(code: string, message?: string) { super(message || COPY[code] || code); this.code = code; }
 }
 

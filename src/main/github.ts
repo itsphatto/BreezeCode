@@ -32,7 +32,7 @@ const CODES: Record<number, string> = { 401: 'reauth', 403: 'forbidden', 404: 'n
 class GithubError extends Error {
   code: string;
   status: number;
-  resetAt?: number | null;
+  declare resetAt?: number | null;
   constructor(message: string, code: string, status: number, extra: { resetAt?: number | null } = {}) {
     super(message);
     this.name = 'GithubError';

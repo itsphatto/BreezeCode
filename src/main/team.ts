@@ -10,6 +10,7 @@ import { shortName } from './mentions';
 
 export interface Member { agentId: string; name: string; task: string; session?: string }
 export interface Team { shared?: string; members: Member[] }
+export type RunId = number | string;
 export type Owners = Record<string, string>;
 export type Claims = Record<string, string[]>;
 // A rel -> its bytes at the start (null: it did not exist), and the files too big to copy.
@@ -17,9 +18,9 @@ export interface Snapshot { files: Map<string, Buffer | null>; skipped: string[]
 // An event of an agent run, as the renderer sees it.
 export interface RunEvent { t: string; [key: string]: unknown }
 export interface TeamDeps {
-  startRun(opts: { agent: string; mode: string; prompt: string; session?: string; team: { coordinator: TeamCoordinator; agentId: string } }): string;
-  stopRun(runId: string): void;
-  emit(runId: string, ev: RunEvent): void;
+  startRun(opts: { agent: string; mode: string; prompt: string; session?: string; team: { coordinator: TeamCoordinator; agentId: string } }): RunId;
+  stopRun(runId: RunId): void;
+  emit(runId: RunId, ev: RunEvent): void;
   setTimeout(fn: () => void, ms: number): unknown;
   clearTimeout(handle: unknown): void;
 }
@@ -287,14 +288,14 @@ class TeamCoordinator {
   members: Member[];
   deps: TeamDeps;
   owners: Owners = {};                         // rel -> agentId; main.ts reads it for claudeDenyArgs
-  runs = new Map<string, RunState>();
+  runs = new Map<RunId, RunState>();
   phase = 'new';                               // new -> claiming -> claimed -> starting -> building
   stopped = false;
   sessions: Record<string, string> = {};
   claims: Claims | null = null;
   snap: Snapshot | null = null;
   startOwners: Owners = {};                    // owners as the build started, before any first-touch claims
-  buildRuns: Record<string, string> = {};      // agentId -> build runId
+  buildRuns: Record<string, RunId> = {};      // agentId -> build runId
   reported = new Map<string, Set<string>>();   // agentId -> the rels its `file` events named
   crossed = new Set<string>();
   timers = new Set<unknown>();
@@ -313,7 +314,7 @@ class TeamCoordinator {
 
   get team(): Team { return { shared: this.shared, members: this.members }; }
 
-  hasRun(runId: string): boolean { return this.runs.has(runId); }
+  hasRun(runId: RunId): boolean { return this.runs.has(runId); }
 
   claim({ timeoutMs = 60000 }: { timeoutMs?: number } = {}) {
     if (this.stopped) return Promise.reject(new Error(FINISHED));
@@ -354,7 +355,7 @@ class TeamCoordinator {
 
   // `exclude`: members taken off the team before it builds. They get no build run, own nothing, are no one's
   // teammate in a brief or deny list, and team-done does not wait for them.
-  async start(owners: Owners = {}, { exclude = [] }: { exclude?: string[] } = {}): Promise<Record<string, string>> {
+  async start(owners: Owners = {}, { exclude = [] }: { exclude?: string[] } = {}): Promise<Record<string, RunId>> {
     if (this.stopped) throw new Error(FINISHED);
     if (this.phase === 'new' || this.phase === 'claiming') throw new Error('The team has not finished claiming its files.');
     if (this.phase !== 'claimed') throw new Error('That team has already started.');
@@ -381,7 +382,7 @@ class TeamCoordinator {
     this.owners = merged;
     this.startOwners = { ...merged };
     this.phase = 'building';
-    const ids: Record<string, string> = {};
+    const ids: Record<string, RunId> = {};
     for (const m of this.members) {
       const runId = this.deps.startRun({
         agent: m.agentId, mode: 'build', prompt: buildBrief(m, this.team, this.owners),
@@ -395,7 +396,7 @@ class TeamCoordinator {
   }
 
   // True when the event must not reach the renderer. Any work it starts is tracked for `settled()`.
-  observe(runId: string, ev: RunEvent | null | undefined): boolean {
+  observe(runId: RunId, ev: RunEvent | null | undefined): boolean {
     const run = this.runs.get(runId);
     if (!run || !ev) return false;
     if (run.phase === 'claim') {
@@ -453,7 +454,7 @@ class TeamCoordinator {
     while (this.pending.size) await Promise.all([...this.pending]);
   }
 
-  async #onFile(runId: string, agentId: string, rel: string): Promise<void> {
+  async #onFile(runId: RunId, agentId: string, rel: string): Promise<void> {
     let owner: string | null;
     try { owner = await this.foreignOwner(agentId, rel); } catch {
       owner = ownerOf(this.owners, rel);
@@ -542,7 +543,7 @@ class TeamCoordinator {
     if (this.timers.delete(h)) this.deps.clearTimeout(h);
   }
 
-  #stopRun(runId: string): void {
+  #stopRun(runId: RunId): void {
     const run = this.runs.get(runId);
     if (!run || run.stopping) return;
     run.stopping = true;

@@ -102,7 +102,7 @@ const installOf = (kind: string, platform: string = process.platform) => {
 };
 // One entry per server (CSS, HTML and JSON share one), for the Tools list.
 const lspInstalls = (platform: string = process.platform) =>
-  Object.keys(INSTALL).filter((k, n, all) => all.findIndex(o => INSTALL[o] === INSTALL[k]) === n).map(k => installOf(k, platform));
+  Object.keys(INSTALL).filter((k, n, all) => all.findIndex(o => INSTALL[o] === INSTALL[k]) === n).map(k => installOf(k, platform)!);
 // The editor's one-line hint when a file's server is missing.
 const installHint = (kind: string) => { const i = installOf(kind); return i && (i.cmd ?? `download it from ${i.url}`); };
 

@@ -1,36 +1,53 @@
 // Electron main process for Breeze IDE: window, file system, search, terminal, git, agents, sign-in and Vibe Mode.
-const { app, BrowserWindow, Menu, WebContentsView, dialog, ipcMain, nativeImage, net, protocol, safeStorage, session, shell } = require('electron');
-const { spawn, execFile, exec } = require('node:child_process');
-const crypto = require('node:crypto');
-const http = require('node:http');
-const fs = require('node:fs');
+import { app, BrowserWindow, Menu, WebContentsView, dialog, ipcMain, nativeImage, net, protocol, safeStorage, session, shell } from 'electron';
+import { spawn, execFile, exec } from 'node:child_process';
+import * as crypto from 'node:crypto';
+import * as http from 'node:http';
+import * as fs from 'node:fs';
 const fsp = fs.promises;
-const nodeModule = require('node:module');
-const os = require('node:os');
-const path = require('node:path');
-const { pathToFileURL } = require('node:url');
-const vm = require('node:vm');
-const { LANG_KINDS, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('./toolchains');
-const { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } = require('./guard');
-const { AntigravityAgentService } = require('./antigravityAgentService.js');
-const { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } = require('./github');
-const { costOf } = require('./pricing');
-const prconflict = require('./prconflict');
-const { looksBinary } = require('./sniff');
-const syncEngine = require('./sync');
-const { TeamCoordinator, claudeDenyArgs } = require('./team');
-const { parseMentions, shortName } = require('./mentions');
-const { LspManager, SERVERS, lspInstalls, findOnPath } = require('./lsp');
-const { Kernels } = require('./kernel');
-const skillsLib = require('./skills');
-const mcpLib = require('./mcp');
-const { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } = require('./previewServer');
-const { expandAbbr } = require('./emmet');
-const { DebugManager, killTree } = require('./debug');
+import * as nodeModule from 'node:module';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import * as vm from 'node:vm';
+import { LANG_KINDS, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } from './toolchains';
+import { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } from './guard';
+import { AntigravityAgentService } from './antigravityAgentService.js';
+import { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } from './github';
+import { costOf } from './pricing';
+import * as prconflict from './prconflict';
+import { looksBinary } from './sniff';
+import * as syncEngine from './sync';
+import { TeamCoordinator, claudeDenyArgs } from './team';
+import { parseMentions, shortName } from './mentions';
+import { LspManager, SERVERS, lspInstalls, findOnPath } from './lsp';
+import { Kernels } from './kernel';
+import * as skillsLib from './skills';
+import * as mcpLib from './mcp';
+import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './previewServer';
+import { expandAbbr } from './emmet';
+import { DebugManager, killTree } from './debug';
+import type { AppUpdater } from 'electron-updater';
+import type { Member } from './team';
+import type { AgentMode } from './antigravityAgentService';
+import type { ConflictSession } from './prconflict';
+import type { AddressInfo } from 'node:net';
+import type { WebContents } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
+import type { ChildProcess } from 'node:child_process';
+import type { Tools, Tool, RunResult } from './toolchains';
+import type { Bp } from './debugTypes';
+import type { GdbBuild } from './debugGdb';
+import type { McpServer } from './mcp';
+import type { ServerSpec } from './lsp';
 
-let autoUpdater = null;
+// JSON read from other programs' logs and streams (Claude Code, Codex, Ollama, GitHub). Its shape changes between
+// versions, so it is read defensively and never trusted to have a field.
+type Loose = any;
+
+let autoUpdater: AppUpdater | null = null;
 try {
-  ({ autoUpdater } = require('electron-updater'));
+  ({ autoUpdater } = require('electron-updater') as typeof import('electron-updater'));
 } catch {
   // Available when installed; only needed for packaged application updates.
 }
@@ -52,14 +69,14 @@ const PDF_FILE = /\.pdf$/i;
 const MAX_LISTED_FILES = 10000;
 const MAX_SEARCH_RESULTS = 500;
 
-let win = null;
-let root = null;          // absolute path of the open project folder
-let watcher = null;
-let liveServer = null;
-let liveRoot = null;      // project root used by the local share server
-const liveClients = new Set();
+let win: BrowserWindow | null = null;
+let root: string | null = null;          // absolute path of the open project folder
+let watcher: fs.FSWatcher | null = null;
+let liveServer: http.Server | null = null;
+let liveRoot: string | null = null;      // project root used by the local share server
+const liveClients = new Set<http.ServerResponse>();
 let termCwd = os.homedir();
-const terms = new Map();  // id -> child process
+const terms = new Map<number, ChildProcess>();  // id -> child process
 
 
 /* ================= Application updates ================= */
@@ -75,26 +92,28 @@ function configureAutoUpdater() {
 
   if (!autoUpdater) {
     try {
-      ({ autoUpdater } = require('electron-updater'));
+      ({ autoUpdater } = require('electron-updater') as typeof import('electron-updater'));
     } catch (error) {
-      console.warn('[updater] Update check unavailable:', error?.message || error);
+      console.warn('[updater] Update check unavailable:', (error as Error)?.message || error);
       return;
     }
   }
+  if (!autoUpdater) return;
 
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  const updater: AppUpdater = autoUpdater;
+  updater.autoDownload = false;
+  updater.autoInstallOnAppQuit = true;
 
   // The download runs in the background: its progress shows on the taskbar button, and if it fails
   // (network, or a release whose latest.yml doesn't match its installer) the user is told instead of left waiting.
   let downloading = false;
-  autoUpdater.on('error', async error => {
+  updater.on('error', async (error: Error) => {
     // An unavailable release or network issue must not prevent the IDE opening.
     console.error('[updater] Update error:', error?.message || error);
     if (!downloading) return;
     downloading = false;
     win?.setProgressBar(-1);
-    const { response } = await dialog.showMessageBox(win, {
+    const { response } = await dialog.showMessageBox(win!, {
       type: 'error',
       title: 'Update failed',
       message: 'The update could not be downloaded.',
@@ -106,16 +125,16 @@ function configureAutoUpdater() {
     });
     if (response === 0) shell.openExternal('https://github.com/itsphatto/BreezeCode/releases/latest');
   });
-  autoUpdater.on('download-progress', p => {
+  updater.on('download-progress', p => {
     const percent = Math.max(0, Math.min(100, p.percent));
     win?.setProgressBar(percent / 100);
     setUpdateState({ ...updateState, state: 'downloading', percent });
   });
 
   // No dialog on launch: the titlebar shows an Update button (update:state) and the user starts it from there.
-  autoUpdater.on('update-available', info => setUpdateState({ state: 'available', version: info.version }));
+  updater.on('update-available', info => setUpdateState({ state: 'available', version: info.version }));
   // A download the user started from the Update button restarts straight into the new version when it finishes.
-  autoUpdater.on('update-downloaded', info => {
+  updater.on('update-downloaded', info => {
     const restart = downloading;
     downloading = false;
     win?.setProgressBar(-1);
@@ -128,23 +147,24 @@ function configureAutoUpdater() {
     downloading = true;
     win?.setProgressBar(2); // indeterminate until the first progress event
     setUpdateState({ ...updateState, state: 'downloading', percent: 0 });
-    autoUpdater.downloadUpdate().catch(error => {
+    updater.downloadUpdate().catch(error => {
       logError('update download')(error);
       setUpdateState({ ...updateState, state: 'available' });
     });
   };
   installUpdate = () => {
-    if (updateState.state === 'ready') autoUpdater.quitAndInstall(false, true);
+    if (updateState.state === 'ready') updater.quitAndInstall(false, true);
   };
 
-  autoUpdater.checkForUpdates().catch(logError('update check'));
+  updater.checkForUpdates().catch(logError('update check'));
 }
 
 // What the titlebar's Update button shows: idle (hidden), available, downloading (with percent) or ready.
-let updateState = { state: 'idle' };
+interface UpdateState { state: string; version?: string; percent?: number }
+let updateState: UpdateState = { state: 'idle' };
 let startUpdateDownload = () => {};
 let installUpdate = () => {};
-function setUpdateState(next) {
+function setUpdateState(next: UpdateState): void {
   updateState = next;
   win?.webContents.send('update:state', updateState);
 }
@@ -164,7 +184,7 @@ app.setPath('sessionData', SESSION_DATA);
 
 // Explorer's "Open with Breeze Code" starts the app with the file or folder after the app's own arguments.
 // The first one that exists wins; Chromium's switches (and a development run's ".") are skipped.
-function launchTarget(argv, cwd = process.cwd()) {
+function launchTarget(argv: string[], cwd: string = process.cwd()): { abs: string; isDir: boolean } | null {
   for (const arg of argv.slice(app.isPackaged ? 1 : 2)) {
     if (arg.startsWith('-')) continue;
     const abs = path.resolve(cwd, arg);
@@ -173,16 +193,16 @@ function launchTarget(argv, cwd = process.cwd()) {
   return null;
 }
 // What the page has yet to open from the command line: set at launch, or by a second launch while running.
-let launch = launchTarget(process.argv);
+let launch: { abs: string; isDir: boolean } | null = launchTarget(process.argv);
 // A folder opens as the project. A file opens in the project it is already part of (the open or last one),
 // or else with its own folder as the project.
-function placeLaunch(target, current) {
+function placeLaunch(target: { abs: string; isDir: boolean }, current: string | null): { dir: string; file: string | null } {
   if (target.isDir) return { dir: target.abs, file: null };
   const rel = current ? path.relative(current, target.abs) : '';
-  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return { dir: current, file: rel.split(path.sep).join('/') };
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return { dir: current!, file: rel.split(path.sep).join('/') };
   return { dir: path.dirname(target.abs), file: path.basename(target.abs) };
 }
-async function openLaunch(current) {
+async function openLaunch(current: string | null) {
   if (!launch) return null;
   const { dir, file } = placeLaunch(launch, current);
   launch = null;
@@ -205,24 +225,26 @@ app.on('second-instance', (_e, argv, cwd) => {
 });
 
 // Logs a failure from work nobody waits for. A page load that a redirect or reload replaced isn't one.
-const logError = where => err => {
+const logError = (where: string) => (err: any) => {
   if (err?.code !== 'ERR_ABORTED') console.error(`[breeze] ${where}:`, err?.message ?? err);
 };
 // Opens an https link in the user's browser.
 // Web pages, plus dev servers on this computer (a terminal's http://localhost:5173/); never file: or other schemes.
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
-function openInBrowser(url) {
-  let u;
+function openInBrowser(url: string): void {
+  let u: URL;
   try { u = new URL(url); } catch { return; }
   if (u.protocol === 'https:' || (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname))) shell.openExternal(u.href).catch(logError('openExternal'));
 }
 
 /* ================= Persisted main-process state ================= */
 const statePath = () => path.join(app.getPath('userData'), 'breeze-state.json');
-function loadState() {
+// What breeze-state.json keeps between runs. Other keys (window, sign-in and friends settings) live beside these.
+interface AppState { lastRoot: string | null; recent: string[]; recentAt?: Record<string, number | null>; [key: string]: any }
+function loadState(): AppState {
   try { return JSON.parse(fs.readFileSync(statePath(), 'utf8')); } catch { return { lastRoot: null, recent: [] }; }
 }
-function saveState(patch) {
+function saveState(patch: Record<string, unknown>) {
   const s = { ...loadState(), ...patch };
   try { fs.writeFileSync(statePath(), JSON.stringify(s, null, 2)); } catch { /* best effort */ }
   return s;
@@ -239,7 +261,9 @@ const APP_ICON_DEV = path.join(ROOT, 'assets', 'brand', 'IconDev.png');
 const APP_PAGE = path.join(ROOT, 'src', 'renderer', 'breeze.html');
 
 // Only Breeze's own page may use the main process: not another page in the window, not a frame inside it.
-function handle(channel, fn) {
+// The page's arguments arrive untyped (`any`): each handler checks what it uses, since the page is not trusted.
+type IpcHandler = (e: IpcMainInvokeEvent, ...args: any[]) => unknown;
+function handle(channel: string, fn: IpcHandler): void {
   ipcMain.handle(channel, (e, ...args) => {
     const frame = e.senderFrame;
     if (!frame || frame.parent || !isFileUrl(frame.url, APP_PAGE)) throw new Error('Breeze only answers its own window');
@@ -253,18 +277,18 @@ function handle(channel, fn) {
 // LAUNCH_HANDOFF (win:launchWait, then win:launchShow), fading in straight onto the welcome or Home.
 const SPLASH_PAGE = path.join(ROOT, 'src', 'renderer', 'launch.html');
 const LAUNCH_HANDOFF = 3900; // ms: 0.8s bubbling, 1s opening, the swirl in by 2.1s, then held 1.8s
-let splash = null;
+let splash: BrowserWindow | null = null;
 let splashStart = 0;
-let splashShown = Promise.resolve();
+let splashShown: Promise<void> = Promise.resolve();
 
 // The same holiday list as the page's (greetings.ts), keyed by month-day.
-const HOLIDAYS = { '1-1': 'newyear', '2-14': 'valentine', '4-1': 'aprilfools', '10-31': 'halloween', '12-25': 'christmas' };
-function holidayToday() {
+const HOLIDAYS: Record<string, string> = { '1-1': 'newyear', '2-14': 'valentine', '4-1': 'aprilfools', '10-31': 'halloween', '12-25': 'christmas' };
+function holidayToday(): string | null {
   const d = new Date();
   return HOLIDAYS[`${d.getMonth() + 1}-${d.getDate()}`] ?? null;
 }
 
-function createSplash(bounds) {
+function createSplash(bounds: Electron.Rectangle) {
   splash = new BrowserWindow({
     ...bounds,
     frame: false,
@@ -288,25 +312,26 @@ function createSplash(bounds) {
   // The intro always opens on the signature sky, whatever the theme; only a holiday swaps in the day's colours
   // (launch.css). The page runs no scripts of its own, so the day is set from here, before its first frame shows.
   const day = holidayToday();
+  const sp = splash;
   if (day) {
-    splash.webContents.once('dom-ready', () => {
+    sp.webContents.once('dom-ready', () => {
       splash?.webContents.executeJavaScript(`document.documentElement.dataset.holiday = ${JSON.stringify(day)}`).catch(logError('splash'));
     });
   }
-  splash.on('closed', () => { splash = null; });
+  sp.on('closed', () => { splash = null; });
   // The hand-off counts from when the intro first shows; a splash that never paints doesn't hold the app back.
-  splashShown = new Promise(done => {
-    splash.once('ready-to-show', () => { splashStart = Date.now(); splash?.show(); done(); });
+  splashShown = new Promise<void>(done => {
+    sp.once('ready-to-show', () => { splashStart = Date.now(); splash?.show(); done(); });
     setTimeout(done, 3000);
   });
-  splash.loadFile(SPLASH_PAGE).catch(logError('splash'));
+  sp.loadFile(SPLASH_PAGE).catch(logError('splash'));
 }
 
 // The hand-off is two steps. win:launchShow puts the app window up still see-through over the splash, so it draws its
 // first frames unseen (a slow machine would otherwise stutter through the fade); win:launchFade then fades it in, the
 // intro dissolving into the app, and closes the splash.
 const LAUNCH_FADE = 300; // ms
-function revealMain() {
+function revealMain(): void {
   if (!win || win.isVisible()) return;
   if (splash) {
     win.setOpacity(0);
@@ -316,13 +341,13 @@ function revealMain() {
 }
 // Resolves once the fade is done. The splash's drifting light holds still meanwhile (the page does the same), so
 // neither window redraws while the system cross-fades them.
-function fadeMain() {
+function fadeMain(): Promise<void> | undefined {
   const s = splash, w = win;
   splash = null;
   if (!s || !w) return;
   s.webContents.insertCSS('*, *::before, *::after { animation-play-state: paused !important; }').catch(logError('splash'));
   const t0 = Date.now();
-  return new Promise(done => {
+  return new Promise<void>(done => {
     const tick = setInterval(() => {
       const k = Math.min(1, (Date.now() - t0) / LAUNCH_FADE);
       if (!w.isDestroyed()) w.setOpacity(k * k * (3 - 2 * k)); // ease-in-out
@@ -333,7 +358,7 @@ function fadeMain() {
     }, 16);
   });
 }
-function showMain() {
+function showMain(): void {
   revealMain();
   fadeMain();
 }
@@ -379,7 +404,9 @@ function createWindow() {
   setTimeout(showMain, LAUNCH_HANDOFF + 5000);
   win.loadFile(APP_PAGE).catch(logError('loadFile'));
   // Maximizing by any route (the button, a double-click on the title bar, Win+Up, a snap) swaps the button's icon.
-  for (const ev of ['maximize', 'unmaximize']) win.on(ev, () => win?.webContents.send('win:maximized', win.isMaximized()));
+  const sendMaximized = () => win?.webContents.send('win:maximized', win!.isMaximized());
+  win.on('maximize', sendMaximized);
+  win.on('unmaximize', sendMaximized);
 
   // Open external links in the system browser, never inside the app. The one window the page may open itself is the
   // terminal popped out of the IDE (popOutTerminal, terminal.ts): a blank page the IDE moves its own terminal into, so
@@ -402,7 +429,9 @@ function createWindow() {
     child.setMenu(null);
     if (frameName === 'breeze-terminal') {
       termPopupWin = child;
-      for (const ev of ['maximize', 'unmaximize']) child.on(ev, () => win?.webContents.send('win:termMaximized', child.isMaximized()));
+      const sendTermMaximized = () => win?.webContents.send('win:termMaximized', child.isMaximized());
+      child.on('maximize', sendTermMaximized);
+      child.on('unmaximize', sendTermMaximized);
       child.on('closed', () => { if (termPopupWin === child) termPopupWin = null; });
     }
     showTaskbarIcon(child);
@@ -429,7 +458,7 @@ function createWindow() {
 // Windows draws the taskbar button from the app's user model id, which in development is electron.exe, so the
 // button showed Electron's atom instead of Breeze. setAppDetails points that id at our icon; it wants an .ico,
 // so one is written once (a PNG inside an ICO wrapper) into the user data folder.
-function showTaskbarIcon(w, icon = APP_ICON) {
+function showTaskbarIcon(w: BrowserWindow, icon = APP_ICON): void {
   if (!isWin) return;
   try {
     const png = nativeImage.createFromPath(icon).resize({ width: 256, height: 256, quality: 'best' }).toPNG();
@@ -480,8 +509,8 @@ function resolveIn(rel = '') {
   if (!root) throw new Error('No folder is open');
   return resolveUnder(root, rel);
 }
-const relTo = (base, abs) => path.relative(base, abs).split(path.sep).join('/');
-const toRel = abs => relTo(root, abs);
+const relTo = (base: string, abs: string) => path.relative(base, abs).split(path.sep).join('/');
+const toRel = (abs: string) => relTo(root!, abs);
 // Breeze Space chats work here when no project folder is open.
 function boxDir() {
   const dir = path.join(app.getPath('documents'), 'Breeze Space');
@@ -492,16 +521,16 @@ function boxDir() {
   return dir;
 }
 
-async function setRoot(dir) {
+async function setRoot(dir: string) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
   if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
   termCwd = dir;
   const saved = loadState();
-  const recent = [dir, ...(saved.recent || []).filter(r => r !== dir)].slice(0, 10);
+  const recent = [dir, ...(saved.recent || []).filter((r: string) => r !== dir)].slice(0, 10);
   // When each recent folder was last opened, for the Home screen's "2h ago".
-  const recentAt = Object.fromEntries(recent.map(r => [r, r === dir ? Date.now() : saved.recentAt?.[r] ?? null]));
+  const recentAt = Object.fromEntries(recent.map((r: string) => [r, r === dir ? Date.now() : saved.recentAt?.[r] ?? null]));
   saveState({ lastRoot: dir, recent, recentAt });
   startWatching();
   // Worktrees a crash left behind from resolving a pull request's conflicts in this folder.
@@ -513,12 +542,12 @@ async function setRoot(dir) {
 }
 
 /* ================= Watching ================= */
-function startWatching(retried = false) {
+function startWatching(retried = false): void {
   stopWatching();
-  let pending = new Set();
-  let timer = null;
+  let pending = new Set<string>();
+  let timer: NodeJS.Timeout | undefined;
   try {
-    watcher = fs.watch(root, { recursive: true }, (_type, file) => {
+    watcher = fs.watch(root!, { recursive: true }, (_type: string, file: string | null) => {
       if (!file) return;
       const rel = String(file).split(path.sep).join('/');
       // Build output and dependencies change in bursts nobody is looking at (the file list skips them too).
@@ -532,7 +561,7 @@ function startWatching(retried = false) {
         pending = new Set();
       }, 250);
     });
-    watcher.on('error', err => {
+    watcher.on('error', (err: Error) => {
       stopWatching();
       // Try once more (a busy disk or a renamed folder can end a watch), then tell the user.
       if (!retried && root) setTimeout(() => { if (root && !watcher) startWatching(true); }, 1000);
@@ -540,7 +569,7 @@ function startWatching(retried = false) {
     });
   } catch (err) { watcher = null; watchLost(err); } // some file systems can't be watched; Refresh still works
 }
-function watchLost(err) {
+function watchLost(err: any): void {
   logError('watch')(err);
   win?.webContents.send('fs:watchLost', err?.message ?? String(err));
 }
@@ -552,7 +581,7 @@ function stopWatching() { watcher?.close(); watcher = null; }
 const LIVE_PORT = 2026;
 const LIVE_URL = `http://127.0.0.1:${LIVE_PORT}/`;
 const LIVE_RELOAD_PATH = '/__breeze_live_reload';
-const MIME_TYPES = {
+const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
@@ -560,7 +589,7 @@ const MIME_TYPES = {
   '.mp4': 'video/mp4', '.webm': 'video/webm', '.wasm': 'application/wasm',
 };
 const liveReloadScript = `<script>(() => { const s = new EventSource('${LIVE_RELOAD_PATH}'); s.onmessage = () => location.reload(); })();</script>`;
-function notifyLiveClients(changed) {
+function notifyLiveClients(changed: string[]): void {
   if (!liveClients.size) return;
   const body = `data: ${JSON.stringify({ changed })}\n\n`;
   for (const res of liveClients) res.write(body);
@@ -583,28 +612,28 @@ function stopLiveServer() {
   liveServer = null;
   liveRoot = null;
 }
-async function findLiveIndex(dir = root) {
+async function findLiveIndex(dir: string | null = root): Promise<string | null> {
   if (!dir) return null;
-  let entries;
+  let entries: fs.Dirent[];
   try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return null; }
   entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   const index = entries.find(entry => entry.isFile() && entry.name === 'index.html');
   if (index) return path.join(dir, index.name);
   for (const entry of entries) {
     if (!entry.isDirectory() || IGNORED_DIRS.has(entry.name)) continue;
-    const nested = await findLiveIndex(path.join(dir, entry.name));
+    const nested: string | null = await findLiveIndex(path.join(dir, entry.name));
     if (nested) return nested;
   }
   return null;
 }
 async function liveIndexUrl() {
   const index = await findLiveIndex();
-  return index ? new URL(`${relTo(root, index).replace(/index\.html$/, '')}`, LIVE_URL).href : LIVE_URL;
+  return index ? new URL(`${relTo(root!, index).replace(/index\.html$/, '')}`, LIVE_URL).href : LIVE_URL;
 }
 async function hasLiveIndex() {
   return !!(await findLiveIndex());
 }
-async function serveLive(req, res) {
+async function serveLive(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   if (!isLocalHost(req.headers.host, LIVE_PORT)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Forbidden');
@@ -621,16 +650,16 @@ async function serveLive(req, res) {
     }
     const decoded = decodeURIComponent(parsed.pathname);
     const rel = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
-    let abs = resolveUnder(liveRoot, rel);
+    let abs = resolveUnder(liveRoot!, rel);
     let st = await fsp.stat(abs);
     if (st.isDirectory()) {
-      abs = resolveUnder(liveRoot, path.join(rel, 'index.html'));
+      abs = resolveUnder(liveRoot!, path.join(rel, 'index.html'));
       st = await fsp.stat(abs);
     }
     if (!st.isFile()) throw new Error('Not a file');
-    if (agentBlocked(liveRoot, abs)) throw new Error('Not shared'); // .env files and .git stay private: answered as Not found
+    if (agentBlocked(liveRoot!, abs)) throw new Error('Not shared'); // .env files and .git stay private: answered as Not found
     const type = MIME_TYPES[path.extname(abs).toLowerCase()] || 'application/octet-stream';
-    let body = await fsp.readFile(abs);
+    let body: Buffer = await fsp.readFile(abs);
     if (type.startsWith('text/html')) {
       const html = body.toString('utf8');
       body = Buffer.from(/<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, `${liveReloadScript}</body>`) : html + liveReloadScript);
@@ -648,13 +677,13 @@ async function startLiveServer() {
   liveRoot = root;
   const url = await liveIndexUrl();
   if (!liveServer) {
-    liveServer = http.createServer((req, res) => { void serveLive(req, res); });
-    await new Promise((resolve, reject) => {
-      const fail = err => { liveServer?.off('listening', ready); liveServer = null; reject(err); };
+    const server = liveServer = http.createServer((req, res) => { void serveLive(req, res); });
+    await new Promise<void>((resolve, reject) => {
+      const fail = (err: Error) => { liveServer?.off('listening', ready); liveServer = null; reject(err); };
       const ready = () => { liveServer?.off('error', fail); resolve(); };
-      liveServer.once('error', fail);
-      liveServer.once('listening', ready);
-      liveServer.listen(LIVE_PORT, '127.0.0.1');
+      server.once('error', fail);
+      server.once('listening', ready);
+      server.listen(LIVE_PORT, '127.0.0.1');
     });
   }
   openInBrowser(url);
@@ -663,20 +692,20 @@ async function startLiveServer() {
 
 /* ================= File system IPC ================= */
 // Folders first, then names A–Z.
-function byDirThenName(a, b) {
+function byDirThenName(a: { dir: boolean; name: string }, b: { dir: boolean; name: string }): number {
   if (a.dir !== b.dir) return a.dir ? -1 : 1;
   return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 }
 
 handle('fs:openFolder', async () => {
-  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
+  const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
   return setRoot(r.filePaths[0]);
 });
 
 // Asks where to create a new project folder (its name is typed in the dialog), creates it and opens it.
 handle('fs:createFolder', async () => {
-  const r = await dialog.showSaveDialog(win, {
+  const r = await dialog.showSaveDialog(win!, {
     title: 'Create a new project', buttonLabel: 'Create',
     defaultPath: path.join(app.getPath('documents'), 'my-breeze-project'),
     properties: ['createDirectory', 'showOverwriteConfirmation'],
@@ -693,7 +722,7 @@ handle('fs:createFolder', async () => {
 // Opens one file. Inside the open project it opens there; anywhere else its folder becomes the project, as when a
 // file is opened from Explorer.
 handle('fs:openFile', async () => {
-  const r = await dialog.showOpenDialog(win, { properties: ['openFile'] });
+  const r = await dialog.showOpenDialog(win!, { properties: ['openFile'] });
   if (r.canceled || !r.filePaths[0]) return null;
   const { dir, file } = placeLaunch({ abs: r.filePaths[0], isDir: false }, root);
   return { ...(await setRoot(dir)), open: file, launched: true };
@@ -702,7 +731,7 @@ handle('fs:openFile', async () => {
 // Saves a file written in an untitled tab: asks where (the name it was given comes filled in), writes its text there
 // and opens it the same way. The dialog itself asks before replacing a file that already exists.
 handle('fs:newFile', async (_e, name, text) => {
-  const r = await dialog.showSaveDialog(win, {
+  const r = await dialog.showSaveDialog(win!, {
     title: 'Save the new file', buttonLabel: 'Save',
     defaultPath: path.join(root ?? app.getPath('documents'), path.basename(String(name || 'untitled.txt'))),
     properties: ['createDirectory', 'showOverwriteConfirmation'],
@@ -748,12 +777,12 @@ handle('fs:clone', async (_e, url) => {
   url = typeof url === 'string' ? url.trim() : '';
   if (!CLONE_URL.test(url) || url.startsWith('-')) throw new Error('That doesn\'t look like a repository address. Try https://github.com/owner/repo');
   const name = (url.replace(/[/\\]+$/, '').split(/[/:]/).pop() || '').replace(/\.git$/i, '').replace(/[/\\:*?"<>|]/g, '-').replace(/^\.+$/, '') || 'repository';
-  const r = await dialog.showOpenDialog(win, {
+  const r = await dialog.showOpenDialog(win!, {
     title: `Where should ${name} go?`, buttonLabel: 'Clone here',
     defaultPath: app.getPath('documents'), properties: ['openDirectory', 'createDirectory'],
   });
   if (r.canceled || !r.filePaths[0]) return null;
-  const taken = async d => fs.existsSync(d) && (await fsp.readdir(d).catch(() => ['(a file)'])).length > 0;
+  const taken = async (d: string) => fs.existsSync(d) && (await fsp.readdir(d).catch(() => ['(a file)'])).length > 0;
   let dir = path.join(r.filePaths[0], name);
   let n = 2;
   while (await taken(dir)) dir = path.join(r.filePaths[0], `${name} (${n++})`);
@@ -768,7 +797,7 @@ handle('fs:clone', async (_e, url) => {
     }
   }
   const bin = await gitBin();
-  await new Promise((res, rej) => {
+  await new Promise<void>((res, rej) => {
     execFile(bin, safeGitArgs(['clone', '--', url, dir]), { cwd: r.filePaths[0], windowsHide: true, timeout: 10 * 60 * 1000, env },
       (err, _out, stderr) => {
         if (!err) return res();
@@ -833,7 +862,7 @@ handle('fs:copy', async (_e, from, to) => {
 });
 // Opens the system file manager with the item selected.
 handle('fs:reveal', (_e, rel) => { shell.showItemInFolder(resolveIn(rel)); });
-async function sameFile(a, b) {
+async function sameFile(a: string, b: string): Promise<boolean> {
   try {
     const [x, y] = await Promise.all([fsp.stat(a, { bigint: true }), fsp.stat(b, { bigint: true })]);
     return x.dev === y.dev && x.ino === y.ino;
@@ -871,8 +900,8 @@ handle('fs:previewUrl', (_e, rel) => {
 });
 
 // Every file under `dir`, skipping build output and dependencies. Folders are read in parallel.
-async function listFiles(dir) {
-  let entries;
+async function listFiles(dir: string): Promise<string[]> {
+  let entries: fs.Dirent[];
   try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return []; } // unreadable folder: skip it
   const files = entries.filter(d => d.isFile()).map(d => path.join(dir, d.name));
   const subdirs = entries.filter(d => d.isDirectory() && !IGNORED_DIRS.has(d.name)).map(d => path.join(dir, d.name));
@@ -893,7 +922,7 @@ handle('fs:import', async (_e, dirRel, name, data) => {
   for (let n = 0; ; n++) {
     const candidate = n ? path.join(dir, `${stem} (${n})${ext}`) : target;
     try { await fsp.writeFile(candidate, data, { flag: 'wx' }); return path.relative(base, candidate).split(path.sep).join('/'); }
-    catch (err) { if (err.code !== 'EEXIST' || n > 999) throw err; }
+    catch (err) { if ((err as NodeJS.ErrnoException).code !== 'EEXIST' || n > 999) throw err; }
   }
 });
 
@@ -905,7 +934,7 @@ handle('fs:import', async (_e, dirRel, name, data) => {
 const STASH_DIR = () => path.join(app.getPath('temp'), 'breeze-attachments');
 const STASH_TTL = 7 * 24 * 3600e3;
 async function pruneStash() {
-  let names = [];
+  let names: string[] = [];
   try { names = await fsp.readdir(STASH_DIR()); } catch { return; }
   await Promise.all(names.map(async n => {
     const p = path.join(STASH_DIR(), n);
@@ -929,7 +958,7 @@ handle('fs:listFiles', async () => (await listFiles(resolveIn(''))).map(toRel));
 handle('fs:search', (_e, query, matchCase) => searchProject(query, matchCase));
 
 // A file's text if it is small and not binary, else null.
-async function readSearchable(abs) {
+async function readSearchable(abs: string): Promise<string | null> {
   try {
     const st = await fsp.stat(abs);
     if (st.size > 1024 * 1024) return null;
@@ -940,23 +969,24 @@ async function readSearchable(abs) {
   }
 }
 // `find(line)` gives the column of a match, or -1.
-function searchText(text, rel, find, results) {
+interface SearchHit { path: string; line: number; col: number; text: string }
+function searchText(text: string, rel: string, find: (line: string) => number, results: SearchHit[]): void {
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length && results.length < MAX_SEARCH_RESULTS; i++) {
     const col = find(lines[i]);
     if (col !== -1) results.push({ path: rel, line: i, col, text: lines[i].slice(0, 300) });
   }
 }
-async function searchProject(query, matchCase, base = resolveIn(''), skip = () => false) {
+async function searchProject(query: string, matchCase: boolean, base: string = resolveIn(''), skip: (rel: string) => boolean = () => false): Promise<SearchHit[]> {
   if (!query) return [];
   const needle = matchCase ? query : query.toLowerCase();
   return searchFiles(line => (matchCase ? line : line.toLowerCase()).indexOf(needle), base, skip);
 }
 // Reads files a batch at a time and stops once there are enough results. `skip(rel)` leaves files out.
-async function searchFiles(find, base, skip) {
+async function searchFiles(find: (line: string) => number, base: string, skip: (rel: string) => boolean): Promise<SearchHit[]> {
   const files = (await listFiles(base)).filter(f => !skip(relTo(base, f)));
-  const results = [];
-  const batch = async start => {
+  const results: SearchHit[] = [];
+  const batch = async (start: number): Promise<void> => {
     if (start >= files.length || results.length >= MAX_SEARCH_RESULTS) return;
     const texts = await Promise.all(files.slice(start, start + 32).map(readSearchable));
     texts.forEach((text, k) => { if (text != null) searchText(text, relTo(base, files[start + k]), find, results); });
@@ -969,12 +999,12 @@ async function searchFiles(find, base, skip) {
 /* ================= Text engine (large files) ================= */
 // The page reaches large files through the Rust engine (engine.js) by document id. The page is sandboxed, so each
 // path goes through resolveIn, each id must be one this session opened, and each argument is checked (docargs.js).
-const docargs = require('./docargs');
-const { DocRegistry } = require('./docregistry');
-const { Engine } = require('./engine');
-let engine = null; // created on the first doc:open
+import * as docargs from './docargs';
+import { DocRegistry } from './docregistry';
+import { Engine } from './engine';
+let engine: Engine | null = null; // created on the first doc:open
 const docs = new DocRegistry(); // the ids the page may use
-function textEngine() {
+function textEngine(): Engine {
   if (!engine) {
     engine = new Engine({
       exe: unpacked(path.join(ROOT, 'runtime', process.platform === 'win32' ? 'breeze-engine.exe' : 'breeze-engine')),
@@ -986,7 +1016,7 @@ function textEngine() {
   return engine;
 }
 // The id the page sent, if it is valid and open.
-function openDocId(id) {
+function openDocId(id: unknown): number {
   const doc = docargs.docId(id);
   if (!docs.isOpen(doc)) throw new Error("That file isn't open");
   return doc;
@@ -1045,10 +1075,10 @@ app.on('will-quit', () => engine?.stop());
 // Returns { ok: true }, the first error as { line, col, len, msg, eof } (0-based), or null when it can't tell.
 const MODULE_SYNTAX = [/^[ \t]*import\s*[\w$*{'"]/m, /^[ \t]*export\b/m, /\bimport\.meta\b/];
 const MODULE_WRAP = '(async function(){"use strict";';
-const blank = s => s.replaceAll(/[^\n]/g, ' ');
+const blank = (s: string) => s.replaceAll(/[^\n]/g, ' ');
 
 // The end of an `import … from '…'` or `export … from '…'` statement starting at `from`, or -1.
-function statementEnd(code, from) {
+function statementEnd(code: string, from: number): number {
   let i = from;
   const brace = code.indexOf('{', i);
   const quote = code.slice(i).search(/["']/) + i;
@@ -1063,42 +1093,43 @@ function statementEnd(code, from) {
   return code[end] === ';' ? end + 1 : end;
 }
 // Blank out import/export syntax (same length, same lines) so module code parses inside a function.
-function moduleAsScript(code) {
+function moduleAsScript(code: string): string {
   const chars = [...code];
-  const wipe = (from, to) => { for (let k = from; k < to; k++) if (chars[k] !== '\n') chars[k] = ' '; };
+  const wipe = (from: number, to: number) => { for (let k = from; k < to; k++) if (chars[k] !== '\n') chars[k] = ' '; };
   if (code.startsWith('#!')) wipe(0, code.indexOf('\n') === -1 ? code.length : code.indexOf('\n'));
   for (const m of code.matchAll(/^[ \t]*import\b(?![ \t]*[.(])/gm)) {
-    const end = statementEnd(code, m.index + m[0].length);
-    if (end > 0) wipe(m.index, end);
+    const end = statementEnd(code, m.index! + m[0].length);
+    if (end > 0) wipe(m.index!, end);
   }
   for (const m of code.matchAll(/^[ \t]*export[ \t]*(?=[*{])/gm)) {
-    const end = statementEnd(code, m.index + m[0].length);
-    if (end > 0) wipe(m.index, end);
+    const end = statementEnd(code, m.index! + m[0].length);
+    if (end > 0) wipe(m.index!, end);
   }
   return chars.join('')
     .replaceAll(/\bimport\.meta\b/g, 'Object.meta')
-    .replaceAll(/^([ \t]*)export[ \t]+default\b/gm, (m, ind) => ind + 'void' + ' '.repeat(m.length - ind.length - 4))
+    .replaceAll(/^([ \t]*)export[ \t]+default\b/gm, (m: string, ind: string) => ind + 'void' + ' '.repeat(m.length - ind.length - 4))
     .replaceAll(/^[ \t]*export[ \t]+(?=(?:async[ \t]+)?function\b|class\b|const\b|let\b|var\b)/gm, blank);
 }
 
 // V8 and Node's TypeScript stripper both report "<file>:LINE", the source line(s), then a row of carets.
-function syntaxError(e, code, shift) {
+interface SyntaxInfo { line: number; col: number; len: number; msg: string; eof: boolean }
+function syntaxError(e: Error, code: string, shift: number): SyntaxInfo | null {
   const rows = String(e.stack || '').split('\n');
   const line = Number(rows[0].slice(rows[0].lastIndexOf(':') + 1)) - 1;
   if (!Number.isInteger(line) || line < 0) return null;
   const caret = rows.slice(1, 6).find(r => r.trim() && /^\^+$/.test(r.trim())) || '';
   const lines = code.split('\n');
   const eof = line >= lines.length || /end of input/i.test(e.message);
-  if (line >= lines.length) return { line: lines.length - 1, col: lines.at(-1).length, len: 1, msg: 'Unexpected end of input', eof };
+  if (line >= lines.length) return { line: lines.length - 1, col: lines.at(-1)!.length, len: 1, msg: 'Unexpected end of input', eof };
   const col = Math.max(0, caret.indexOf('^') - (line === 0 ? shift : 0));
   return { line, col, len: Math.max(1, caret.trim().length), msg: e.message, eof };
 }
 // Types are blanked out in place (same positions); enums and namespaces need a real compiler, so those return null.
-function stripTypes(code) {
+function stripTypes(code: string): { src?: string; error?: SyntaxInfo | null } {
   try { return { src: nodeModule.stripTypeScriptTypes(code, { mode: 'strip' }) }; }
-  catch (e) { return { error: e.code === 'ERR_INVALID_TYPESCRIPT_SYNTAX' ? syntaxError(e, code, 0) : null }; }
+  catch (e) { return { error: (e as NodeJS.ErrnoException).code === 'ERR_INVALID_TYPESCRIPT_SYNTAX' ? syntaxError(e as Error, code, 0) : null }; }
 }
-function syntaxCheck(code, ext) {
+function syntaxCheck(code: string, ext: string): { ok: true } | SyntaxInfo | null | undefined {
   let src = code;
   if (/^[mc]?ts$/.test(ext)) {
     const r = stripTypes(code);
@@ -1122,10 +1153,10 @@ handle('lint:check', (_e, code, ext) => (typeof code === 'string' && code.length
 let nextTermId = 1;
 handle('term:cwd', () => termCwd);
 
-const unquote = s => (s.length > 1 && (s[0] === '"' || s[0] === "'") && s.at(-1) === s[0] ? s.slice(1, -1) : s);
+const unquote = (s: string) => (s.length > 1 && (s[0] === '"' || s[0] === "'") && s.at(-1) === s[0] ? s.slice(1, -1) : s);
 // "cd somewhere" changes the terminal's folder instead of running in a shell that exits right away. Returns null for
 // any other command, { error } for a folder that isn't there, or { cwd } with the new folder.
-function changeDir(command, from) {
+function changeDir(command: string, from: string): { cwd?: string; error?: string } | null {
   const t = command.trim();
   if (!/^cd(?:\s|$)/i.test(t)) return null;
   const arg = unquote(t.slice(2).trim());
@@ -1134,7 +1165,7 @@ function changeDir(command, from) {
   return { cwd: target };
 }
 // Runs one command line in a shell, streaming its output to `send` and its exit code to `onExit`.
-async function spawnCommand(command, cwd, send, onExit) {
+async function spawnCommand(command: string, cwd: string, send: (text: string) => void, onExit: (code: number | null) => void): Promise<ChildProcess> {
   const { tools, pathValue } = await getTools();
   const env = toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
   env.FORCE_COLOR = '1';
@@ -1170,7 +1201,8 @@ handle('term:write', (_e, id, text) => {
 // own folder (starting in the open project) and its own commands, which stop when it closes. Its page gets a
 // narrower bridge (termPreload.js) and may only use the tw: channels.
 const TERM_PAGE = path.join(ROOT, 'src', 'renderer', 'termwin.html');
-const termWins = new Map(); // webContents id -> { win, cwd, procs: Map<id, child> }
+interface TermState { win: BrowserWindow; cwd: string; procs: Map<number, ChildProcess> }
+const termWins = new Map<number, TermState>(); // webContents id -> its window, folder and running programs
 function openTermWindow() {
   const w = new BrowserWindow({
     width: 980,
@@ -1185,13 +1217,15 @@ function openTermWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'termPreload.js') },
   });
   const wcId = w.webContents.id;
-  const st = { win: w, cwd: root || termCwd, procs: new Map() };
+  const st: TermState = { win: w, cwd: root || termCwd, procs: new Map() };
   termWins.set(wcId, st);
   showTaskbarIcon(w);
   const stopAll = () => { for (const c of st.procs.values()) killTree(c); st.procs.clear(); };
   w.once('ready-to-show', () => w.show());
   w.loadFile(TERM_PAGE).catch(logError('terminal window'));
-  for (const ev of ['maximize', 'unmaximize']) w.on(ev, () => { if (!w.isDestroyed()) w.webContents.send('tw:maximized', w.isMaximized()); });
+  const sendTwMaximized = () => { if (!w.isDestroyed()) w.webContents.send('tw:maximized', w.isMaximized()); };
+  w.on('maximize', sendTwMaximized);
+  w.on('unmaximize', sendTwMaximized);
   w.webContents.setWindowOpenHandler(({ url }) => { openInBrowser(url); return { action: 'deny' }; });
   w.webContents.on('will-navigate', (e, url) => { if (!isFileUrl(url, TERM_PAGE)) e.preventDefault(); });
   w.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => { if (isMainFrame) stopAll(); });
@@ -1199,7 +1233,7 @@ function openTermWindow() {
   w.on('closed', () => { stopAll(); termWins.delete(wcId); });
 }
 // Only a terminal window's own page may use these, and each call acts on that window's terminal.
-function handleTerm(channel, fn) {
+function handleTerm(channel: string, fn: (st: TermState, ...args: any[]) => unknown): void {
   ipcMain.handle(channel, (e, ...args) => {
     const frame = e.senderFrame, st = termWins.get(e.sender.id);
     if (!st || !frame || frame.parent || !isFileUrl(frame.url, TERM_PAGE)) throw new Error('Breeze only answers its own window');
@@ -1234,9 +1268,9 @@ handleTerm('tw:isMaximized', st => st.win.isMaximized());
 
 // Compilers and Python found on this PC (memoised; `force` looks again, e.g. after the user installs one).
 const ignoreEpipe = () => { /* the program exited before reading its input */ };
-const probe = (file, args) => new Promise(res => {
+const probe = (file: string, args: string[]) => new Promise<RunResult>(res => {
   execFile(file, args, { windowsHide: true, timeout: 4000 }, (err, stdout) => {
-    let code = 0;
+    let code: number | null = 0;
     if (err) {
       code = typeof err.code === 'number' ? err.code : null;
     }
@@ -1244,9 +1278,9 @@ const probe = (file, args) => new Promise(res => {
   });
 });
 // lstat, not existsSync: Store app-execution aliases (WindowsApps\python.exe) fail existsSync
-const exists = p => { try { fs.lstatSync(p); return true; } catch { return false; } };
+const exists = (p: string) => { try { fs.lstatSync(p); return true; } catch { return false; } };
 // Expands one `*` in the last path segment that has one.
-function glob(pattern) {
+function glob(pattern: string): string[] {
   const parts = pattern.split(/[\\/]/);
   const i = parts.findIndex(p => p.includes('*'));
   if (i === -1) return [pattern];
@@ -1256,8 +1290,8 @@ function glob(pattern) {
     return fs.readdirSync(parent).filter(n => re.test(n)).map(n => [parent, n, ...parts.slice(i + 1)].join(path.sep));
   } catch { return []; }
 }
-let toolsPromise = null;
-function getTools(force = false) {
+let toolsPromise: Promise<{ tools: Tools; pathValue: string }> | null = null;
+function getTools(force = false): Promise<{ tools: Tools; pathValue: string }> {
   if (!toolsPromise || force) {
     const p = toolsPromise = (async () => {
       const inheritedKey = Object.keys(process.env).find(k => k.toLowerCase() === 'path');
@@ -1267,7 +1301,7 @@ function getTools(force = false) {
     })();
     p.catch(() => { if (toolsPromise === p) toolsPromise = null; }); // don't keep a failed lookup
   }
-  return toolsPromise;
+  return toolsPromise!;
 }
 
 /* ================= Language servers ================= */
@@ -1284,10 +1318,10 @@ async function lspEnv() {
 // Renaming an imported name renames it everywhere, rather than adding "as newName" to the import.
 const TS_PREFS = { preferences: { useAliasesForRenames: false } };
 const TS_SETTINGS = { 'js/ts': TS_PREFS, typescript: TS_PREFS, javascript: TS_PREFS };
-async function findServer(kind) {
+async function findServer(kind: string): Promise<ServerSpec | null> {
   if (kind === 'ts') return exists(TSC_EXE) ? { cmd: TSC_EXE, args: ['--lsp', '--stdio'], settings: TS_SETTINGS } : null;
   const env = await lspEnv();
-  const pathValue = env[Object.keys(env).find(k => k.toLowerCase() === 'path')];
+  const pathValue = env[Object.keys(env).find(k => k.toLowerCase() === 'path') ?? 'PATH'];
   for (const s of SERVERS[kind] ?? []) {
     const bin = findOnPath([s.bin], pathValue);
     if (!bin) continue;
@@ -1301,7 +1335,7 @@ const lsp = new LspManager({
   findServer, env: lspEnv,
   onDiagnostics: (rel, diags, lines) => win?.webContents.send('lsp:diagnostics', rel, diags, lines),
 });
-const lspPos = (line, character) => ({ line: Number(line) | 0, character: Number(character) | 0 });
+const lspPos = (line: unknown, character: unknown) => ({ line: Number(line) | 0, character: Number(character) | 0 });
 // Every file goes through resolveIn first: the servers only ever hear about files inside the open folder.
 handle('lsp:open', (_e, rel, text) => { resolveIn(rel); lsp.setRoot(root); return lsp.open(rel, String(text)); });
 handle('lsp:change', (_e, rel, change) => {
@@ -1335,22 +1369,22 @@ handle('nb:stop', (_e, rel) => kernels.stop(String(rel)));
 app.on('will-quit', () => kernels.stopAll());
 
 // Runs a source file Breeze knows how to run (toolchains.runPlan) in the open folder, streaming into the terminal under one id.
-let activeRun = null; // { id, cancel }
+let activeRun: { id: number; cancel: () => void } | null = null;
 const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy)$/i;
 // The nearest project file (a .csproj, a Cargo.toml) in the file's folder or a folder above it, without leaving the open project.
-function nearestProject(abs, isProject) {
+function nearestProject(abs: string, isProject: (name: string) => boolean): string | null {
   for (let dir = path.dirname(abs); ; dir = path.dirname(dir)) {
-    let names = [];
+    let names: string[] = [];
     try { names = fs.readdirSync(dir).filter(name => isProject(name)).sort((a, b) => a.localeCompare(b)); } catch { /* unreadable: keep looking up */ }
     if (names.length) return path.join(dir, names[0]);
-    if (path.relative(root, dir) === '' || dir === path.dirname(dir)) return null;
+    if (path.relative(root!, dir) === '' || dir === path.dirname(dir)) return null;
   }
 }
 handle('run:file', async (_e, rel) => {
   if (activeRun) return { error: 'A program is still running — press Ctrl+C to stop it' };
   if (!root) return { error: 'Open a folder first' };
   const claim = activeRun = { id: 0, cancel() { /* still starting */ } };
-  const fail = error => {
+  const fail = (error: string) => {
     if (activeRun === claim) {
       activeRun = null;
     }
@@ -1370,23 +1404,24 @@ handle('run:file', async (_e, rel) => {
       ({ tools, pathValue } = await getTools(true));
       plan = runPlan(abs, tools, process.platform, stdioHeader, opts);
     }
-    if (plan.error) return fail(plan.error);
-    if (plan.steps.length > 1) fs.mkdirSync(path.join(plan.steps[0].cwd, 'build'), { recursive: true }); // gcc and rustc won't create it
-    if (plan.steps.length > 1) { try { ensureBuildIgnored(root); } catch { /* .gitignore is a nicety */ } }
+    if (plan.error || !plan.steps) return fail(plan.error ?? '');
+    const steps = plan.steps; // a const, so the callbacks below keep the narrowing
+    if (steps.length > 1) fs.mkdirSync(path.join(steps[0].cwd!, 'build'), { recursive: true }); // gcc and rustc won't create it
+    if (steps.length > 1) { try { ensureBuildIgnored(root!); } catch { /* .gitignore is a nicety */ } }
     if (activeRun !== claim) return { error: 'Cancelled' }; // the window reloaded while this was starting
     const id = claim.id = nextTermId++;
-    const send = text => win?.webContents.send('term:data', id, text);
+    const send = (text: string) => win?.webContents.send('term:data', id, text);
     // Start after the reply is sent, so the renderer knows the id before the first output arrives.
     setImmediate(() => {
       if (activeRun !== claim) return; // cancelled (window reloaded) before it started
       try {
-        const { cancel } = runSteps(plan.steps, {
+        const { cancel } = runSteps(steps, {
           spawn,
           // Output is piped, not a TTY: ask for colour like term:run does (Python 3.13+ colours tracebacks on FORCE_COLOR).
           env: { ...toolEnv(process.env, tools.binDirs, process.platform, pathValue), FORCE_COLOR: '1' },
           onStart: step => send(`${step.cwd}> ${step.display}\n`),
           onData: send,
-          onChild: child => { terms.set(id, child); child.stdin.on('error', ignoreEpipe); },
+          onChild: child => { terms.set(id, child); child.stdin!.on('error', ignoreEpipe); },
           onDone: (code, ms) => {
             terms.delete(id);
             if (activeRun === claim) activeRun = null;
@@ -1398,28 +1433,28 @@ handle('run:file', async (_e, rel) => {
         claim.cancel = cancel;
       } catch (err) {
         if (activeRun === claim) activeRun = null;
-        send(err.message + '\n');
+        send((err as Error).message + '\n');
         win?.webContents.send('term:exit', id, 1);
       }
     });
     // Where the program runs (a Cargo project's folder, say): relative paths in its errors resolve there.
-    return { id, cwd: plan.steps[0].cwd };
+    return { id, cwd: steps[0].cwd };
   } catch (err) {
-    return fail(err.message);
+    return fail((err as Error).message);
   }
 });
 
 handle('term:kill', (_e, id) => {
   const c = terms.get(id);
   if (c) killTree(c); // the whole tree first, then stop the run from starting its next step
-  if (activeRun?.id === id) activeRun.cancel();
+  if (activeRun?.id === id) activeRun!.cancel();
 });
 // Completes the last word of a terminal line to a file or folder in the terminal's folder.
 handle('term:complete', async (_e, word) => {
   const w = unquote(String(word || ''));
   const cut = Math.max(w.lastIndexOf('/'), w.lastIndexOf('\\')) + 1;
   const dirPart = w.slice(0, cut), start = w.slice(cut).toLowerCase();
-  let entries;
+  let entries: fs.Dirent[];
   try { entries = await fsp.readdir(path.resolve(termCwd, dirPart || '.'), { withFileTypes: true }); } catch { return []; } // no such folder
   return entries
     .filter(d => d.name.toLowerCase().startsWith(start))
@@ -1452,11 +1487,11 @@ const NETCOREDBG = {
   sha256: '3c410a45fa502415203a94fcb88654af65bf8e3dac158a5527a722e7a6b9274a',
 };
 const netcoredbgDir = () => path.join(app.getPath('userData'), 'netcoredbg');
-function findNetcoredbg(pathValue) {
+function findNetcoredbg(pathValue: string | undefined) {
   const own = path.join(netcoredbgDir(), 'netcoredbg', 'netcoredbg.exe');
   return exists(own) ? own : findOnPath(['netcoredbg'], pathValue);
 }
-let netcoredbgInstall = null;
+let netcoredbgInstall: Promise<string> | null = null;
 handle('debug:installNetcoredbg', () => {
   if (process.platform !== 'win32') throw new Error('Install netcoredbg from github.com/Samsung/netcoredbg');
   netcoredbgInstall ??= (async () => {
@@ -1470,7 +1505,7 @@ handle('debug:installNetcoredbg', () => {
     const file = path.join(dir, 'netcoredbg.zip');
     fs.writeFileSync(file, zip);
     const tar = path.join(process.env.SystemRoot || String.raw`C:\Windows`, 'System32', 'tar.exe');
-    await new Promise((resolve, reject) => execFile(tar, ['-xf', file, '-C', dir], { windowsHide: true }, e => (e ? reject(new Error(`Couldn't unpack netcoredbg: ${e.message}`)) : resolve())));
+    await new Promise<void>((resolve, reject) => execFile(tar, ['-xf', file, '-C', dir], { windowsHide: true }, e => (e ? reject(new Error(`Couldn't unpack netcoredbg: ${e.message}`)) : resolve())));
     fs.rmSync(file, { force: true });
     const exe = findNetcoredbg('');
     if (!exe) throw new Error("netcoredbg wasn't in the download");
@@ -1479,11 +1514,11 @@ handle('debug:installNetcoredbg', () => {
   return netcoredbgInstall;
 });
 // A breakpoint list from the page: whole lines only, text fields as strings.
-function cleanBps(list) {
+function cleanBps(list: unknown): Bp[] {
   if (!Array.isArray(list)) return [];
-  return list.filter(b => b && Number.isInteger(b.line) && b.line > 0).map(b => {
-    const bp = { line: b.line, enabled: b.enabled !== false };
-    for (const k of ['condition', 'hitCondition', 'logMessage']) if (typeof b[k] === 'string' && b[k].trim()) bp[k] = b[k];
+  return list.filter(b => b && Number.isInteger(b.line) && b.line > 0).map((b): Bp => {
+    const bp: Bp = { line: b.line, enabled: b.enabled !== false };
+    for (const k of ['condition', 'hitCondition', 'logMessage'] as const) if (typeof b[k] === 'string' && b[k].trim()) bp[k] = b[k];
     return bp;
   });
 }
@@ -1491,10 +1526,10 @@ handle('debug:start', async (_e, rel, opts) => {
   const file = resolveIn(rel);
   const o = opts && typeof opts === 'object' ? opts : {};
   // Breakpoint files arrive project-relative; one that leaves the project is dropped.
-  const breakpoints = {};
+  const breakpoints: Record<string, Bp[]> = {};
   if (o.breakpoints && typeof o.breakpoints === 'object') {
     for (const [f, list] of Object.entries(o.breakpoints)) {
-      let abs;
+      let abs: string;
       try { abs = resolveIn(f); } catch { continue; }
       breakpoints[abs] = cleanBps(list);
     }
@@ -1504,20 +1539,20 @@ handle('debug:start', async (_e, rel, opts) => {
   if (/\.py$/i.test(file)) env.PYTHONUTF8 = '1'; // as F5 does, so print("café ✓") survives a pipe on a non-UTF-8 code page
   const node = /\.(?:[cm]?js|[cm]?ts)$/i.test(file) ? await which('node', pathValue) : null;
   // C, C++ and Rust are built for the debugger first (toolchains.debugPlan); the build runs inside the session.
-  let build = null, buildError = null;
+  let build: GdbBuild | null = null, buildError: string | null = null;
   if (/\.(?:c|cpp|cc|cxx|rs)$/i.test(file)) {
     const headers = { stdioHeader: unpacked(path.join(ROOT, 'runtime', 'breeze_stdio.h')), debugHeader: unpacked(path.join(ROOT, 'runtime', 'breeze_debug.h')) };
     const plan = debugPlan(file, tools, process.platform, headers, { cargoToml: /\.rs$/i.test(file) ? nearestProject(file, n => n === 'Cargo.toml') : null });
-    if (plan.error) buildError = plan.error; else build = plan;
-    if (build) { try { ensureBuildIgnored(root); } catch { /* .gitignore is a nicety */ } }
+    if (plan.error) buildError = plan.error; else build = plan as GdbBuild;
+    if (build) { try { ensureBuildIgnored(root!); } catch { /* .gitignore is a nicety */ } }
   }
   await debug.start({
-    root, file, env, build, buildError,
+    root: root!, file, env, build: build ?? undefined, buildError: buildError ?? undefined,
     gdb: tools.gdb?.path || 'gdb',
     java: tools.java?.path || 'java',
     javac: tools.java ? path.join(path.dirname(tools.java.path), process.platform === 'win32' ? 'javac.exe' : 'javac') : 'javac',
     dotnet: tools.dotnet?.path || 'dotnet',
-    netcoredbg: findNetcoredbg(pathValue),
+    netcoredbg: findNetcoredbg(pathValue) ?? undefined,
     hookSrc: unpacked(path.join(ROOT, 'runtime', 'BreezeDebugHook')),
     hookDir: path.join(app.getPath('userData'), 'debug-hook'),
     project: /\.cs$/i.test(file) ? nearestProject(file, n => /\.csproj$/i.test(n)) : null,
@@ -1552,7 +1587,8 @@ const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming');
 const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local');
 const isWin = process.platform === 'win32';
 
-const AGENTS = [
+interface AgentDef { id: string; name: string; vendor: string; commands: string[]; url: string; paths: () => string[] }
+const AGENTS: AgentDef[] = [
   {
     id: 'antigravity', name: 'Antigravity', vendor: 'Google DeepMind', commands: ['agy', 'antigravity'],
     url: 'https://antigravity.google/',
@@ -1587,21 +1623,21 @@ const AGENTS = [
 ];
 // Claude Code takes these aliases for --model; "default" leaves the choice to its own settings.
 const CLAUDE_MODELS = ['default', 'opus', 'sonnet', 'haiku'];
-const agentBins = new Map(); // agent id -> executable found by the last scan
+const agentBins = new Map<string, string>(); // agent id -> executable found by the last scan
 // Folders of the agents found off PATH, so the Terminal panel can run them by name.
 const agentDirs = () => [...new Set([...agentBins.values()].filter(b => !b.endsWith('.app')).map(b => path.dirname(b)))];
 
 // Asked once and shared: `agy models` can take seconds, and a second scan shouldn't start another.
-let cachedAntigravityModels = null;
-function antigravityModels(bin) {
+let cachedAntigravityModels: Promise<string[]> | null = null;
+function antigravityModels(bin: string): Promise<string[]> {
   cachedAntigravityModels ??= AntigravityAgentService.getAvailableModelsAsync(bin)
     .catch(() => [...AntigravityAgentService.DEFAULT_MODELS]);
   return cachedAntigravityModels;
 }
 
 // `pathValue` searches the PATH as it is now (getTools reads it fresh), so a tool installed since Breeze started is found.
-function which(cmd, pathValue) {
-  return new Promise(res => {
+function which(cmd: string, pathValue?: string): Promise<string | null> {
+  return new Promise<string | null>(res => {
     const env = pathValue ? toolEnv(process.env, [], process.platform, pathValue) : process.env;
     execFile(isWin ? 'where' : 'which', [cmd], { windowsHide: true, timeout: 4000, env }, (err, stdout) => {
       if (err) { res(null); return; }
@@ -1613,20 +1649,20 @@ function which(cmd, pathValue) {
 }
 
 // "git version 2.45.1.windows.1" → "2.45.1"
-function versionIn(text) {
+function versionIn(text: string): string | null {
   const token = text.split(/[^\d.]+/).find(t => /^\d+\.\d+/.test(t));
   return token ? token.split('.').slice(0, 3).filter(Boolean).join('.') : null;
 }
-function versionOf(bin) {
+function versionOf(bin: string): Promise<string | null> {
   // Launching a GUI app's .exe would open its window, so only ask CLIs for a version.
   if (bin.endsWith('.app') || (isWin && /\.exe$/i.test(bin) && !/(?:codex|claude|git|node)\.exe$/i.test(bin))) return Promise.resolve(null);
-  return new Promise(res => {
+  return new Promise<string | null>(res => {
     exec(`"${bin}" --version`, { windowsHide: true, timeout: 8000 }, (err, stdout) => res(err ? null : versionIn(stdout)));
   });
 }
 
 // The one terminal command that installs a missing agent, or null where there is none (Antigravity ships as an app).
-function agentInstallCmd(id, platform) {
+function agentInstallCmd(id: string, platform: string): string | null {
   if (id === 'claude') return 'npm install -g @anthropic-ai/claude-code';
   if (id === 'codex') return 'npm install -g @openai/codex';
   if (id !== 'local') return null;
@@ -1635,18 +1671,18 @@ function agentInstallCmd(id, platform) {
   return null;
 }
 
-async function locate(commands, paths) {
-  const found = await Promise.all(commands.map(which));
+async function locate(commands: string[], paths: string[]): Promise<string | null> {
+  const found = await Promise.all(commands.map(c => which(c))); // (not `.map(which)`: that passed the index as the PATH)
   return found.find(Boolean) || paths.find(p => p && fs.existsSync(p)) || null;
 }
 
-async function detectAgent(a) {
+async function detectAgent(a: AgentDef) {
   const bin = await locate(a.commands, a.paths());
   if (bin) agentBins.set(a.id, bin);
   else agentBins.delete(a.id);
 
-  let models = [];
-  let version = null;
+  let models: string[] = [];
+  let version: string | null = null;
 
   if (a.id === 'codex') {
     const cm = codexModels();
@@ -1667,26 +1703,27 @@ async function detectAgent(a) {
 
 // `force` (the Rescan buttons) looks for the compilers again; otherwise the lookup made at startup is reused.
 handle('sys:detect', async (_e, force) => {
-  const agents = await Promise.all(AGENTS.map(detectAgent));
+  const agents: Record<string, unknown>[] = await Promise.all(AGENTS.map(detectAgent));
   // A local LLM server (Ollama, LM Studio…) speaks the OpenAI API instead of being a CLI.
   let llm = await llmConfig(true).catch(() => null);
   // A saved server may have been closed since: it only counts as found while it answers and still has the model.
   if (llm) llm = await llmReachable(llm).then(() => llm, () => null);
   agents.push({ id: 'local', name: 'Ollama', vendor: 'Ollama, LM Studio or any OpenAI-compatible server', url: 'https://ollama.com/download', api: true, found: !!llm, path: llm?.url ?? null, version: llm?.model ?? null, models: llm?.models ?? [], install: llm ? null : agentInstallCmd('local', process.platform) });
   const { tools: found, pathValue } = await getTools(!!force);
-  const tools = await Promise.all([['git', 'Git'], ['node', 'Node.js']].map(async ([cmd, name]) => {
+  const tools: Record<string, unknown>[] = await Promise.all([['git', 'Git'], ['node', 'Node.js']].map(async ([cmd, name]) => {
     const bin = await which(cmd, pathValue);
     return { id: cmd, name, found: !!bin, version: bin ? await versionOf(bin) : null, hint: bin ? null : installHint(cmd, process.platform), cmd: bin ? null : installCmd(cmd, process.platform), url: bin ? null : installUrl(cmd, process.platform) };
   }));
-  for (const [id, name, t, kind] of [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs'], ['lua', 'Lua', found.lua, 'lua'], ['php', 'PHP', found.php, 'php'], ['sqlite', 'SQLite', found.sqlite, 'sql'],
+  const optionalTools: [string, string, Tool | null, string][] = [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs'], ['lua', 'Lua', found.lua, 'lua'], ['php', 'PHP', found.php, 'php'], ['sqlite', 'SQLite', found.sqlite, 'sql'],
     ['go', 'Go', found.go, 'go'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
     ['dart', 'Dart', found.dart, 'dart'], ['zig', 'Zig', found.zig, 'zig'], ['scala', 'Scala', found.scala, 'scala'], ['elixir', 'Elixir', found.elixir, 'ex'],
-    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy']]) {
+    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy']];
+  for (const [id, name, t, kind] of optionalTools) {
     tools.push({ id, name, found: !!t, version: t ? versionIn(t.version) : null, optional: true, hint: t ? null : installHint(kind, process.platform), cmd: t ? null : installCmd(kind, process.platform), url: t ? null : installUrl(kind, process.platform) });
   }
   // Language servers, looked for the same way findServer does. TypeScript's comes with Breeze, so it isn't listed.
   const env = await lspEnv();
-  const lspPath = env[Object.keys(env).find(k => k.toLowerCase() === 'path')];
+  const lspPath = env[Object.keys(env).find(k => k.toLowerCase() === 'path') ?? 'PATH'];
   const servers = lspInstalls(process.platform).map(({ kind, name, cmd, url }) => {
     const found = (SERVERS[kind] ?? []).some(s => findOnPath([s.bin], lspPath));
     return { id: `lsp-${kind}`, name, found, version: null, optional: true, hint: found ? null : cmd ?? url, cmd: found ? null : cmd, url: found ? null : url };
@@ -1707,7 +1744,7 @@ handle('sys:runCommand', async (_e, cmd) => {
     ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'lua', 'php', 'sql', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
     ...['claude', 'codex', 'local'].map(id => agentInstallCmd(id, process.platform)),
     ...lspInstalls(process.platform).map(i => i.cmd),
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
   if (!allowed.includes(command)) return false;
   const escaped = command.replaceAll(/[\\"]/g, String.raw`\$&`);
   if (process.platform === 'win32') {
@@ -1748,17 +1785,17 @@ handle('skills:remove', async (_e, dir) => {
 // MCP servers connected in Breeze (handed to Claude Code runs), and the ones Claude Code has set up itself.
 const claudeJsonPath = () => (process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(os.homedir(), '.claude.json'));
 handle('mcp:list', () => ({
-  breeze: (loadState().mcpServers ?? []).map(s => ({ name: s.name, type: s.type, detail: mcpLib.serverDetail(s) })),
-  claude: mcpLib.claudeConfigured({ claudeJson: claudeJsonPath(), root }),
+  breeze: ((loadState().mcpServers ?? []) as McpServer[]).map(s => ({ name: s.name, type: s.type, detail: mcpLib.serverDetail(s) })),
+  claude: mcpLib.claudeConfigured({ claudeJson: claudeJsonPath(), root: root ?? undefined }),
 }));
 handle('mcp:add', (_e, input) => {
-  const servers = loadState().mcpServers ?? [];
+  const servers: McpServer[] = loadState().mcpServers ?? [];
   const s = mcpLib.normalizeServer(input, servers);
   saveState({ mcpServers: [...servers, s] });
   return { name: s.name, type: s.type, detail: mcpLib.serverDetail(s) };
 });
 handle('mcp:remove', (_e, name) => {
-  saveState({ mcpServers: (loadState().mcpServers ?? []).filter(s => s.name !== name) });
+  saveState({ mcpServers: ((loadState().mcpServers ?? []) as McpServer[]).filter(s => s.name !== name) });
   return true;
 });
 handle('skills:setPlugin', async (_e, id, on) => {
@@ -1768,19 +1805,19 @@ handle('skills:setPlugin', async (_e, id, on) => {
 });
 handle('agent:setModel', async (_e, { agent, model, effort }) => {
   if (agent === 'codex') {
-    const nextState = { codexModel: model || null };
+    const nextState: Record<string, unknown> = { codexModel: model || null };
     if (effort !== undefined) nextState.codexEffort = effort || null;
     saveState(nextState);
     return true;
   }
   if (agent === 'antigravity') {
-    const nextState = { antigravityModel: model || null };
+    const nextState: Record<string, unknown> = { antigravityModel: model || null };
     if (effort !== undefined) nextState.antigravityEffort = effort || null;
     saveState(nextState);
     return true;
   }
   if (agent === 'claude') {
-    const nextState = { claudeModel: CLAUDE_MODELS.includes(model) ? model : null };
+    const nextState: Record<string, unknown> = { claudeModel: CLAUDE_MODELS.includes(model) ? model : null };
     if (effort !== undefined) nextState.claudeEffort = effort || null;
     saveState(nextState);
     return true;
@@ -1797,7 +1834,7 @@ handle('win:reload', () => win?.webContents.reload());
 handle('win:devtools', () => win?.webContents.toggleDevTools());
 handle('win:quit', () => app.quit());
 // The window's own background follows Settings → Appearance.
-const THEME_BG = { dark: '#1d1d1f', contrast: '#000000', light: '#fbf9f4' };
+const THEME_BG: Record<string, string> = { dark: '#1d1d1f', contrast: '#000000', light: '#fbf9f4' };
 handle('win:theme', (_e, theme) => {
   if (THEME_BG[theme] && win) win.setBackgroundColor(THEME_BG[theme]);
 });
@@ -1813,7 +1850,7 @@ handle('win:toggleMaximize', () => { if (win) win.isMaximized() ? win.unmaximize
 handle('win:close', () => win?.close());
 handle('win:isMaximized', () => !!win?.isMaximized());
 // The same buttons on the popped-out terminal's window (Terminal → ... → Pop out Terminal), which the IDE's page draws.
-let termPopupWin = null;
+let termPopupWin: BrowserWindow | null = null;
 // Ctrl+R (Cmd+R) reloads from every Breeze window. The IDE's page handles it itself (commands.ts, which keeps a rebound
 // key working); here it's the other pages that have the keyboard: a terminal window reloads itself, the Vibe Mode
 // feed reloads its feed, and the popped-out terminal (a page of the IDE's) reloads the IDE.
@@ -1835,20 +1872,20 @@ handle('win:termPopup', (_e, action) => {
 });
 handle('win:edit', (_e, role) => {
   const wc = win?.webContents;
-  if (wc && ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'].includes(role)) wc[role]();
+  if (wc && ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'].includes(role)) wc[role as 'undo']();
 });
 
 /* ================= Secrets (encrypted with the OS keychain) ================= */
 const secretsPath = () => path.join(app.getPath('userData'), 'breeze-secrets.json');
-function readSecrets() {
+function readSecrets(): Record<string, string> {
   try { return JSON.parse(fs.readFileSync(secretsPath(), 'utf8')); } catch { return {}; }
 }
-function getSecret(name) {
+function getSecret(name: string): string | null {
   const enc = readSecrets()[name];
   if (!enc || !safeStorage.isEncryptionAvailable()) return null;
   try { return safeStorage.decryptString(Buffer.from(enc, 'base64')); } catch { return null; }
 }
-function setSecret(name, value) {
+function setSecret(name: string, value: string | null | undefined): void {
   const all = readSecrets();
   if (value == null) delete all[name];
   else {
@@ -1862,24 +1899,25 @@ function setSecret(name, value) {
 // The usual addresses of Ollama and LM Studio, tried when nothing is configured yet.
 const LLM_DEFAULTS = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1'];
 // The server address without trailing slashes.
-function llmBase(url) {
+function llmBase(url: unknown): string {
   const s = String(url || '').trim();
   let end = s.length;
   while (end > 0 && s[end - 1] === '/') end--;
   return s.slice(0, end);
 }
-const llmHeaders = key => (key ? { Authorization: `Bearer ${key}` } : {});
+const llmHeaders = (key?: string | null): Record<string, string> => (key ? { Authorization: `Bearer ${key}` } : {});
 
-async function llmModels(url, key, timeout = 5000) {
+async function llmModels(url: unknown, key: string | null | undefined, timeout = 5000): Promise<string[]> {
   const r = await fetch(`${llmBase(url)}/models`, { headers: llmHeaders(key), signal: AbortSignal.timeout(timeout) });
-  const j = await r.json().catch(() => ({}));
+  const j: Loose = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message || `The server answered with status ${r.status}`);
-  const ids = (j.data || j.models || []).map(m => m.id || m.name).filter(Boolean);
+  const ids = (j.data || j.models || []).map((m: Loose) => m.id || m.name).filter(Boolean);
   if (!ids.length) throw new Error('The server has no models yet. Download one first, for example: ollama pull llama3.1');
   return ids;
 }
 // The saved server; with `probe`, otherwise the first usual address that answers (it is then saved).
-async function llmConfig(probe) {
+interface LlmConfig { url: string; model?: string | null; models: string[]; key: string | null }
+async function llmConfig(probe?: boolean): Promise<LlmConfig | null> {
   const s = loadState();
   if (s.llmUrl) return { url: s.llmUrl, model: s.llmModel, models: s.llmModels || [], key: getSecret('llmKey') };
   if (!probe || s.llmOff) return null;
@@ -1891,8 +1929,8 @@ async function llmConfig(probe) {
 }
 
 // Checks that the saved server still answers and still has the chosen model (the user may have closed or unloaded it).
-async function llmReachable(cfg) {
-  let models;
+async function llmReachable(cfg: LlmConfig): Promise<string[]> {
+  let models: string[];
   try { models = await llmModels(cfg.url, cfg.key, 2500); }
   catch { throw new Error('The local LLM server is not running. Start Ollama or LM Studio again, or choose another agent.'); }
   if (cfg.model && !models.includes(cfg.model)) throw new Error(`${cfg.model} is no longer loaded on the local LLM server. Load it again or pick another model.`);
@@ -1900,10 +1938,10 @@ async function llmReachable(cfg) {
 }
 
 // With no address, the usual local addresses are tried with the key.
-async function llmFind(key) {
-  const errors = [];
+async function llmFind(key: string): Promise<{ url: string; models: string[] }> {
+  const errors: Error[] = [];
   for (const u of LLM_DEFAULTS) {
-    try { return { url: u, models: await llmModels(u, key, 1500) }; } catch (err) { errors.push(err); }
+    try { return { url: u, models: await llmModels(u, key, 1500) }; } catch (err) { errors.push(err as Error); }
   }
   const answered = errors.find(e => !/fetch failed|timeout|aborted|ECONNREFUSED/i.test(e.message));
   throw answered || new Error('No local LLM server is running. Start Ollama or LM Studio, then connect again.');
@@ -1935,13 +1973,15 @@ handle('emmet:expand', (_e, abbr, syntax) => expandAbbr(String(abbr).slice(0, 50
 /* ================= Agents ================= */
 // Every run streams normalized events to the renderer:
 // session · text · plan · tool · file · note · error · done
-const runs = new Map();
+// One agent run in progress: its process (or service), and what stopRun needs to stop it. Other fields are set by startRun.
+interface Run { agent?: string; child?: ChildProcess; service?: { stop(): Promise<unknown> }; onStopped?: () => void; abort?: AbortController; stopped?: boolean; [key: string]: Loose }
+const runs = new Map<number, Run>();
 let nextRun = 1;
-const sendEvent = (runId, ev) => win?.webContents.send('agent:event', runId, ev);
+const sendEvent = (runId: number | string, ev: Loose) => win?.webContents.send('agent:event', runId, ev);
 // A team run's events go through its coordinator first, which hides the claim pass and enforces ownership.
 // A dropped team keeps the runs still going until their done, so a team stopped by a folder change hears them end.
-const teamOf = new Map(); // runId -> { team: TeamCoordinator, done }
-function emit(runId, ev) {
+const teamOf = new Map<number, { team: TeamCoordinator; done: boolean }>(); // runId -> its team
+function emit(runId: number, ev: Loose): void {
   if (ev?.t === 'done' && ev.tokens) addUsage(runs.get(runId)?.agent, ev.tokens);
   const entry = teamOf.get(runId);
   if (entry) {
@@ -1953,7 +1993,7 @@ function emit(runId, ev) {
   }
   sendEvent(runId, ev);
 }
-const relOut = p => {
+const relOut = (p?: string | null): string => {
   if (!p || !root) return p || '';
   const r = path.relative(root, path.resolve(root, p));
   return r.startsWith('..') ? p : r.split(path.sep).join('/');
@@ -1961,10 +2001,10 @@ const relOut = p => {
 const SAFE_ID = /^[\w-]{6,80}$/;
 
 // `opts.team` ({ coordinator, agentId }) only ever comes from a TeamCoordinator, never from the renderer.
-function launchRun(opts) {
+function launchRun(opts: Loose): number {
   const runId = nextRun++;
   if (opts?.team) teamOf.set(runId, { team: opts.team.coordinator, done: false });
-  startRun(runId, opts).catch(err => {
+  startRun(runId, opts).catch((err: Error) => {
     emit(runId, { t: 'error', text: err.message });
     emit(runId, { t: 'done', ok: false });
     runs.delete(runId);
@@ -1972,7 +2012,8 @@ function launchRun(opts) {
   return runId;
 }
 // A stopped run that is still going always ends with a done (teams wait for it).
-function stopRun(runId) {
+function stopRun(runId: number | string): void {
+  runId = Number(runId);
   const r = runs.get(runId);
   if (!r) return;
   r.stopped = true;
@@ -1987,13 +2028,13 @@ handle('agent:run', (_e, opts) => launchRun({ ...opts, team: null }));
 // Plan limits are only what the agents report themselves: Claude in its
 // stream (rate_limit_event), Codex in its session logs. Antigravity reports neither, a local model has no limit.
 const usageMonth = () => new Date().toISOString().slice(0, 7);
-function addUsage(agent, tokens) {
+function addUsage(agent: string | undefined, tokens: number): void {
   if (!agent) return;
   const s = loadState(), all = s.usage || {};
   const cur = all[agent]?.month === usageMonth() ? all[agent] : { month: usageMonth(), tokens: 0 };
   // Each day's total too (the last 30 kept), for Home's Agent graph; agents that keep no logs of their own have only this.
   const today = new Date().toISOString().slice(0, 10), cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-  const days = Object.fromEntries(Object.entries({ ...(s.usageDays?.[agent] || {}) }).filter(([d]) => d >= cutoff));
+  const days: Record<string, number> = Object.fromEntries(Object.entries({ ...(s.usageDays?.[agent] || {}) }).filter(([d]) => d >= cutoff)) as Record<string, number>;
   days[today] = (days[today] || 0) + tokens;
   saveState({
     usage: { ...all, [agent]: { month: cur.month, tokens: cur.tokens + tokens } },
@@ -2001,24 +2042,24 @@ function addUsage(agent, tokens) {
     usageLast: { ...(s.usageLast || {}), [agent]: Date.now() },
   });
 }
-const windowLabel = min => ({ 300: '5-hour', 10080: 'Weekly', 43200: 'Monthly' })[min] || `${Math.round(min / 60)}-hour`;
+const windowLabel = (min: number) => (({ 300: '5-hour', 10080: 'Weekly', 43200: 'Monthly' }) as Record<number, string>)[min] || `${Math.round(min / 60)}-hour`;
 // A window whose reset time has passed is empty again until the agent next reports.
-const limitWindow = (label, usedPct, resetsAt) =>
+const limitWindow = (label: string, usedPct: number, resetsAt?: number | null) =>
   resetsAt && resetsAt * 1000 < Date.now() ? { label, used: 0, resetsAt: null } : { label, used: Math.min(100, Math.max(0, usedPct)), resetsAt: resetsAt || null };
-const CLAUDE_WINDOWS = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
+const CLAUDE_WINDOWS: Record<string, string> = { five_hour: '5-hour', seven_day: 'Weekly', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
 // The last numbers seen, from a Breeze run (rate_limit_event: utilization 0–1, resetsAt in seconds) or the live ask
 // below. Only a fallback: they go stale as soon as Claude is used anywhere else.
 function claudeLimits() {
   const w = loadState().claudeLimits || {};
-  return Object.entries(w).filter(([, v]) => typeof v?.utilization === 'number')
+  return Object.entries<Loose>(w).filter(([, v]) => typeof v?.utilization === 'number')
     .map(([k, v]) => limitWindow(CLAUDE_WINDOWS[k] || k.replace(/_/g, ' '), v.utilization * 100, v.resetsAt));
 }
 // Live numbers, the same ones Claude's own usage page shows (utilization in percent, resets_at as a date), asked for
 // with the sign-in Claude Code saved on this computer. The token is only ever sent to Anthropic; Breeze keeps nothing.
 // At most once a minute, or as long as the server asks; null when it can't, with `why` saying so in Settings
 // (signed out, an expired token Claude Code hasn't refreshed yet, offline).
-let claudeLive = { next: 0, windows: null, why: null };
-const claudeLiveFailed = why => { claudeLive.why = why; return (claudeLive.windows = null); };
+let claudeLive: { next: number; windows: ReturnType<typeof limitWindow>[] | null; why: string | null } = { next: 0, windows: null, why: null };
+const claudeLiveFailed = (why: string) => { claudeLive.why = why; return (claudeLive.windows = null); };
 async function claudeLiveLimits() {
   if (Date.now() < claudeLive.next) return claudeLive.windows;
   claudeLive.next = Date.now() + 60_000;
@@ -2050,7 +2091,7 @@ async function claudeLiveLimits() {
     const d = await res.json();
     const shown = Object.keys(CLAUDE_WINDOWS).filter(k => typeof d?.[k]?.utilization === 'number');
     if (!shown.length) return claudeLiveFailed('Claude sent no plan limits for this account');
-    const resets = k => (d[k].resets_at ? Date.parse(d[k].resets_at) / 1000 : null);
+    const resets = (k: string) => (d[k].resets_at ? Date.parse(d[k].resets_at) / 1000 : null);
     saveState({ claudeLimits: Object.fromEntries(shown.map(k => [k, { utilization: d[k].utilization / 100, resetsAt: resets(k) }])) });
     claudeLive.why = null;
     return (claudeLive.windows = shown.map(k => limitWindow(CLAUDE_WINDOWS[k], d[k].utilization, resets(k))));
@@ -2075,21 +2116,21 @@ function codexLimits() {
 }
 // Claude Code and Codex log every session on disk, whether it ran in Breeze or not, so their monthly tokens come from
 // those logs: input (cached or not) plus output, the same total Codex reports. Each log is re-read only when it changes.
-const logCache = new Map(); // file -> { key, data }
-async function recentLogs(dir, depth, since) {
-  const out = [];
-  for (const e of await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+const logCache = new Map<string, { key: string; data: Loose }>(); // file -> its parsed data
+async function recentLogs(dir: string, depth: number, since: number): Promise<string[]> {
+  const out: string[] = [];
+  for (const e of await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])) {
     const p = path.join(dir, e.name);
     if (e.isDirectory() && depth > 0) out.push(...await recentLogs(p, depth - 1, since));
-    else if (e.isFile() && e.name.endsWith('.jsonl') && (await fs.promises.stat(p).catch(() => null))?.mtimeMs >= since) out.push(p);
+    else if (e.isFile() && e.name.endsWith('.jsonl') && ((await fs.promises.stat(p).catch(() => null))?.mtimeMs ?? 0) >= since) out.push(p);
   }
   return out;
 }
-async function readLog(file, parse) {
+async function readLog(file: string, parse: (lines: string[], month: string) => Loose): Promise<Loose> {
   const st = await fs.promises.stat(file).catch(() => null);
   if (!st) return null;
   const key = `${st.mtimeMs}:${st.size}:${usageMonth()}`;
-  if (logCache.get(file)?.key === key) return logCache.get(file).data;
+  if (logCache.get(file)?.key === key) return logCache.get(file)!.data;
   const data = parse((await fs.promises.readFile(file, 'utf8')).split('\n'), usageMonth());
   logCache.set(file, { key, data });
   return data;
@@ -2098,10 +2139,10 @@ const monthStart = () => Date.parse(`${usageMonth()}-01T00:00:00Z`);
 // Claude repeats a message's usage on each of its lines and a resumed chat copies earlier ones, so each message id counts once.
 async function claudeTokens() {
   const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
-  const byMsg = new Map();
+  const byMsg = new Map<string, number>();
   for (const file of await recentLogs(base, 3, monthStart())) {
     const msgs = await readLog(file, (lines, month) => {
-      const m = new Map();
+      const m = new Map<string, number>();
       for (const line of lines) {
         if (!line.includes('"usage"')) continue;
         try {
@@ -2136,10 +2177,10 @@ async function codexTokens() {
   }
   return sum;
 }
-let usageJob = null;
+let usageJob: Promise<Loose> | null = null;
 async function agentUsage() {
   const month = usageMonth();
-  const usage = Object.fromEntries(Object.entries(loadState().usage || {}).map(([id, u]) => [id, u.month === month ? u.tokens : 0]));
+  const usage: Record<string, number> = Object.fromEntries(Object.entries<Loose>(loadState().usage || {}).map(([id, u]) => [id, u.month === month ? u.tokens : 0]));
   // The logs include Breeze's own runs; Breeze's count stays as a floor in case an agent logs somewhere else.
   usage.claude = Math.max(usage.claude || 0, await claudeTokens());
   usage.codex = Math.max(usage.codex || 0, await codexTokens());
@@ -2153,36 +2194,37 @@ handle('agent:usage', () => (usageJob ??= agentUsage().finally(() => { usageJob 
 // Codex from their own logs (any run, in Breeze or not), which name the model, so they are priced; other agents from
 // Breeze's own runs (addUsage), which only know a total. `unpriced`: tokens from a model with no known price.
 const HISTORY_DAYS = 30;
-const histCache = new Map(); // file -> { key, data }
-const dayOf = ts => (typeof ts === 'string' ? ts.slice(0, 10) : null);
-async function readHistLog(file, parse) {
+const histCache = new Map<string, { key: string; data: Loose }>(); // file -> its parsed data
+const dayOf = (ts: unknown): string | null => (typeof ts === 'string' ? ts.slice(0, 10) : null);
+async function readHistLog(file: string, parse: (lines: string[]) => Loose): Promise<Loose> {
   const st = await fs.promises.stat(file).catch(() => null);
   if (!st) return null;
   const key = `${st.mtimeMs}:${st.size}`;
-  if (histCache.get(file)?.key === key) return histCache.get(file).data;
+  if (histCache.get(file)?.key === key) return histCache.get(file)!.data;
   const data = parse((await fs.promises.readFile(file, 'utf8')).split('\n'));
   histCache.set(file, { key, data });
   return data;
 }
 const emptyDay = () => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, other: 0, cost: 0 });
-const partTokens = p => (p.input || 0) + (p.output || 0) + (p.cacheWrite || 0) + (p.cacheRead || 0);
-function addDay(days, date, part) {
+type DayTotals = Record<string, number>;
+const partTokens = (p: DayTotals) => (p.input || 0) + (p.output || 0) + (p.cacheWrite || 0) + (p.cacheRead || 0);
+function addDay(days: Record<string, DayTotals>, date: string, part: DayTotals): void {
   const d = days[date] ??= emptyDay();
   for (const k of Object.keys(part)) d[k] += part[k] || 0;
 }
 // Each message id once (Claude repeats a message's usage on several lines, and a resumed chat copies earlier ones).
-async function claudeHistory(since) {
+async function claudeHistory(since: number) {
   const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
-  const byMsg = new Map();
+  const byMsg = new Map<string, Loose>();
   for (const file of await recentLogs(base, 3, since)) {
     const msgs = await readHistLog(file, lines => {
-      const m = new Map();
+      const m = new Map<string, Loose>();
       for (const line of lines) {
         if (!line.includes('"usage"')) continue;
         try {
           const d = JSON.parse(line), u = d.message?.usage;
           if (!u || !d.message.id || !d.timestamp) continue;
-          const tools = Array.isArray(d.message.content) ? d.message.content.filter(c => c?.type === 'tool_use').length : 0;
+          const tools = Array.isArray(d.message.content) ? d.message.content.filter((c: Loose) => c?.type === 'tool_use').length : 0;
           const prev = m.get(d.message.id);
           const part = { input: u.input_tokens || 0, output: u.output_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0, cacheRead: u.cache_read_input_tokens || 0 };
           const cost = costOf(d.message.model, { ...part, cacheWrite1h: u.cache_creation?.ephemeral_1h_input_tokens || 0 }, { fast: u.speed === 'fast' });
@@ -2193,7 +2235,7 @@ async function claudeHistory(since) {
     });
     for (const [id, v] of msgs ?? []) byMsg.set(id, v);
   }
-  const days = {}, from = new Date(since).toISOString().slice(0, 10);
+  const days: Record<string, DayTotals> = {}, from = new Date(since).toISOString().slice(0, 10);
   let tools = 0, last = 0, unpriced = 0;
   for (const v of byMsg.values()) {
     const day = dayOf(v.at);
@@ -2206,14 +2248,14 @@ async function claudeHistory(since) {
   return { days, tools, last, priced: true, unpriced };
 }
 // A Codex session logs a running total; each step's growth goes to the day it was logged on.
-async function codexHistory(since) {
+async function codexHistory(since: number) {
   const base = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
-  const days = {}, from = new Date(since).toISOString().slice(0, 10);
+  const days: Record<string, DayTotals> = {}, from = new Date(since).toISOString().slice(0, 10);
   let tools = 0, last = 0, unpriced = 0;
   for (const file of await recentLogs(base, 4, since)) {
     const r = await readHistLog(file, lines => {
-      const steps = [];
-      let prev = null, calls = [], model = null;
+      const steps: Loose[] = [];
+      let prev: Loose = null, calls: string[] = [], model: string | null = null;
       for (const line of lines) {
         try {
           if (line.includes('"turn_context"')) {
@@ -2230,7 +2272,7 @@ async function codexHistory(since) {
           const d = JSON.parse(line), t = d.payload?.info?.total_token_usage;
           if (typeof t?.total_tokens !== 'number') continue;
           const cur = { input: t.input_tokens || 0, cached: t.cached_input_tokens || 0, output: (t.output_tokens || 0) + (t.reasoning_output_tokens || 0) };
-          const step = prev
+          const step: Loose = prev
             ? { at: d.timestamp, input: Math.max(0, cur.input - cur.cached - (prev.input - prev.cached)), cacheRead: Math.max(0, cur.cached - prev.cached), output: Math.max(0, cur.output - prev.output) }
             : { at: d.timestamp, input: cur.input - cur.cached, cacheRead: cur.cached, output: cur.output };
           step.cost = costOf(model, step);
@@ -2247,7 +2289,7 @@ async function codexHistory(since) {
       if (s.cost === null) unpriced += partTokens(s);
       last = Math.max(last, Date.parse(s.at) || 0);
     }
-    tools += (r?.calls ?? []).filter(t => (dayOf(t) || '') >= from).length;
+    tools += (r?.calls ?? []).filter((t: string) => (dayOf(t) || '') >= from).length;
   }
   return { days, tools, last, priced: true, unpriced };
 }
@@ -2255,9 +2297,9 @@ async function agentHistory() {
   const since = Date.now() - (HISTORY_DAYS - 1) * 86_400_000;
   const from = new Date(since).toISOString().slice(0, 10);
   const s = loadState();
-  const out = {};
-  for (const [id, byDay] of Object.entries(s.usageDays || {})) {
-    const days = {};
+  const out: Record<string, Loose> = {};
+  for (const [id, byDay] of Object.entries<Record<string, number>>(s.usageDays || {})) {
+    const days: Record<string, DayTotals> = {};
     for (const [d, n] of Object.entries(byDay)) if (d >= from) addDay(days, d, { other: n });
     out[id] = { days, tools: 0, last: s.usageLast?.[id] || 0, priced: false, unpriced: 0 };
   }
@@ -2267,13 +2309,13 @@ async function agentHistory() {
   if (codex) out.codex = codex;
   return { from, days: HISTORY_DAYS, agents: out };
 }
-let historyJob = null;
+let historyJob: Promise<Loose> | null = null;
 handle('agent:history', () => (historyJob ??= agentHistory().finally(() => { historyJob = null; })));
 handle('agent:stop', (_e, runId) => stopRun(runId));
 
 /* ----- Agent teams: one prompt split between several agents, each owning its own files ----- */
-const teams = new Map(); // teamId -> TeamCoordinator
-const teamTimers = new Map(); // teamId -> the timer that drops it
+const teams = new Map<string, TeamCoordinator>(); // teamId -> TeamCoordinator
+const teamTimers = new Map<string, NodeJS.Timeout>(); // teamId -> the timer that drops it
 const TEAM_TTL_MS = 30 * 60 * 1000;
 const CLAIM_MS = 60 * 1000;
 const MAX_TASK = 20000;
@@ -2288,7 +2330,7 @@ async function teamAgents() {
     { id: 'local', name: 'Ollama', found: !!llm?.model },
   ];
 }
-function dropTeam(id) {
+function dropTeam(id: string): void {
   const t = teams.get(id);
   if (!t) return;
   clearTimeout(teamTimers.get(id));
@@ -2298,7 +2340,7 @@ function dropTeam(id) {
   for (const [runId, entry] of teamOf) if (entry.team === t && entry.done) teamOf.delete(runId);
 }
 // A team and its snapshot go after 30 minutes, but not while one of its runs is still going.
-function expireTeam(id) {
+function expireTeam(id: string): void {
   const t = teams.get(id);
   if ([...teamOf.values()].some(e => e.team === t && !e.done)) teamTimers.set(id, setTimeout(() => expireTeam(id), TEAM_TTL_MS));
   else dropTeam(id);
@@ -2306,7 +2348,7 @@ function expireTeam(id) {
 function stopTeams() {
   for (const id of [...teams.keys()]) dropTeam(id);
 }
-const isPlainObject = o => Object.prototype.toString.call(o) === '[object Object]';
+const isPlainObject = (o: unknown) => Object.prototype.toString.call(o) === '[object Object]';
 
 handle('team:parse', async (_e, text) => parseMentions(String(text ?? ''), await teamAgents()));
 handle('team:claim', async (_e, o) => {
@@ -2315,13 +2357,13 @@ handle('team:claim', async (_e, o) => {
   const list = o?.members;
   if (!Array.isArray(list) || list.length < 2 || list.length > 4) throw new Error('A team needs 2 to 4 agents.');
   if (o.shared != null && typeof o.shared !== 'string') throw new Error('The shared part of the prompt must be text.');
-  const members = [];
+  const members: Member[] = [];
   for (const m of list) {
     const agent = agents.find(a => a.id === m?.agentId);
     if (!agent?.found) throw new Error('That agent was not found on this computer.');
     if (members.some(x => x.agentId === agent.id)) throw new Error('Each agent can only be on a team once.');
     if (typeof m.task !== 'string') throw new Error('Every agent on a team needs a task.');
-    const session = typeof m.session === 'string' && SAFE_ID.test(m.session) ? m.session : null;
+    const session = typeof m.session === 'string' && SAFE_ID.test(m.session) ? m.session : undefined;
     members.push({ agentId: agent.id, name: shortName(agent), task: m.task.slice(0, MAX_TASK), session });
   }
   const id = crypto.randomUUID();
@@ -2335,8 +2377,8 @@ handle('team:start', (_e, o) => {
   if (!team) throw new Error(TEAM_FINISHED);
   const owners = o.owners ?? {};
   const exclude = o.exclude ?? [];
-  const member = a => team.members.some(m => m.agentId === a);
-  if (!isPlainObject(owners) || !Object.values(owners).every(member)) throw new Error('Each file must belong to an agent on this team.');
+  const member = (a: string) => team.members.some(m => m.agentId === a);
+  if (!isPlainObject(owners) || !Object.values<string>(owners).every(a => member(a))) throw new Error('Each file must belong to an agent on this team.');
   if (!Array.isArray(exclude) || !exclude.every(member)) throw new Error('Only an agent on this team can be left out.');
   if (team.members.every(m => exclude.includes(m.agentId))) throw new Error('A team needs at least one agent.');
   return team.start(owners, { exclude });
@@ -2348,7 +2390,8 @@ handle('team:undo', (_e, o) => {
   return team.undo(o.path);
 });
 
-async function runAntigravity(runId, run, { mode, prompt, session, base }) {
+interface RunParams { mode: string; prompt: string; session?: string | null; base: string }
+async function runAntigravity(runId: number, run: Run, { mode, prompt, session, base }: RunParams): Promise<void> {
   const bin = agentBins.get('antigravity');
   const st = loadState();
   const model = st.antigravityModel || 'claude-sonnet-4-6';
@@ -2357,10 +2400,10 @@ async function runAntigravity(runId, run, { mode, prompt, session, base }) {
   const service = new AntigravityAgentService({
     executablePath: bin || undefined,
     cwd: base,
-    mode,
+    mode: mode as AgentMode,
     model,
     effort,
-    sessionId: session,
+    sessionId: session ?? undefined,
     prompt,
     autoOpenAuth: false,
     fullAccess: mode === 'build' && fullAccess(),
@@ -2421,7 +2464,7 @@ async function runAntigravity(runId, run, { mode, prompt, session, base }) {
   service.on('exit', (code, signal) => {
     runs.delete(runId);
     if (run.stopped) {
-      run.onStopped();
+      run.onStopped?.();
     } else if (!doneEmitted) {
       if (mode === 'plan' && lastText) {
         emit(runId, { t: 'plan', text: lastText });
@@ -2432,20 +2475,23 @@ async function runAntigravity(runId, run, { mode, prompt, session, base }) {
 
   try {
     await service.start();
-    run.child = service.getChildProcess();
+    run.child = service.getChildProcess() ?? undefined;
   } catch (err) {
     if (!run.stopped) {
-      emit(runId, { t: 'error', text: err.message });
+      emit(runId, { t: 'error', text: (err as Error).message });
       emit(runId, { t: 'done', ok: false });
     }
     runs.delete(runId);
   }
 }
 // The CLI name for a Breeze effort level: Codex and Claude Code call the top level "xhigh", Breeze shows "Extra".
-const EFFORT_ARGS = { low: 'low', medium: 'medium', high: 'high', extra: 'xhigh' };
-const effortArg = effort => EFFORT_ARGS[String(effort || '').toLowerCase()] || null;
+const EFFORT_ARGS: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', extra: 'xhigh' };
+const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerCase()] || null;
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
-function cliArgs(agent, mode, prompt, session, team, shell) {
+// What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
+interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null }
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; retryModel?: (errText: string) => boolean; retry?: string }
+function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell);
   const build = mode === 'build';
   const sandbox = !build ? 'read-only' : fullAccess() ? 'danger-full-access' : 'workspace-write';
@@ -2471,14 +2517,14 @@ const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'
 const CLAUDE_ASK_DENIED = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 // On a team, build mode also denies editing what a teammate owns (rule paths are relative to the project root).
 // Those rules can't pass through a shell (`shell`: an npm .cmd shim), so they come back as `deny` for a settings file.
-function claudeArgs(mode, prompt, session, team, shell) {
+function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean): CliSpec {
   const build = mode === 'build';
   const full = build && fullAccess();
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
   // MCP servers connected in Breeze. Print mode can't ask, so in build mode their tools are allowed up front.
   const mcpFile = mcpConfigFile(shell);
   if (mcpFile) args.push('--mcp-config', mcpFile);
-  const mcpTools = mcpFile ? (loadState().mcpServers ?? []).map(s => `mcp__${s.name}`) : [];
+  const mcpTools = mcpFile ? ((loadState().mcpServers ?? []) as McpServer[]).map(s => `mcp__${s.name}`) : [];
   if (!build) args.push('--disallowedTools', ...CLAUDE_WRITE_TOOLS);
   else if (!full) args.push('--allowedTools', 'Bash', ...mcpTools); // print mode can't ask, so commands would otherwise be refused
   const deny = build && team ? claudeDenyArgs(team.coordinator.owners, team.agentId) : [];
@@ -2495,21 +2541,21 @@ function claudeArgs(mode, prompt, session, team, shell) {
 }
 // A Claude Code settings file holding a team member's deny rules, for `--settings`. Null when its path can't
 // pass through the shell (a user name with a space, say) or it can't be written.
-function teamSettingsFile(runId, deny) {
+function teamSettingsFile(runId: number, deny: string[]): string | null {
   const file = path.join(os.tmpdir(), `breeze-team-${runId}-${crypto.randomBytes(6).toString('hex')}.json`).replaceAll('\\', '/');
   try { shellCommand('', [file]); } catch { return null; }
   try { fs.writeFileSync(file, JSON.stringify({ permissions: { deny } }), { flag: 'wx', mode: 0o600 }); } catch { return null; }
   return file;
 }
-function dropSettingsFile(run) {
+function dropSettingsFile(run: Run): void {
   for (const f of [run.settingsFile, run.mcpFile]) if (f) fs.rm(f, { force: true }, () => { /* best effort */ });
   run.settingsFile = null;
   run.mcpFile = null;
 }
 // The MCP servers connected in Breeze, for one Claude Code run, in a file only this user can read (env values and
 // headers may hold keys). Through an npm shim's shell the path must be a plain argument, as with the settings file.
-function mcpConfigFile(shell) {
-  const servers = loadState().mcpServers ?? [];
+function mcpConfigFile(shell: boolean): string | null {
+  const servers: McpServer[] = loadState().mcpServers ?? [];
   if (!servers.length) return null;
   const file = path.join(os.tmpdir(), `breeze-mcp-${crypto.randomBytes(6).toString('hex')}.json`).replaceAll('\\', '/');
   if (shell) { try { shellCommand('', [file]); } catch { return null; } }
@@ -2518,7 +2564,7 @@ function mcpConfigFile(shell) {
 }
 const NO_BLOCK_NOTE = 'Claude can\'t be blocked from teammates\' files on this computer, so Breeze will undo any edit it makes to them instead.';
 // What each Claude Code tool call looks like in the chat.
-const CLAUDE_TOOLS = {
+const CLAUDE_TOOLS: Record<string, (i: Loose) => string[]> = {
   Read: i => ['read', `Read ${relOut(i.file_path)}`],
   Edit: i => ['edit', `Edited ${relOut(i.file_path)}`, i.file_path],
   MultiEdit: i => ['edit', `Edited ${relOut(i.file_path)}`, i.file_path],
@@ -2532,7 +2578,7 @@ const CLAUDE_TOOLS = {
   TodoWrite: () => ['todo', 'Updated its to-do list'],
 };
 // One piece of an assistant message: text for the chat, or a tool call shown as a line (and the file it touched).
-function claudeContent(runId, c, ctx) {
+function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
   if (c.type === 'text' && c.text?.trim()) {
     ctx.lastText = c.text;
     emit(runId, { t: 'text', text: c.text });
@@ -2547,7 +2593,7 @@ function claudeContent(runId, c, ctx) {
   if (created) emit(runId, { t: 'draft', path: relOut(file), text: c.input.content });
   emit(runId, { t: 'file', path: relOut(file), created });
 }
-function claudeResult(runId, d, ctx, mode) {
+function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.is_error || d.subtype !== 'success') {
     // Reported when the process exits (streamCli): the reason may only be on stderr, and a stale
     // session gets one retry as a fresh chat there.
@@ -2559,7 +2605,7 @@ function claudeResult(runId, d, ctx, mode) {
   if (mode === 'plan' && text) emit(runId, { t: 'plan', text });
   emit(runId, { t: 'done', ok: true, tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0) });
 }
-function claudeEvent(runId, d, ctx, mode) {
+function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
   else if (d.type === 'assistant') for (const c of d.message?.content || []) claudeContent(runId, c, ctx);
   else if (d.type === 'result') claudeResult(runId, d, ctx, mode);
@@ -2570,25 +2616,25 @@ function claudeEvent(runId, d, ctx, mode) {
 // Breeze then retries once with the best model from Codex's own model list and keeps using it.
 const SAFE_MODEL = /^[\w.:-]{1,64}$/;
 const MODEL_REFUSED = /model[^\n]{0,80}(?:is not supported|does not exist|not found|unsupported|not available)/i;
-function codexModels() {
+function codexModels(): string[] {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(HOME, '.codex', 'models_cache.json'), 'utf8'));
-    return (j.models || []).filter(m => m.visibility !== 'hide' && SAFE_MODEL.test(m.slug || ''))
-      .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99)).map(m => m.slug);
+    return (j.models || []).filter((m: Loose) => m.visibility !== 'hide' && SAFE_MODEL.test(m.slug || ''))
+      .sort((a: Loose, b: Loose) => (a.priority ?? 99) - (b.priority ?? 99)).map((m: Loose) => m.slug);
   } catch { return []; }
 }
-function codexFallback(errText) {
+function codexFallback(errText: string): string | null {
   const refused = /'([\w.:-]+)' model|model '([\w.:-]+)'|model `([\w.:-]+)`/i.exec(errText);
   const bad = refused?.slice(1).find(Boolean);
   return codexModels().find(m => m !== bad && m !== loadState().codexModel) || null;
 }
 
 // Agents work in the open project; Breeze Space chats may also run without one, in the Breeze Space folder.
-async function startRun(runId, { agent, mode, prompt, session, box, team }) {
+async function startRun(runId: number, { agent, mode, prompt, session, box, team }: { agent: string; mode: string; prompt: string; session?: string | null; box?: boolean; team?: Loose }): Promise<void> {
   const base = root || (box ? boxDir() : null);
   if (!base) throw new Error('Open a folder first');
   if (session && !SAFE_ID.test(session)) session = null;
-  const run = { agent, child: null, abort: null, stopped: false, team: team || null };
+  const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null };
   runs.set(runId, run);
   if (agent === 'local') return runLocal(runId, run, { mode, prompt, session, base });
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
@@ -2607,13 +2653,13 @@ async function startRun(runId, { agent, mode, prompt, session, box, team }) {
     // The prompt goes through stdin, so it never reaches a shell command line. Only fixed flags,
     // a validated model name and a validated session id do (npm .cmd shims need a shell on Windows).
     const opts = { cwd: base, windowsHide: true, env: process.env };
-    let child;
+    let child: ChildProcess;
     try {
       child = shell ? spawn(shellCommand(bin, cli.args), { ...opts, shell: true }) : spawn(bin, cli.args, opts);
     } catch (err) { dropSettingsFile(run); throw err; }
     run.child = child;
-    child.stdin.on('error', () => { /* the agent exited before reading its prompt; its output says why */ });
-    child.stdin.end(cli.prompt ?? undefined);
+    child.stdin!.on('error', () => { /* the agent exited before reading its prompt; its output says why */ });
+    child.stdin!.end(cli.prompt ?? undefined);
     streamCli(runId, run, child, agent === 'claude' ? claudeEvent : codexEvent, mode, retryModel);
   };
   // A retry starts from the close listener, so a failed launch there ends the run instead of throwing.
@@ -2621,14 +2667,14 @@ async function startRun(runId, { agent, mode, prompt, session, box, team }) {
     runs.set(runId, run);
     try { launch(); } catch (err) {
       runs.delete(runId);
-      emit(runId, { t: 'error', text: err.message });
+      emit(runId, { t: 'error', text: (err as Error).message });
       emit(runId, { t: 'done', ok: false });
     }
     return true;
   };
   // Called once when Codex refuses its configured model, or Claude Code can't find the chat to resume.
   let retried = false;
-  const retryModel = errText => {
+  const retryModel = (errText: string): boolean => {
     if (!retried && agent === 'claude' && session && NO_SESSION.test(errText)) {
       retried = true;
       session = null;
@@ -2645,23 +2691,23 @@ async function startRun(runId, { agent, mode, prompt, session, box, team }) {
   launch();
 }
 // Parses one JSON event per line from the agent's stdout.
-function streamCli(runId, run, child, parse, mode, retryModel) {
-  const ctx = { done: false, lastError: '', stderr: '', lastText: '', retryModel };
+function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: number, d: Loose, ctx: StreamCtx, mode: string) => void, mode: string, retryModel: (errText: string) => boolean): void {
+  const ctx: StreamCtx = { done: false, lastError: '', stderr: '', lastText: '', retryModel };
   let buf = '';
-  const line = text => {
+  const line = (text: string) => {
     if (!text) return;
     try { parse(runId, JSON.parse(text), ctx, mode); } catch { ctx.stderr += text + '\n'; } // not JSON: keep it for the error message
   };
   // Decoded as a stream, so a character split across two chunks stays whole.
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', chunk => {
+  child.stdout!.setEncoding('utf8');
+  child.stderr!.setEncoding('utf8');
+  child.stdout!.on('data', (chunk: string) => {
     buf += chunk;
     const lines = buf.split('\n');
-    buf = lines.pop();
+    buf = lines.pop()!;
     for (const l of lines) line(l.trim());
   });
-  child.stderr.on('data', chunk => { ctx.stderr = (ctx.stderr + chunk).slice(-4000); });
+  child.stderr!.on('data', (chunk: string) => { ctx.stderr = (ctx.stderr + chunk).slice(-4000); });
   child.on('error', err => { ctx.lastError = err.message; });
   child.on('close', code => {
     runs.delete(runId);
@@ -2675,11 +2721,11 @@ function streamCli(runId, run, child, parse, mode, retryModel) {
   });
 }
 
-function codexError(msg) {
+function codexError(msg: string): string {
   try { const j = JSON.parse(msg); return j.error?.message || j.message || msg; } catch { return msg; } // plain text already
 }
-const CHANGE_VERB = { add: 'Created', delete: 'Deleted' };
-const CODEX_ITEMS = {
+const CHANGE_VERB: Record<string, string> = { add: 'Created', delete: 'Deleted' };
+const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => void> = {
   agent_message: (runId, it, ctx) => { if (it.text) { ctx.lastText = it.text; emit(runId, { t: 'text', text: it.text }); } },
   command_execution: (runId, it) => {
     const exit = it.exit_code ? `  (exit ${it.exit_code})` : '';
@@ -2698,7 +2744,7 @@ const CODEX_ITEMS = {
   // Codex's warning about a model it has no metadata for is noise to the user.
   error: (runId, it) => { if (it.message && !/^Model metadata for/i.test(it.message)) emit(runId, { t: 'note', text: it.message }); },
 };
-function codexEvent(runId, d, ctx, mode) {
+function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'thread.started') emit(runId, { t: 'session', id: d.thread_id });
   else if (d.type === 'item.completed' && d.item) CODEX_ITEMS[d.item.type]?.(runId, d.item, ctx);
   else if (d.type === 'error') ctx.lastError = codexError(d.message || '');
@@ -2720,16 +2766,16 @@ function codexEvent(runId, d, ctx, mode) {
 // Keeping token use down: the first message carries a map of the project (so the model doesn't explore it
 // call by call), files are read as windows of numbered lines, edits send only the changed snippet, and every
 // request is fitted to the model's context by agentbrain.compactHistory. Repeated calls and endless loops stop early.
-const brain = require('./agentbrain');
-const llmSessions = new Map(); // session id -> chat messages (earlier turns already settled)
+import * as brain from './agentbrain';
+const llmSessions = new Map<string, brain.ChatMessage[]>(); // session id -> chat messages (earlier turns already settled)
 // Chats are kept on disk too, so one picks up where it left off after Breeze restarts. The newest few are kept.
 const LLM_SESSION_DIR = path.join(app.getPath('userData'), 'llm-sessions');
 const LLM_SESSIONS_KEPT = 50;
 const STREAM_MS = 60; // at most one text update this often while a reply streams
-const llmSessionFile = sid => path.join(LLM_SESSION_DIR, `${sid}.json`);
+const llmSessionFile = (sid: string) => path.join(LLM_SESSION_DIR, `${sid}.json`);
 // The chat's messages, or null when there is none for this folder.
-function loadLlmSession(sid, base) {
-  if (llmSessions.has(sid)) return llmSessions.get(sid);
+function loadLlmSession(sid: string, base: string): brain.ChatMessage[] | null {
+  if (llmSessions.has(sid)) return llmSessions.get(sid)!;
   try {
     const saved = JSON.parse(fs.readFileSync(llmSessionFile(sid), 'utf8'));
     if (saved.base !== base || !Array.isArray(saved.messages) || saved.messages[0]?.role !== 'system') return null;
@@ -2737,7 +2783,7 @@ function loadLlmSession(sid, base) {
     return saved.messages;
   } catch { return null; }
 }
-async function saveLlmSession(sid, base, messages) {
+async function saveLlmSession(sid: string, base: string, messages: brain.ChatMessage[]): Promise<void> {
   await fsp.mkdir(LLM_SESSION_DIR, { recursive: true });
   await fsp.writeFile(llmSessionFile(sid), JSON.stringify({ base, messages }));
   const names = (await fsp.readdir(LLM_SESSION_DIR)).filter(n => n.endsWith('.json'));
@@ -2764,31 +2810,37 @@ const COMMAND_OUT_MAX = 8000; // characters of output the model gets back; the e
 // Each tool works inside ctx.base: the open project, or the Breeze Space folder. Secrets (.env…) and the .git
 // folder are off limits: what the model reads goes to the LLM server, and git's config and hooks run commands.
 // With full access none of that applies: any path on the computer is fair.
-function agentPath(ctx, rel) {
+// What the local agent's tools share for one run.
+interface LlmCtx {
+  runId: number; base: string; full: boolean; allowAll?: boolean; touched: Set<string>; team?: Loose; signal?: AbortSignal;
+  drafts: Map<string, Loose>; mode: string; seen: Map<string, number>; turn: number; toolNames: string[]; cfg: LlmConfig;
+  noStream?: boolean; noTools?: boolean; [key: string]: Loose;
+}
+function agentPath(ctx: LlmCtx, rel: unknown): string {
   if (ctx.full) return path.resolve(ctx.base, String(rel ?? ''));
-  const abs = resolveUnder(ctx.base, rel);
+  const abs = resolveUnder(ctx.base, rel as string);
   const why = agentBlocked(ctx.base, abs);
   if (why) throw new Error(why);
   return abs;
 }
 // On a team, a write to a teammate's file is refused before it lands. A file no one owns becomes this agent's.
-async function checkTeamWrite(ctx, rel) {
+async function checkTeamWrite(ctx: LlmCtx, rel: string): Promise<void> {
   if (!ctx.team) return;
   const { coordinator, agentId } = ctx.team;
   const owner = await coordinator.foreignOwner(agentId, rel);
   if (!owner) return;
   emit(ctx.runId, { t: 'crossing', path: rel, agent: agentId, owner, blocked: true });
-  const name = coordinator.members.find(m => m.agentId === owner)?.name || owner;
+  const name = coordinator.members.find((m: Member) => m.agentId === owner)?.name || owner;
   throw new Error(`That file belongs to ${name} on this team. Leave it and mention what you need in your final message.`);
 }
 // A command can read secrets or reach past the project, so run_command asks the user first. Full access, plain
 // checks and builds (guard.autoCommand) and "Allow all" for the rest of the run skip the question.
-const pendingAsks = new Map(); // ask id -> answer function
-async function mayRun(ctx, command) {
+const pendingAsks = new Map<string, (answer: string) => void>(); // ask id -> answer function
+async function mayRun(ctx: LlmCtx, command: string): Promise<boolean> {
   if (ctx.full || ctx.allowAll || autoCommand(command, { packageChanged: ctx.touched.has('package.json') })) return true;
   const id = crypto.randomUUID();
-  const answer = await new Promise(resolve => {
-    const done = a => { pendingAsks.delete(id); ctx.signal?.removeEventListener('abort', deny); resolve(a); };
+  const answer = await new Promise<string>(resolve => {
+    const done = (a: string) => { pendingAsks.delete(id); ctx.signal?.removeEventListener('abort', deny); resolve(a); };
     const deny = () => done('deny'); // stopping the run says no
     pendingAsks.set(id, done);
     ctx.signal?.addEventListener('abort', deny, { once: true });
@@ -2801,9 +2853,9 @@ handle('agent:answer', (_e, id, answer) => pendingAsks.get(String(id))?.(['once'
 // While a write_file call is still arriving, a file that doesn't exist yet opens in the editor and its text types
 // in as the model writes it ('draft' events). Only new files: rewriting a whole file would flicker.
 const DRAFT_MS = 80;
-function draftWrites(ctx, calls) {
+function draftWrites(ctx: LlmCtx, calls: brain.ToolCall[]): void {
   for (const call of calls) {
-    if (call?.function.name !== 'write_file') continue;
+    if (call?.function?.name !== 'write_file') continue;
     const rel = brain.partialString(call.function.arguments, 'path');
     const content = rel?.done && brain.partialString(call.function.arguments, 'content');
     if (!content) continue;
@@ -2812,7 +2864,7 @@ function draftWrites(ctx, calls) {
     if (!content.done && Date.now() - d.at < DRAFT_MS) continue;
     d.at = Date.now();
     const { text } = content;
-    d.out.then(out => {
+    d.out.then((out: string | null) => {
       if (!out || text === d.sent) return;
       d.sent = text;
       emit(ctx.runId, { t: 'draft', path: out, text });
@@ -2820,7 +2872,7 @@ function draftWrites(ctx, calls) {
   }
 }
 // Where a draft shows, or null: a path the agent can't write, a file that exists, or a teammate's file.
-async function draftTarget(ctx, rel) {
+async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
   try {
     const abs = agentPath(ctx, rel);
     if (fs.existsSync(abs)) return null;
@@ -2828,13 +2880,13 @@ async function draftTarget(ctx, rel) {
     return relOut(abs);
   } catch { return null; }
 }
-const LLM_TOOL_FNS = {
+const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> = {
   async list_files(ctx, a) {
     const dir = agentPath(ctx, a.path || '.');
     emit(ctx.runId, { t: 'tool', kind: 'read', label: `Listed ${a.path && a.path !== '.' ? a.path : 'the project'}` });
-    const out = [];
-    const walk = async (d, indent, level) => {
-      let entries;
+    const out: string[] = [];
+    const walk = async (d: string, indent: string, level: number): Promise<void> => {
+      let entries: fs.Dirent[];
       try { entries = await fsp.readdir(d, { withFileTypes: true }); } catch { return; }
       entries.sort((x, y) => Number(y.isDirectory()) - Number(x.isDirectory()) || x.name.localeCompare(y.name));
       for (const e of entries) {
@@ -2863,7 +2915,7 @@ const LLM_TOOL_FNS = {
     const inPath = brain.pathFilter(a.path);
     const where = a.path && a.path !== '.' ? ` in ${a.path}` : '';
     emit(ctx.runId, { t: 'tool', kind: 'search', label: `Searched for ${a.query}${where}` });
-    const skip = rel => !inPath(rel) || (!ctx.full && !!blockedRel(rel));
+    const skip = (rel: string) => !inPath(rel) || (!ctx.full && !!blockedRel(rel));
     return brain.formatHits(await searchFiles(find, ctx.base, skip));
   },
   // The shell's output, both streams as they came. The whole process tree stops at the time limit or when the run is stopped.
@@ -2875,16 +2927,16 @@ const LLM_TOOL_FNS = {
       return 'The user chose not to run this command. Don\'t run it again: carry on without it, or say in your final message what you needed it for.';
     }
     emit(ctx.runId, { t: 'tool', kind: 'run', label: `$ ${command}` });
-    return new Promise(resolve => {
+    return new Promise<string>(resolve => {
       const child = spawn(command, { cwd: ctx.base, shell: true, windowsHide: true, env: ctx.full ? process.env : cleanEnv(process.env) });
       let out = '', timedOut = false;
-      const add = d => { out = (out + d).slice(-COMMAND_OUT_MAX * 2); };
+      const add = (d: Buffer | string) => { out = (out + d).slice(-COMMAND_OUT_MAX * 2); };
       child.stdout.on('data', add);
       child.stderr.on('data', add);
       const stop = () => killTree(child);
       const timer = setTimeout(() => { timedOut = true; stop(); }, COMMAND_MS);
       ctx.signal?.addEventListener('abort', stop, { once: true });
-      const finish = head => {
+      const finish = (head: string) => {
         clearTimeout(timer);
         ctx.signal?.removeEventListener('abort', stop);
         const body = out.length > COMMAND_OUT_MAX ? `…${out.slice(-COMMAND_OUT_MAX)}` : out;
@@ -2957,46 +3009,46 @@ const LLM_TOOL_FNS = {
     return `Moved ${fromRel} to ${toRel}.`;
   },
 };
-async function llmTool(ctx, call) {
-  const name = call.function?.name;
+async function llmTool(ctx: LlmCtx, call: brain.ToolCall): Promise<string> {
+  const name = call.function?.name ?? '';
   const fn = LLM_TOOL_FNS[name];
   if (!fn) throw new Error(`There is no tool called ${name}. Use one of: ${ctx.toolNames.join(', ')}.`);
   if (WRITE_TOOLS.has(name) && ctx.mode !== 'build') throw new Error('This is read-only mode, so files can’t be changed and commands can’t run. Describe the change instead.');
-  let args;
-  try { args = JSON.parse(call.function.arguments || '{}'); } catch { throw new Error('The arguments were not valid JSON. Call the tool again with a JSON object.'); }
+  let args: Loose;
+  try { args = JSON.parse(call.function!.arguments || '{}'); } catch { throw new Error('The arguments were not valid JSON. Call the tool again with a JSON object.'); }
   if (WRITE_TOOLS.has(name)) ctx.seen.clear(); // files changed, so reading them again is fair
   else {
     const key = brain.callKey(name, args);
-    if (ctx.seen.has(key) && ctx.turn - ctx.seen.get(key) <= 2) return 'You just made this exact call and its result is above. Use it, or try something different.';
+    if (ctx.seen.has(key) && ctx.turn - ctx.seen.get(key)! <= 2) return 'You just made this exact call and its result is above. Use it, or try something different.';
     ctx.seen.set(key, ctx.turn);
   }
   return fn(ctx, args);
 }
 // Runs a reply's tool calls in order. Reads and searches next to each other run together; a change runs alone,
 // after the calls before it and before the ones after it (a later call may read what it wrote).
-async function runToolCalls(ctx, calls) {
-  const reply = async call => {
-    let content;
-    try { content = String(await llmTool(ctx, call)); } catch (err) { content = `Error: ${err.message}`; }
+async function runToolCalls(ctx: LlmCtx, calls: brain.ToolCall[]): Promise<brain.ChatMessage[]> {
+  const reply = async (call: brain.ToolCall): Promise<brain.ChatMessage> => {
+    let content: string;
+    try { content = String(await llmTool(ctx, call)); } catch (err) { content = `Error: ${(err as Error).message}`; }
     return { role: 'tool', tool_call_id: call.id, content };
   };
-  const out = [];
+  const out: brain.ChatMessage[] = [];
   for (let i = 0; i < calls.length;) {
     let j = i;
-    while (j < calls.length && !WRITE_TOOLS.has(calls[j].function?.name)) j++;
+    while (j < calls.length && !WRITE_TOOLS.has(calls[j].function?.name ?? '')) j++;
     if (j === i) j++;
     out.push(...await Promise.all(calls.slice(i, j).map(reply)));
     i = j;
   }
   return out;
 }
-const LLM_MODE_NOTE = {
+const LLM_MODE_NOTE: Record<string, string> = {
   build: 'Build mode: make the change with edit_file (write_file only for new files), run_command to build or test it, then say what you changed.',
   plan: 'Plan mode: read only. Look at the code you need, then reply with a short numbered plan of the changes.',
   ask: 'Ask mode: read only. Answer the question directly.',
 };
 // Reliability rules adapted from the Gravitas skill (MIT, github.com/udaysharmadev/Gravitas), trimmed to the tools this agent has.
-const llmSystemPrompt = base => `You are Breeze, a coding agent working in the user's project "${path.basename(base)}".
+const llmSystemPrompt = (base: string) => `You are Breeze, a coding agent working in the user's project "${path.basename(base)}".
 Work efficiently:
 - The first message has a map of the project. Use search_files to find code, then read_file only the lines you need.
 - Read code before you change it. Change files with edit_file; use write_file only for new files.
@@ -3005,21 +3057,21 @@ Work efficiently:
 - Stay inside the project and do only what was asked.
 Reply short and plain. After changing files, list the files, what you checked, and why.
 When the user asks for code or a file to keep (and you are not writing it into the project), give it as one fenced block with the language and a file name, like \`\`\`html index.html, so it shows as a card they can copy or download.`;
-async function llmPost(cfg, body, signal) {
+async function llmPost(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefined): Promise<Loose> {
   const r = await fetch(`${cfg.url}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...llmHeaders(cfg.key) },
     body: JSON.stringify(body),
     signal,
   });
-  const j = await r.json().catch(() => ({}));
+  const j: Loose = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message || j.error || `The server answered with status ${r.status}`);
   return j;
 }
 // One reply as it is written. `onDelta(text, thinking)` hears the text so far, and whether the model has been
 // thinking in a separate field (Ollama, LM Studio and llama.cpp send it as reasoning or reasoning_content).
 // Returns the same shape as a reply that wasn't streamed.
-async function llmStream(cfg, body, signal, onDelta) {
+async function llmStream(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefined, onDelta?: (text: string, thinking: boolean, calls: brain.ToolCall[]) => void): Promise<Loose> {
   const r = await fetch(`${cfg.url}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...llmHeaders(cfg.key) },
@@ -3027,24 +3079,24 @@ async function llmStream(cfg, body, signal, onDelta) {
     signal,
   });
   if (!r.ok) {
-    const j = await r.json().catch(() => ({}));
+    const j: Loose = await r.json().catch(() => ({}));
     throw new Error(j.error?.message || j.error || `The server answered with status ${r.status}`);
   }
   if (!/event-stream/i.test(r.headers.get('content-type') || '')) return r.json(); // it answered in one piece
   const decoder = new TextDecoder();
   const reader = brain.replyReader(onDelta, () => `call_${crypto.randomUUID().slice(0, 8)}`);
-  for await (const chunk of r.body) reader.push(decoder.decode(chunk, { stream: true }));
+  for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) reader.push(decoder.decode(chunk, { stream: true }));
   return reader.end();
 }
 // Replies stream when the server can; one that can't (or can't with tools) gets the whole reply at once.
 // Some local models can't call tools at all; they still answer, just without looking at files.
-async function llmRequest(ctx, body, signal, onDelta) {
-  const post = async b => {
+async function llmRequest(ctx: Partial<LlmCtx> & { cfg: LlmConfig }, body: Loose, signal?: AbortSignal, onDelta?: (text: string, thinking: boolean, calls: brain.ToolCall[]) => void): Promise<Loose> {
+  const post = async (b: Loose): Promise<Loose> => {
     if (ctx.noStream) return llmPost(ctx.cfg, b, signal);
     try {
       return await llmStream(ctx.cfg, b, signal, onDelta);
     } catch (err) {
-      if (signal.aborted || /tool/i.test(err.message)) throw err; // a tool refusal is handled below
+      if (signal?.aborted || /tool/i.test((err as Error).message)) throw err; // a tool refusal is handled below
       ctx.noStream = true;
       return llmPost(ctx.cfg, b, signal);
     }
@@ -3053,21 +3105,21 @@ async function llmRequest(ctx, body, signal, onDelta) {
   try {
     return await post(body);
   } catch (err) {
-    if (!/tool/i.test(err.message)) throw err;
+    if (!/tool/i.test((err as Error).message)) throw err;
     ctx.noTools = true;
-    emit(ctx.runId, { t: 'note', text: `${ctx.cfg.model} can't use tools, so it answers without looking at your files.` });
+    if (ctx.runId !== undefined) emit(ctx.runId, { t: 'note', text: `${ctx.cfg.model} can't use tools, so it answers without looking at your files.` });
     return post({ ...body, tools: undefined });
   }
 }
 // A reply that is only a tool call written as text ({"name": "read_file", "arguments": {...}}), possibly fenced,
 // becomes real tool calls. Anything else (prose, other JSON, unknown tool names) is left alone.
-function textToolCalls(text, toolNames) {
+function textToolCalls(text: unknown, toolNames: string[]): brain.ToolCall[] | null {
   const body = String(text ?? '').trim().replace(/^```[\w-]*\s*\n?/, '').replace(/\n?```$/, '').trim();
   if (!/^[[{]/.test(body)) return null;
-  let parsed;
+  let parsed: Loose;
   try { parsed = JSON.parse(body); } catch { return null; }
   const list = Array.isArray(parsed) ? parsed : [parsed];
-  const calls = [];
+  const calls: brain.ToolCall[] = [];
   for (const c of list) {
     const fn = c?.function ?? c;
     const args = fn?.arguments ?? fn?.parameters ?? {};
@@ -3080,13 +3132,13 @@ const LLM_MAX_TURNS = 24;
 const LLM_REPLY_RESERVE = 1500; // tokens left free for the model's own reply
 // Ollama runs models with a small context unless it was raised on the server; other servers usually allow more.
 // `llmContext` in the saved state overrides the guess.
-function llmBudget(cfg) {
+function llmBudget(cfg: LlmConfig): number {
   const window = Number(loadState().llmContext) || (/:11434\b/.test(cfg.url) ? 4096 : 8192);
   return Math.max(1500, window - LLM_REPLY_RESERVE - brain.tokensOf(JSON.stringify(LLM_TOOLS)));
 }
 // Reasoning models (Qwen 3, DeepSeek R1…) put their thinking in <think> tags: it is neither shown nor kept.
-const withoutThinking = s => String(s ?? '').replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '').trim();
-async function executeLlmTurns(ctx, run, ask, messages) {
+const withoutThinking = (s: unknown) => String(s ?? '').replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '').trim();
+async function executeLlmTurns(ctx: LlmCtx, run: Run, ask: (tools: boolean) => Promise<brain.ToolCall[] | null | void>, messages: brain.ChatMessage[]): Promise<void> {
   for (let n = 0; n < LLM_MAX_TURNS && !run.stopped; n++) {
     ctx.turn = n;
     const calls = await ask(true);
@@ -3100,13 +3152,13 @@ async function executeLlmTurns(ctx, run, ask, messages) {
   }
 }
 
-async function runLocal(runId, run, { mode, prompt, session, base }) {
+async function runLocal(runId: number, run: Run, { mode, prompt, session, base }: RunParams): Promise<void> {
   const cfg = await llmConfig(false);
   if (!cfg?.model) throw new Error('Connect a local LLM server first (Settings → Run Setup Again).');
   await llmReachable(cfg);
   const sid = session && loadLlmSession(session, base) ? session : crypto.randomUUID();
   const fresh = !llmSessions.has(sid);
-  const messages = llmSessions.get(sid) || [{ role: 'system', content: llmSystemPrompt(base) }];
+  const messages: brain.ChatMessage[] = llmSessions.get(sid) || [{ role: 'system', content: llmSystemPrompt(base) }];
   llmSessions.set(sid, messages);
   emit(runId, { t: 'session', id: sid, model: cfg.model });
   const budget = llmBudget(cfg);
@@ -3115,12 +3167,12 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
   const tools = LLM_TOOLS.filter(t => mode === 'build' || !WRITE_TOOLS.has(t.function.name));
   run.abort = new AbortController();
   const full = mode === 'build' && fullAccess();
-  const ctx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, noStream: false, allowAll: false, seen: new Map(), touched: new Set(), drafts: new Map(), turn: 0, toolNames: tools.map(t => t.function.name) };
+  const ctx: LlmCtx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, noStream: false, allowAll: false, seen: new Map(), touched: new Set(), drafts: new Map(), turn: 0, toolNames: tools.map(t => t.function.name) };
   const started = Date.now();
   let tokens = 0, lastText = '';
   // One request; only the assistant's text and tool calls are kept (servers add extra fields).
-  const ask = async withTools => {
-    const body = { model: cfg.model, messages: brain.compactHistory(messages, budget), temperature: 0.2, stream: false };
+  const ask = async (withTools: boolean) => {
+    const body: Loose = { model: cfg.model, messages: brain.compactHistory(messages, budget), temperature: 0.2, stream: false };
     if (withTools) body.tools = tools;
     // The text shows as it is written. Thinking isn't shown, only how long it took.
     const sent = Date.now();
@@ -3132,7 +3184,7 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
       if (s >= 2) emit(runId, { t: 'note', text: `Thought for ${s}s` });
     };
     ctx.drafts.clear(); // a file written last step exists now, so it isn't a draft any more
-    const onDelta = (raw, thinking, calls) => {
+    const onDelta = (raw: string, thinking: boolean, calls: brain.ToolCall[]) => {
       if (calls?.length) draftWrites(ctx, calls);
       thought ||= thinking || raw.includes('<think>');
       const visible = withoutThinking(raw);
@@ -3144,7 +3196,7 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
       shownAt = Date.now();
       emit(runId, { t: 'text', text: visible });
     };
-    const j = await llmRequest(ctx, body, run.abort.signal, onDelta);
+    const j = await llmRequest(ctx, body, run.abort!.signal, onDelta);
     tokens += j.usage?.total_tokens || 0;
     const msg = j.choices?.[0]?.message;
     if (!msg) throw new Error('The model returned no answer');
@@ -3178,7 +3230,7 @@ async function runLocal(runId, run, { mode, prompt, session, base }) {
 
 /* ================= Git ================= */
 // Git runs from its full path: the usual install folders first, then wherever PATH finds it.
-let gitPath = null;
+let gitPath: string | null = null;
 async function gitBin() {
   if (gitPath) return gitPath;
   const known = isWin
@@ -3188,21 +3240,21 @@ async function gitBin() {
   if (!gitPath) throw new Error('Git is not installed. Get it from https://git-scm.com/downloads');
   return gitPath;
 }
-async function git(args, { input, timeout = 60000 } = {}) {
+async function git(args: string[], { input, timeout = 60000 }: { input?: string | null; timeout?: number } = {}): Promise<string> {
   const bin = await gitBin();
-  return new Promise((res, rej) => {
+  return new Promise<string>((res, rej) => {
     const child = execFile(bin, safeGitArgs(args), {
       cwd: resolveIn(''), windowsHide: true, timeout, maxBuffer: 64 * 1024 * 1024,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
     }, (err, stdout, stderr) => (err ? rej(new Error((stderr || err.message).trim())) : res(stdout)));
-    if (input != null) child.stdin.end(input);
+    if (input != null) child.stdin!.end(input);
   });
 }
-const checkPaths = paths => (Array.isArray(paths) ? paths : [paths]).map(p => { resolveIn(p); return p; });
+const checkPaths = (paths: unknown) => (Array.isArray(paths) ? paths : [paths]).map(p => { resolveIn(p); return p; });
 const HASH = /^[0-9a-f]{4,40}$/i;
 
 // "## main...origin/main [ahead 1, behind 2]" → branch, upstream, ahead and behind.
-function parseBranchHeader(head) {
+function parseBranchHeader(head: string): { hasCommits?: boolean; branch: string; upstream?: string; ahead?: number; behind?: number } {
   if (head.startsWith('No commits yet on ')) return { hasCommits: false, branch: head.slice(18) };
   let rest = head, track = '';
   const bracket = rest.lastIndexOf(' [');
@@ -3211,17 +3263,18 @@ function parseBranchHeader(head) {
     rest = rest.slice(0, bracket);
   }
   const [branch, upstream = ''] = rest.split('...');
-  const count = word => Number(new RegExp(String.raw`${word} (\d+)`).exec(track)?.[1] || 0);
+  const count = (word: string) => Number(new RegExp(String.raw`${word} (\d+)`).exec(track)?.[1] || 0);
   return { branch: branch === 'HEAD (no branch)' ? 'detached' : branch, upstream, ahead: count('ahead'), behind: count('behind') };
 }
 // An ignored path ("!! dir/"), relative to the open folder with forward slashes and no trailing slash.
-function ignoredPath(rel) {
+function ignoredPath(rel: string): string {
   let clean = rel.replaceAll('\\', '/');
   while (clean.endsWith('/')) clean = clean.slice(0, -1);
   return clean;
 }
 // One "XY path" entry: an ignored path or a changed file, unless it lies outside the open folder.
-function addStatusEntry(res, e, top, currentRoot) {
+interface GitStatus { branch: string; upstream: string; ahead: number; behind: number; files: { path: string; x: string; y: string }[]; ignored: string[] }
+function addStatusEntry(res: GitStatus, e: string, top: string, currentRoot: string): void {
   const x = e[0], y = e[1];
   const rel = path.relative(currentRoot, path.join(top, e.slice(3)));
   if (rel.startsWith('..')) return;
@@ -3229,8 +3282,8 @@ function addStatusEntry(res, e, top, currentRoot) {
   const clean = ignoredPath(rel);
   if (clean) res.ignored.push(clean);
 }
-function parseGitStatusPorcelain(out, top, currentRoot) {
-  const res = { branch: '', upstream: '', ahead: 0, behind: 0, files: [], ignored: [] };
+function parseGitStatusPorcelain(out: string, top: string, currentRoot: string): GitStatus {
+  const res: GitStatus = { branch: '', upstream: '', ahead: 0, behind: 0, files: [], ignored: [] };
   const parts = out.split('\0');
   for (let i = 0; i < parts.length; i++) {
     const e = parts[i];
@@ -3250,7 +3303,7 @@ handle('git:status', async () => {
   const status = git(['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all', '--ignored=matching']);
   const remoteList = git(['remote']).catch(() => '');
   status.catch(() => undefined); // awaited below only inside a repository
-  let top;
+  let top: string;
   try { top = (await git(['rev-parse', '--show-toplevel'])).trim(); } catch { return { repo: false }; } // not a repository
   const [out, remotes] = await Promise.all([status, remoteList]);
   const parsed = parseGitStatusPorcelain(out, top, root);
@@ -3263,7 +3316,7 @@ handle('git:status', async () => {
 
 // The log with file stats takes a while on a big history, and git status asks for it after every file change.
 // It only changes when a ref moves (or the "2 hours ago" times age), so it's kept until then.
-let gitLogCache = { key: '', at: 0, value: null };
+let gitLogCache: { key: string; at: number; value: Loose } = { key: '', at: 0, value: null };
 const GIT_LOG_FRESH_MS = 60_000;
 handle('git:log', async () => {
   const [head, refs] = await Promise.all([
@@ -3276,8 +3329,8 @@ handle('git:log', async () => {
   gitLogCache = { key, at: Date.now(), value };
   return value;
 });
-async function readGitLog(head) {
-  let out;
+async function readGitLog(head: string) {
+  let out: string;
   try {
     out = await git(['log', '--all', '--topo-order', '-n', '150', '--numstat', '--format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%ar%x1f%D%x1f%s%x1f%B%x1f']);
   } catch {
@@ -3346,8 +3399,10 @@ handle('git:fileShow', async (_e, hash, rel) => {
 /* ----- GitHub pull requests ----- */
 // A client for the open folder's GitHub remote, using the signed-in GitHub account (the active one when it is
 // GitHub, else the first GitHub account). Failures come back as { error } so callers can tell the user why.
-async function githubFor() {
-  let url;
+interface GhCtx { client: ReturnType<typeof githubClient>; url: string; owner: string; repo: string }
+type GhFetchFn = NonNullable<Parameters<typeof githubClient>[0]['fetch']>;
+async function githubFor(): Promise<GhCtx | { error: string }> {
+  let url: string;
   try { url = (await git(['remote', 'get-url', 'origin'])).trim(); } catch { return { error: 'no-remote' }; }
   const remote = parseGithubRemote(url);
   if (!remote) return { error: 'not-github' };
@@ -3355,27 +3410,28 @@ async function githubFor() {
   const acct = accounts.find(a => accountId(a) === active && a.provider === 'GitHub') || accounts.find(a => a.provider === 'GitHub');
   const token = acct && await githubToken(accountId(acct));
   if (!token) return { error: 'signed-out' };
-  return { client: githubClient({ token, fetch }), url, ...remote };
+  return { client: githubClient({ token, fetch: fetch as unknown as GhFetchFn }), url, ...remote };
 }
 // Runs fn({ client, owner, repo, url }) and wraps the outcome as { ok, data } or { ok, error, message } (plus resetAt,
 // epoch seconds or null, on a 'rate-limit'). Never rejects.
-async function ghCall(fn) {
+type GhResult<T> = { ok: true; data: T; error?: undefined; message?: undefined; resetAt?: undefined } | { ok: false; error: string; message?: string; resetAt?: number | null; data?: undefined };
+async function ghCall<T>(fn: (gh: GhCtx) => Promise<T>): Promise<GhResult<T>> {
   try {
     const gh = await githubFor();
-    if (gh.error) return { ok: false, error: gh.error };
+    if ('error' in gh) return { ok: false, error: gh.error };
     return { ok: true, data: await fn(gh) };
   } catch (e) {
     if (e instanceof GithubError) return { ok: false, error: e.code, message: e.message, ...(e.code === 'rate-limit' ? { resetAt: e.resetAt ?? null } : {}) };
-    return { ok: false, error: 'http', message: e.message };
+    return { ok: false, error: 'http', message: (e as Error).message };
   }
 }
 // The renderer's arguments are checked before anything is asked of GitHub.
 const GH_INVALID = { ok: false, error: 'invalid', message: 'Invalid request' };
-const prNumberOk = n => Number.isInteger(n) && n > 0;
+const prNumberOk = (n: unknown): n is number => Number.isInteger(n) && (n as number) > 0;
 const SHA40 = /^[0-9a-f]{40}$/i;
 const MERGE_METHODS = ['merge', 'squash', 'rebase'];
 const PR_TTL = 30000;
-const prCache = new Map(); // `owner/repo/base` -> { at, data }
+const prCache = new Map<string, { at: number; data: Loose }>(); // `owner/repo/base` -> its pulls
 // data.partial: null, or 'rate-limit' / 'reauth' when asking for each pull request's details stopped early.
 /* ----- GitHub contributions: the signed-in account's last year, for Home's graph ----- */
 // Only for the active account, and only when it is a GitHub one. Kept for ten minutes per account, so going back
@@ -3406,12 +3462,12 @@ handle('gh:contributions', async () => {
     const data = {
       login: j.data.viewer.login,
       total: cal.totalContributions,
-      weeks: cal.weeks.map(w => w.contributionDays.map(d => ({ date: d.date, count: d.contributionCount, level: CONTRIB_LEVELS[d.contributionLevel] ?? 0 }))),
+      weeks: cal.weeks.map((w: Loose) => w.contributionDays.map((d: Loose) => ({ date: d.date, count: d.contributionCount, level: (CONTRIB_LEVELS as Record<string, number>)[d.contributionLevel] ?? 0 }))),
     };
     contribCache.set(id, { at: Date.now(), data });
     return { ok: true, data };
   } catch (e) {
-    return { ok: false, error: 'network', message: e.message };
+    return { ok: false, error: 'network', message: (e as Error).message };
   }
 });
 
@@ -3460,7 +3516,7 @@ handle('gh:close', async (_e, n) => {
   });
 });
 /* ----- Resolving a pull request's conflicts (in a separate worktree, see prconflict.js) ----- */
-const conflictSessions = new Map(); // session id -> { session, pushTo }
+const conflictSessions = new Map<string, { session: ConflictSession; pushTo?: string }>(); // session id -> its session
 const conflictPrunes = new Map(); // repo folder -> the prune of leftover worktrees that is running for it
 const conflictStarts = new Map(); // `repo folder|number` -> the start in progress, so two quick clicks share one
 const conflictWorktrees = () => path.join(app.getPath('userData'), 'pr-worktrees');
@@ -3476,27 +3532,27 @@ function noHooksDir() {
   return dir;
 }
 // prconflict's run(cwd, args, input?): git's stdout, or a rejection with the exit code on .code and the output on .stdout / .stderr.
-async function runGitIn(cwd, args, input) {
+async function runGitIn(cwd: string, args: string[], input?: string): Promise<string> {
   const bin = await gitBin();
-  return new Promise((res, rej) => {
+  return new Promise<string>((res, rej) => {
     const child = execFile(bin, safeGitArgs(args), {
       cwd, windowsHide: true, timeout: 120000, maxBuffer: 64 * 1024 * 1024,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
     }, (err, stdout, stderr) => {
       if (!err) return res(stdout);
-      const e = new Error((stderr || err.message).trim());
+      const e: Error & { code?: unknown; stdout?: string; stderr?: string } = new Error((stderr || err.message).trim());
       e.code = err.code; e.stdout = stdout; e.stderr = stderr;
       rej(e);
     });
-    if (input != null) child.stdin.end(input);
+    if (input != null) child.stdin!.end(input);
   });
 }
-const conflictSession = id => {
+const conflictSession = (id: string) => {
   const s = conflictSessions.get(id);
   if (!s) throw new Error('This conflict session has ended');
   return s;
 };
-const GH_START_COPY = {
+const GH_START_COPY: Record<string, string> = {
   'signed-out': 'Sign in with GitHub to resolve conflicts', reauth: 'Your GitHub sign-in expired',
   'not-github': 'This repository isn\'t on GitHub', 'no-remote': 'No origin remote',
 };
@@ -3559,7 +3615,8 @@ handle('git:prConflictFinish', async (_e, id, results) => {
   try {
     await prconflict.finishConflict({ run: runGitIn, hooksDir: noHooksDir(), session, results: clean, pushTo });
   } catch (e) {
-    return { ok: false, stage: e && e.stage === 'push' ? 'push' : 'commit', message: String(e?.message || e) };
+    const err = e as { stage?: string; message?: string } | null;
+    return { ok: false, stage: err && err.stage === 'push' ? 'push' : 'commit', message: String(err?.message || e) };
   }
   conflictSessions.delete(id);
   prCache.clear(); // the pull request's head moved, and so may its mergeable state
@@ -3587,10 +3644,10 @@ handle('git:unstage', (_e, paths, hasCommits) => {
 });
 // Discarding untracked files moves them to the Recycle Bin rather than deleting them.
 handle('git:discard', async (_e, files) => {
-  const tracked = files.filter(f => !f.untracked).map(f => f.path);
-  const untracked = files.filter(f => f.untracked).map(f => f.path);
+  const tracked = files.filter((f: Loose) => !f.untracked).map((f: Loose) => f.path);
+  const untracked: string[] = files.filter((f: Loose) => f.untracked).map((f: Loose) => f.path);
   checkPaths([...tracked, ...untracked]);
-  await Promise.all(untracked.map(p => shell.trashItem(resolveIn(p))));
+  await Promise.all(untracked.map((p: string) => shell.trashItem(resolveIn(p))));
   if (tracked.length) await git(['restore', '--worktree', '--', ...tracked]);
 });
 handle('git:commit', async (_e, message, all) => {
@@ -3634,7 +3691,7 @@ async function defaultCommitAgent() {
   return (await llmConfig(true).catch(() => null)) ? 'local' : null;
 }
 // Agents tend to wrap the message in a code fence or quotes; the commit box wants the bare text.
-function cleanCommitText(text, fallback) {
+function cleanCommitText(text: unknown, fallback: string): string {
   let clean = String(text || '').trim();
   if (clean.startsWith('```') && clean.endsWith('```')) clean = clean.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
   const quoted = (clean.startsWith('"') && clean.endsWith('"')) || (clean.startsWith("'") && clean.endsWith("'"));
@@ -3643,22 +3700,22 @@ function cleanCommitText(text, fallback) {
 }
 // What the writers make of an agent's reply: the commit box wants cleanCommitText; a plain question (agent:ask) wants the
 // reply as it came, only trimmed, so a code block in it survives.
-const rawReply = (text, fallback) => String(text || '').trim() || fallback;
+const rawReply = (text: unknown, fallback: string) => String(text || '').trim() || fallback;
 // Runs an agent CLI with the prompt on stdin and resolves with whatever `finish` makes of its whole output.
-function runCommitCli(bin, args, base, prompt, finish, onLine) {
-  return new Promise((resolve, reject) => {
+function runCommitCli(bin: string, args: string[], base: string, prompt: string, finish: (out: string) => string, onLine?: (line: string) => void): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     const child = /\.(?:cmd|bat)$/i.test(bin)
       ? spawn(shellCommand(bin, args), { cwd: base, windowsHide: true, env: process.env, shell: true })
       : spawn(bin, args, { cwd: base, windowsHide: true, env: process.env });
     let out = '';
     let buf = '';
     child.stdout.setEncoding('utf8');
-    child.stdout.on('data', chunk => {
+    child.stdout.on('data', (chunk: string) => {
       out += chunk;
       if (!onLine) return;
       buf += chunk;
       const lines = buf.split('\n');
-      buf = lines.pop();
+      buf = lines.pop()!;
       lines.forEach(onLine);
     });
     child.stdin.on('error', () => { /* exited early; close reports it */ });
@@ -3669,7 +3726,7 @@ function runCommitCli(bin, args, base, prompt, finish, onLine) {
 }
 // Each writer below runs its agent once with the prompt, read-only. `ask` returns the raw reply (see rawReply) and throws
 // when there is none; without it the reply is cleaned up as a commit message, with a stand-in where one existed.
-function antigravityCommitMsg(base, prompt, model, effort, ask) {
+function antigravityCommitMsg(base: string, prompt: string, model?: string, effort?: string, ask?: boolean): Promise<string> {
   const tidy = ask ? rawReply : cleanCommitText;
   const service = new AntigravityAgentService({
     executablePath: agentBins.get('antigravity') || undefined,
@@ -3701,7 +3758,7 @@ function antigravityCommitMsg(base, prompt, model, effort, ask) {
     service.start().catch(reject);
   });
 }
-async function localCommitMsg(base, prompt, model, effort, ask) {
+async function localCommitMsg(base: string, prompt: string, model?: string, effort?: string, ask?: boolean): Promise<string> {
   const cfg = await llmConfig(true).catch(() => null);
   if (!cfg) throw new Error('No Ollama server is connected');
   const body = {
@@ -3722,7 +3779,7 @@ async function localCommitMsg(base, prompt, model, effort, ask) {
   if (!reply) throw new Error('The local model wrote no reply');
   return reply;
 }
-function codexCommitMsg(base, prompt, model, effort, ask) {
+function codexCommitMsg(base: string, prompt: string, model?: string, effort?: string, ask?: boolean): Promise<string> {
   const tidy = ask ? rawReply : cleanCommitText;
   const bin = agentBins.get('codex');
   if (!bin) throw new Error('Codex was not found');
@@ -3730,14 +3787,14 @@ function codexCommitMsg(base, prompt, model, effort, ask) {
   // and every message came back as the stand-in. The smallest it offers suits a commit message.
   const offered = codexModels();
   const smallest = offered.find(m => /mini/i.test(m)) || offered.at(-1);
-  const targetModel = (offered.length && !offered.includes(model) ? smallest : model) || 'gpt-4o-mini';
+  const targetModel = (offered.length && !offered.includes(model as string) ? smallest : model) || 'gpt-4o-mini';
   // `-s read-only` (no writes, no network from commands) is the most restrictive mode `codex exec` has, for questions too: it has no
   // switch to turn its file-reading tools off.
   const args = ['exec', '--json', '-s', 'read-only', '--skip-git-repo-check', '-m', targetModel];
   if (effortArg(effort) && /^(o1|o3|o4)/i.test(targetModel)) args.push('-c', `model_reasoning_effort=${effortArg(effort)}`);
   let message = '';
   let failed = '';
-  const onLine = l => {
+  const onLine = (l: string) => {
     try {
       const ev = JSON.parse(l);
       if (ev.type === 'item.completed' && ev.item?.type === 'agent_message' && ev.item?.text) message = ev.item.text;
@@ -3754,16 +3811,16 @@ function codexCommitMsg(base, prompt, model, effort, ask) {
   };
   return runCommitCli(bin, args, base, prompt, finish, onLine);
 }
-function claudeCommitMsg(base, prompt, model, effort, ask) {
+function claudeCommitMsg(base: string, prompt: string, model?: string, effort?: string, ask?: boolean): Promise<string> {
   const bin = agentBins.get('claude');
   if (!bin) throw new Error('Claude was not found');
-  const targetModel = CLAUDE_MODELS.includes(model) && model !== 'default' ? model : 'haiku';
+  const targetModel = model && CLAUDE_MODELS.includes(model) && model !== 'default' ? model : 'haiku';
   // A question (the Duel) can carry code from someone else's fork, so it also gets no tool that reads the project or the web.
   // The user's pick of "default" means Claude's own default model; a commit message still uses the cheap one for it, a question doesn't.
   const modelArgs = ask && model === 'default' ? [] : ['--model', targetModel];
   const args = ['-p', '--output-format', 'json', ...modelArgs, '--disallowedTools', ...CLAUDE_WRITE_TOOLS, ...(ask ? CLAUDE_ASK_DENIED : [])];
-  const finish = out => {
-    let text;
+  const finish = (out: string) => {
+    let text: unknown;
     try { text = JSON.parse(out).result; } catch { text = out; }
     if (!ask) return cleanCommitText(text, 'chore: update project');
     const reply = rawReply(text, '');
@@ -3772,7 +3829,7 @@ function claudeCommitMsg(base, prompt, model, effort, ask) {
   };
   return runCommitCli(bin, args, base, prompt, finish);
 }
-const COMMIT_WRITERS = { antigravity: antigravityCommitMsg, local: localCommitMsg, codex: codexCommitMsg, claude: claudeCommitMsg };
+const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: localCommitMsg, codex: codexCommitMsg, claude: claudeCommitMsg };
 handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
   const base = root;
   if (!base) throw new Error('Open a folder first');
@@ -3796,7 +3853,7 @@ handle('agent:ask', async (_e, { agent, prompt, model, effort } = {}) => {
 // A .env in the project root fills in environment variables; ones already set in the shell win.
 try { process.loadEnvFile(path.join(ROOT, '.env')); } catch { /* no .env */ }
 function authConfig() {
-  let file = {};
+  let file: Loose = {};
   try { file = JSON.parse(fs.readFileSync(path.join(ROOT, 'breeze.config.json'), 'utf8')); } catch { /* not configured */ }
   return {
     github: { clientId: process.env.BREEZE_GITHUB_CLIENT_ID || file.github?.clientId || '' },
@@ -3806,33 +3863,35 @@ function authConfig() {
     },
   };
 }
-let authAbort = null;
-const authEmit = ev => win?.webContents.send('auth:event', ev);
-const sleep = (ms, signal) => new Promise((res, rej) => {
+let authAbort: AbortController | null = null;
+const authEmit = (ev: Loose) => win?.webContents.send('auth:event', ev);
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((res, rej) => {
   const t = setTimeout(res, ms);
   signal.addEventListener('abort', () => { clearTimeout(t); rej(new Error('cancelled')); }, { once: true });
 });
 
 // Every account signed in on this computer is remembered; one of them is active.
-const accountId = u => `${u.provider}:${u.login}`;
-function accountsState() {
+// A signed-in account (GitHub or Google), as saved in the state file.
+interface Account { provider: string; login: string; [key: string]: Loose }
+const accountId = (u: Account) => `${u.provider}:${u.login}`;
+function accountsState(): { accounts: Account[]; active: string | null } {
   const s = loadState();
-  const accounts = s.accounts || (s.user ? [s.user] : []);
+  const accounts: Account[] = s.accounts || (s.user ? [s.user] : []);
   return { accounts, active: s.user ? accountId(s.user) : null };
 }
-function addAccount(user) {
+function addAccount(user: Account): void {
   const { accounts } = accountsState();
   saveState({ user, accounts: [...accounts.filter(a => accountId(a) !== accountId(user)), user] });
 }
 // A saved sign-in and, for GitHub, its renewal details.
-function forgetSignIn(id) {
+function forgetSignIn(id: string): void {
   setSecret(`token:${id}`, null);
   setSecret(`ghrefresh:${id}`, null);
   setSecret(`firebase:${id}`, null); // Friends' own session for this account
 }
 // GitHub can hand out user tokens that expire after eight hours, with a refresh token (good for six months) to get
 // the next one. Both are kept, so the sign-in lasts as long as Breeze is used at least every six months.
-function saveGithubToken(id, tok) {
+function saveGithubToken(id: string, tok: Loose): void {
   setSecret(`token:${id}`, tok.access_token);
   setSecret(`ghrefresh:${id}`, tok.refresh_token ? JSON.stringify({
     refresh: tok.refresh_token,
@@ -3842,7 +3901,7 @@ function saveGithubToken(id, tok) {
 // The GitHub account's token, renewed first when it has expired or is about to. One renewal at a time per account:
 // a refresh token works only once.
 const ghRefreshing = new Map();
-async function githubToken(id) {
+async function githubToken(id: string): Promise<string | null> {
   const token = getSecret(`token:${id}`);
   let meta = null;
   try { meta = JSON.parse(getSecret(`ghrefresh:${id}`) || 'null'); } catch { /* none saved */ }
@@ -3869,14 +3928,14 @@ async function githubToken(id) {
 }
 handle('auth:user', () => loadState().user || null);
 // /user only shows a public email; /user/emails (the user:email scope) has the primary one even when it's private.
-async function githubEmail(token, signal) {
+async function githubEmail(token: string, signal?: AbortSignal): Promise<string | null> {
   try {
     const r = await fetch('https://api.github.com/user/emails', {
       signal, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'Breeze-IDE' },
     });
     if (!r.ok) return null;
     const list = await r.json();
-    return (list.find(e => e.primary) || list.find(e => e.verified) || list[0])?.email || null;
+    return (list.find((e: Loose) => e.primary) || list.find((e: Loose) => e.verified) || list[0])?.email || null;
   } catch { return null; }
 }
 // GitHub accounts signed in before Breeze asked /user/emails: look their email up once per run.
@@ -3893,7 +3952,7 @@ async function fillAccountEmails() {
   }));
   if (!found.size) return;
   const s = loadState(), { accounts } = accountsState();
-  const withEmail = a => (found.has(accountId(a)) ? { ...a, email: found.get(accountId(a)) } : a);
+  const withEmail = (a: Account) => (found.has(accountId(a)) ? { ...a, email: found.get(accountId(a)) } : a);
   saveState({ accounts: accounts.map(withEmail), user: s.user ? withEmail(s.user) : s.user });
 }
 handle('auth:accounts', async () => { await fillAccountEmails(); return accountsState(); });
@@ -3942,8 +4001,8 @@ handle('auth:start', (_e, provider) => {
 });
 
 // GitHub device flow: the user types a short code on github.com; no client secret needed.
-async function githubSignIn({ clientId }, signal) {
-  const post = async (url, body) => (await fetch(url, {
+async function githubSignIn({ clientId }: { clientId: string }, signal: AbortSignal): Promise<Loose> {
+  const post = async (url: string, body: Loose) => (await fetch(url, {
     method: 'POST', signal,
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -3954,7 +4013,7 @@ async function githubSignIn({ clientId }, signal) {
   openInBrowser(dc.verification_uri);
   const deadline = Date.now() + (dc.expires_in || 900) * 1000;
   // Ask GitHub every few seconds until the user has entered the code.
-  const poll = async interval => {
+  const poll = async (interval: number): Promise<Loose> => {
     if (Date.now() > deadline) throw new Error('The code expired. Try again.');
     await sleep(interval, signal);
     const t = await post('https://github.com/login/oauth/access_token', {
@@ -3984,14 +4043,14 @@ const PAGE_ICON = {
   fail: '<path d="M12 7.5v5.5M12 16.5v.01" fill="none" stroke="#f5f5f7" stroke-width="2.4" stroke-linecap="round"/>',
 };
 // The Breeze IDE wordmark is inlined so the one-shot server needs no asset route.
-let wordmarkUri = null;
+let wordmarkUri: string | null = null;
 function wordmarkSrc() {
   if (wordmarkUri === null) {
     try { wordmarkUri = `data:image/png;base64,${fs.readFileSync(path.join(ROOT, 'assets', 'brand', 'BreezeCode.png')).toString('base64')}`; } catch { wordmarkUri = ''; }
   }
   return wordmarkUri;
 }
-function googleRedirectPage(ok) {
+function googleRedirectPage(ok: boolean): string {
   const title = ok ? 'You’re signed in' : 'Sign-in didn’t finish';
   const text = ok ? 'Breeze has your account now. You can close this tab and head back to Breeze.' : 'Nothing was changed. Close this tab and try again from Breeze.';
   // The badge starts on the brand blue and eases to green once the sign-in lands; a failure stays amber.
@@ -4032,20 +4091,20 @@ function googleRedirectPage(ok) {
   <div class="brand">${logo ? `<img src="${logo}" alt="Breeze IDE">` : 'Breeze'}</div>
 </main></body></html>`;
 }
-function waitForGoogleCode({ clientId, challenge, state }, signal) {
+function waitForGoogleCode({ clientId, challenge, state }: { clientId: string; challenge: string; state: string }, signal: AbortSignal): Promise<{ code: string; redirect: string }> {
   return new Promise((res, rej) => {
     let redirect = '';
     const server = http.createServer((req, resp) => {
-      const u = new URL(req.url, 'http://127.0.0.1');
+      const u = new URL(req.url!, 'http://127.0.0.1');
       if (u.pathname !== '/') { resp.writeHead(404).end(); return; }
       const ok = u.searchParams.get('state') === state && u.searchParams.get('code');
-      resp.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(googleRedirectPage(ok));
+      resp.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(googleRedirectPage(!!ok));
       server.close();
-      if (ok) res({ code: u.searchParams.get('code'), redirect });
+      if (ok) res({ code: u.searchParams.get('code')!, redirect });
       else rej(new Error(u.searchParams.get('error') || 'Sign-in did not finish'));
     });
     server.listen(0, '127.0.0.1', () => {
-      redirect = `http://127.0.0.1:${server.address().port}`;
+      redirect = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
       const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth');
       auth.search = new URLSearchParams({
         // drive.appdata reaches only Breeze's hidden app folder in Drive, where workspace sync lives.
@@ -4058,7 +4117,7 @@ function waitForGoogleCode({ clientId, challenge, state }, signal) {
     signal.addEventListener('abort', () => { server.close(); rej(new Error('cancelled')); }, { once: true });
   });
 }
-async function googleSignIn({ clientId, clientSecret }, signal) {
+async function googleSignIn({ clientId, clientSecret }: { clientId: string; clientSecret?: string }, signal: AbortSignal): Promise<Loose> {
   const verifier = crypto.randomBytes(32).toString('base64url');
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
   const state = crypto.randomBytes(16).toString('hex');
@@ -4087,9 +4146,9 @@ const DRIVE_SCOPE = syncEngine.DRIVE_SCOPE;
 const syncDir = () => path.join(app.getPath('userData'), 'sync');
 // One small file per account and folder: { id, rev, base } from the last sync.
 // The file is named by a hash of the account and folder (just a stable name, nothing secret).
-const linkName = (algo, acct, dir) => crypto.createHash(algo).update(acct + '\0' + dir).digest('hex') + '.json'; // NOSONAR: sha1 only matches the names of pre-sha256 link files
-const linkFile = (acct, dir) => path.join(syncDir(), linkName('sha256', acct, dir));
-function readLink(acct, dir) {
+const linkName = (algo: string, acct: string, dir: string) => crypto.createHash(algo).update(acct + '\0' + dir).digest('hex') + '.json'; // NOSONAR: sha1 only matches the names of pre-sha256 link files
+const linkFile = (acct: string, dir: string) => path.join(syncDir(), linkName('sha256', acct, dir));
+function readLink(acct: string, dir: string): Loose {
   const file = linkFile(acct, dir);
   // Links saved before the switch to sha256 sit under their sha1 name; move one over the first time it's read.
   // (sha1 here only recognises an old name; nothing is protected by it.)
@@ -4100,7 +4159,7 @@ function readLink(acct, dir) {
   }
   return null;
 }
-function writeLink(acct, dir, link) {
+function writeLink(acct: string, dir: string, link: Loose): void {
   fs.mkdirSync(syncDir(), { recursive: true });
   fs.writeFileSync(linkFile(acct, dir), JSON.stringify(link));
 }
@@ -4115,7 +4174,7 @@ async function syncStore() {
   return { acct, store: syncEngine.driveStore({ accessToken }) };
 }
 // IPC drops an error's code, so sync failures come back as { error, code } for the renderer to act on.
-function syncHandle(channel, fn) {
+function syncHandle(channel: string, fn: IpcHandler): void {
   handle(channel, async (...args) => {
     try { return await fn(...args); } catch (err) {
       if (err instanceof syncEngine.SyncError) return { error: err.message, code: err.code || null };
@@ -4124,7 +4183,7 @@ function syncHandle(channel, fn) {
   });
 }
 let syncBusy = false;
-async function oneSync(work) {
+async function oneSync(work: () => Promise<Loose>): Promise<Loose> {
   if (syncBusy) throw new syncEngine.SyncError('A sync is already running.');
   syncBusy = true;
   try { return await work(); } finally { syncBusy = false; }
@@ -4155,14 +4214,14 @@ syncHandle('sync:clone', (_e, id) => oneSync(async () => {
   const { acct, store } = await syncStore();
   const ws = (await syncEngine.listWorkspaces(store)).find(w => w.id === id);
   if (!ws) throw new syncEngine.SyncError('That workspace is no longer in the cloud.');
-  const r = await dialog.showOpenDialog(win, {
+  const r = await dialog.showOpenDialog(win!, {
     title: `Where should ${ws.name} go?`, buttonLabel: 'Download here',
     defaultPath: app.getPath('documents'), properties: ['openDirectory', 'createDirectory'],
   });
   if (r.canceled || !r.filePaths[0]) return null;
   const safeName = ws.name.replace(/[/\\:*?"<>|]/g, '-').replace(/^\.+$/, '') || 'workspace';
   // The first of "name", "name (2)", "name (3)"… that doesn't exist yet or is an empty folder.
-  const taken = async d => fs.existsSync(d) && (await fsp.readdir(d)).length > 0;
+  const taken = async (d: string) => fs.existsSync(d) && (await fsp.readdir(d)).length > 0;
   let dir = path.join(r.filePaths[0], safeName);
   let n = 2;
   while (await taken(dir)) dir = path.join(r.filePaths[0], `${safeName} (${n++})`);
@@ -4189,13 +4248,14 @@ syncHandle('sync:settings', async (_e, local) => {
 // Feeds live in their own browser session (persist:vibe), apart from the app. Signing in happens on the
 // site itself in a Breeze window; Breeze only checks whether a sign-in cookie exists.
 const VIBE_PARTITION = 'persist:vibe';
-const VIBE_SITES = {
+interface VibeSite { name: string; url: string; cookie: [string, string]; domains: string[] }
+const VIBE_SITES: Record<string, VibeSite> = {
   instagram: { name: 'Instagram Reels', url: 'https://www.instagram.com/reels/', cookie: ['instagram.com', 'sessionid'], domains: ['instagram.com'] },
   facebook: { name: 'Facebook Reels', url: 'https://www.facebook.com/reel/', cookie: ['facebook.com', 'c_user'], domains: ['facebook.com'] },
 };
-let vibeView = null;
+let vibeView: WebContentsView | null = null;
 let vibeSessionReady = false;
-function vibeSite(id) {
+function vibeSite(id: string): VibeSite {
   const site = Object.hasOwn(VIBE_SITES, id) ? VIBE_SITES[id] : null;
   if (!site) throw new Error('Unknown feed');
   return site;
@@ -4213,10 +4273,10 @@ function vibeSession() {
   return ses;
 }
 // The same Chrome, presenting as Chrome on an Android phone (keeps the real version number).
-const mobileUserAgent = ua => ua.replace(/\([^)]*\)/, '(Linux; Android 14; Pixel 8)').replace(/ Safari\//, ' Mobile Safari/');
+const mobileUserAgent = (ua: string) => ua.replace(/\([^)]*\)/, '(Linux; Android 14; Pixel 8)').replace(/ Safari\//, ' Mobile Safari/');
 const feedPrefs = () => ({ session: vibeSession(), sandbox: true, contextIsolation: true, nodeIntegration: false });
 // Feed pages may only load https; links that open new windows load in place.
-function guardFeed(wc) {
+function guardFeed(wc: WebContents): void {
   wc.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) wc.loadURL(url).catch(logError('feed popup'));
     return { action: 'deny' };
@@ -4227,7 +4287,7 @@ function guardFeed(wc) {
 // embedded view.  In a phone-shaped Vibe frame that leaves enough space for a
 // second reel to peek through below the current one.  Keep the page's actual
 // reel cards viewport-sized and make its scroll areas snap between them.
-function keepInstagramReelsFullscreen(wc) {
+function keepInstagramReelsFullscreen(wc: WebContents): void {
   wc.once('did-finish-load', () => {
     if (!wc.getURL().startsWith('https://www.instagram.com/')) return;
     wc.executeJavaScript(`(() => {
@@ -4274,7 +4334,7 @@ function keepInstagramReelsFullscreen(wc) {
     })()`).catch(logError('reels layout'));
   });
 }
-async function signedIn(id) {
+async function signedIn(id: string): Promise<boolean> {
   const [domain, name] = vibeSite(id).cookie;
   const cookies = await vibeSession().cookies.get({ domain, name });
   return cookies.length > 0;
@@ -4286,13 +4346,13 @@ handle('vibe:status', async () => {
   return Object.fromEntries(ids.map((id, i) => [id, states[i]]));
 });
 // Feed pages scroll without the default scrollbar.
-const hideScrollbars = wc => wc.on('dom-ready', () => {
+const hideScrollbars = (wc: WebContents) => wc.on('dom-ready', () => {
   wc.insertCSS('::-webkit-scrollbar { display: none !important; } html { scrollbar-width: none !important; }').catch(logError('feed css'));
 });
 // Signing in to a feed: the site opens in a rounded view inside the Breeze window, over the renderer's blurred
 // backdrop (renderer passes the frame's bounds). Resolves with the sign-in state once the renderer closes it.
-let connectView = null;
-let connectDone = null;
+let connectView: WebContentsView | null = null;
+let connectDone: (() => void) | null = null;
 function closeConnect() {
   if (connectView) {
     win?.contentView.removeChildView(connectView);
@@ -4321,9 +4381,9 @@ handle('vibe:connectClose', () => closeConnect());
 handle('vibe:disconnect', async (_e, id) => {
   const ses = vibeSession();
   const lists = await Promise.all(vibeSite(id).domains.map(domain => ses.cookies.get({ domain })));
-  await Promise.all(lists.flat().map(c => ses.cookies.remove(`https://${c.domain.replace(/^\./, '')}${c.path}`, c.name)));
+  await Promise.all(lists.flat().map(c => ses.cookies.remove(`https://${(c.domain ?? '').replace(/^\./, '')}${c.path}`, c.name)));
 });
-const toBounds = b => ({ x: Math.round(b.x), y: Math.round(b.y), width: Math.max(1, Math.round(b.width)), height: Math.max(1, Math.round(b.height)) });
+const toBounds = (b: Loose) => ({ x: Math.round(b.x), y: Math.round(b.y), width: Math.max(1, Math.round(b.width)), height: Math.max(1, Math.round(b.height)) });
 // Lays the live feed over the renderer's 9:16 frame.
 handle('vibe:show', (_e, id, bounds) => {
   const site = vibeSite(id);
@@ -4356,21 +4416,21 @@ handle('vibe:hide', () => {
 /* ================= Discord Rich Presence ================= */
 // Talks to the Discord app on this computer. It needs the id of a Discord application (made once at
 // https://discord.com/developers/applications); the id is public, not a secret.
-const { DiscordRpc, DiscordPresence } = require('./discord');
+import { DiscordRpc, DiscordPresence } from './discord';
 const DEFAULT_DISCORD_CLIENT_ID = '';
 function discordClientId() {
-  let file = {};
+  let file: Loose = {};
   try { file = JSON.parse(fs.readFileSync(path.join(ROOT, 'breeze.config.json'), 'utf8')); } catch { /* not configured */ }
   return String(process.env.BREEZE_DISCORD_CLIENT_ID || file.discord?.clientId || DEFAULT_DISCORD_CLIENT_ID).trim();
 }
 const discord = new DiscordPresence(() => new DiscordRpc(discordClientId()), { onError: logError('discord') });
 // Language icons Discord fetches itself (PNG, square, same look as the Java cup in IntelliJ's presence).
-const DISCORD_ICON_URL = key => `https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/${key}.png`;
+const DISCORD_ICON_URL = (key: string) => `https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/${key}.png`;
 // The corner badge is a link too, so it shows without uploading art to the Discord application.
 const DISCORD_LOGO_URL = 'https://breezecode.itsphatto.site/favicon-192.png';
 // Developer mode's flipped logo, straight from the repository (it shows once IconDev.png is on main).
 const DISCORD_DEV_LOGO_URL = 'https://raw.githubusercontent.com/itsphatto/BreezeCode/main/assets/brand/IconDev.png';
-const discordText = (s, max = 120) => (typeof s === 'string' && s.trim() ? s.trim().slice(0, max) : undefined);
+const discordText = (s: unknown, max = 120) => (typeof s === 'string' && s.trim() ? s.trim().slice(0, max) : undefined);
 handle('discord:set', async (_e, a) => {
   if (!/^\d{15,22}$/.test(discordClientId())) throw new Error('Discord presence needs a Discord application id. Add "discord": { "clientId": "…" } to breeze.config.json or set BREEZE_DISCORD_CLIENT_ID.');
   // With a language icon it takes the big picture and the Breeze logo sits in its corner, like other editors.
@@ -4391,21 +4451,21 @@ app.on('before-quit', () => discord.close());
 // See what friends are building (never code). friends.js does the work over Firebase; this wires it to the active
 // account and the window. Keys: breeze.config.json "firebase" { apiKey, projectId }, or BREEZE_FIREBASE_API_KEY and
 // BREEZE_FIREBASE_PROJECT_ID. The web API key is public, not a secret.
-const friends = require('./friends');
-let friendsCfg = null;
+import * as friends from './friends';
+let friendsCfg: { apiKey: string; projectId: string; configured: boolean } | null = null;
 function friendsConfig() {
   if (friendsCfg) return friendsCfg;
-  let file = {};
+  let file: Loose = {};
   try { file = JSON.parse(fs.readFileSync(path.join(ROOT, 'breeze.config.json'), 'utf8')); } catch { /* not configured */ }
   const apiKey = String(process.env.BREEZE_FIREBASE_API_KEY || file.firebase?.apiKey || '').trim();
   const projectId = String(process.env.BREEZE_FIREBASE_PROJECT_ID || file.firebase?.projectId || '').trim();
   return (friendsCfg = { apiKey, projectId, configured: !!(apiKey && projectId) });
 }
 // No call to Friends may hang the window.
-const friendsFetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
+const friendsFetch = (url: string, init?: RequestInit) => fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
 
 // The access token Firebase trades for a session: GitHub's own, or a fresh Google one from the saved refresh token.
-async function friendsAccessToken(acct) {
+async function friendsAccessToken(acct: string): Promise<{ provider: string; token: string } | null> {
   const user = accountsState().accounts.find(a => accountId(a) === acct);
   if (!user) return null;
   if (user.provider === 'GitHub') {
@@ -4417,14 +4477,14 @@ async function friendsAccessToken(acct) {
   try { return { provider: 'Google', token: await syncEngine.googleAccessToken({ ...authConfig().google, refreshToken, fetch: friendsFetch }) }; }
   catch (err) { throw new friends.FriendsError(err instanceof syncEngine.SyncError ? 'reauth' : 'network'); }
 }
-let friendsSessions = null;
-function friendsCache() {
+let friendsSessions: friends.SessionCache | null = null;
+function friendsCache(): friends.SessionCache {
   return friendsSessions ||= new friends.SessionCache({
     apiKey: friendsConfig().apiKey,
     fetch: friendsFetch,
     getAccessToken: friendsAccessToken,
-    loadRefresh: acct => getSecret(`firebase:${acct}`),
-    saveRefresh: (acct, rt) => { try { setSecret(`firebase:${acct}`, rt); } catch { /* no secure storage: signs in again next run */ } },
+    loadRefresh: (acct: string) => getSecret(`firebase:${acct}`),
+    saveRefresh: (acct: string, rt: string | undefined) => { try { setSecret(`firebase:${acct}`, rt); } catch { /* no secure storage: signs in again next run */ } },
   });
 }
 
@@ -4437,7 +4497,8 @@ function friendsCache() {
 // changing account clears it (friendsSwitching).
 const friendsProfiled = new Set();
 const friendsHeld = friends.failureHold();
-async function friendsRun(fn, expect) {
+type FriendsApi = ReturnType<typeof friends.friendsApi>;
+async function friendsRun<T>(fn: (api: FriendsApi, session: friends.Session) => T | Promise<T>, expect?: string): Promise<T> {
   const cfg = friendsConfig();
   if (!cfg.configured) throw new friends.FriendsError('not-configured');
   const user = loadState().user;
@@ -4458,19 +4519,19 @@ async function friendsRun(fn, expect) {
   }
 }
 // IPC drops an error's code, so Friends failures come back as { error, code } for the renderer to act on.
-function friendsFail(err) {
+function friendsFail(err: unknown) {
   const reply = friends.friendsReply(err, loadState().user?.provider);
   if (!reply) throw err;
   return reply;
 }
-function friendsHandle(channel, fn) {
+function friendsHandle(channel: string, fn: (api: FriendsApi, ...args: any[]) => unknown): void {
   handle(channel, async (_e, ...args) => {
     try { return await friendsRun(api => fn(api, ...args)); } catch (err) { return friendsFail(err); }
   });
 }
 
 // Presence: one throttle for the active account, made when the renderer first shares.
-let friendsThrottle = null, friendsThrottleAcct = null, friendsStopping = null, friendsSwitchDepth = 0, friendsQuitting = false;
+let friendsThrottle: ReturnType<typeof friends.presenceThrottle> | null = null, friendsThrottleAcct: string | null = null, friendsStopping: Promise<void> | null = null, friendsSwitchDepth = 0, friendsQuitting = false;
 function friendsStop() {
   const t = friendsThrottle;
   friendsThrottle = null; friendsThrottleAcct = null;
@@ -4483,7 +4544,7 @@ function friendsStop() {
 // The active account is changing: say "offline" as the old one (its session is still cached), forget the session, then
 // run `change` (which saves the new account). Presence is refused until it is done, so nothing starts for the old account
 // in between, and a write that is still late afterwards is refused too (see friendsRun's `expect`).
-async function friendsSwitching(change) {
+async function friendsSwitching<T>(change: () => T | Promise<T>): Promise<T> {
   friendsSwitchDepth++;
   try {
     await friendsStop();
@@ -4549,7 +4610,7 @@ handle('friends:presence', async (_e, p) => {
   if (friendsThrottle && friendsThrottleAcct !== acct) await friendsSwitching(() => {}); // the account changed some other way
   if (!friendsThrottle) {
     friendsThrottleAcct = acct;
-    friendsThrottle = friends.presenceThrottle({ write: q => friendsRun(api => api.writePresence(q), acct) });
+    friendsThrottle = friends.presenceThrottle({ write: (q: friends.Presence) => friendsRun(api => api.writePresence(q), acct ?? undefined) });
   }
   friendsThrottle.set(p);
   return { ok: true };
