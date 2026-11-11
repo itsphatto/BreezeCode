@@ -1,7 +1,7 @@
 {
   "name": "breeze-code",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Blazing Fast Muti Agent IDE",
   "author": "itsphatto",
   "license": "SEE LICENSE IN LICENSE",
@@ -10,9 +10,11 @@
     "start": "tsc && electron .",
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/termPreload.js && node --test \"test/**/*.test.js\"",
+    "test": "tsc && node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/termPreload.js && node --test \"test/**/*.test.js\"",
+    "build:engine": "node scripts/build-engine.js",
+    "test:engine": "cargo test --release --manifest-path engine/Cargo.toml -- --include-ignored",
     "dist": "tsc && electron-builder --win --publish never",
-    "predist": "node scripts/write-config.js"
+    "predist": "node scripts/write-config.js && node scripts/build-engine.js"
   },
   "devDependencies": {
     "electron": "^44.7.2",

@@ -197,7 +197,17 @@ function promptModelHtml(a: DetectedAgent): string {
 }
 function renderPromptModels(): void {
   const box = $('#promptModels');
-  const tagged = mentionedAgents(SURFACES.ide.prompt.value).filter(a => a.models?.length || a.version);
+  const text = SURFACES.ide.prompt.value;
+  const typed = !!text.trim();
+  // An empty prompt shows neither Full access nor a model chip; once something is typed both come in. With no agent
+  // tagged, the chip is the default agent's (the one that will answer), so its model and effort can be changed here.
+  box.closest('.composer-box')?.classList.toggle('has-text', typed);
+  let picked = typed ? mentionedAgents(text) : [];
+  if (typed && !picked.length) {
+    const def = appState.detect?.agents.find(x => x.id === appState.agent);
+    if (def) picked = [def];
+  }
+  const tagged = picked.filter(a => a.models?.length || a.version);
   const ids = tagged.map(a => a.id);
   // An untagged agent's chip fades out where it is; the box keeps its row until then (see fitPrompt), so the chip
   // never ends up beside the one-line prompt, and only folds to one line once it's gone.
@@ -287,7 +297,7 @@ function animatePromptHeight(ta: HTMLTextAreaElement, fromH: number): void {
 const GROW_SEL = 'textarea, button, .btn, p, h1, h2, h3, h4, label, .side-note, .scm-row, .commit, .card, .agent-card, .quick-card, .pill, .chip, .empty';
 // Things with their own size animation, or that must never lag: the agent prompt, the code editors, terminals, menus,
 // and the one-line rows of the file tree and search results (redrawn often, never rewrapped).
-const GROW_SKIP = '#prompt, .ta, .editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, #tree, #searchResults, [data-no-grow]';
+const GROW_SKIP = '#prompt, #boxPrompt, .ta, .editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, #tree, #searchResults, [data-no-grow]';
 interface GrowState { w: number; h: number; anim?: Animation }
 const growState = new WeakMap<Element, GrowState>();
 // Dragging a sash resizes hundreds of watched blocks every frame, so this stays cheap: it reads all the new heights
@@ -370,21 +380,43 @@ new ResizeObserver(syncPromptHl).observe(SURFACES.ide.prompt);
 
 // Breeze Space's prompt has the same layer behind it, for its "/skill"s (Box doesn't @mention agents).
 const boxPromptHl = $('#boxPromptHl');
-function syncBoxPromptHl(): void {
+// Breeze Space's prompt grows with its text like the Agents tab's does, up to a cap, then scrolls; the buttons stay
+// pinned under it.
+const BOX_PROMPT_MAX_H = () => Math.max(160, Math.round(innerHeight * 0.4));
+function fitBoxPrompt(): void {
   const ta = SURFACES.box.prompt;
+  const max = BOX_PROMPT_MAX_H();
+  ta.style.height = 'auto';
+  const need = ta.scrollHeight;
+  const h = `${Math.min(max, need)}px`;
+  ta.style.height = h;
+  ta.style.overflowY = need > max ? 'auto' : 'hidden';
+}
+let boxPromptAnim: Animation | null = null;
+function syncBoxPromptHl(grow = false): void {
+  const ta = SURFACES.box.prompt;
+  if (grow) {
+    const fromH = ta.getBoundingClientRect().height;
+    boxPromptAnim?.cancel();
+    fitBoxPrompt();
+    const toH = ta.offsetHeight;
+    if (Math.abs(toH - fromH) >= 1) boxPromptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
   boxPromptHl.innerHTML = mentionHtml(ta.value, false) + (ta.value.endsWith('\n') ? ' ' : '');
   boxPromptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`;
   boxPromptHl.scrollTop = ta.scrollTop;
 }
 SURFACES.box.prompt.addEventListener('input', () => mentionWarning(SURFACES.box));
 SURFACES.box.prompt.addEventListener('scroll', () => { boxPromptHl.scrollTop = SURFACES.box.prompt.scrollTop; });
-new ResizeObserver(syncBoxPromptHl).observe(SURFACES.box.prompt);
+new ResizeObserver(() => syncBoxPromptHl()).observe(SURFACES.box.prompt);
+// A wider or narrower window rewraps the text: the prompt takes its new height (no animation, it follows the resize).
+addEventListener('resize', () => { fitBoxPrompt(); syncBoxPromptHl(); });
 // Once the skills are known, a "/skill" already typed turns blue.
 void loadSlashSkills().then(() => { syncPromptHl(); syncBoxPromptHl(); });
 
 function mentionWarning(s: Surface): void {
   if (s.name === 'ide') syncPromptHl();
-  else syncBoxPromptHl();
+  else syncBoxPromptHl(true);
   const warn = s.name === 'ide' ? uninstalledMention(s.prompt.value) : null;
   const anchor = s.prompt.closest<HTMLElement>('.prompt-field') ?? s.prompt;
   let el = anchor.parentElement?.querySelector<HTMLElement>(':scope > .mention-warn') ?? null;

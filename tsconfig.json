@@ -1,9 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ES2022",
+    "module": "CommonJS",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
+    "skipLibCheck": true,
     "noEmitOnError": true,
     "removeComments": false,
     "types": ["node"],
@@ -11,18 +12,19 @@
     "outDir": "src"
   },
   "files": [
-    "src/renderer/editcore.ts", "src/renderer/codeview.ts",
+    "src/renderer/editcore.ts", "src/renderer/codeview.ts", "src/renderer/bigcore.ts", "src/renderer/doccore.ts","src/renderer/bigsurface.ts",
     "src/renderer/breeze/core.ts", "src/renderer/breeze/sound.ts", "src/renderer/breeze/platform.ts",
     "src/renderer/breeze/greetings.ts", "src/renderer/breeze/onboarding.ts", "src/renderer/breeze/sync.ts", "src/renderer/breeze/setup.ts",
-    "src/renderer/breeze/languages.ts", "src/renderer/breeze/workspace.ts", "src/renderer/breeze/drop.ts",
+    "src/renderer/breeze/languages.ts", "src/renderer/breeze/workspace.ts", "src/renderer/breeze/docsync.ts", "src/renderer/breeze/drop.ts",
     "src/renderer/breeze/buffers.ts", "src/renderer/breeze/explorer.ts", "src/renderer/breeze/tabs.ts",
-    "src/renderer/breeze/editor.ts", "src/renderer/breeze/colorpick.ts", "src/renderer/breeze/preview.ts", "src/renderer/breeze/terminal.ts",
+    "src/renderer/breeze/bigfile.ts", "src/renderer/breeze/editor.ts", "src/renderer/breeze/colorpick.ts", "src/renderer/breeze/preview.ts", "src/renderer/breeze/terminal.ts",
     "src/renderer/breeze/autofill.ts", "src/renderer/breeze/layout.ts", "src/renderer/breeze/commands.ts",
     "src/renderer/breeze/settings.ts", "src/renderer/breeze/lsp.ts", "src/renderer/breeze/notebook.ts", "src/renderer/breeze/agents.ts", "src/renderer/breeze/history.ts",
     "src/renderer/breeze/mentions.ts", "src/renderer/breeze/teams.ts", "src/renderer/breeze/live.ts", "src/renderer/breeze/space.ts","src/renderer/breeze/dropdowns.ts",
     "src/renderer/breeze/scmcore.ts", "src/renderer/breeze/conflictcore.ts", "src/renderer/breeze/git.ts", "src/renderer/breeze/prs.ts", "src/renderer/breeze/conflicts.ts", "src/renderer/breeze/skills.ts", "src/renderer/breeze/palette.ts", "src/renderer/breeze/emmet.ts", "src/renderer/breeze/teamswap.ts", "src/renderer/breeze/debug.ts", "src/renderer/breeze/debugview.ts", "src/renderer/breeze/debugpanels.ts", "src/renderer/breeze/views.ts", "src/renderer/breeze/vibe.ts",
     "src/renderer/breeze/discord.ts", "src/renderer/breeze/friends.ts", "src/renderer/breeze/ui.ts", "src/renderer/breeze/init.ts",
-    "src/renderer/termwin.ts",
-    "src/main/antigravityAgentService.ts"
-  ]
+    "src/renderer/termwin.ts"
+  ],
+  "include": ["src/main/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

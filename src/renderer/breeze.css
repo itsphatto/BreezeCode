@@ -3858,6 +3858,119 @@ svg.ico-svg:active {
   box-shadow: 0 1px 0 var(--text);
 }
 
+/* BigSurface (bigsurface.ts): files too big to hold. Only the visible lines exist; vertical scrolling is the
+   surface's own (.big-slider), horizontal is .big-code's. --big-line is set from the surface's lineHeight. */
+.big-surface {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  cursor: text;
+}
+
+.big-gutter {
+  position: relative;
+  align-self: flex-start;
+  flex-shrink: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  text-align: right;
+  user-select: none;
+}
+
+.big-nums {
+  position: absolute;
+  left: 0;
+  right: 16px;
+}
+
+.big-nums>div,
+.big-line {
+  height: var(--big-line, 21px);
+}
+
+.big-code {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.big-lines {
+  position: absolute;
+  left: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 0 24px 0 4px;
+  pointer-events: none;
+}
+
+.big-line {
+  white-space: pre;
+}
+
+.big-more {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(var(--ink), .1);
+  color: var(--text-3);
+  font: 11px var(--font-ui);
+}
+
+.big-sel {
+  position: absolute;
+  height: var(--big-line, 21px);
+  background: rgba(0, 122, 255, .4);
+  pointer-events: none;
+}
+
+.big-surface .code-caret {
+  height: calc(var(--big-line, 21px) - 2px);
+}
+
+.big-surface:not(.focused) .code-caret {
+  display: none;
+}
+
+.big-slider {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  z-index: 5;
+  cursor: default;
+}
+
+.big-thumb {
+  position: absolute;
+  right: 2px;
+  width: 8px;
+  border-radius: 4px;
+  background: rgba(var(--ink), .16);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), .1);
+  transition: background-color .15s, box-shadow .15s;
+}
+
+.big-slider:hover .big-thumb {
+  background: rgba(var(--ink), .3);
+}
+
+.big-slider.drag .big-thumb {
+  background: color-mix(in srgb, var(--accent, var(--blue-text)) 70%, transparent);
+}
+
+/* #bigHost (bigfile.ts): where huge files' surfaces live. It covers the editor as the code view does, over the gutter
+   and code layers (opaque, so they never show through) and under the find bar (z-index 20). */
+.big-host {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: var(--bg);
+}
+
 .editor-empty {
   position: absolute;
   inset: 0;
@@ -9416,6 +9529,8 @@ body.layout-animating .box > .terminal.open {
   resize: none;
   outline: none;
   min-height: 48px;
+  overflow-y: hidden; /* mentions.ts (fitBoxPrompt) grows it with its text and turns scrolling on past the cap */
+  box-sizing: border-box;
 }
 
 /* The text is drawn by the layer behind (so a "/skill" can be blue): same font, the textarea's own text hidden. */
@@ -13321,6 +13436,20 @@ body.layout-animating #previewPane {
 
 .composer-access.on {
   color: var(--warn);
+}
+
+/* The Agents tab's prompt: Full access only shows once something is typed (mentions.ts sets .has-text), next to the
+   model chip that comes in at the same time. */
+.composer .composer-box:not(.has-text) .composer-access {
+  display: none;
+}
+
+.composer .composer-box.has-text .composer-access {
+  animation: composer-access-in .2s ease both;
+}
+
+@keyframes composer-access-in {
+  from { opacity: 0; transform: translateX(4px); }
 }
 
 /* Liquid switch: Jhey Tompkins' liquid toggle (codepen), in Breeze blue. settings.ts adds the parts below into

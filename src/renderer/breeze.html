@@ -538,6 +538,7 @@
               <div class="code">
                 <pre class="hl" id="hl" aria-hidden="true"></pre>
               </div>
+              <div class="big-host hidden" id="bigHost"></div>
               <div class="findbar hidden" id="findbar">
                 <button class="icon-btn find-toggle" id="findToggle" title="Toggle Replace (Ctrl+H)" aria-expanded="false"><svg data-i="chevronRight"></svg></button>
                 <div class="find-rows">
@@ -877,6 +878,9 @@
        order and share one global scope (see breeze/core.ts); a new file goes where its load-time code has what it needs. -->
   <script src="editcore.js" defer></script>
   <script src="codeview.js" defer></script>
+  <script src="bigcore.js" defer></script>
+  <script src="doccore.js" defer></script>
+  <script src="bigsurface.js" defer></script>
   <script src="breeze/core.js" defer></script>
   <script src="breeze/sound.js" defer></script>
   <script src="breeze/platform.js" defer></script>
@@ -886,11 +890,13 @@
   <script src="breeze/setup.js" defer></script>
   <script src="breeze/languages.js" defer></script>
   <script src="breeze/workspace.js" defer></script>
+  <script src="breeze/docsync.js" defer></script>
   <script src="breeze/drop.js" defer></script>
   <script src="breeze/buffers.js" defer></script>
   <script src="breeze/explorer.js" defer></script>
   <script src="breeze/tabs.js" defer></script>
   <script src="breeze/colorpick.js" defer></script>
+  <script src="breeze/bigfile.js" defer></script>
   <script src="breeze/editor.js" defer></script>
   <script src="breeze/preview.js" defer></script>
   <script src="breeze/terminal.js" defer></script>

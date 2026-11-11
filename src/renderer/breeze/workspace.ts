@@ -23,7 +23,15 @@ interface EditorBuffer {
   lastEdit: { kind: string; at: number } | null;
   disk?: string;         // the file's newer text on disk, changed by something else while this buffer had unsaved edits
   untitled?: boolean;    // a new file not saved anywhere yet (see untitledBuffer): saving asks where first
+  big?: BigDoc;          // a 'large' file open in the engine, shown by a BigSurface (bigfile.ts)
+  bigError?: string;     // why the engine could not open it; shown in the note
+  doc?: number;          // a 'text' file's engine document, which follows b.text (docsync.ts)
+  docQ?: DocQueue;       // the edits on their way to `doc`, in order
+  docSkip?: boolean;     // the engine won't hold this file (not UTF-8, or it couldn't open or keep it): saved the old way
+  bom?: boolean;         // the file starts with a byte order mark, kept out of `text` (the engine writes it back)
 }
+// A huge file's engine document: `dirty` and `lines` are the engine's last word; changedOnDisk makes the next save ask.
+interface BigDoc { doc: number; surface: BigSurface; readOnly: boolean; dirty: boolean; lines: number; changedOnDisk: boolean }
 interface Session { tabs: string[]; active: string | null; expanded: string[]; pos: Record<string, [number, number]>; }
 
 let rootInfo: RootInfo | null = null;
@@ -37,7 +45,7 @@ const buffers = new Map<string, EditorBuffer>();
 // Keyed by each surface's hidden input, the element key events and focus land on.
 const textareaOwner = new WeakMap<HTMLTextAreaElement, EditorBuffer>();
 const surfaceOf = (el: EventTarget | null): CodeSurface | undefined => textareaOwner.get(el as HTMLTextAreaElement)?.ta ?? undefined;
-const isDirty = (b?: EditorBuffer) => !!b && b.kind === 'text' && b.text !== b.saved;
+const isDirty = (b?: EditorBuffer) => !!b && ((b.kind === 'text' && b.text !== b.saved) || !!b.big?.dirty);
 // An untitled tab's path sits in a folder no real path can have (Windows names can't hold ':'), so it never meets a
 // file's, while its name and extension still pick the icon, the highlighting and the Run button.
 const UNTITLED_DIR = ':untitled';

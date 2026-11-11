@@ -39,10 +39,23 @@
   --err: #f14c4c;
   --code-size: 13px;
   --code-line: 1.45;
-  --ansi-0: #000000; --ansi-1: #cd3131; --ansi-2: #0dbc79; --ansi-3: #e5e510;
-  --ansi-4: #2472c8; --ansi-5: #bc3fbc; --ansi-6: #11a8cd; --ansi-7: #e5e5e5;
-  --ansi-8: #666666; --ansi-9: #f14c4c; --ansi-10: #23d18b; --ansi-11: #f5f543;
-  --ansi-12: #3b8eea; --ansi-13: #d670d6; --ansi-14: #29b8db; --ansi-15: #e5e5e5;
+  /* The main window's terminal colours (breeze.css .terminal), so both terminals colour output the same way. */
+  --term-red: #f87171;
+  --term-green: #86efac;
+  --term-yellow: #fdba74;
+  --term-blue: #5981ca;
+  --term-magenta: #c4b5fd;
+  --term-cyan: #7dd3fc;
+  --term-pink: #f9a8d4;
+  --cmd-name: #eab308;
+  --cmd-flag: #f472b6;
+  --cmd-str: #34d399;
+  --cmd-num: #fdba74;
+  --ps: #cccccc;
+  --ansi-0: var(--text-3); --ansi-1: var(--term-red); --ansi-2: var(--term-green); --ansi-3: var(--term-yellow);
+  --ansi-4: var(--term-blue); --ansi-5: var(--term-magenta); --ansi-6: var(--term-cyan); --ansi-7: var(--text);
+  --ansi-8: var(--text-3); --ansi-9: var(--term-red); --ansi-10: var(--term-green); --ansi-11: var(--term-yellow);
+  --ansi-12: var(--term-blue); --ansi-13: var(--term-pink); --ansi-14: var(--term-cyan); --ansi-15: var(--text);
   color-scheme: dark;
 }
 
@@ -66,10 +79,18 @@
   --sel: rgba(0, 122, 255, .22);
   --ok: #0069d1;
   --err: #c42b1c;
-  --ansi-0: #000000; --ansi-1: #cd3131; --ansi-2: #00875f; --ansi-3: #8a6d00;
-  --ansi-4: #0451a5; --ansi-5: #bc05bc; --ansi-6: #0598bc; --ansi-7: #555555;
-  --ansi-8: #666666; --ansi-9: #cd3131; --ansi-10: #14ce14; --ansi-11: #8a7b00;
-  --ansi-12: #0451a5; --ansi-13: #bc05bc; --ansi-14: #0598bc; --ansi-15: #2b2a27;
+  --term-red: #b91c1c;
+  --term-green: #137036;
+  --term-yellow: #a8380a;
+  --term-blue: #0057b8;
+  --term-magenta: #6d28d9;
+  --term-cyan: #0369a1;
+  --term-pink: #be185d;
+  --cmd-name: #8a5800;
+  --cmd-flag: #be185d;
+  --cmd-str: #137036;
+  --cmd-num: #a8380a;
+  --ps: #3b3731;
   color-scheme: light;
 }
 
@@ -317,7 +338,39 @@ body.focused .tw-caret {
   opacity: 0;
 }
 
-.a-b { font-weight: 700; }
+.a-b { font-weight: 700; color: var(--text); }
 .a-d { opacity: .65; }
 .a-i { font-style: italic; }
 .a-u { text-decoration: underline; }
+
+
+/* ---------- the main terminal's highlighting (breeze.css "Semantic CLI highlights") ---------- */
+.term-npm { color: var(--text); font-weight: 700; }
+.term-kw-error { color: var(--term-red); font-weight: 600; }
+.term-kw-warning { color: var(--term-yellow); font-weight: 600; }
+.term-kw-success { color: var(--term-green); font-weight: 600; }
+.term-kw-cyan,
+.term-kw-info { color: var(--term-cyan); font-weight: 500; }
+:root[data-theme="light"] .term-kw-warning { color: #8a5800; }
+
+.term-url {
+  color: var(--term-cyan);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.term-url:hover { color: var(--term-blue); }
+
+.term-cmd-name { color: var(--cmd-name); font-weight: 600; }
+.term-cmd-flag { color: var(--cmd-flag); }
+.term-cmd-str { color: var(--cmd-str); }
+.term-cmd-num { color: var(--cmd-num); }
+.term-cmd-arg { color: var(--text); }
+
+/* The caret keeps its own colours over a coloured letter. */
+body.focused .tw-caret[class*="term-cmd-"] { color: var(--bg); }
+
+.ps-prefix { color: var(--ps); font-weight: 500; margin-right: 6px; }
+.ps-path,
+.ps-arrow { color: var(--ps); font-weight: 500; }

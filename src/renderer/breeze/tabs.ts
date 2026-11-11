@@ -26,7 +26,12 @@ async function openFileInSplit(path: string): Promise<void> {
   if (baseName(path).startsWith('.env') && !buffers.has(path)) { toast('Open this protected file in a tab first'); return; }
   const b = await loadBuffer(path);
   if (!b) return;
-  if (b.kind !== 'text') { toast('Only text files open in the split view'); return; }
+  if (b.kind !== 'text') {
+    // A huge file loaded just for this has no tab to close it: let its engine document go again.
+    if (b.big && !openTabs.includes(path)) { closeBig(b); buffers.delete(path); }
+    toast('Only text files open in the split view');
+    return;
+  }
   closeScmPage();
   if (!openTabs.includes(path)) openTabs.push(path);
   if (!active) setActive(path); else renderEditor();
@@ -451,6 +456,9 @@ function dropTab(path: string): void {
   if (i === -1) return;
   openTabs.splice(i, 1);
   buffers.get(path)?.ta?.remove();
+  const gone = buffers.get(path);
+  if (gone?.big) closeBig(gone);
+  if (gone?.doc != null) docClose(gone);
   buffers.delete(path);
   lspClosed(path);
   nbClosed(path);
@@ -510,6 +518,7 @@ function closeTab(path: string): void {
 }
 async function saveFile(path: string | null = active): Promise<boolean> {
   const b = path ? buffers.get(path) : undefined;
+  if (b?.big) return saveBig(b);
   if (b?.kind !== 'text') return false;
   nbFlush(b);
   if (b.untitled) return saveUntitled(b);
@@ -518,9 +527,18 @@ async function saveFile(path: string | null = active): Promise<boolean> {
     if (choice === 'reload') { loadDiskVersion(b); return false; }
     if (choice !== 'overwrite') return false;
   }
-  const text = b.text;
-  try { await api.fs.writeFile(b.path, b.eol === '\r\n' ? text.replaceAll('\n', '\r\n') : text); }
-  catch (e) { toast(`Couldn't save ${baseName(b.path)}: ${errMsg(e)}`); return false; }
+  let text: string;
+  try {
+    // No document yet (an agent's draft, or one the engine dropped): the file is made if it isn't there, opened in
+    // the engine (which reads what it holds now) and brought to this text, then saved through it.
+    if (!b.doc && !b.docSkip && !engineOff) {
+      try { await api.fs.createFile(b.path); } catch (e) { if (!/EEXIST/.test(errMsg(e))) throw e; }
+      if (!b.doc) await docOpen(b, null);
+    }
+    // Through the engine, or the old way without a document; either way the text the file now holds, which is what
+    // counts as saved (typing during the save may have moved b.text on from when it began).
+    text = await docSave(b);
+  } catch (e) { toast(`Couldn't save ${baseName(b.path)}: ${errMsg(e)}`); return false; }
   b.saved = text;
   b.disk = undefined;
   renderTabs(); renderTree(); flushSession();
@@ -570,7 +588,9 @@ function askDiskConflict(b: EditorBuffer): Promise<'overwrite' | 'reload' | null
 function loadDiskVersion(b: EditorBuffer): void {
   if (b.disk == null) return;
   remember(b, 'reload');
+  const before = b.text;
   b.text = b.saved = b.disk;
+  docSync(b, before, b.text);
   b.disk = undefined;
   if (b.ta) { const s = Math.min(b.ta.selectionStart, b.text.length); b.ta.value = b.text; b.ta.setSelectionRange(s, s); }
   if (b.path === active) renderCode();
@@ -580,8 +600,9 @@ function loadDiskVersion(b: EditorBuffer): void {
 // Saves several buffers; true when every one was saved. Files changed on disk ask in turn, so their questions
 // don't replace one another.
 async function saveBuffers(list: EditorBuffer[]): Promise<boolean> {
-  const saved = await Promise.all(list.filter(b => b.disk == null).map(b => saveFile(b.path)));
-  for (const b of list.filter(b => b.disk != null)) saved.push(await saveFile(b.path));
+  const asks = (b: EditorBuffer) => b.disk != null || !!b.big?.changedOnDisk;
+  const saved = await Promise.all(list.filter(b => !asks(b)).map(b => saveFile(b.path)));
+  for (const b of list.filter(asks)) saved.push(await saveFile(b.path));
   return saved.every(Boolean);
 }
 /* ----- Auto save (Settings → General → Editor) ----- */
@@ -600,7 +621,8 @@ function setAutoSave(mode: AutoSave): void {
   clearTimeout(autoSaveTimer);
   if (mode !== 'off') autoSaveNow();
 }
-const autoSavable = (b: EditorBuffer) => isDirty(b) && !b.untitled && b.disk == null && !locks[b.path];
+// Huge files never auto-save (each save writes the whole file); the engine's crash journal keeps their edits.
+const autoSavable = (b: EditorBuffer) => isDirty(b) && !b.untitled && b.disk == null && !b.big && !locks[b.path];
 function autoSaveNow(): void {
   clearTimeout(autoSaveTimer);
   if (autoSave === 'off') return;
