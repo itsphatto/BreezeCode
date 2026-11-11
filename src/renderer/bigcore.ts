@@ -125,3 +125,20 @@ function bigMove(head: DocPos, key: string, mods: BigMods, lines: number, page: 
   }
   return to(line, col, goal);
 }
+
+/** The last Find Next / Previous hit, as the engine reported it, with the query it was for and the selection the
+ *  surface showed for it (setSelection clamps a hit past a cut line's BIG_LONG_LINE to that column). */
+interface BigFindMemo { query: string; matchCase: boolean; hit: { line: number; col: number; len: number }; anchor: DocPos; head: DocPos }
+
+/** Where Find Next (dir 1) or Previous (dir -1) searches from. Normally the selection's end (start). But while the
+ *  selection is still exactly the one the last hit left, for the same query and case, it is that hit's real end
+ *  (start): a hit past the cut shows clamped, and searching from the clamped spot would find the same hit again. */
+function bigFindFrom(anchor: DocPos, head: DocPos, dir: 1 | -1, query: string, matchCase: boolean, memo: BigFindMemo | null): DocPos {
+  const same = !!memo && memo.query === query && memo.matchCase === matchCase
+    && posCmp(memo.anchor, anchor) === 0 && posCmp(memo.head, head) === 0;
+  if (same) {
+    const h = memo!.hit;
+    return dir === 1 ? { line: h.line, col: h.col + h.len } : { line: h.line, col: h.col };
+  }
+  return dir === 1 ? posMax(anchor, head) : posMin(anchor, head);
+}

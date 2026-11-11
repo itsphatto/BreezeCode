@@ -46,7 +46,7 @@ class BigSurface extends EventTarget {
   private painted: { line: number; item: DocLine | undefined }[] = [];
   private fetching: Promise<void> | null = null;
   private gen = 0;                         // bumped by reset: replies asked for before it are dropped
-  private pending = 0;                     // edits sent and not answered
+  private unanswered = 0;                  // edits sent and not answered (public as `pending`)
   private historyBusy = false;             // an undo or redo is waiting for the engine
   private failed = false;                  // a fetch failed: no more fetching until reset (see stop)
   private held = 0;                        // while > 0, input waits in `queue` (see hold)
@@ -130,6 +130,9 @@ class BigSurface extends EventTarget {
   get selection() { return { anchor: { ...this.anchor }, head: { ...this.head } }; }
   get hasSelection() { return posCmp(this.anchor, this.head) !== 0; }
   get topLine() { return Math.floor(this.top); }
+  /** Local edits sent to the engine and not yet answered. While above 0 the document has changes its replies don't
+   *  show yet: the owner counts it as unsaved (each edit also fires 'edited' as it is made). */
+  get pending() { return this.unanswered; }
   set topLine(n: number) { this.top = Math.max(0, Math.min(Math.floor(n), this.n - 1)); this.paint(); }
   get classList() { return this.root.classList; }
 
@@ -226,20 +229,21 @@ class BigSurface extends EventTarget {
     this.select(c, c, true);
     this.revealCaret();
     const gen = this.gen;
-    this.pending++;
+    this.unanswered++;
+    this.dispatchEvent(new Event('edited')); // synchronous: the owner marks the document unsaved before the reply
     this.src.edit(start, end, text, kind).then(r => {
-      this.pending--;
+      this.unanswered--;
       this.emitChange(r);
       if (gen === this.gen) this.syncCount(r);
     }, e => {
-      this.pending--;
+      this.unanswered--;
       this.fail(e);
       void this.recover();
     });
   }
   // Once nothing is in flight the engine's count and rev are the truth; a mismatch means the cache went wrong.
   private syncCount(r: DocState) {
-    if (this.pending || this.historyBusy || (r.lines === this.n && r.rev === this.cache.rev)) return;
+    if (this.unanswered || this.historyBusy || (r.lines === this.n && r.rev === this.cache.rev)) return;
     this.n = Math.max(1, r.lines);
     this.cache.rev = r.rev;
     this.cache.clear();
@@ -370,17 +374,19 @@ class BigSurface extends EventTarget {
   }
 
   // Held from the start, so input made meanwhile runs after it, in order. A cut deletes only once its text is safely
-  // on the clipboard: a refused copy (too large) deletes nothing.
+  // on the clipboard: a refused copy (too large) deletes nothing, and neither does one whose document was replaced
+  // meanwhile (a reset: engine restart, reload), since lo..hi belonged to the old one.
   private onCopy(e: ClipboardEvent, cut: boolean) {
     e.preventDefault();
     if (cut && this.refuse()) return;
     this.run(() => {
       if (!this.hasSelection) return;
+      const gen = this.gen;
       this.hold((async () => {
         try {
           const [lo, hi] = await this.textRange();
           await navigator.clipboard.writeText(await this.src.text(lo, hi));
-          if (cut) this.edit(lo, hi, '', 'delete'); // not insert(): that would queue behind this very hold
+          if (cut && gen === this.gen) this.edit(lo, hi, '', 'delete'); // not insert(): that would queue behind this very hold
         } catch (err) {
           this.fail(err);
         }
@@ -519,7 +525,7 @@ class BigSurface extends EventTarget {
           continue;
         }
         if (gen !== this.gen) continue;
-        const idle = !this.pending && !this.historyBusy;
+        const idle = !this.unanswered && !this.historyBusy;
         // Nothing in flight: this reply reflects every edit, so a rev it lacks means the count went wrong.
         if (!this.cache.put(w.first, r.items, r.rev)) {
           if (!idle) continue; // asked for before a local edit: ask again

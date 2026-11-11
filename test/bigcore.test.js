@@ -5,8 +5,8 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/bigcore.ts'), 'utf8')), ctx);
-const { BIG_LONG_LINE, posCmp, posMin, posMax, posAfterInsert, lineDelta, LineCache, bigMove } =
-  vm.runInContext('({ BIG_LONG_LINE, posCmp, posMin, posMax, posAfterInsert, lineDelta, LineCache, bigMove })', ctx);
+const { BIG_LONG_LINE, posCmp, posMin, posMax, posAfterInsert, lineDelta, LineCache, bigMove, bigFindFrom } =
+  vm.runInContext('({ BIG_LONG_LINE, posCmp, posMin, posMax, posAfterInsert, lineDelta, LineCache, bigMove, bigFindFrom })', ctx);
 
 const P = (line, col) => ({ line, col });
 // Values from a vm context have another prototype, so compare JSON-plain copies.
@@ -99,4 +99,37 @@ test('bigMove: End and Down past the last line never land inside a cut surrogate
   eq(bigMove(P(0, 5), 'ArrowDown', m, 1, 2, null, lenOf, textOf).head, P(0, 9999));
   eq(bigMove(P(0, 5), 'End', { shift: false, ctrl: true }, 1, 2, null, lenOf, textOf).head, P(0, 9999));
   eq(bigMove(P(0, 5), 'End', m, 1, 2, null, lenOf).head, P(0, 10000));            // no text: the caller clamps
+});
+
+// Find Next / Previous on hits past a cut line's BIG_LONG_LINE (the selection shows them clamped there).
+test('bigFindFrom: the first search starts at the selection', () => {
+  eq(bigFindFrom(P(3, 2), P(3, 7), 1, 'ab', false, null), P(3, 7));
+  eq(bigFindFrom(P(3, 7), P(3, 2), -1, 'ab', false, null), P(3, 2));
+});
+test('bigFindFrom: repeated Next on hits past the cut advances from the real hit', () => {
+  // the engine found "ab" at (5, 15000); the surface clamped the selection to (5, 10000)..(5, 10000)
+  const cut = P(5, BIG_LONG_LINE);
+  let memo = { query: 'ab', matchCase: false, hit: { line: 5, col: 15000, len: 2 }, anchor: cut, head: cut };
+  eq(bigFindFrom(cut, cut, 1, 'ab', false, memo), P(5, 15002));
+  // the next hit, at 18000, clamps to the same selection: the search still moves on
+  memo = { ...memo, hit: { line: 5, col: 18000, len: 2 } };
+  eq(bigFindFrom(cut, cut, 1, 'ab', false, memo), P(5, 18002));
+});
+test('bigFindFrom: backward mirrors it from the real hit start', () => {
+  const cut = P(5, BIG_LONG_LINE);
+  const memo = { query: 'ab', matchCase: true, hit: { line: 5, col: 15000, len: 2 }, anchor: cut, head: cut };
+  eq(bigFindFrom(cut, cut, -1, 'ab', true, memo), P(5, 15000));
+});
+test('bigFindFrom: a changed selection, query, or case forgets the last hit', () => {
+  const cut = P(5, BIG_LONG_LINE);
+  const memo = { query: 'ab', matchCase: false, hit: { line: 5, col: 15000, len: 2 }, anchor: cut, head: cut };
+  eq(bigFindFrom(P(9, 0), P(9, 0), 1, 'ab', false, memo), P(9, 0));       // the user moved the caret
+  eq(bigFindFrom(P(9, 4), P(9, 1), -1, 'ab', false, memo), P(9, 1));
+  eq(bigFindFrom(cut, cut, 1, 'abc', false, memo), cut);                   // a new query
+  eq(bigFindFrom(cut, cut, 1, 'ab', true, memo), cut);                     // the case setting changed
+});
+test('bigFindFrom: an ordinary hit gives the same spot as the selection', () => {
+  const memo = { query: 'x', matchCase: false, hit: { line: 2, col: 4, len: 3 }, anchor: P(2, 4), head: P(2, 7) };
+  eq(bigFindFrom(P(2, 4), P(2, 7), 1, 'x', false, memo), P(2, 7));
+  eq(bigFindFrom(P(2, 4), P(2, 7), -1, 'x', false, memo), P(2, 4));
 });

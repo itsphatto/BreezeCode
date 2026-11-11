@@ -18,12 +18,16 @@ let bigShown: EditorBuffer | undefined;
 
 const activeBig = (): EditorBuffer | undefined => { const b = activeBuf(); return b?.big ? b : undefined; };
 
-// The engine's latest word on a document; the tab's unsaved dot follows `dirty`.
+// The engine's latest word on a document; the tab's unsaved dot follows `dirty`. An edit the engine hasn't answered
+// yet (a save's reply can come back clean while one is on its way) still counts as unsaved.
 function bigState(b: EditorBuffer, big: BigDoc, r: DocState): void {
-  const flipped = big.dirty !== r.dirty;
-  big.dirty = r.dirty;
+  bigDirty(big, r.dirty || big.surface.pending > 0);
   big.lines = r.lines;
-  if (flipped) { renderTabs(); renderTree(); }
+}
+function bigDirty(big: BigDoc, dirty: boolean): void {
+  if (big.dirty === dirty) return;
+  big.dirty = dirty;
+  renderTabs(); renderTree();
 }
 
 async function openBig(b: EditorBuffer): Promise<void> {
@@ -46,6 +50,8 @@ async function openBig(b: EditorBuffer): Promise<void> {
   });
   s.root.classList.add('hidden'); // showBig shows it while its tab is active
   s.addEventListener('change', e => { if (b.big === big) bigState(b, big, (e as CustomEvent<DocState>).detail); });
+  // Unsaved from the keystroke on: a close, move, quit or outside change that comes before the reply must see it.
+  s.addEventListener('edited', () => { if (b.big === big) bigDirty(big, true); });
   s.addEventListener('selectionchange', () => { if (b.path === active && b.big === big) updateStatus(); });
   s.addEventListener('readonly', () => {
     if (bigWarned.has(b)) return;
@@ -76,6 +82,11 @@ function showBig(b: EditorBuffer | undefined): boolean {
 async function saveBig(b: EditorBuffer): Promise<boolean> {
   const big = b.big;
   if (!big) return false;
+  // Asked fresh too: a missed watcher event must not let the save overwrite someone else's change.
+  if (!big.changedOnDisk) {
+    try { if ((await api.doc.changed(big.doc)).changed) big.changedOnDisk = true; } catch { /* the save below reports it */ }
+    if (b.big !== big) return false;
+  }
   if (big.changedOnDisk) {
     const choice = await askDiskConflict(b);
     if (choice === 'reload') { await reloadBig(b, big); return false; }
@@ -105,26 +116,35 @@ async function reloadBig(b: EditorBuffer, big: BigDoc): Promise<void> {
   if (b.path === active) updateStatus();
 }
 
+// Documents closed in the engine by closeBig (b.big can still point at one): a late find count must not ask about it.
+const bigClosed = new WeakSet<BigDoc>();
+
 function closeBig(b: EditorBuffer): void {
   const big = b.big;
   if (!big) return;
+  bigClosed.add(big);
   nextBigOpen(b); // a reopen still on its way is dropped (and closes what it opened)
   big.surface.remove();
   void api.doc.close(big.doc).catch(() => {});
 }
 
+// The last hit Enter / Shift+Enter selected, per document: a hit past a cut line's 10,000th column shows clamped, so
+// the next step searches on from the real hit (see bigFindFrom) while the selection is still the one it left.
+const bigFindMemos = new WeakMap<BigDoc, BigFindMemo>();
+
 // Enter / Shift+Enter in the find bar: the next match after the selection, or the one before it.
 async function bigFindStep(b: EditorBuffer, dir: 1 | -1): Promise<void> {
-  const big = b.big, q = findInput.value;
+  const big = b.big, q = findInput.value, matchCase = findCase;
   if (!big || !q) return;
   const { anchor, head } = big.surface.selection;
-  const from = dir === 1 ? posMax(anchor, head) : posMin(anchor, head);
+  const from = bigFindFrom(anchor, head, dir, q, matchCase, bigFindMemos.get(big) ?? null);
   let r: DocState & { hit: (DocPos & { len: number }) | null };
-  try { r = await api.doc.find(big.doc, q, findCase, from, dir === -1); } catch (e) { toast(errMsg(e)); return; }
+  try { r = await api.doc.find(big.doc, q, matchCase, from, dir === -1); } catch (e) { toast(errMsg(e)); return; }
   if (b.big !== big || findInput.value !== q) return; // typed on meanwhile: that search counts, not this one
-  if (!r.hit) { $('#findCount').textContent = 'No results'; return; }
-  const start = { line: r.hit.line, col: r.hit.col };
-  big.surface.setSelection(start, { line: r.hit.line, col: r.hit.col + r.hit.len });
+  if (!r.hit) { bigFindMemos.delete(big); $('#findCount').textContent = 'No results'; return; }
+  const hit = { line: r.hit.line, col: r.hit.col, len: r.hit.len }, start = { line: hit.line, col: hit.col };
+  big.surface.setSelection(start, { line: hit.line, col: hit.col + hit.len });
+  bigFindMemos.set(big, { query: q, matchCase, hit, ...big.surface.selection }); // the selection as clamped
   await big.surface.reveal(start);
 }
 
@@ -142,9 +162,15 @@ function bigFindCount(b: EditorBuffer): Promise<void> {
 }
 async function bigCountNow(b: EditorBuffer, seq: number): Promise<void> {
   const big = b.big, q = findInput.value, out = $('#findCount');
-  if (!big || !q) { out.textContent = ''; return; }
+  // The tab may have closed during the 200 ms wait (its document is gone from the engine): nothing to count.
+  if (!big || !q || bigClosed.has(big) || buffers.get(b.path) !== b) { out.textContent = ''; return; }
+  const id = big.doc;
   let r: DocState & { count: number; capped: boolean };
-  try { r = await api.doc.count(big.doc, q, findCase); } catch (e) { if (seq === bigCountSeq) toast(errMsg(e)); return; }
+  try { r = await api.doc.count(id, q, findCase); } catch (e) {
+    // Closed or reopened under the count (tab closed, discard, engine restart): not worth an error.
+    if (seq === bigCountSeq && b.big === big && big.doc === id && !bigClosed.has(big)) toast(errMsg(e));
+    return;
+  }
   if (seq !== bigCountSeq) return; // a newer query (or file) is being counted
   out.textContent = r.capped ? '9999+ results' : r.count ? `${r.count} results` : 'No results';
 }
@@ -180,7 +206,8 @@ async function bigDiskChange(b: EditorBuffer, big: BigDoc): Promise<void> {
   let r: DocState & { changed: boolean };
   try { r = await api.doc.changed(big.doc); } catch { return; } // gone, or the engine is restarting
   if (b.big !== big || !r.changed) return;
-  if (big.dirty || r.dirty) big.changedOnDisk = true;
+  // An edit not yet answered is unsaved too: a reload now would drop it.
+  if (big.dirty || r.dirty || big.surface.pending > 0) big.changedOnDisk = true;
   else await reloadBig(b, big);
 }
 
@@ -190,7 +217,7 @@ api.doc.onDown(() => {
   for (const b of buffers.values()) if (b.big) void reopenBig(b, b.big);
 });
 async function reopenBig(b: EditorBuffer, big: BigDoc): Promise<void> {
-  const seq = nextBigOpen(b), s = big.surface;
+  const seq = nextBigOpen(b), s = big.surface, wasDirty = big.dirty;
   const top = s.topLine, { anchor, head } = s.selection;
   let r: DocOpen;
   try { r = await api.doc.open(b.path); } catch (e) {
@@ -206,6 +233,8 @@ async function reopenBig(b: EditorBuffer, big: BigDoc): Promise<void> {
   if (buffers.get(b.path) !== b || bigOpens.get(b) !== seq || b.big !== big) { void api.doc.close(r.doc).catch(() => {}); return; }
   big.doc = r.doc;
   bigState(b, big, r);
+  // Unsaved before the engine went down, clean now and nothing replayed: the journal didn't bring the edits back.
+  if (wasDirty && !r.dirty && !r.recovered) toast(`Unsaved edits to ${baseName(b.path)} could not be restored`);
   await s.reset(r);
   if (bigOpens.get(b) !== seq || b.big !== big) return;
   s.topLine = top;
@@ -231,7 +260,8 @@ async function bigMoved(b: EditorBuffer): Promise<void> {
 async function discardBig(list: EditorBuffer[]): Promise<void> {
   const dirty = list.filter(b => b.big?.dirty);
   await Promise.all(dirty.map(b => api.doc.close(b.big!.doc).catch(() => {})));
-  for (const b of dirty) if (b.big) void reopenBig(b, b.big);
+  // Thrown away on purpose, so clean: reopenBig must not report them as edits it couldn't restore.
+  for (const b of dirty) if (b.big) { bigDirty(b.big, false); void reopenBig(b, b.big); }
 }
 // Menu Select All: the surface's own Ctrl+A (its selectAll is private), sent to its input without bubbling.
 function bigSelectAll(b: EditorBuffer): void {
