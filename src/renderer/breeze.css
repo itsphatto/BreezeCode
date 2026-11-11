@@ -94,7 +94,8 @@
   --glass-strong: rgba(35, 35, 37, .74);
   --glass-line: rgba(255, 255, 255, .1);
   --glass-blur: blur(22px) saturate(160%);
-  --space-blur: blur(8px) saturate(160%); /* Breeze Space's prompt and terminal, over its stars */
+  --space-blur: blur(1px) saturate(160%); /* Breeze Space's prompt and terminal, over its stars */
+  --settings-blur: blur(10px) saturate(160%);
   /* Ink is the colour of hover washes and hairlines, as an "r, g, b" triple for rgba(var(--ink), alpha):
      white over the dark themes, black over the light one. */
   --ink: 255, 255, 255;
@@ -145,6 +146,7 @@
   --glass-strong: rgba(248, 245, 238, .98);
   --glass-blur: none;
   --space-blur: none;
+  --settings-blur: none;
   --glass-line: rgba(70, 55, 30, .12);
   /* Fibre grain: brown noise at a few percent, tiled over the big surfaces (see "paper grain" below). */
   --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .24 0 0 0 0 .13 0 0 0 .16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -754,12 +756,16 @@ button {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
-  transition: background-color .15s ease, box-shadow .18s ease, transform .12s cubic-bezier(.2, .8, .2, 1);
+  transition: background-color .15s ease, color .15s ease, box-shadow .18s ease, transform .12s cubic-bezier(.2, .8, .2, 1);
 }
 
 .ob-start:hover {
   background: #eef3ff;
   box-shadow: 0 8px 28px rgba(10, 30, 120, .36);
+}
+
+.ob-step[data-step="0"] .ob-start:hover {
+  color: #fff;
 }
 
 .ob-start:active {
@@ -917,6 +923,7 @@ button {
   background: rgba(255, 255, 255, .86);
   color: #14161c;
   caret-color: #1f4dff;
+  font-family: var(--font-ui);
   font-size: 16px;
 }
 
@@ -1289,6 +1296,7 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  contain: size; /* takes its height from Theme and Extra animation, so the scan's answer can't resize them */
 }
 
 .prefs #agentList {
@@ -1406,13 +1414,11 @@ button {
   font: inherit;
 }
 
-/* Text boxes stay flat when clicked into: no ring, glow or coloured edge. The edge only turns a neutral grey, so
-   keyboard users can still see which box they're in (WCAG 2.4.7). */
+/* Text boxes stay flat when clicked into: no ring, glow or lit edge. The caret shows which box you're in. */
 .input:focus,
 input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible,
 textarea:focus-visible {
   outline: none;
-  border-color: var(--text-2);
   box-shadow: none;
 }
 
@@ -5121,7 +5127,6 @@ body.resizing-h .term-body {
 }
 
 .composer-box:focus-within {
-  border-color: var(--text-2);
   box-shadow: none !important;
 }
 
@@ -5663,6 +5668,10 @@ textarea:not(:placeholder-shown) + .ph-rot {
   backdrop-filter: blur(6px);
   /* Faded here, not on the scrim: a fading parent cuts the blur off from the page behind until it's fully opaque. */
   animation: fade .35s cubic-bezier(.16, 1, .3, 1);
+}
+
+.scrim:has(> .settings-shell)::before {
+  backdrop-filter: blur(3px);
 }
 
 /* A dialog over Settings: Settings stays in place behind it, eased back a little, dimmed and still sharp. */
@@ -6373,6 +6382,7 @@ body.vibing .ide {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+  min-height: 118px; /* with Theme, tall enough for the full agent list */
 }
 
 .prefs .ob-motion .muted {
@@ -6606,7 +6616,6 @@ body.vibing .ide {
 .commit-box textarea:focus,
 .commit-box textarea:focus-visible {
   outline: none;
-  border-color: var(--text-2);
   box-shadow: none;
 }
 
@@ -8760,7 +8769,7 @@ body.vibe-side .vibe-panel {
    opens and closes on its width (the same animated layout change as the IDE's panels, body.layout-animating), with its
    contents keeping theirs so the lines don't rewrap on the way. */
 .box > .terminal {
-  --term-w: clamp(320px, 34vw, 560px);
+  --term-w: var(--box-term-w);
   grid-column: 4;
   grid-row: 2 / -1;
   width: var(--term-w);
@@ -9244,7 +9253,7 @@ body.layout-animating .box > .terminal.open {
 .box-side {
   grid-column: 1;
   grid-row: 2 / -1;
-  width: 248px;
+  width: var(--box-side-w);
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -10566,6 +10575,15 @@ body.layout-animating .box > .terminal.open {
   animation: screenSoftOut .2s ease forwards;
 }
 
+/* Clicked away while a debugger swap was still playing (swapScreen, setup.ts). */
+.swap-quick :is(.screen-soft-in, .screen-soft-in > .main, .screen-soft-in > .dbg-main) {
+  animation-duration: .12s;
+}
+
+.swap-quick .screen-out.screen-soft {
+  animation-duration: .1s;
+}
+
 @keyframes screenSoftIn {
   from {
     opacity: 0;
@@ -10804,10 +10822,6 @@ body.layout-animating .box > .terminal.open {
 
   .box-chat .empty h4:hover {
     scale: 1.015;
-  }
-
-  .box-composer .composer-box:hover {
-    border-color: color-mix(in srgb, var(--glass-line), var(--text-3));
   }
 
   .composer-access .ca-label,
@@ -12442,11 +12456,12 @@ body.layout-animating #previewPane {
 }
 
 /* ================= Settings pop-up ================= */
-/* Sized from the window: about three quarters of its width and most of its height, up to 1360 × 905, and never
+/* Sized from the window: about four fifths of its width and most of its height, up to 1480 × 905, and never
    smaller than fits (it fills a small window, less a margin). The side tab and the padding scale along with it;
    the text stays its size. */
 .modal.settings-shell {
-  width: clamp(min(720px, calc(100vw - 32px)), 74vw, 1360px);
+  backdrop-filter: var(--settings-blur);
+  width: clamp(min(720px, calc(100vw - 32px)), 80vw, 1480px);
   height: clamp(min(540px, calc(100vh - 32px)), 84vh, 905px);
   padding: 0;
   overflow: hidden;
@@ -12595,7 +12610,7 @@ body.layout-animating #previewPane {
 
 /* The pages get more room around them, and stop at a readable width on a wide window. */
 .set-pane {
-  max-width: 800px;
+  max-width: 920px;
   margin-inline: auto; /* centered in the space beside the side tab */
 }
 
@@ -12760,19 +12775,27 @@ body.layout-animating #previewPane {
 }
 
 .set-main {
+  --pad-top: clamp(22px, 2.2vw, 35px);
+  --pad-x: clamp(24px, 2.8vw, 49px);
+  --pad-bot: clamp(28px, 3vw, 49px);
   position: relative;
   overflow-y: auto;
-  padding: clamp(22px, 2.2vw, 35px) clamp(24px, 2.8vw, 49px) clamp(28px, 3vw, 49px);
+  padding: var(--pad-top) var(--pad-x) var(--pad-bot);
 }
 
-/* The pane fades and blurs out at its top and bottom edges while there is more to scroll that way: the mask fades
-   the rows, a sticky blur layer softens them, and both follow the scroll position (nothing shows when it all fits). */
-@property --fade-top { syntax: '<number>'; inherits: true; initial-value: 0; }
-@property --fade-bot { syntax: '<number>'; inherits: true; initial-value: 0; }
+/* The pane fades, blurs and squeezes at its top and bottom edges while there is more to scroll that way: the mask
+   fades the rows, a sticky layer softens them and presses them toward the edge (#squeeze-top and #squeeze-bot,
+   breeze.html: the nearer the edge, the further out it looks, so rows slow down and flatten on their way out), and
+   all of it follows the scroll position (nothing shows when it all fits). The mask is clear for the first 12px: the
+   squeeze has pulled the rows out of there, and what the layer would draw instead is their mirror image. */
+/* Not inherited: a value that changed on every scroll frame restyled every row in the pane (20ms a frame on a long
+   terminal). The pane uses them for its own mask only; each layer follows the scroll by itself. */
+@property --fade-top { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --fade-bot { syntax: '<number>'; inherits: false; initial-value: 0; }
 
 @supports (animation-timeline: scroll()) {
   .set-main {
-    mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent);
+    mask-image: linear-gradient(to bottom, transparent calc(var(--fade-top) * 12px), #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent calc(100% - var(--fade-bot) * 12px));
     animation: setFadeTop linear both, setFadeBot linear both;
     animation-timeline: scroll(self), scroll(self);
     animation-range: 0 48px, calc(100% - 48px) 100%;
@@ -12785,24 +12808,19 @@ body.layout-animating #previewPane {
     z-index: 4;
     display: block;
     height: 40px;
-    margin-inline: -28px;
+    margin-inline: calc(var(--pad-x) * -1);
     pointer-events: none;
-    backdrop-filter: blur(4px);
   }
 
   /* Each layer takes no room: its negative margins cancel its height, and it sits over the pane's padding. */
   .set-main::before {
-    top: -24px;
-    margin-block: -24px -16px;
-    mask-image: linear-gradient(#000, transparent);
-    opacity: var(--fade-top);
+    top: calc(var(--pad-top) * -1);
+    margin-block: calc(var(--pad-top) * -1) calc(var(--pad-top) - 40px);
   }
 
   .set-main::after {
-    bottom: -24px;
-    margin-block: -16px -24px;
-    mask-image: linear-gradient(transparent, #000);
-    opacity: var(--fade-bot);
+    bottom: calc(var(--pad-bot) * -1);
+    margin-block: calc(var(--pad-bot) - 40px) calc(var(--pad-bot) * -1);
   }
 
   /* The same for the side lists (Explorer, Search, Skills & Plugins), which also keep the side panels' fade-in,
@@ -12811,7 +12829,7 @@ body.layout-animating #previewPane {
   #searchResults,
   #skillList,
   #scm {
-    mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent);
+    mask-image: linear-gradient(to bottom, transparent calc(var(--fade-top) * 12px), #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent calc(100% - var(--fade-bot) * 12px));
     animation: fade .18s, setFadeTop linear both, setFadeBot linear both;
     animation-timeline: auto, scroll(self), scroll(self);
     animation-range: normal, 0 48px, calc(100% - 48px) 100%;
@@ -12838,7 +12856,6 @@ body.layout-animating #previewPane {
     height: 40px;
     margin-inline: -6px;
     pointer-events: none;
-    backdrop-filter: blur(4px);
   }
 
   #tree::before,
@@ -12847,8 +12864,6 @@ body.layout-animating #previewPane {
   #scm::before {
     top: 0;
     margin-block: 0 -40px;
-    mask-image: linear-gradient(#000, transparent);
-    opacity: var(--fade-top);
   }
 
   #tree::after,
@@ -12857,14 +12872,126 @@ body.layout-animating #previewPane {
   #scm::after {
     bottom: -10px;
     margin-block: -30px -10px;
-    mask-image: linear-gradient(transparent, #000);
-    opacity: var(--fade-bot);
   }
 
   /* Source Control's list has 12px of bottom padding, not 10px. */
   #scm::after {
     bottom: -12px;
     margin-block: -28px -12px;
+  }
+
+  /* And for Breeze Space's conversation and its terminal's output. */
+  .box-main,
+  #box > .terminal .term-body {
+    mask-image: linear-gradient(to bottom, transparent calc(var(--fade-top) * 12px), #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent calc(100% - var(--fade-bot) * 12px));
+    animation: setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0 48px, calc(100% - 48px) 100%;
+  }
+
+  :is(.box-main, #box > .terminal .term-body)::before,
+  :is(.box-main, #box > .terminal .term-body)::after {
+    content: "";
+    position: sticky;
+    z-index: 4;
+    display: block;
+    height: 40px;
+    pointer-events: none;
+  }
+
+  .box-main::before {
+    top: 0;
+    margin-block: 0 -40px;
+  }
+
+  .box-main::after {
+    bottom: 0;
+    margin-block: -40px 0;
+  }
+
+  /* The terminal's output has 6px of padding above and below, and 14px at the sides. */
+  #box > .terminal .term-body::before {
+    top: -6px;
+    margin: -6px -14px -34px;
+  }
+
+  #box > .terminal .term-body::after {
+    bottom: -6px;
+    margin: -34px -14px -6px;
+  }
+
+  :is(.set-main, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body)::before {
+    mask-image: linear-gradient(#000, transparent);
+    opacity: 0;
+    backdrop-filter: url(#squeeze-top) blur(4px);
+    animation: edgeLayerTop linear both;
+    animation-timeline: scroll();
+    animation-range: 0 48px;
+  }
+
+  :is(.set-main, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body)::after {
+    mask-image: linear-gradient(transparent, #000);
+    opacity: 0;
+    backdrop-filter: url(#squeeze-bot) blur(4px);
+    animation: edgeLayerBot linear both;
+    animation-timeline: scroll();
+    animation-range: calc(100% - 48px) 100%;
+  }
+
+  /* Under a dialog the layers go (the plain fade stays): its blur hides them, and the page under a dialog is drawn
+     again on every frame the dialog changes, so they were costing Settings frames as it scrolled. */
+  body:has(#modalRoot > .scrim) :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::before,
+  body:has(#modalRoot > .scrim) :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::after {
+    display: none;
+  }
+
+  /* The same goes for the frost on Breeze Space's prompt and terminal: a pixel of blur under the dialog's own. */
+  body:has(#modalRoot > .scrim) :is(.box-composer .composer-box, .box > .terminal) {
+    backdrop-filter: none;
+  }
+
+  /* Breeze Space's prompt scrolls inside its textarea, which can't hold the layers: the field around it holds them,
+     and follows the textarea's scroll by name. Two lines tall, so the edges are thin. */
+  .box-composer .prompt-field {
+    timeline-scope: --box-prompt;
+    mask-image: linear-gradient(to bottom, transparent calc(var(--fade-top) * 4px), #000 calc(var(--fade-top) * 12px), #000 calc(100% - var(--fade-bot) * 12px), transparent calc(100% - var(--fade-bot) * 4px));
+    animation: setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: --box-prompt, --box-prompt;
+    animation-range: 0 16px, calc(100% - 16px) 100%;
+  }
+
+  .box-composer .prompt-field textarea {
+    scroll-timeline: --box-prompt block;
+  }
+
+  .box-composer .prompt-field::before,
+  .box-composer .prompt-field::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    z-index: 2;
+    height: 12px;
+    pointer-events: none;
+  }
+
+  .box-composer .prompt-field::before {
+    top: 0;
+    mask-image: linear-gradient(#000, transparent);
+    opacity: 0;
+    backdrop-filter: url(#squeeze-top-thin) blur(2px);
+    animation: edgeLayerTop linear both;
+    animation-timeline: --box-prompt;
+    animation-range: 0 16px;
+  }
+
+  .box-composer .prompt-field::after {
+    bottom: 0;
+    mask-image: linear-gradient(transparent, #000);
+    opacity: 0;
+    backdrop-filter: url(#squeeze-bot-thin) blur(2px);
+    animation: edgeLayerBot linear both;
+    animation-timeline: --box-prompt;
+    animation-range: calc(100% - 16px) 100%;
   }
 }
 
@@ -12876,6 +13003,17 @@ body.layout-animating #previewPane {
 @keyframes setFadeBot {
   from { --fade-bot: 1; }
   to { --fade-bot: 0; }
+}
+
+/* The layers themselves: there while there is more to scroll that way, gone (their resting opacity) when it all fits. */
+@keyframes edgeLayerTop {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes edgeLayerBot {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 .set-close {
@@ -13829,7 +13967,7 @@ body.layout-animating #previewPane {
 
 .usage-win {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) 170px;
+  grid-template-columns: 104px minmax(0, 1fr) 230px;
   align-items: center;
   gap: 12px;
   margin-left: 32px;
@@ -13843,6 +13981,7 @@ body.layout-animating #previewPane {
 .usage-left {
   color: var(--text-3);
   text-align: right;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
@@ -14826,7 +14965,7 @@ body.layout-animating #previewPane {
 /* Controls (WCAG 1.4.11): a field's edge stands 3:1 off the paper, placeholders read at full text contrast, header
    icons rest at a strength you can still see, and an agent that isn't installed keeps a readable name. */
 :root[data-theme="light"] :is(.input, .select, .composer-box) { border-color: #887e6b; }
-:root[data-theme="light"] :is(.input:focus, .select:focus-visible, .composer-box:focus-within) { border-color: var(--text); } /* 3.9:1 off the resting edge */
+:root[data-theme="light"] .select:focus-visible { border-color: var(--text); } /* 3.9:1 off the resting edge */
 :root[data-theme="light"] ::placeholder { color: var(--text-3); }
 :root[data-theme="light"] .head-actions { opacity: .85; }
 :root[data-theme="light"] .set-agent.missing .nm { opacity: 1; color: var(--text-3); }
@@ -14844,6 +14983,7 @@ body.layout-animating #previewPane {
 /* The wordmarks and the swirl are white images: drawn dark here, except over the onboarding sky. */
 /* Home is off the sky (its own title bar), so its wordmark goes dark too. */
 :root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *),
+:root[data-theme="light"] .idle-logo,
 :root[data-theme="light"] .home-bar .logo img {
   filter: invert(.88);
 }
@@ -16953,10 +17093,6 @@ input.dbg-edit.bad:focus-visible {
   border-radius: 12px;
   background: var(--bg-2);
   transition: border-color .18s ease;
-}
-
-.pr-cm-new:focus-within {
-  border-color: color-mix(in srgb, var(--line) 50%, var(--text-3));
 }
 
 .pr-cm-new textarea {

@@ -12,6 +12,7 @@ const TEAM_CREW = [
 const TEAM_HOLD_MS = 50; // a beat with the block selected before the drag starts
 const TEAM_REST_MS = 30; // and one after letting go
 const TEAM_EXIT_MS = 220; // the crew leaving the window
+const TEAM_HURRY = 3; // how much faster it plays when the last swap was clicked away from
 // The cursor's corners as x, y and how round. The hot spot, (0, 0), is just inside the rounded tip.
 const TEAM_ARROW = [[-2, -2.5, 2.5], [-2, 18.5, 2.5], [5, 12.5, 2], [15, 11, 2]];
 function teamArrow(): Path2D {
@@ -214,7 +215,7 @@ function paintTeam(g: CanvasRenderingContext2D, tasks: TeamTask[], from: TeamPoi
 }
 
 // Plays it with `next` above `prev` and calls done when it has finished. Gives back how to stop early, and how long it takes.
-function teamSwap(prev: HTMLElement, next: HTMLElement, done: () => void): { stop: () => void; ms: number } {
+function teamSwap(prev: HTMLElement, next: HTMLElement, done: () => void, speed = 1): { stop: () => void; ms: number } {
   const [gone, come] = changedBlocks(teamBlocks(prev), teamBlocks(next));
   const { old, fresh, moved } = movedBlocks(gone, come);
   const from = [{ x: -30, y: innerHeight * .3 }, { x: innerWidth + 30, y: innerHeight * .2 }, { x: innerWidth * .3, y: innerHeight + 30 }, { x: innerWidth + 30, y: innerHeight * .8 }, { x: innerWidth * .6, y: -30 }];
@@ -246,7 +247,7 @@ function teamSwap(prev: HTMLElement, next: HTMLElement, done: () => void): { sto
   const t0 = performance.now();
   let frame = 0;
   const tick = (now: number) => {
-    const t = now - t0;
+    const t = (now - t0) * speed;
     if (t >= total) { done(); return; }
     for (const k of tasks) {
       if (t < k.start) continue;
@@ -260,7 +261,7 @@ function teamSwap(prev: HTMLElement, next: HTMLElement, done: () => void): { sto
   };
   tick(t0);
   return {
-    ms: total,
+    ms: total / speed,
     stop: () => {
       cancelAnimationFrame(frame);
       canvas.remove();

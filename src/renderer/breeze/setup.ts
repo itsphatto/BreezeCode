@@ -109,9 +109,11 @@ function detectTools(force = false): Promise<Detection> {
   $('#aiPill').className = 'pill'; swapText($('#aiPill'), 'Scanning');
   if (!appState.detect) $('#agentList').innerHTML = '<div class="row text-3"><div class="spinner sm"></div>Checking this computer</div>';
   detecting = api.sys.detect(force).then(d => {
+    const replacesSpinner = !!$('#agentList').querySelector('.spinner');
     appState.detect = d;
     fixSelectedAgent();
     renderDetection();
+    if (replacesSpinner && step === STEP.agent && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches) $$('#agentList > *').forEach((row, i) => riseIn(row, i * 60));
     return d;
   }).catch((e: unknown) => {
     $('#aiPill').className = 'pill warn'; swapText($('#aiPill'), 'Scan failed');
@@ -1263,6 +1265,9 @@ function swapScreen(to: string): void {
   }
 
   const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out') && !el.classList.contains('screen-prep'));
+  const debugSwap = !!prev && (prev.id === 'debug' || next.id === 'debug');
+  // Clicked away while a debugger swap is still playing: the next one plays faster.
+  const quick = debugSwap && (!!stopTeam || next.classList.contains('screen-out'));
   clearTimeout(swapTimer);
   stopTeam?.();
   stopTeam = null;
@@ -1282,13 +1287,13 @@ function swapScreen(to: string): void {
   // The new screen is laid out and painted unseen first (the caller fills it in right after this), and the swap only
   // plays once frames come steadily, so a slow machine doesn't stutter through it.
   next.classList.add('screen-prep');
-  void settleFrames(700).then(() => {
+  void settleFrames(quick ? 0 : 700).then(() => {
     if (seq !== swapSeq) return; // switched again meanwhile
     // Into or out of the debugger. Exaggerated: the debugger takes over panel by panel (teamswap.ts). Otherwise the
     // two pages, whose title and activity bars match, cross-fade in place, so it reads as one window changing page.
-    const debugSwap = !!prev && (prev.id === 'debug' || next.id === 'debug');
     const team = debugSwap && bigAnim;
     const soft = debugSwap && !team;
+    document.documentElement.classList.toggle('swap-quick', quick);
     if (team) { // teamswap.ts
       prev.classList.add('screen-team');
       next.classList.add('screen-team');
@@ -1327,7 +1332,7 @@ function swapScreen(to: string): void {
     prev.addEventListener('animationend', onEnd);
     swapTimer = setTimeout(done, climb || fall ? LIFT_MS : 900);
     if (team) {
-      const play = teamSwap(prev, next, done);
+      const play = teamSwap(prev, next, done, quick ? TEAM_HURRY : 1);
       stopTeam = play.stop;
       clearTimeout(swapTimer);
       swapTimer = setTimeout(done, play.ms + 500);

@@ -27,6 +27,7 @@ test('narrower model ids win over wider ones', () => {
 });
 
 test('short names, a context suffix and unknown models', () => {
+  assert.deepEqual(priceOf('fable'), priceOf('claude-fable-5-1'));
   assert.deepEqual(priceOf('opus'), priceOf('claude-opus-5-5'));
   assert.deepEqual(priceOf('Sonnet'), priceOf('claude-sonnet-5-5'));
   assert.deepEqual(priceOf('claude-opus-5-5[1m]'), priceOf('claude-opus-5-5'));

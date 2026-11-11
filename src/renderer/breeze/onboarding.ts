@@ -382,7 +382,7 @@ const SIGNIN_PANEL = `<div class="signin-btns" data-si="choices">
   </div>
   <div class="waiting hidden" data-si="wait">
     <div class="spinner"></div><div data-si="msg">Waiting for your browser</div>
-    <div class="device-code hidden" data-si="code"><span data-si="codeText"></span><button class="btn btn-sm" data-si="copy">Copy</button><button class="btn btn-sm" data-si="openPage">Open page ${svgIcon('external', 12)}</button></div>
+    <div class="device-code hidden" data-si="code"><span data-si="codeText"></span><button class="btn btn-sm" data-si="copy">Copy</button><button class="btn btn-sm" data-si="openPage">Open page</button></div>
     <button class="btn btn-sm" data-si="cancel">Cancel</button>
   </div>`;
 const onboardSignin = $('#obSignin');
@@ -452,7 +452,7 @@ function addAccount(): void {
 }
 api.auth.onEvent(ev => {
   if (ev.t === 'code') {
-    si('msg').textContent = 'Enter this code on the GitHub page that just opened:';
+    si('msg').textContent = 'Code copied. Paste it on the GitHub page that just opened:';
     si('codeText').textContent = ev.code ?? '';
     si('code').classList.remove('hidden');
     si('openPage').onclick = () => background(api.sys.openExternal(ev.uri ?? 'https://github.com/login/device'));

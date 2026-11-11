@@ -29,7 +29,8 @@ const PRICES: [RegExp, Price][] = [
 ];
 const HAIKU_LONG: { over: number; price: Price } = { over: 100_000, price: [0.5, 0.625, 0.05, 2.5] };
 // Claude Code can log the short names it was started with.
-const ALIASES: Record<string, string> = { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
+// A bare 'fable' is assumed to be claude-fable-5-1; change it if logs show another version.
+const ALIASES: Record<string, string> = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
 
 function priceOf(model: unknown): Price | null {
   const id = String(model || '').toLowerCase().trim();

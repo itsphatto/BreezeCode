@@ -75,7 +75,9 @@ function startSpace(): void {
   if (!ctx) return;
   const stars = scatterSpecks(SPACE_STARS), dust = scatterSpecks(SPACE_DUST);
   let w = 0, h = 0, last = 0, frame = 0;
-  const showing = () => !document.hidden && !$('#box').classList.contains('hidden') && !document.body.matches('.vibing:not(.vibe-side)'); // beside Vibe Mode the sky still shows
+  // Not under a dialog either: its blur hides the drift, and every frame drawn behind one costs the dialog a frame.
+  const showing = () => !document.hidden && !$('#box').classList.contains('hidden') && !document.body.matches('.vibing:not(.vibe-side)') // beside Vibe Mode the sky still shows
+    && !document.querySelector('#modalRoot > .scrim');
   const fit = () => {
     const dpr = Math.min(devicePixelRatio || 1, 1.5);
     w = canvas.clientWidth; h = canvas.clientHeight;

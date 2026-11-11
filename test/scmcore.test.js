@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/breeze/scmcore.ts'), 'utf8')), ctx);
-const { parsePatch, prStatus, prListState, prHasConflict } = vm.runInContext('({ parsePatch, prStatus, prListState, prHasConflict })', ctx);
+const { parsePatch, prStatus, prListState, prHasConflict, scmSyncFrame } = vm.runInContext('({ parsePatch, prStatus, prListState, prHasConflict, scmSyncFrame })', ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 test('parsePatch numbers lines from the hunk header', () => {
@@ -53,4 +53,15 @@ test('prListState reports no-branch first, then loading, errors and ok', () => {
   assert.equal(prListState({ signedIn: true, branch: 'main', result: null }), 'loading');
   assert.equal(prListState({ signedIn: true, branch: 'main', result: { ok: false, error: 'rate-limited' } }), 'rate-limited');
   assert.equal(prListState({ signedIn: true, branch: 'main', result: { ok: true, data: [] } }), 'ok');
+});
+
+test('scmSyncFrame takes up no room when shut and matches the resting box when open', () => {
+  const shut = plain(scmSyncFrame(0, 170, 6, 10)), open = plain(scmSyncFrame(170, 170, 6, 10));
+  assert.deepEqual([shut.flexBasis, shut.marginLeft, shut.paddingLeft, shut.borderLeftWidth, shut.opacity], ['0px', '-6px', '0px', '0px', 0]);
+  assert.deepEqual([open.flexBasis, open.marginLeft, open.paddingLeft, open.borderLeftWidth, open.opacity], ['170px', '0px', '10px', '1px', 1]);
+});
+
+test('scmSyncFrame scales the box with the width, so a morph can restart from part-way', () => {
+  const half = plain(scmSyncFrame(85, 170, 6, 10));
+  assert.deepEqual([half.marginLeft, half.paddingLeft, half.opacity], ['-3px', '5px', .5]);
 });
