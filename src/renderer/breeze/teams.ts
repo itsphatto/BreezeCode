@@ -468,7 +468,7 @@ function dropUnwrittenDrafts(r: Run): void {
     const b = buffers.get(path);
     if (r.files.has(path) || !b || isDirty(b)) continue;
     if (openTabs.includes(path)) dropTab(path);
-    else { b.ta?.remove(); buffers.delete(path); }
+    else { b.ta?.remove(); if (b.doc != null) docClose(b); buffers.delete(path); } // as dropTab does
     dropped = true;
   }
   if (dropped) { renderTabs(); renderEditor(); }

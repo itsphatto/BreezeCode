@@ -156,13 +156,6 @@ function docClose(b: EditorBuffer): void {
   b.doc = b.docQ = undefined;
 }
 
-/** After a move: the document opens again at the buffer's new path. The file there needn't be `b.saved` (it may have
- *  changed on disk), so the engine's text is read and the page's text synced onto it. */
-async function docMoved(b: EditorBuffer): Promise<void> {
-  docClose(b);
-  await docOpen(b, null);
-}
-
 // The engine stopped, and every document with it: each opens again and is brought up to the page's text. bigfile.ts
 // reopens the huge files with its own listener.
 api.doc.onDown(() => {
