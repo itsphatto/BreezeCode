@@ -1,30 +1,34 @@
 // The local LLM agent's working memory: what goes into each request, and the text formats of its file tools.
 // Plain functions with no Electron, so test/agentbrain.test.js can cover them.
-const path = require('node:path');
+import * as path from 'node:path';
+
+export interface ToolCall { id: string; type?: string; function?: { name?: string; arguments?: string } }
+export interface ChatMessage { role: string; content?: string | null; tool_calls?: ToolCall[]; tool_call_id?: string; [key: string]: unknown }
+export interface SearchHit { path: string; line: number; text: string }
 
 // A rough token count (about 3.5 characters per token for code and English). Good enough to budget with.
-const tokensOf = text => Math.ceil(String(text ?? '').length / 3.5);
-function messageTokens(m) {
+const tokensOf = (text: unknown): number => Math.ceil(String(text ?? '').length / 3.5);
+function messageTokens(m: ChatMessage): number {
   let n = 4 + tokensOf(m.content);
   for (const c of m.tool_calls || []) n += 4 + tokensOf(c.function?.name) + tokensOf(c.function?.arguments);
   return n;
 }
-const historyTokens = messages => messages.reduce((n, m) => n + messageTokens(m), 0);
+const historyTokens = (messages: ChatMessage[]): number => messages.reduce((n, m) => n + messageTokens(m), 0);
 
 /* ----- Project map: one line per folder, shallow folders first, cut to fit ----- */
-function projectMap(relFiles, maxChars = 2400) {
-  const dirs = new Map();
+function projectMap(relFiles: string[], maxChars = 2400): string {
+  const dirs = new Map<string, string[]>();
   for (const f of relFiles) {
     const d = path.posix.dirname(f);
     if (!dirs.has(d)) dirs.set(d, []);
-    dirs.get(d).push(path.posix.basename(f));
+    dirs.get(d)!.push(path.posix.basename(f));
   }
-  const depth = d => (d === '.' ? 0 : d.split('/').length);
+  const depth = (d: string) => (d === '.' ? 0 : d.split('/').length);
   const keys = [...dirs.keys()].sort((a, b) => depth(a) - depth(b) || a.localeCompare(b));
-  const lines = [];
+  const lines: string[] = [];
   let used = 0;
   for (const d of keys) {
-    const names = dirs.get(d).sort();
+    const names = dirs.get(d)!.sort();
     const list = names.length > 12 ? `${names.slice(0, 12).join(', ')}, … (+${names.length - 12} more)` : names.join(', ');
     const line = `${d === '.' ? './' : `${d}/`}: ${list}`;
     if (used + line.length + 1 > maxChars) break;
@@ -39,7 +43,7 @@ function projectMap(relFiles, maxChars = 2400) {
 const READ_LINES = 120;      // lines returned when no end_line is given
 const READ_MAX_LINES = 400;  // most lines one call may return
 const LINE_MAX = 400;        // longer lines (minified code) are cut
-function readRange(text, rel, start, end) {
+function readRange(text: unknown, rel: string, start?: unknown, end?: unknown): string {
   const lines = String(text).split(/\r?\n/);
   const total = lines.length;
   const from = Math.min(Math.max(1, Math.floor(Number(start) || 1)), total);
@@ -52,13 +56,13 @@ function readRange(text, rel, start, end) {
 
 /* ----- edit_file: replace one exact snippet ----- */
 // Small models often paste the "12| " prefixes from read_file back in; those are removed when every line has one.
-function stripLineNumbers(s) {
+function stripLineNumbers(s: unknown): string {
   const lines = String(s).split('\n');
   const numbered = /^\s*\d+\| ?/;
   return lines.filter(l => l.trim()).every(l => numbered.test(l)) ? lines.map(l => l.replace(numbered, '')).join('\n') : String(s);
 }
 // Returns the new text and the line the change starts on; throws with advice the model can act on.
-function applyEdit(text, oldText, newText) {
+function applyEdit(text: unknown, oldText: unknown, newText: unknown): { text: string; line: number } {
   const src = String(text);
   const crlf = src.includes('\r\n');
   const body = src.replace(/\r\n/g, '\n');
@@ -74,13 +78,13 @@ function applyEdit(text, oldText, newText) {
 }
 
 /* ----- search_files: hits grouped by file ----- */
-function formatHits(hits, max = 40) {
+function formatHits(hits: SearchHit[], max = 40): string {
   if (!hits.length) return 'No matches.';
-  const byFile = new Map();
+  const byFile = new Map<string, string[]>();
   for (const h of hits.slice(0, max)) {
     if (!byFile.has(h.path)) byFile.set(h.path, []);
     const t = h.text.trim();
-    byFile.get(h.path).push(`  ${h.line + 1}: ${t.length > 160 ? `${t.slice(0, 160)}…` : t}`);
+    byFile.get(h.path)!.push(`  ${h.line + 1}: ${t.length > 160 ? `${t.slice(0, 160)}…` : t}`);
   }
   const out = [...byFile].map(([f, lines]) => `${f}\n${lines.join('\n')}`);
   if (hits.length > max) out.push(`… ${hits.length - max} more matches. Search for something more specific.`);
@@ -89,29 +93,30 @@ function formatHits(hits, max = 40) {
 
 // Where search_files looks: a folder or file ("src/main"), a file name pattern ("*.css") anywhere, or a
 // pattern on the whole path ("src/**/*.ts"). Returns a test on project-relative paths with forward slashes.
-function pathFilter(pattern) {
+function pathFilter(pattern: unknown): (rel: string) => boolean {
   const p = String(pattern ?? '').trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
   if (!p || p === '.') return () => true;
   if (!/[*?]/.test(p)) {
     const want = p.toLowerCase();
-    return rel => { const r = rel.toLowerCase(); return r === want || r.startsWith(`${want}/`); };
+    return (rel: string) => { const r = rel.toLowerCase(); return r === want || r.startsWith(`${want}/`); };
   }
-  const glob = p.split(/(\*\*\/|\*\*|\*|\?)/).map(part => ({ '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*', '?': '[^/]' })[part]
+  const globParts: Record<string, string> = { '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*', '?': '[^/]' };
+  const glob = p.split(/(\*\*\/|\*\*|\*|\?)/).map(part => globParts[part]
     ?? part.replace(/[.+^${}()|[\]\\]/g, String.raw`\$&`)).join('');
   const re = new RegExp(`^${glob}$`, 'i');
-  return p.includes('/') ? rel => re.test(rel) : rel => re.test(rel.slice(rel.lastIndexOf('/') + 1));
+  return p.includes('/') ? (rel: string) => re.test(rel) : (rel: string) => re.test(rel.slice(rel.lastIndexOf('/') + 1));
 }
 // What search_files looks for: a function from a line to the column of the first match, or -1.
-function lineMatcher(query, { regex = false, caseSensitive = false } = {}) {
+function lineMatcher(query: unknown, { regex = false, caseSensitive = false }: { regex?: boolean; caseSensitive?: boolean } = {}): (line: string) => number {
   const q = String(query ?? '');
   if (!q) throw new Error('query is empty.');
   if (regex) {
-    let re;
-    try { re = new RegExp(q, caseSensitive ? '' : 'i'); } catch (err) { throw new Error(`That regex doesn't work (${err.message}). Fix it, or search for plain text.`); }
-    return line => re.exec(line)?.index ?? -1;
+    let re: RegExp;
+    try { re = new RegExp(q, caseSensitive ? '' : 'i'); } catch (err) { throw new Error(`That regex doesn't work (${(err as Error).message}). Fix it, or search for plain text.`); }
+    return (line: string) => re.exec(line)?.index ?? -1;
   }
   const needle = caseSensitive ? q : q.toLowerCase();
-  return line => (caseSensitive ? line : line.toLowerCase()).indexOf(needle);
+  return (line: string) => (caseSensitive ? line : line.toLowerCase()).indexOf(needle);
 }
 
 /* ----- A streamed reply (server-sent events from /chat/completions) ----- */
@@ -119,12 +124,13 @@ function lineMatcher(query, { regex = false, caseSensitive = false } = {}) {
 // wasn't streamed has. `onDelta(text, thinking, calls)` hears the text so far, whether the model thought in a
 // separate field (Ollama, LM Studio and llama.cpp send it as reasoning or reasoning_content), and the tool
 // calls so far, their arguments maybe cut off mid-way.
-function replyReader(onDelta = () => {}, newId = () => 'call_0') {
-  const calls = [];
-  let buf = '', text = '', thinking = false, usage;
-  const take = data => {
+function replyReader(onDelta: (text: string, thinking: boolean, calls: ToolCall[]) => void = () => {}, newId: () => string = () => 'call_0') {
+  const calls: ToolCall[] = [];
+  let buf = '', text = '', thinking = false, usage: unknown;
+  const take = (data: string) => {
     if (data === '[DONE]') return;
-    let j;
+    let j: any; // one parsed server-sent JSON chunk; providers differ in the fields they add
+
     try { j = JSON.parse(data); } catch { return; }
     if (j.error) throw new Error(j.error.message || String(j.error));
     if (j.usage) usage = j.usage;
@@ -132,7 +138,7 @@ function replyReader(onDelta = () => {}, newId = () => 'call_0') {
     if (!d) return;
     if (d.reasoning || d.reasoning_content) thinking = true;
     for (const c of d.tool_calls || []) {
-      const call = calls[c.index ?? calls.length] ??= { id: '', type: 'function', function: { name: '', arguments: '' } };
+      const call: ToolCall & { function: { name: string; arguments: string } } = (calls[c.index ?? calls.length] ??= { id: '', type: 'function', function: { name: '', arguments: '' } }) as never;
       if (c.id) call.id = c.id;
       call.function.name ||= c.function?.name ?? '';
       call.function.arguments += c.function?.arguments ?? '';
@@ -140,19 +146,19 @@ function replyReader(onDelta = () => {}, newId = () => 'call_0') {
     if (d.content) text += d.content;
     onDelta(text, thinking, calls);
   };
-  const line = l => { const t = l.trim(); if (t.startsWith('data:')) take(t.slice(5).trim()); };
+  const line = (l: string) => { const t = l.trim(); if (t.startsWith('data:')) take(t.slice(5).trim()); };
   return {
-    push(piece) {
+    push(piece: string): void {
       buf += piece;
       for (let nl = buf.indexOf('\n'); nl !== -1; nl = buf.indexOf('\n')) {
         line(buf.slice(0, nl));
         buf = buf.slice(nl + 1);
       }
     },
-    end() {
+    end(): { usage: unknown; choices: { message: { content: string; tool_calls?: ToolCall[] } }[] } {
       line(buf);
       buf = '';
-      const toolCalls = calls.filter(c => c?.function.name).map(c => ({ ...c, id: c.id || newId() }));
+      const toolCalls = calls.filter(c => c?.function?.name).map(c => ({ ...c, id: c.id || newId() }));
       return { usage, choices: [{ message: { content: text, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] };
     },
   };
@@ -160,8 +166,8 @@ function replyReader(onDelta = () => {}, newId = () => 'call_0') {
 
 // One string field of a tool call's arguments while they are still arriving: { text, done }, or null before
 // the field starts. A half-sent escape at the end is left for the next piece.
-const ESCAPES = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f' };
-function partialString(json, key) {
+const ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f' };
+function partialString(json: unknown, key: string): { text: string; done: boolean } | null {
   const src = String(json ?? '');
   const m = new RegExp(String.raw`"${key}"\s*:\s*"`).exec(src);
   if (!m) return null;
@@ -187,16 +193,16 @@ function partialString(json, key) {
 
 /* ----- Repeated calls ----- */
 // The same tool with the same arguments, whatever the key order.
-function callKey(name, args) {
-  const sort = v => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sort(v[k])])) : v);
+function callKey(name: string, args: unknown): string {
+  const sort = (v: unknown): unknown => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sort((v as Record<string, unknown>)[k])])) : v);
   return `${name}:${JSON.stringify(sort(args ?? {}))}`;
 }
 
 /* ----- Context budget ----- */
 const WRITE_FIELDS = ['content', 'new_text', 'old_text'];
 // A tool call's arguments with the bulky text fields replaced by their size: the change is on disk already.
-function slimArgs(json) {
-  let a;
+function slimArgs(json: string | undefined): string | undefined {
+  let a: Record<string, unknown>;
   try { a = JSON.parse(json || '{}'); } catch { return json; }
   let changed = false;
   for (const k of WRITE_FIELDS) {
@@ -204,28 +210,28 @@ function slimArgs(json) {
   }
   return changed ? JSON.stringify(a) : json;
 }
-function toolNames(messages) {
-  const names = new Map();
+function toolNames(messages: ChatMessage[]): Map<string, string> {
+  const names = new Map<string, string>();
   for (const m of messages) for (const c of m.tool_calls || []) names.set(c.id, `${c.function?.name ?? 'tool'} ${slimArgs(c.function?.arguments)}`);
   return names;
 }
-function stub(m, names) {
+function stub(m: ChatMessage, names: Map<string, string>): ChatMessage {
   const first = String(m.content ?? '').split('\n', 1)[0].slice(0, 100);
-  return { ...m, content: `[Trimmed to save context. It was ${names.get(m.tool_call_id) ?? 'a tool call'}, starting: ${first}. Call the tool again if you need it.]` };
+  return { ...m, content: `[Trimmed to save context. It was ${names.get(m.tool_call_id ?? '') ?? 'a tool call'}, starting: ${first}. Call the tool again if you need it.]` };
 }
-function slim(m) {
+function slim(m: ChatMessage): ChatMessage {
   if (!m.tool_calls) return m;
   return { ...m, tool_calls: m.tool_calls.map(c => ({ ...c, function: { ...c.function, arguments: slimArgs(c.function?.arguments) } })) };
 }
 // Earlier turns keep the conversation but not the raw tool output: what the model concluded is in its replies.
-function settle(messages, upTo = messages.length) {
+function settle(messages: ChatMessage[], upTo = messages.length): ChatMessage[] {
   const names = toolNames(messages);
   return messages.map((m, i) => (i >= upTo ? m : m.role === 'tool' ? (m.content?.startsWith('[Trimmed') ? m : stub(m, names)) : slim(m)));
 }
 // What one request sends: the system prompt, earlier turns settled, then the current turn. While it is over
 // `budget` tokens the oldest tool results of this turn are trimmed (the newest two stay), then whole early
 // exchanges are dropped, and last of all the newest results are cut short.
-function compactHistory(messages, budget) {
+function compactHistory(messages: ChatMessage[], budget: number): ChatMessage[] {
   const lastUser = messages.map(m => m.role).lastIndexOf('user');
   let out = settle(messages, Math.max(1, lastUser));
   if (historyTokens(out) <= budget) return out;
@@ -253,7 +259,4 @@ function compactHistory(messages, budget) {
   return out;
 }
 
-module.exports = {
-  tokensOf, messageTokens, historyTokens, projectMap, readRange, stripLineNumbers, applyEdit, formatHits, pathFilter, lineMatcher, replyReader, partialString, callKey,
-  slimArgs, settle, compactHistory, READ_LINES, READ_MAX_LINES,
-};
+export { tokensOf, messageTokens, historyTokens, projectMap, readRange, stripLineNumbers, applyEdit, formatHits, pathFilter, lineMatcher, replyReader, partialString, callKey, slimArgs, settle, compactHistory, READ_LINES, READ_MAX_LINES };

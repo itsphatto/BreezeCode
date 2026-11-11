@@ -1,12 +1,21 @@
 // Discord Rich Presence over Discord's local IPC socket (no dependencies).
 // Each frame is: op (int32 LE) · length (int32 LE) · JSON body.
-const crypto = require('node:crypto');
-const net = require('node:net');
-const path = require('node:path');
+import * as crypto from 'node:crypto';
+import * as net from 'node:net';
+import * as path from 'node:path';
+import type { Socket } from 'node:net';
+
+export interface DiscordUser { id?: string; username?: string; [key: string]: unknown }
+// A frame's JSON body; Discord's fields vary by command and event.
+interface Frame { evt?: string; nonce?: string; message?: string; data?: any; [key: string]: unknown }
+export interface Activity {
+  details?: string; state?: string; startTimestamp?: number; largeImageKey?: string; largeImageText?: string;
+  smallImageKey?: string; smallImageText?: string;
+}
 
 const OP = { HANDSHAKE: 0, FRAME: 1, CLOSE: 2, PING: 3, PONG: 4 };
 
-function encode(op, data) {
+function encode(op: number, data: unknown): Buffer {
   const body = Buffer.from(JSON.stringify(data));
   const head = Buffer.alloc(8);
   head.writeInt32LE(op, 0);
@@ -19,8 +28,10 @@ const MAX_FRAME = 1024 * 1024;
 
 // Turns a byte stream into whole frames, however the chunks are cut. Throws on a length no frame can have.
 class FrameReader {
-  constructor(onFrame) { this.buf = Buffer.alloc(0); this.onFrame = onFrame; }
-  push(chunk) {
+  buf: Buffer = Buffer.alloc(0);
+  onFrame: (op: number, data: Frame | null) => void;
+  constructor(onFrame: (op: number, data: Frame | null) => void) { this.onFrame = onFrame; }
+  push(chunk: Buffer): void {
     this.buf = Buffer.concat([this.buf, chunk]);
     while (this.buf.length >= 8) {
       const len = this.buf.readInt32LE(4);
@@ -32,7 +43,7 @@ class FrameReader {
       const op = this.buf.readInt32LE(0);
       const body = this.buf.subarray(8, 8 + len).toString('utf8');
       this.buf = this.buf.subarray(8 + len);
-      let data = null;
+      let data: Frame | null = null;
       try { data = JSON.parse(body); } catch { /* ignore a malformed frame */ }
       this.onFrame(op, data);
     }
@@ -40,7 +51,7 @@ class FrameReader {
 }
 
 // Discord listens on discord-ipc-0 … discord-ipc-9 (the first free one).
-function ipcPaths(platform = process.platform, env = process.env) {
+function ipcPaths(platform: string = process.platform, env: NodeJS.ProcessEnv = process.env): string[] {
   const names = Array.from({ length: 10 }, (_, i) => `discord-ipc-${i}`);
   if (platform === 'win32') return names.map(n => `\\\\?\\pipe\\${n}`);
   const base = env.XDG_RUNTIME_DIR || env.TMPDIR || env.TMP || env.TEMP || '/tmp';
@@ -49,88 +60,95 @@ function ipcPaths(platform = process.platform, env = process.env) {
   return dirs.flatMap(d => names.map(n => path.posix.join(d, n)));
 }
 
-function tryConnect(p, timeout) {
+function tryConnect(p: string, timeout: number): Promise<Socket> {
   return new Promise((res, rej) => {
     const sock = net.createConnection(p);
     const t = setTimeout(() => { sock.destroy(); rej(new Error('timeout')); }, timeout);
     sock.once('connect', () => { clearTimeout(t); res(sock); });
-    sock.once('error', err => { clearTimeout(t); rej(err); });
+    sock.once('error', (err: Error) => { clearTimeout(t); rej(err); });
   });
 }
 
 class DiscordRpc {
-  constructor(clientId, { paths = ipcPaths(), pid = process.pid, timeout = 4000 } = {}) {
+  clientId: string;
+  paths: string[];
+  pid: number;
+  timeout: number;
+  sock: Socket | null = null;
+  pending = new Map<string, { res: (v: any) => void; rej: (e: Error) => void }>(); // nonce -> its promise
+  onClose: (() => void) | null = null;
+  user: DiscordUser | null | undefined;
+  constructor(clientId: unknown, { paths = ipcPaths(), pid = process.pid, timeout = 4000 }: { paths?: string[]; pid?: number; timeout?: number } = {}) {
     this.clientId = String(clientId);
     this.paths = paths;
     this.pid = pid;
     this.timeout = timeout;
-    this.sock = null;
-    this.pending = new Map(); // nonce -> { res, rej }
-    this.onClose = null;
   }
   get connected() { return !!this.sock; }
 
-  async connect() {
+  async connect(): Promise<DiscordUser | null | undefined> {
     if (this.sock) return this.user;
-    let sock = null;
+    let sock: Socket | null = null;
     for (const p of this.paths) {
       sock = await tryConnect(p, 800).catch(() => null);
       if (sock) break;
     }
     if (!sock) throw new Error("Discord isn't running on this computer. Open the Discord app, then try again.");
-    return new Promise((res, rej) => {
-      const fail = err => { this.drop(); rej(err); };
+    const conn = sock;
+    return new Promise<DiscordUser | null | undefined>((res, rej) => {
+      const fail = (err: Error) => { this.drop(); rej(err); };
       const t = setTimeout(() => fail(new Error('Discord did not answer')), this.timeout);
       const reader = new FrameReader((op, data) => {
-        if (op === OP.PING) { sock.write(encode(OP.PONG, data)); return; }
+        if (op === OP.PING) { conn.write(encode(OP.PONG, data)); return; }
         if (op === OP.CLOSE) { clearTimeout(t); fail(new Error(data?.message || 'Discord closed the connection')); return; }
         if (data?.evt === 'READY') { clearTimeout(t); this.user = data.data?.user ?? null; res(this.user); return; }
         if (data?.evt === 'ERROR' && !data.nonce) { clearTimeout(t); fail(new Error(data.data?.message || 'Discord refused the connection')); return; }
-        const wait = data?.nonce && this.pending.get(data.nonce);
-        if (!wait) return;
-        this.pending.delete(data.nonce);
+        const nonce = data?.nonce;
+        const wait = nonce && this.pending.get(nonce);
+        if (!data || !nonce || !wait) return;
+        this.pending.delete(nonce);
         if (data.evt === 'ERROR') wait.rej(new Error(data.data?.message || 'Discord refused the request'));
         else wait.res(data.data);
       });
-      this.sock = sock;
+      this.sock = conn;
       // A stream that can't be framed can't be trusted any further: drop the connection.
-      sock.on('data', c => {
-        try { reader.push(c); } catch (err) { clearTimeout(t); fail(err); }
+      conn.on('data', (c: Buffer) => {
+        try { reader.push(c); } catch (err) { clearTimeout(t); fail(err as Error); }
       });
-      sock.on('error', () => { /* 'close' follows */ });
-      sock.on('close', () => { clearTimeout(t); this.drop(); rej(new Error('Discord closed the connection')); });
-      sock.write(encode(OP.HANDSHAKE, { v: 1, client_id: this.clientId }));
+      conn.on('error', () => { /* 'close' follows */ });
+      conn.on('close', () => { clearTimeout(t); this.drop(); rej(new Error('Discord closed the connection')); });
+      conn.write(encode(OP.HANDSHAKE, { v: 1, client_id: this.clientId }));
     });
   }
 
-  request(cmd, args) {
+  request(cmd: string, args: unknown): Promise<any> {
     if (!this.sock) return Promise.reject(new Error('Not connected to Discord'));
     const nonce = crypto.randomUUID();
     return new Promise((res, rej) => {
       const t = setTimeout(() => { this.pending.delete(nonce); rej(new Error('Discord did not answer')); }, this.timeout);
-      this.pending.set(nonce, { res: v => { clearTimeout(t); res(v); }, rej: e => { clearTimeout(t); rej(e); } });
-      this.sock.write(encode(OP.FRAME, { cmd, args, nonce }));
+      this.pending.set(nonce, { res: (v: any) => { clearTimeout(t); res(v); }, rej: (e: Error) => { clearTimeout(t); rej(e); } });
+      this.sock!.write(encode(OP.FRAME, { cmd, args, nonce }));
     });
   }
 
   // `activity` null clears the presence.
-  setActivity(a) {
+  setActivity(a: Activity | null | undefined): Promise<any> {
     if (!a) return this.request('SET_ACTIVITY', { pid: this.pid });
-    const activity = { details: a.details, state: a.state, instance: false };
+    const activity: Record<string, any> = { details: a.details, state: a.state, instance: false };
     if (a.startTimestamp) activity.timestamps = { start: a.startTimestamp };
     if (a.largeImageKey) activity.assets = { large_image: a.largeImageKey, large_text: a.largeImageText || undefined };
     if (a.largeImageKey && a.smallImageKey) Object.assign(activity.assets, { small_image: a.smallImageKey, small_text: a.smallImageText || undefined });
     return this.request('SET_ACTIVITY', { pid: this.pid, activity });
   }
 
-  drop() {
+  drop(): void {
     const was = this.sock;
     this.sock = null;
     for (const w of this.pending.values()) w.rej(new Error('Discord closed the connection'));
     this.pending.clear();
     if (was) { was.destroy(); this.onClose?.(); }
   }
-  close() {
+  close(): void {
     if (this.sock) { try { this.sock.write(encode(OP.CLOSE, {})); } catch { /* already gone */ } }
     this.drop();
   }
@@ -144,22 +162,26 @@ class DiscordRpc {
 // - A set() still connecting when presence is turned off shows nothing; an old socket closing late never
 //   drops a newer one.
 class DiscordPresence {
-  constructor(makeRpc, { idleMs = 60000, gapMs = 4000, onError = () => {} } = {}) {
+  makeRpc: () => DiscordRpc;
+  idleMs: number;
+  gapMs: number;
+  onError: (err: Error) => void;
+  rpc: DiscordRpc | null = null;
+  connecting: Promise<DiscordUser | null | undefined> | null = null;
+  idleTimer: NodeJS.Timeout | undefined;
+  epoch = 0;                          // bumped by every clear()
+  wanted: Activity | null = null;     // the activity to show, or null for hidden
+  sent: string | null | undefined;    // what Discord was last told (JSON, or null), so repeats are skipped
+  sentAt = -Infinity;
+  flushTimer: NodeJS.Timeout | undefined;
+  constructor(makeRpc: () => DiscordRpc, { idleMs = 60000, gapMs = 4000, onError = () => {} }: { idleMs?: number; gapMs?: number; onError?: (err: Error) => void } = {}) {
     this.makeRpc = makeRpc;
     this.idleMs = idleMs;
     this.gapMs = gapMs;
     this.onError = onError;
-    this.rpc = null;
-    this.connecting = null;
-    this.idleTimer = null;
-    this.epoch = 0;         // bumped by every clear()
-    this.wanted = null;     // the activity to show, or null for hidden
-    this.sent = undefined;  // what Discord was last told (JSON, or null), so repeats are skipped
-    this.sentAt = -Infinity;
-    this.flushTimer = null;
   }
   get connected() { return !!this.rpc?.connected; }
-  connect() {
+  connect(): Promise<DiscordUser | null | undefined> {
     clearTimeout(this.idleTimer);
     if (this.connecting) return this.connecting;
     if (this.rpc?.connected) return Promise.resolve(this.rpc.user);
@@ -173,7 +195,7 @@ class DiscordPresence {
     return pending;
   }
   // Shows `activity` (connecting first if needed). Resolves with the Discord user.
-  async set(activity) {
+  async set(activity: Activity | null): Promise<DiscordUser | null | undefined> {
     const epoch = this.epoch;
     const user = await this.connect();
     if (epoch === this.epoch) {
@@ -183,7 +205,7 @@ class DiscordPresence {
     return user;
   }
   // Hides the status and keeps the connection for a quick "on" until it has idled.
-  clear() {
+  clear(): void {
     this.epoch++;
     this.wanted = null;
     this.flush();
@@ -191,7 +213,7 @@ class DiscordPresence {
     this.idleTimer = setTimeout(() => this.close(), this.idleMs);
     this.idleTimer.unref?.();
   }
-  flush() {
+  flush(): void {
     clearTimeout(this.flushTimer);
     if (!this.rpc?.connected) return;
     const next = this.wanted ? JSON.stringify(this.wanted) : null;
@@ -204,9 +226,9 @@ class DiscordPresence {
     }
     this.sentAt = Date.now();
     this.sent = next;
-    this.rpc.setActivity(this.wanted).catch(err => { this.sent = undefined; this.onError(err); });
+    this.rpc.setActivity(this.wanted).catch((err: Error) => { this.sent = undefined; this.onError(err); });
   }
-  close() {
+  close(): void {
     clearTimeout(this.idleTimer);
     clearTimeout(this.flushTimer);
     const rpc = this.rpc;
@@ -216,4 +238,4 @@ class DiscordPresence {
   }
 }
 
-module.exports = { encode, FrameReader, ipcPaths, DiscordRpc, DiscordPresence, OP };
+export { encode, FrameReader, ipcPaths, DiscordRpc, DiscordPresence, OP };
