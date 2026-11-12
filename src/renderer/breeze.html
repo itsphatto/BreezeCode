@@ -288,7 +288,7 @@
       </div>
     </section>
 
-    <!-- 3 · Preferences: theme, motion, then the agent -->
+    <!-- 3 · Preferences: theme, then the agent -->
     <section class="ob-step ob-flow setup prefs hidden" data-step="3" aria-labelledby="prefsHeading">
       <h2 id="prefsHeading" tabindex="-1">Make it yours</h2>
       <p class="lead">Change any of this later in Settings.</p>
@@ -298,13 +298,6 @@
             <h3 id="obThemeHeading">Theme</h3>
           </header>
           <div class="set-themes" id="obThemes" role="group" aria-labelledby="obThemeHeading"></div>
-        </div>
-        <div class="setup-card ob-motion">
-          <div class="set-text">
-            <h3 id="obMotionHeading">Extra animation</h3>
-            <p class="muted">Fly between Breeze Code and Breeze Space, and bring the debugger in panel by panel.</p>
-          </div>
-          <div class="set-ctl" id="obMotionCtl"></div>
         </div>
         <div class="setup-card ob-agents">
           <header>
@@ -610,7 +603,7 @@
         <div class="scm-view" id="scmPage">
           <div class="scm-left" id="scmLeft">
             <div class="side-head"><span>Source Control</span><span class="head-actions">
-                <button class="icon-btn hidden" id="scmGenMsg" data-act="git.genCommitMsg" title="Generate commit message" data-tooltip="Generate commit message"><svg data-i="sparkles" data-size="14"></svg></button>
+                <button class="icon-btn hidden" id="scmGenMsg" data-act="git.genCommitMsg" title="Generate commit message" data-tooltip="Generate commit message"><svg data-i="sparkles" data-size="14"></svg><span class="spinner sm" aria-hidden="true"></span></button>
                 <button class="icon-btn" id="scmRefresh" title="Refresh" aria-label="Refresh Source Control"><svg width="14" height="14"><use href="#i-refresh" /></svg></button>
                 <button class="icon-btn" data-act="git.more" title="More actions"><svg data-i="more"></svg></button>
                 <button class="icon-btn" id="scmClose" title="Close Source Control"><svg data-i="x" data-size="14"></svg></button>

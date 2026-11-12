@@ -190,9 +190,6 @@ While an agent works, the IDE fades out and an Instagram or Facebook feed rolls.
 <td width="50%"><img src="docs/screenshots/space.jpg" alt="An empty Breeze Space chat asking What can I help with"><br><sub>Breeze Space, ready for a prompt</sub></td>
 <td width="50%"><img src="docs/screenshots/space-terminal.jpg" alt="Breeze Space with a terminal panel open beside the chat"><br><sub>A terminal beside the chat</sub></td>
 </tr>
-<tr>
-<td colspan="2"><img src="docs/screenshots/flight.gif" alt="The view flies up from Breeze Code through the clouds into Breeze Space"><br><sub>Turn on Extra animation to fly between Breeze Code and Breeze Space</sub></td>
-</tr>
 </table>
 
 ## Getting started

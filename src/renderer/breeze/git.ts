@@ -274,8 +274,7 @@ async function generateCommitMsg(): Promise<void> {
   const genBtnEl = $('#scmGenMsg') as HTMLButtonElement | null;
   if (genBtnEl) {
     genBtnEl.disabled = true;
-    genBtnEl.classList.add('busy');
-    genBtnEl.innerHTML = `<div class="spinner sm"></div>`;
+    genBtnEl.classList.add('busy'); // the sparkles turn into the spinner (breeze.css)
   }
   try {
     if (!activeAg?.found) {
@@ -342,7 +341,6 @@ Instructions:
     if (genBtnEl) {
       genBtnEl.disabled = false;
       genBtnEl.classList.remove('busy');
-      genBtnEl.innerHTML = svgIcon('sparkles', 14);
     }
   }
 }
