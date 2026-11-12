@@ -1960,6 +1960,40 @@ textarea:focus-visible {
   opacity: 0;
 }
 
+/* The pointer's highlight is one block behind the rows (hoverGlide, ui.ts): it fades in where the pointer comes in,
+   glides between rows, and fades out where it leaves, so the rows themselves stay clear. */
+.hover-glide {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  scale: .94;
+  transition: opacity .16s ease, scale .22s cubic-bezier(.2, .8, .2, 1);
+}
+
+.hover-glide.on {
+  opacity: 1;
+  scale: 1;
+}
+
+.hover-glide.glide {
+  transition: opacity .16s ease, scale .22s cubic-bezier(.2, .8, .2, 1),
+    top .22s cubic-bezier(.2, .8, .2, 1), height .22s cubic-bezier(.2, .8, .2, 1),
+    left .22s cubic-bezier(.2, .8, .2, 1), width .22s cubic-bezier(.2, .8, .2, 1);
+}
+
+.menu > .hover-glide {
+  border-radius: 5px;
+  background: var(--blue);
+}
+
+.menu.stagger > .hover-glide {
+  animation: none; /* not a row: it isn't staggered in */
+}
+
+.menu .menu-item:hover:not(:disabled) {
+  background: none;
+}
+
 /* A little space between rows, so two lit rows never run together. */
 .menu-item + .menu-item {
   margin-top: 2px;
@@ -9283,9 +9317,36 @@ body.layout-animating .box > .terminal.open {
   z-index: 1;
 }
 
-.box.side-closed .box-side,
 .box:not(.side-closed) .box-side-show {
   display: none;
+}
+
+/* Closed, the bar is still there at no width, so it can fold away and open out (setBoxSide, history.ts). Its contents
+   keep their width meanwhile, so nothing rewraps: the bar's edge just passes over them as they fade. */
+.box.side-closed .box-side {
+  width: 0;
+  padding-inline: 0;
+  opacity: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+.box-side > :not(.sash) {
+  min-width: calc(var(--box-side-w) - 16px);
+}
+
+/* While it folds or opens: clipped to its moving edge, and still showing on its way out. */
+.box.side-anim .box-side {
+  overflow: hidden;
+  visibility: visible;
+}
+
+/* The toggle icon on its way between the side bar's Hide button and the title bar's Show button. */
+.side-toggle-ghost {
+  position: fixed;
+  z-index: 50;
+  margin: 0;
+  pointer-events: none;
 }
 
 /* New chat, with the Hide button at the far right of its row. */
@@ -12063,10 +12124,18 @@ body.layout-animating #previewPane {
   outline: none;
 }
 
+/* In the Space side bar the name is typed over in place: the row's own size, text and highlight, with no box around it.
+   The transparent top and bottom borders keep the highlight as far in from the row's edges as the open chat's. */
 .box-side-chats > .rename-input {
   display: block;
-  height: 28px;
-  margin: 1px 0;
+  flex: none; /* the tab's `flex: 1` would squash it in this column */
+  height: auto; /* set to the row's own (renameBoxChat, history.ts) */
+  padding: 0 10px;
+  border: 2px solid transparent;
+  border-inline-width: 0;
+  border-radius: 8px;
+  background: var(--bg-3) padding-box;
+  font-size: 13px;
 }
 
 .agent-tab .tab-title {
