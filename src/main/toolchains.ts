@@ -4,7 +4,7 @@ import { StringDecoder } from 'node:string_decoder';
 import type { ChildProcess } from 'node:child_process';
 
 export interface Tool { path: string; name: string; version: string }
-const TOOL_KEYS = ['cc', 'cxx', 'gdb', 'python', 'dotnet', 'java', 'rustc', 'cargo', 'node', 'lua', 'php', 'sqlite', 'go', 'ruby', 'kotlinc', 'swiftc', 'dart', 'zig', 'scala', 'elixir', 'runghc', 'rscript', 'perl', 'groovy'] as const;
+const TOOL_KEYS = ['cc', 'cxx', 'gdb', 'python', 'dotnet', 'java', 'rustc', 'cargo', 'node', 'lua', 'php', 'sqlite', 'go', 'ruby', 'kotlinc', 'swiftc', 'dart', 'zig', 'scala', 'elixir', 'runghc', 'rscript', 'perl', 'groovy', 'mvn'] as const;
 export type ToolKey = typeof TOOL_KEYS[number];
 export type Tools = Record<ToolKey, Tool | null> & { binDirs: string[] };
 // What a program run returns: the exit code (null if it never ran) and what it printed.
@@ -212,14 +212,17 @@ async function findTools(o: FindOptions): Promise<Tools> {
   const rscript = await find(extra(['C:\\Program Files\\R\\R-*\\bin']), ['Rscript']);
   const perl = await find(extra(['C:\\Strawberry\\perl\\bin']), ['perl']);
   const groovy = await find(pathDirs, ['groovy']);
+  // Maven: `mvn` is a .cmd launcher on Windows. MAVEN_HOME / M2_HOME name the folder an unzipped Maven lives in.
+  const mavenHomes = [env?.MAVEN_HOME, env?.M2_HOME].filter(Boolean).map((h) => P.join(h as string, 'bin'));
+  const mvn = await find(withExtra(mavenHomes), ['mvn']);
 
   const binDirs: string[] = [];
-  for (const t of [cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy]) {
+  for (const t of [cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, mvn]) {
     if (!t) continue;
     const d = P.dirname(t.path);
     if (!pathDirs.some((x) => same(x, d)) && !binDirs.some((x) => same(x, d))) binDirs.push(d);
   }
-  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, binDirs };
+  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, mvn, binDirs };
 }
 
 async function freshPath(platform: string, run: RunFn): Promise<string> {
@@ -252,6 +255,7 @@ function toolEnv(baseEnv: Env, binDirs: string[], platform: string, pathValue?: 
 const DOTNET_URL = 'https://dotnet.microsoft.com/download';
 const JDK_URL = 'https://adoptium.net';
 const RUST_URL = 'https://rustup.rs';
+const MAVEN_URL = 'https://maven.apache.org/download.cgi';
 const GIT_URL = 'https://git-scm.com/downloads';
 const NODE_URL = 'https://nodejs.org/en/download';
 const LUA_URL = 'https://www.lua.org/download.html';
@@ -288,9 +292,14 @@ const MISSING: Record<string, Record<string, MissingEntry>> = {
     darwin: { lead: 'No Java JDK found. Install one with:', cmd: 'brew install openjdk', url: JDK_URL },
     other: { lead: 'No Java JDK found. Install a JDK with your package manager (e.g. sudo apt install openjdk-21-jdk)', url: JDK_URL },
   },
+  mvn: {
+    win32: { lead: "Maven wasn't found. Install it with (it needs a JDK too):", cmd: 'winget install Apache.Maven', url: MAVEN_URL },
+    darwin: { lead: "Maven wasn't found. Install it with (it needs a JDK too):", cmd: 'brew install maven', url: MAVEN_URL },
+    other: { lead: "Maven wasn't found. Install it with your package manager (e.g. sudo apt install maven)", url: MAVEN_URL },
+  },
   rs: {
     win32: { lead: 'No Rust compiler found. Install Rust with:', cmd: 'winget install Rustlang.Rustup', url: RUST_URL },
-    darwin: { lead: 'No Rust compiler found. Install Rust with rustup', url: RUST_URL },
+    darwin: { lead: 'No Rust compiler found. Install Rust with rustup:', cmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y", url: RUST_URL },
     other: { lead: 'No Rust compiler found. Install Rust with rustup', url: RUST_URL },
   },
   lua: {

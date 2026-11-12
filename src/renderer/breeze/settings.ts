@@ -403,7 +403,7 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('About Breeze Code', `${engine ? `${esc(engine)} · ` : ''}v${esc(appVersion)}`, '')}`;
     }
     case 'dev': return `<h4>Developer</h4>
-      ${settingRow('Run setup again', 'Pick your agent and workspace again.', '<button class="btn btn-sm" data-set-cmd="help.setup">Start</button>')}
+      ${settingRow('Run setup again', 'Check your build tools and install what is missing.', '<button class="btn btn-sm" data-set-cmd="help.setup">Start</button>')}
       ${settingRow('Developer tools', esc(keyOf('win.devtools')), '<button class="btn btn-sm" data-set-cmd="win.devtools">Toggle</button>')}
       ${settingRow('Reload window', esc(keyOf('win.reload')), '<button class="btn btn-sm" data-set-cmd="win.reload">Reload</button>')}
       ${settingRow('Classic switches', 'Use the flat on/off switch instead of the liquid one.', switchHtml('sClassicSwitch', classicSwitch, 'Classic switches'))}
@@ -414,32 +414,6 @@ function settingsBody(tab: SettingsTab): string {
 function setBigAnim(on: boolean): void {
   bigAnim = on;
   store.set('breeze.bigAnim', on);
-}
-
-/* ----- Onboarding → Preferences: the same theme cards and Extra animation switch as Settings → Appearance ----- */
-function renderObPrefs(): void {
-  const themes = $('#obThemes');
-  themes.innerHTML = THEMES.map(themeCardHtml).join('');
-  $$<HTMLElement>('[data-theme-pick]', themes).forEach(b => b.onclick = () => {
-    const pick = b.dataset.themePick as Theme;
-    if (pick === theme) return;
-    const from = themes.querySelector('.set-theme.on')?.getBoundingClientRect();
-    setTheme(pick);
-    renderObPrefs();
-    const card = themes.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`);
-    slideSelected(card, from);
-    card?.focus(); // the redraw took the focused card away
-  });
-  const ctl = $('#obMotionCtl');
-  if (!ctl.firstElementChild) ctl.innerHTML = switchHtml('obBigAnim', bigAnim, 'Extra animation');
-  const sw = $<HTMLButtonElement>('#obBigAnim', ctl);
-  sw.setAttribute('aria-describedby', 'obMotionHeading');
-  // Flipped in place, not redrawn, so the knob slides across.
-  sw.onclick = () => {
-    setBigAnim(!bigAnim);
-    sw.classList.toggle('on', bigAnim);
-    sw.setAttribute('aria-checked', String(bigAnim));
-  };
 }
 
 /* ----- Controls: key binds ----- */

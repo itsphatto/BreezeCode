@@ -188,7 +188,7 @@ const commands: Record<string, () => unknown> = {
   'explorer.collapse': () => { expanded.clear(); renderTree(); saveSession(); },
   'help.welcome': () => setActive(null),
   'help.keys': showShortcuts,
-  'help.setup': () => backToOnboarding(STEP.agent),
+  'help.setup': () => backToOnboarding(STEP.tools),
   'account.signIn': addAccount,
   'account.signOut': signOut,
   'sync.run': () => runSync('sync'),

@@ -288,34 +288,18 @@
       </div>
     </section>
 
-    <!-- 3 · Preferences: theme, motion, then the agent -->
-    <section class="ob-step ob-flow setup prefs hidden" data-step="3" aria-labelledby="prefsHeading">
-      <h2 id="prefsHeading" tabindex="-1">Make it yours</h2>
-      <p class="lead">Change any of this later in Settings.</p>
-      <div class="setup-grid">
-        <div class="setup-card">
-          <header>
-            <h3 id="obThemeHeading">Theme</h3>
-          </header>
-          <div class="set-themes" id="obThemes" role="group" aria-labelledby="obThemeHeading"></div>
-        </div>
-        <div class="setup-card ob-motion">
-          <div class="set-text">
-            <h3 id="obMotionHeading">Extra animation</h3>
-            <p class="muted">Fly between Breeze Code and Breeze Space, and bring the debugger in panel by panel.</p>
-          </div>
-          <div class="set-ctl" id="obMotionCtl"></div>
-        </div>
-        <div class="setup-card ob-agents">
-          <header>
-            <h3>AI agents</h3><span class="row gap-6"><span class="pill" id="aiPill">Scanning</span><button
-                class="icon-btn" id="rescan" title="Scan again"><svg width="13" height="13">
-                  <use href="#i-refresh" />
-                </svg></button></span>
-          </header>
-          <p class="muted" id="aiHint">Looking for coding agents installed on this computer</p>
-          <div class="agent-list" id="agentList"></div>
-        </div>
+    <!-- 3 · Tools: what Breeze builds and runs your code with, each with a one-click install (setup.ts renderObTools) -->
+    <section class="ob-step ob-flow setup prefs tools hidden" data-step="3" aria-labelledby="toolsHeading">
+      <h2 id="toolsHeading" tabindex="-1">Set up your tools</h2>
+      <p class="lead">Breeze builds and runs your code with these. Install what you need now, or later in Settings.</p>
+      <div class="setup-card ob-tools">
+        <header>
+          <h3>Build tools</h3><span class="row gap-6"><span class="pill" id="obToolPill">Scanning</span><button
+              class="icon-btn" id="rescan" title="Scan again" aria-label="Scan again"><svg width="13" height="13">
+                <use href="#i-refresh" />
+              </svg></button></span>
+        </header>
+        <div class="ob-tool-list" id="obToolList" aria-live="polite"></div>
       </div>
       <button class="btn ob-start" data-next>Continue</button>
     </section>

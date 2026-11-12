@@ -20,9 +20,9 @@ const saveApp = () => store.set('breeze.app', appState);
 // The blue app icon, or in developer mode the flipped one (white tile, blue wind).
 const appIcon = () => `../../assets/brand/${appState.devMode ? 'IconDev' : 'Icon'}.png`;
 
-/* ================= Onboarding: welcome → name → account → preferences (and agent) → home ================= */
+/* ================= Onboarding: welcome → name → account → tools → home ================= */
 // Home is also where every later launch lands (see init.ts).
-const STEP = { welcome: 0, name: 1, signIn: 2, agent: 3, home: 4 };
+const STEP = { welcome: 0, name: 1, signIn: 2, tools: 3, home: 4 };
 let step = Math.min(appState.step, STEP.home);
 let user: User | null = appState.user;
 // Who to greet: the name they gave us wins over the one their account came with.
@@ -45,10 +45,7 @@ function goStep(n: number): void {
   if (n === STEP.name || n === STEP.signIn) $$<HTMLImageElement>('.ob-icon').forEach(i => { i.src = appIcon(); }); // developer mode may have flipped it
   if (n === STEP.name) { nameInput.value = (displayName() ?? '').slice(0, 40).replace(/[\uD800-\uDBFF]$/, ''); syncNameNext(); } // the cut mustn't split an emoji
   if (n === STEP.signIn) { renderConnected(); termsBox.checked = !!appState.termsAcceptedAt; syncAccountNext(); }
-  if (n === STEP.agent) {
-    renderObPrefs(); // settings.ts
-    detectTools().catch(() => { /* the agent card shows the error */ });
-  }
+  if (n === STEP.tools) detectTools().catch(() => { /* the tools card shows the error */ });
   if (n === STEP.home) renderHome();
   // Once set up, Home is a screen of its own rather than a setup step, so the progress dots go.
   $('#onboard').classList.toggle('settled', appState.onboarded);
@@ -189,7 +186,7 @@ $$('.ob-dots span').forEach((d, i) => {
   d.onclick = () => { if (i < step) goStep(i); };
   d.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); d.click(); } };
   d.setAttribute('role', 'button');
-  d.setAttribute('aria-label', `Step ${i + 1}: ${['Welcome', 'Your name', 'Account', 'Make it yours', 'Home'][i]}`);
+  d.setAttribute('aria-label', `Step ${i + 1}: ${['Welcome', 'Your name', 'Account', 'Tools', 'Home'][i]}`);
 });
 // Nothing here has a double-click, and the first click may have changed the screen: the second would land on whatever
 // is now under the pointer (a theme, a new file).
@@ -434,7 +431,7 @@ function leaveAccount(): void {
   }
   if (!si('wait').classList.contains('hidden')) { background(api.auth.cancel()); signinView(false); }
   appState.termsAcceptedAt ??= Date.now();
-  goStep(STEP.agent);
+  goStep(STEP.tools);
 }
 $('#signinSkip').onclick = leaveAccount;
 accountNext.onclick = leaveAccount;

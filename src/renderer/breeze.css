@@ -1256,7 +1256,7 @@ button {
   box-shadow: none;
 }
 
-/* Make it yours: the agents get a column of their own and scroll inside it; the window never has to. */
+/* Set up your tools: the list scrolls inside its card; the window never has to. */
 .ob-step.setup.prefs {
   display: flex;
   flex-direction: column;
@@ -1275,45 +1275,72 @@ button {
   margin-bottom: 16px;
 }
 
-.prefs .setup-grid {
-  flex: 0 1 auto;
-  width: 100%;
-  min-height: 0;
-  overflow-y: auto;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  align-items: stretch;
-  margin-bottom: 16px;
-}
-
 .prefs .setup-card {
   border-radius: 14px;
 }
 
-.prefs .ob-agents {
-  grid-column: 2;
-  grid-row: 1 / 3;
+/* Tools: one card whose list scrolls inside it, so the window never has to. */
+.prefs .ob-tools {
   display: flex;
   flex-direction: column;
+  width: min(560px, 100%);
   min-height: 0;
-  contain: size; /* takes its height from Theme and Extra animation, so the scan's answer can't resize them */
+  margin-bottom: 16px;
+  text-align: left;
 }
 
-.prefs #agentList {
-  position: relative; /* its pickers' parts count as the list's overflow, not the card's */
-  flex: 1;
+.ob-tool-list {
   min-height: 0;
   overflow-y: auto;
-  align-content: start;
 }
 
-.prefs .set-theme .set-sub.set-warn {
-  color: #b91c1c;
+.ob-tool-group {
+  margin: 12px 0 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--text-2);
 }
 
-/* The narrow cards here wrap their description rather than cut it. */
-.prefs .set-theme .set-sub {
-  white-space: normal;
+.ob-tool-group small {
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.ob-tool {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  min-height: 36px;
+  padding: 4px 0;
+}
+
+.ob-tool-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1a8f4c;
+}
+
+.ob-tool.missing .ob-tool-dot {
+  background: #b45309;
+}
+
+.ob-tool-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.ob-tool-sub {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .signin-btns {
@@ -6371,26 +6398,6 @@ body.vibing .ide {
 .setup-col {
   display: grid;
   gap: 12px;
-}
-
-.prefs .set-themes {
-  margin-bottom: 0;
-}
-
-.prefs .ob-motion {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  min-height: 118px; /* with Theme, tall enough for the full agent list */
-}
-
-.prefs .ob-motion .muted {
-  margin: 4px 0 0;
-}
-
-.prefs .ob-motion .set-ctl {
-  flex: none;
 }
 
 .setup .setup-card {

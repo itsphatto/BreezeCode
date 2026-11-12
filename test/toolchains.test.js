@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
-const { findTools, freshPath, toolEnv, runPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installUrl, unpacked } = require('../src/main/toolchains');
+const { findTools, freshPath, toolEnv, runPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } = require('../src/main/toolchains');
 
 const H = 'C:\\app\\runtime\\breeze_stdio.h';
 const T = (p, name, version = '1.0') => ({ path: p, name, version });
@@ -167,8 +167,31 @@ test('findTools leaves cxx null without a twin, and everything null when nothing
   const none = await findTools(machine('win32', {}));
   assert.deepEqual(none, {
     cc: null, cxx: null, gdb: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null,
-    go: null, ruby: null, kotlinc: null, swiftc: null, dart: null, zig: null, scala: null, elixir: null, runghc: null, rscript: null, perl: null, groovy: null, binDirs: [],
+    go: null, ruby: null, kotlinc: null, swiftc: null, dart: null, zig: null, scala: null, elixir: null, runghc: null, rscript: null, perl: null, groovy: null, mvn: null, binDirs: [],
   });
+});
+
+test('findTools finds Maven by its mvn.cmd launcher on Windows, and mvn on Linux', async () => {
+  const win = await findTools(machine('win32', { 'C:\\bin\\mvn.cmd': '' }));
+  assert.equal(win.mvn.path, 'C:\\bin\\mvn.cmd');
+  const nix = await findTools(machine('linux', { '/usr/bin/mvn': 'Apache Maven 3.9.9' }));
+  assert.equal(nix.mvn.path, '/usr/bin/mvn');
+  assert.equal((await findTools(machine('linux', {}))).mvn, null);
+});
+
+test('findTools looks in MAVEN_HOME/bin when mvn is not on the PATH', async () => {
+  const m = machine('linux', { '/opt/maven/bin/mvn': 'Apache Maven 3.9.9' });
+  m.env.MAVEN_HOME = '/opt/maven';
+  const r = await findTools(m);
+  assert.equal(r.mvn.path, '/opt/maven/bin/mvn');
+  assert.deepEqual(r.binDirs, ['/opt/maven/bin']);
+});
+
+test('installHint, installCmd and installUrl for Maven', () => {
+  assert.equal(installCmd('mvn', 'win32'), 'winget install Apache.Maven');
+  assert.equal(installCmd('mvn', 'darwin'), 'brew install maven');
+  assert.equal(installCmd('mvn', 'linux'), null);
+  assert.equal(installUrl('mvn', 'linux'), 'https://maven.apache.org/download.cgi');
 });
 
 test('findTools rejects the Store python shortcut', async () => {
@@ -516,7 +539,9 @@ test('runPlan without Rust says how to get it', () => {
   const none = { cc: null, cxx: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null, binDirs: [] };
   assert.equal(runPlan('C:\\p\\a.rs', none, 'win32', H).error,
     'No Rust compiler found. Install Rust with:\nwinget install Rustlang.Rustup\nOr download it from https://rustup.rs');
-  assert.equal(runPlan('/p/a.rs', none, 'darwin', H).error, 'No Rust compiler found. Install Rust with rustup\nDownload it from https://rustup.rs');
+  assert.equal(runPlan('/p/a.rs', none, 'darwin', H).error,
+    "No Rust compiler found. Install Rust with rustup:\ncurl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y\nOr download it from https://rustup.rs");
+  assert.equal(runPlan('/p/a.rs', none, 'linux', H).error, 'No Rust compiler found. Install Rust with rustup\nDownload it from https://rustup.rs');
   assert.match(runPlan('/p/src/main.rs', none, 'linux', H, { cargoToml: '/p/Cargo.toml' }).error, /^No Rust compiler found/);
 });
 

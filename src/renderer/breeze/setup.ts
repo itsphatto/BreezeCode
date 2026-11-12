@@ -106,18 +106,18 @@ let detecting: Promise<Detection> | null = null;
 
 function detectTools(force = false): Promise<Detection> {
   if (detecting !== null) return detecting;
-  $('#aiPill').className = 'pill'; swapText($('#aiPill'), 'Scanning');
-  if (!appState.detect) $('#agentList').innerHTML = '<div class="row text-3"><div class="spinner sm"></div>Checking this computer</div>';
+  $('#obToolPill').className = 'pill'; swapText($('#obToolPill'), 'Scanning');
+  if (!appState.detect) $('#obToolList').innerHTML = '<div class="row text-3"><div class="spinner sm"></div>Checking this computer</div>';
   detecting = api.sys.detect(force).then(d => {
-    const replacesSpinner = !!$('#agentList').querySelector('.spinner');
+    const replacesSpinner = !!$('#obToolList').querySelector('.spinner');
     appState.detect = d;
-    fixSelectedAgent();
+    fixSelectedAgent(); // no agent step any more: the first agent found is the one Breeze starts with (Settings → Agents changes it)
     renderDetection();
-    if (replacesSpinner && step === STEP.agent && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches) $$('#agentList > *').forEach((row, i) => riseIn(row, i * 60));
+    if (replacesSpinner && step === STEP.tools && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches) $$('#obToolList > *').forEach((row, i) => riseIn(row, i * 40));
     return d;
   }).catch((e: unknown) => {
-    $('#aiPill').className = 'pill warn'; swapText($('#aiPill'), 'Scan failed');
-    $('#aiHint').textContent = errMsg(e);
+    $('#obToolPill').className = 'pill warn'; swapText($('#obToolPill'), 'Scan failed');
+    $('#obToolList').textContent = errMsg(e);
     throw e;
   }).finally(() => { detecting = null; });
   return detecting;
@@ -315,18 +315,40 @@ function bindToolButtons(root: HTMLElement): void {
     };
   });
 }
+// Setup's Tools step: what Breeze compiles and runs code with, grouped, each missing one with its one-click install.
+// Rust links with the C/C++ compiler (rustc calls gcc/clang), and Maven needs a JDK, so those sit beside what they need.
+const OB_TOOL_GROUPS: { title: string; note?: string; ids: string[] }[] = [
+  { title: 'Essentials', ids: ['git', 'node'] },
+  { title: 'Rust', note: 'cargo builds projects; Rust links with the C/C++ compiler below', ids: ['rust', 'cargo', 'lsp-rust', 'cc'] },
+  { title: 'Java', note: 'Maven builds with a JDK', ids: ['java', 'maven'] },
+  { title: 'Also', ids: ['python', 'dotnet'] },
+];
+const OB_TOOL_NAMES: Record<string, string> = { rust: 'Rust compiler (rustc)', cargo: 'Cargo', 'lsp-rust': 'rust-analyzer', cc: 'C/C++ compiler', java: 'Java JDK', maven: 'Maven', dotnet: 'C# (.NET SDK)' };
+function obToolRowHtml(t: DetectedTool): string {
+  const name = esc(OB_TOOL_NAMES[t.id] ?? t.name);
+  if (t.found) return `<div class="ob-tool"><span class="ob-tool-dot" aria-hidden="true"></span><span><span class="ob-tool-name">${name}</span><span class="ob-tool-sub">${esc(versionLabel(t.version) || 'Installed')}</span></span><span class="pill ok">Ready</span></div>`;
+  const { attrs, does } = toolInstall(t);
+  const label = attrs.startsWith('data-get') ? 'Download' : 'Install';
+  const btn = attrs ? `<button class="btn btn-sm" ${attrs} title="${escAttr(does)}" aria-label="${escAttr(`${label} ${t.name}. ${does}`)}">${label}</button>` : '';
+  return `<div class="ob-tool missing"><span class="ob-tool-dot" aria-hidden="true"></span><span><span class="ob-tool-name">${name}</span><span class="ob-tool-sub">Not installed</span></span>${btn}</div>`;
+}
+function renderObTools(d: Detection): void {
+  const byId = new Map<string, DetectedTool>([...d.tools, ...(d.servers ?? [])].map(t => [t.id, t]));
+  let missing = 0;
+  const html = OB_TOOL_GROUPS.map(g => {
+    const rows = g.ids.map(id => byId.get(id)).filter((t): t is DetectedTool => !!t);
+    missing += rows.filter(t => !t.found).length;
+    return rows.length ? `<div class="ob-tool-group" role="group" aria-label="${escAttr(g.title)}">${esc(g.title)}${g.note ? ` <small>${esc(g.note)}</small>` : ''}</div>${rows.map(obToolRowHtml).join('')}` : '';
+  }).join('');
+  $('#obToolList').innerHTML = html;
+  bindToolButtons($('#obToolList'));
+  $('#obToolPill').className = missing ? 'pill warn' : 'pill ok';
+  swapText($('#obToolPill'), missing ? `${missing} to install` : 'All set');
+}
 function renderDetection(): void {
   const d = appState.detect;
   if (!d) return;
-  const found = d.agents.filter(a => a.found);
-  $('#agentList').innerHTML = agentOptionsHtml(d);
-  bindAgentOptions($('#agentList'), renderDetection);
-  $('#aiPill').className = found.length ? 'pill ok' : 'pill warn';
-  swapText($('#aiPill'), found.length ? `${found.length} ready` : 'None ready');
-  $('#aiHint').textContent = found.length
-    ? 'Pick the agent Breeze hands work to. Installed agents use their own sign-in; a local LLM runs on your own computer.'
-    : 'No coding agent found. Install one and rescan, or connect a local LLM server.';
-  if (d.demo) $('#aiHint').textContent += ' (Browser preview.)';
+  renderObTools(d);
 
   const missing = d.tools.filter(t => !t.found && !t.optional).map(t => t.name);
 
