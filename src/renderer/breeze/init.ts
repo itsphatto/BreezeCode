@@ -1,12 +1,17 @@
 /* ================= Init ================= */
-// A fresh launch always opens on Home. Only a reload of the window (Ctrl+R, a settings change that reloads) comes back
-// to the screen it was on (the editor or Breeze Space), remembered by swapScreen.
-const reloadedMode: WorkMode | null = (() => {
+// Launching comes back to the screen the app was last on (the editor or Breeze Space), remembered by swapScreen.
+// The editor needs its project back: if the last one is gone, the app opens on Home instead. Breeze Space works
+// without a project, so it always comes back. A debug session doesn't survive: back to the editor.
+const lastMode: WorkMode | null = (() => {
   if (!appState.onboarded) return null;
-  const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-  if (nav?.type !== 'reload') return null;
   const s = store.get<string>(SCREEN_KEY, '');
-  return s === '#ide' || s === '#debug' ? 'ide' : s === '#box' ? 'box' : null; // a debug session doesn't survive: back to the editor
+  return s === '#ide' || s === '#debug' ? 'ide' : s === '#box' ? 'box' : null;
+})();
+// A reload of the window (Ctrl+R, a settings change that reloads) still has its project, so it swaps back before
+// start-up and Home never flashes by. A fresh launch waits for the project (the window stays hidden until then).
+const reloadedMode: WorkMode | null = (() => {
+  const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+  return nav?.type === 'reload' ? lastMode : null;
 })();
 // Opened from Explorer: straight into the editor with the right-clicked file (setup still comes first on a first run).
 function showLaunched(info: LaunchInfo): void {
@@ -45,6 +50,7 @@ async function boot(): Promise<void> {
   else { term.cwd = await api.term.cwd(); renderPs(); }
   if (info && 'launched' in info) showLaunched(info);
   else if (reloadedMode) enterMode(reloadedMode);
+  else if (lastMode === 'box' || (lastMode === 'ide' && info)) enterMode(lastMode); // a folder from the command line won above
   renderTree(); renderScm();
   if (step === STEP.home) renderHome();
   renderBoxFolder();
@@ -131,6 +137,8 @@ async function boot(): Promise<void> {
   const launched = () => {
     launching = false;
     if (appState.onboarded) detectTools().catch(() => { /* shown in the setup card */ });
+    // The first launch after an update: that release's notes, once Home has settled in.
+    setTimeout(() => background(maybeShowWhatsNew()), 700);
   };
   if (window.breeze) {
     // Desktop: the intro plays over the desktop in the splash window (main.js) while this window loads hidden. Once

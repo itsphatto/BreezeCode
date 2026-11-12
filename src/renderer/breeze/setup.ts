@@ -644,7 +644,8 @@ $('#agentBar').addEventListener('keydown', e => {
   const ag = chip && appState.detect?.agents.find(x => x.id === chip.dataset.agent);
   if (chip && ag && e.key === 'ArrowDown') { e.preventDefault(); openChipMenu(chip, agentChipMenuItems(ag)); }
 });
-new ResizeObserver(fitAgentBar).observe($('#agentBar'));
+new ResizeObserver(() => { if (!sashDragging()) fitAgentBar(); }).observe($('#agentBar'));
+addEventListener('sashdragend', fitAgentBar);
 
 // Inserts "@<Short> " where the caret is in the agents panel's prompt (a space before it if the text there needs one).
 function insertMention(a: DetectedAgent): void {

@@ -483,6 +483,11 @@ const store = {
   },
 };
 
+// True while a panel sash is being dragged (layout.ts). Fitting that measures as it goes (the tab strip, the agent bar)
+// waits for the drag to end: each measure re-lays out the whole IDE, several times a frame. It runs again on
+// 'sashdragend'.
+const sashDragging = (): boolean => document.documentElement.classList.contains('sash-dragging');
+
 /* ================= Appearance ================= */
 // Set as early as the page's scripts run, so the window comes up in the chosen colours (Settings → Appearance).
 type Theme = 'dark' | 'contrast' | 'light';

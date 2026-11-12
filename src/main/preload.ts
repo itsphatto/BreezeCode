@@ -114,6 +114,7 @@ contextBridge.exposeInMainWorld('breeze', {
     get: () => invoke('update:get'),
     download: () => invoke('update:download'),
     install: () => invoke('update:install'),
+    notes: () => invoke('update:notes'),
     onState: (cb: Listener) => listen('update:state', cb),
   },
   sys: {

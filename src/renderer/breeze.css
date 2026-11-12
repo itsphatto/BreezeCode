@@ -2257,6 +2257,12 @@ textarea:focus-visible {
 }
 
 /* ---------- layout ---------- */
+/* The panel widths are read only by the grid that sets them, so they don't inherit: an inherited custom property changing
+   restyles every element inside the IDE (about 30ms a frame in a big project), which made dragging a sash lag. */
+@property --side-w { syntax: '<length-percentage>'; inherits: false; initial-value: 0px; }
+@property --agents-w { syntax: '<length-percentage>'; inherits: false; initial-value: 0px; }
+@property --preview-w { syntax: '<length-percentage>'; inherits: false; initial-value: 0px; }
+
 .main {
   --side-w: 240px;
   --agents-w: 340px;
@@ -2822,6 +2828,50 @@ pre.skill-view-body {
   margin: 0 0 10px;
   color: var(--text-2);
 }
+
+/* What's new: the release notes shown once after an update (whatsnew.ts). */
+.modal.whatsnew {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.whatsnew-body {
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  margin: 0 -6px 16px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.modal .whatsnew-body > :first-child { margin-top: 0; }
+.whatsnew-body > :last-child { margin-bottom: 0; }
+
+.modal .whatsnew-body :is(h1, h2, h3, h4, h5, h6) {
+  margin: 14px 0 6px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.whatsnew-body :is(p, ul, ol, blockquote, pre) {
+  margin: 0 0 8px;
+  color: var(--text-2);
+}
+
+.whatsnew-body :is(ul, ol) { padding-left: 18px; }
+.whatsnew-body li + li { margin-top: 3px; }
+.whatsnew-body :is(strong, b) { color: var(--text); font-weight: 600; }
+.whatsnew-body code { font: 12px var(--font-code); }
+.whatsnew-body pre { white-space: pre-wrap; }
+.whatsnew-body blockquote { padding-left: 10px; border-left: 2px solid var(--line); }
+.whatsnew-body hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
+.whatsnew-body a { color: var(--accent, inherit); }
+.modal.whatsnew .row.end { gap: 8px; }
 
 .skill-view-body {
   max-height: min(52vh, 520px);

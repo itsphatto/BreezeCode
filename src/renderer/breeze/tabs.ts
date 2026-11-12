@@ -225,7 +225,9 @@ function followTabRunFold(): void {
   requestAnimationFrame(step);
 }
 // Resizing the window or a panel squeezes the tabs, so the line under the open one follows at once (no glide).
-new ResizeObserver(() => { fitTabRunBtn(); placeTabInk(true); markCutTabNames(); }).observe($('#tabs'));
+const fitTabs = () => { fitTabRunBtn(); placeTabInk(true); markCutTabNames(); };
+new ResizeObserver(() => { if (!sashDragging()) fitTabs(); }).observe($('#tabs'));
+addEventListener('sashdragend', fitTabs);
 // A squeezed tab name is clipped with a fade rather than an ellipsis: an ellipsis drops whole letters, leaving a gap
 // before the extension that jumps about as the strip is resized. Only names that don't fit get the fade.
 function markCutTabNames(): void {

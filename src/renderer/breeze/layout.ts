@@ -26,18 +26,24 @@ function terminalBack(): void {
   applyLayout();
 }
 const terminalHere = () => terminalTo(appState.mode === 'box' ? $('#box') : termHome);
-function applyLayout(): void {
+// Sets a layout variable only when its value changes: writing one, even unchanged, has the browser restyle everything
+// that inherits it, and applyLayout runs every frame of a sash drag.
+function setVar(el: HTMLElement, name: string, value: string): void {
+  if (el.style.getPropertyValue(name) !== value) el.style.setProperty(name, value);
+}
+// save: false while a sash is being dragged, so the layout is written to storage once, when the drag ends.
+function applyLayout(save: unknown = true): void {
   const main = $('#main'), work = $('#work'), t = $('#terminal');
   const inSpace = layout.termOpen && t.parentElement === $('#box');
   $('#boxTerm').classList.toggle('on', inSpace);
   $('#boxTerm').setAttribute('aria-pressed', String(inSpace));
-  main.style.setProperty('--side-w', layout.sideOpen ? `${layout.side}px` : '0px');
-  main.style.setProperty('--agents-w', layout.agentsOpen ? `${layout.agents}px` : '0px');
+  setVar(main, '--side-w', layout.sideOpen ? `${layout.side}px` : '0px');
+  setVar(main, '--agents-w', layout.agentsOpen ? `${layout.agents}px` : '0px');
   // The Source Control page's left column (prs.ts); the editor beside it is pushed over by as much. A layout saved
   // before it existed has no scmLeft.
-  main.style.setProperty('--scm-left', `${clamp(layout.scmLeft, 240, 560)}px`);
-  $('#box').style.setProperty('--box-side-w', `${clamp(layout.boxSide, 180, 480)}px`);
-  $('#box').style.setProperty('--box-term-w', `${Math.min(layout.boxTerm || boxTermDefault(), boxTermMax())}px`);
+  setVar(main, '--scm-left', `${clamp(layout.scmLeft, 240, 560)}px`);
+  setVar($('#box'), '--box-side-w', `${clamp(layout.boxSide, 180, 480)}px`);
+  setVar($('#box'), '--box-term-w', `${Math.min(layout.boxTerm || boxTermDefault(), boxTermMax())}px`);
   main.classList.toggle('no-side', !layout.sideOpen);
   main.classList.toggle('no-agents', !layout.agentsOpen);
   // The work area is hidden while the Source Control page shows a diff or pull request, so it has no width to size the
@@ -45,18 +51,18 @@ function applyLayout(): void {
   if (!main.classList.contains('scm-detail-on')) {
     const maxPreview = work.clientWidth ? work.clientWidth - 220 : layout.preview;
     // The inline width beats the .no-preview rule, so a closed preview has to be zeroed here or its column stays as a blank gap.
-    work.style.setProperty('--preview-w', layout.previewOpen ? `${clamp(layout.preview, 220, Math.max(220, maxPreview))}px` : '0px');
+    setVar(work, '--preview-w',layout.previewOpen ? `${clamp(layout.preview, 220, Math.max(220, maxPreview))}px` : '0px');
     work.classList.toggle('no-preview', !layout.previewOpen);
   }
-  t.style.setProperty('--term-h', `${clamp(layout.term, 80, Math.max(80, innerHeight - 220))}px`);
+  setVar(t, '--term-h', `${clamp(layout.term, 80, Math.max(80, innerHeight - 220))}px`);
   termHome.classList.toggle('term-side', layout.termDock === 'side');
-  termHome.style.setProperty('--term-w', `${clamp(layout.termW, 260, Math.max(260, innerWidth - 560))}px`);
+  setVar(termHome, '--term-w',`${clamp(layout.termW, 260, Math.max(260, innerWidth - 560))}px`);
   t.classList.toggle('open', layout.termOpen || termPopped());
   // Beside the editor it points right, the way the panel folds away; below it, down when open.
   void setIcon($('#termTitle'), layout.termOpen && !(layout.termDock === 'side' && t.parentElement === termHome) ? 'chevronDown' : 'chevronRight');
   const icon = (id: string, sym: string, on: boolean) => $(`#${id} use`).setAttribute('href', `#i-${sym}${on ? '-on' : ''}`);
   icon('tglSide', 'left', layout.sideOpen); icon('tglTerm', 'bottom', layout.termOpen); icon('tglAgents', 'right', layout.agentsOpen);
-  store.set('breeze.layout', layout);
+  if (save !== false) store.set('breeze.layout', layout);
   syncScroll();
   updateActIndicator();
   setTimeout(placeSashes); // after this script has set the sash layer up
@@ -141,16 +147,33 @@ function placeSashLine(sash: HTMLElement | null): void {
   const box = w ? [x, y - 1, w, 2] : [x - 1, y, 2, h];
   Object.assign(sashLine.style, { left: `${box[0]}px`, top: `${box[1]}px`, width: `${box[2]}px`, height: `${box[3]}px` });
 }
+// Dragging a sash resizes the panels live, but at most once a frame (pointer moves can come several times a frame), and
+// without the per-move extras: the layout is saved and the undo step recorded only when the mouse is released, and
+// rewrapped text takes its new height at once instead of starting grow animations every frame (win-resizing,
+// mentions.ts). Those per-pixel extras made the drag lag behind the pointer in a big project.
 function startSashDrag(sash: HTMLElement, kind: SashKind, e: PointerEvent): void {
   const sx = e.clientX, sy = e.clientY, start = { ...layout };
   if (kind === 'preview') start.preview = $('#previewPane').getBoundingClientRect().width;
   document.body.classList.add(kind === 'term' && layout.termDock !== 'side' ? 'resizing-h' : 'resizing');
+  document.documentElement.classList.add('win-resizing', 'sash-dragging'); // sashDragging() (core.ts)
   sash.classList.add('active');
   placeSashLine(sash);
-  const move = (ev: PointerEvent) => { SASH_DRAG[kind](start, ev.clientX - sx, ev.clientY - sy); applyLayout(); placeSashes(); placeSashLine(sash); };
+  let frame = 0, last = e;
+  const draw = () => {
+    frame = 0;
+    SASH_DRAG[kind](start, last.clientX - sx, last.clientY - sy);
+    applyLayout(false); placeSashes(); placeSashLine(sash);
+  };
+  const move = (ev: PointerEvent) => { last = ev; if (!frame) frame = requestAnimationFrame(draw); };
   const up = (ev: PointerEvent) => {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up);
-    document.body.classList.remove('resizing', 'resizing-h'); sash.classList.remove('active');
+    if (frame) cancelAnimationFrame(frame);
+    SASH_DRAG[kind](start, ev.clientX - sx, ev.clientY - sy);
+    document.documentElement.classList.remove('sash-dragging');
+    applyLayout(); placeSashes(); // saves it; still marked resizing, so the last step doesn't ease
+    dispatchEvent(new Event('sashdragend')); // the fitting held back during the drag runs once now
+    requestAnimationFrame(() => { document.body.classList.remove('resizing', 'resizing-h'); markWinResizing(); });
+    sash.classList.remove('active');
     placeSashLine((ev.target as HTMLElement)?.closest?.<HTMLElement>('[data-sash]') === sash ? sash : null);
     if (layout.side !== start.side || layout.agents !== start.agents || layout.preview !== start.preview || layout.scmLeft !== start.scmLeft || layout.boxSide !== start.boxSide || layout.boxTerm !== start.boxTerm || layout.term !== start.term || layout.termW !== start.termW || layout.sideOpen !== start.sideOpen || layout.agentsOpen !== start.agentsOpen || layout.previewOpen !== start.previewOpen || layout.termOpen !== start.termOpen) {
       pushAppAction({ type: 'layout', prev: start, next: { ...layout } });

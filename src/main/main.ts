@@ -26,6 +26,7 @@ import * as skillsLib from './skills';
 import * as mcpLib from './mcp';
 import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './previewServer';
 import { expandAbbr } from './emmet';
+import { markdownBody } from './markdown';
 import { DebugManager, killTree } from './debug';
 import type { AppUpdater } from 'electron-updater';
 import type { Member } from './team';
@@ -1772,6 +1773,30 @@ handle('sys:detect', async (_e, force) => {
 handle('update:get', () => updateState);
 handle('update:download', () => startUpdateDownload());
 handle('update:install', () => installUpdate());
+// "What's new" after an update: this version's notes from its GitHub release (tag v<version>), the same notes the
+// release page shows. null when offline or the release has no notes; the renderer then tries again next launch.
+handle('update:notes', async () => {
+  const version = app.getVersion();
+  try {
+    const r = await net.fetch(`https://api.github.com/repos/itsphatto/BreezeCode/releases/tags/v${encodeURIComponent(version)}`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Breeze-Code' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!r.ok) return null;
+    const rel = await r.json() as { body?: unknown; name?: unknown; html_url?: unknown };
+    const body = typeof rel.body === 'string' ? rel.body.trim() : '';
+    if (!body) return null;
+    return {
+      version,
+      name: typeof rel.name === 'string' && rel.name ? rel.name : `Breeze Code ${version}`,
+      html: markdownBody(body),
+      url: typeof rel.html_url === 'string' ? rel.html_url : '',
+    };
+  } catch (error) {
+    logError('release notes')(error);
+    return null;
+  }
+});
 handle('sys:openExternal', (_e, url) => openInBrowser(url));
 // Opens a terminal running one of the tools list's install commands; anything else is refused.
 handle('sys:runCommand', async (_e, cmd) => {
