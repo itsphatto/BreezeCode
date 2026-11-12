@@ -1240,8 +1240,6 @@ document.addEventListener('keydown', e => {
 // Switching between the onboarding, the IDE and Breeze Space: the old screen fades back, the new one rises in.
 let swapTimer: TimeoutId | undefined;
 let swapSeq = 0;
-let stopTeam: (() => void) | null = null;
-let stopFlight: (() => void) | null = null; // a flight to or from Breeze Space under way (space.ts)
 let booted = false;
 // Startup work that fills the screen (git status, fonts, pictures) is collected here, so start-up only counts as
 // finished (and sounds come on) once the app looks finished.
@@ -1267,45 +1265,32 @@ function swapScreen(to: string): void {
   const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out') && !el.classList.contains('screen-prep'));
   const debugSwap = !!prev && (prev.id === 'debug' || next.id === 'debug');
   // Clicked away while a debugger swap is still playing: the next one plays faster.
-  const quick = debugSwap && (!!stopTeam || next.classList.contains('screen-out'));
+  const quick = debugSwap && next.classList.contains('screen-out');
   clearTimeout(swapTimer);
-  stopTeam?.();
-  stopTeam = null;
   const seq = ++swapSeq; // a swap still waiting to play is cancelled, even if `to` is already showing
 
   for (const el of screens) {
     if (el !== next && el !== prev) {
-      el.classList.remove('screen-out', 'screen-prep', 'screen-lift', 'screen-drop', 'screen-soft');
+      el.classList.remove('screen-out', 'screen-prep', 'screen-soft');
       el.classList.add('hidden');
     }
   }
 
   if (!next.classList.contains('hidden') && !next.classList.contains('screen-out') && !next.classList.contains('screen-prep')) return; // already showing
-  stopFlight?.();
-  next.classList.remove('hidden', 'screen-out', 'screen-in', 'screen-soft-in', 'screen-soft', 'screen-lift', 'screen-drop');
+  next.classList.remove('hidden', 'screen-out', 'screen-in', 'screen-soft-in', 'screen-soft');
   queueDiscord();
   // The new screen is laid out and painted unseen first (the caller fills it in right after this), and the swap only
   // plays once frames come steadily, so a slow machine doesn't stutter through it.
   next.classList.add('screen-prep');
   void settleFrames(quick ? 0 : 700).then(() => {
     if (seq !== swapSeq) return; // switched again meanwhile
-    // Into or out of the debugger. Exaggerated: the debugger takes over panel by panel (teamswap.ts). Otherwise the
-    // two pages, whose title and activity bars match, cross-fade in place, so it reads as one window changing page.
-    const team = debugSwap && bigAnim;
-    const soft = debugSwap && !team;
+    // Into or out of the debugger the two pages, whose title and activity bars match, cross-fade in place, so it
+    // reads as one window changing page.
+    const soft = debugSwap;
     document.documentElement.classList.toggle('swap-quick', quick);
-    if (team) { // teamswap.ts
-      prev.classList.add('screen-team');
-      next.classList.add('screen-team');
-    }
-    const climb = bigAnim && (prev?.id === 'ide' || prev?.id === 'onboard') && next.id === 'box';
-    const fall = bigAnim && prev?.id === 'box' && (next.id === 'ide' || next.id === 'onboard');
     next.classList.remove('screen-prep');
-    if (climb || fall) flyBetween(next, fall); // space.ts
-    // The terminal goes back to the IDE, on the way down once Space's contents have faded, so the conversation doesn't jump.
-    if (fall) setTimeout(() => { if (appState.mode === 'ide') terminalBack(); }, 450);
-    else if (next.id === 'ide') terminalBack();
-    else if (!team) {
+    if (next.id === 'ide') terminalBack();
+    else {
       const cls = soft ? 'screen-soft-in' : 'screen-in';
       next.classList.add(cls);
       // Its own end only: the soft page's content has an animation of its own, whose end bubbles up here.
@@ -1315,28 +1300,18 @@ function swapScreen(to: string): void {
     if (!prev) return;
     prev.classList.add('screen-out');
     if (soft) prev.classList.add('screen-soft');
-    if (climb) prev.classList.add('screen-lift');
-    if (fall) prev.classList.add('screen-drop');
     // Hidden once its fade has actually finished, not after a fixed 260 ms: opening a project keeps the page busy
     // just then, the fade starts late, and the timer cut it off still 40% visible (Home's bright profile picture
     // vanished in a flash). The timer stays as a fallback for a fade that never gets to run.
     const done = () => {
       prev.removeEventListener('animationend', onEnd);
-      stopTeam?.();
-      stopTeam = null;
       if (!prev.classList.contains('screen-out')) return; // switched back to it meanwhile
-      prev.classList.remove('screen-out', 'screen-lift', 'screen-drop', 'screen-soft');
+      prev.classList.remove('screen-out', 'screen-soft');
       prev.classList.add('hidden');
     };
-    const onEnd = (e: AnimationEvent) => { if (e.target === prev && !e.pseudoElement && ['screenOut', 'screenLift', 'screenSoftOut'].includes(e.animationName)) done(); };
+    const onEnd = (e: AnimationEvent) => { if (e.target === prev && !e.pseudoElement && ['screenOut', 'screenSoftOut'].includes(e.animationName)) done(); };
     prev.addEventListener('animationend', onEnd);
-    swapTimer = setTimeout(done, climb || fall ? LIFT_MS : 900);
-    if (team) {
-      const play = teamSwap(prev, next, done, quick ? TEAM_HURRY : 1);
-      stopTeam = play.stop;
-      clearTimeout(swapTimer);
-      swapTimer = setTimeout(done, play.ms + 500);
-    }
+    swapTimer = setTimeout(done, 900);
   });
 }
 
