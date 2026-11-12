@@ -1,5 +1,5 @@
 // Electron main process for Breeze IDE: window, file system, search, terminal, git, agents, sign-in and Vibe Mode.
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, net, protocol, safeStorage, screen, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell } from 'electron';
 import { spawn, execFile, exec } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
@@ -1872,8 +1872,55 @@ handle('win:devtools', () => win?.webContents.toggleDevTools());
 handle('win:quit', () => app.quit());
 // The window's own background follows Settings → Appearance.
 const THEME_BG: Record<string, string> = { dark: '#1d1d1f', contrast: '#000000', light: '#fbf9f4' };
+let themeBg = THEME_BG.dark, glassOn = false, themeName = 'dark';
+// The system's frosted material is tinted light or dark by the OS theme; while Glass is on it follows Breeze's theme.
+const tintGlass = () => { nativeTheme.themeSource = glassOn ? (themeName === 'light' ? 'light' : 'dark') : 'system'; };
 handle('win:theme', (_e, theme) => {
-  if (THEME_BG[theme] && win) win.setBackgroundColor(THEME_BG[theme]);
+  if (!THEME_BG[theme]) return;
+  themeBg = THEME_BG[theme];
+  themeName = theme;
+  if (glassOn) tintGlass();
+  if (win && !glassOn) win.setBackgroundColor(themeBg); // glass keeps the window see-through
+});
+// Appearance → Glass: the system blurs and tints whatever is behind the window (acrylic on Windows 11, vibrancy on
+// macOS) and the page draws its panels see-through over it. Returns false where the system can't (older Windows, Linux).
+handle('win:glass', (_e, on) => {
+  if (!win) return false;
+  on = on === true;
+  if (process.platform === 'win32') {
+    const build = Number(process.getSystemVersion().split('.')[2]); // backgroundMaterial needs Windows 11 22H2 (22621)
+    if (!(build >= 22621)) return false;
+    win.setBackgroundMaterial(on ? 'acrylic' : 'none');
+  } else if (process.platform === 'darwin') {
+    win.setVibrancy(on ? 'under-window' : null);
+  } else {
+    return false;
+  }
+  glassOn = on;
+  tintGlass();
+  win.setBackgroundColor(on ? '#00000000' : themeBg);
+  return true;
+});
+// Appearance → Custom background: the picture is copied into the app's own folder (so moving or deleting the original
+// is fine) and the page reads it from there. Returns its file URL, or null if the picker was cancelled.
+const BACKDROP_TYPES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif']);
+const BACKDROP_MAX = 40 * 1024 * 1024;
+handle('win:pickBackdrop', async () => {
+  const r = await dialog.showOpenDialog(win!, {
+    title: 'Choose a background picture', buttonLabel: 'Use picture', defaultPath: app.getPath('pictures'),
+    filters: [{ name: 'Pictures', extensions: [...BACKDROP_TYPES].map(e => e.slice(1)) }], properties: ['openFile'],
+  });
+  const src = r.filePaths[0];
+  if (r.canceled || !src) return null;
+  const ext = path.extname(src).toLowerCase();
+  if (!BACKDROP_TYPES.has(ext)) throw new Error('Pick a PNG, JPG, WebP, GIF, BMP or AVIF picture.');
+  if ((await fsp.stat(src)).size > BACKDROP_MAX) throw new Error('That picture is over 40 MB. Pick a smaller one.');
+  const dir = path.join(app.getPath('userData'), 'backdrop');
+  await fsp.mkdir(dir, { recursive: true });
+  for (const old of await fsp.readdir(dir).catch(() => [] as string[])) await fsp.rm(path.join(dir, old), { force: true }).catch(() => undefined);
+  const dest = path.join(dir, `background-${Date.now()}${ext}`); // a new name each time, so the page never shows a cached one
+  await fsp.copyFile(src, dest);
+  return { url: pathToFileURL(dest).href, name: path.basename(src) };
 });
 // Developer mode swaps the window, taskbar and dock icon for the flipped one, and back.
 handle('win:devIcon', (_e, on) => {

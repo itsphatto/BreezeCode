@@ -182,6 +182,57 @@
   color: var(--text);
 }
 
+/* ---------- backdrops (Settings → Appearance → Glass, Custom background; settings.ts sets data-backdrop on <html>) ----------
+   Every surface reads --bg … --bg-3, so making those see-through lets the desktop (Glass) or the picture (--bd-img,
+   drawn on html::before) show behind the whole window. --bd-a is how much of each surface stays solid. */
+:root[data-backdrop] { --bd-a: 64%; }
+/* Panels sit inside panels, so their see-through colours stack (two at 35% show 58% solid): Glass keeps each one thin. */
+:root[data-backdrop="glass"] { --bd-a: 34%; }
+:root[data-theme="light"][data-backdrop="glass"] { --bd-a: 52%; } /* dark ink needs a paler sheet to read on the frosted blur */
+:root[data-backdrop="image"] { --bd-a: calc(100% - var(--bd-o, .4) * 50%); } /* the more picture, the more see-through (95% … 50% solid) */
+:root[data-backdrop] {
+  --bg: color-mix(in srgb, #1d1d1f var(--bd-a), transparent);
+  --bg-1: color-mix(in srgb, #232325 var(--bd-a), transparent);
+  --bg-2: color-mix(in srgb, #2a2a2c var(--bd-a), transparent);
+  --bg-3: color-mix(in srgb, #323234 var(--bd-a), transparent);
+}
+:root[data-theme="contrast"][data-backdrop] {
+  --bg: color-mix(in srgb, #000 var(--bd-a), transparent);
+  --bg-1: color-mix(in srgb, #0b0b0d var(--bd-a), transparent);
+  --bg-2: color-mix(in srgb, #131316 var(--bd-a), transparent);
+  --bg-3: color-mix(in srgb, #1c1c21 var(--bd-a), transparent);
+}
+:root[data-theme="light"][data-backdrop] {
+  --bg: color-mix(in srgb, #fbf9f4 var(--bd-a), transparent);
+  --bg-1: color-mix(in srgb, #f4f1e8 var(--bd-a), transparent);
+  --bg-2: color-mix(in srgb, #ece8dc var(--bd-a), transparent);
+  --bg-3: color-mix(in srgb, #e3ded0 var(--bd-a), transparent);
+}
+/* The canvas under a picture is the theme's own solid colour; under Glass it is nothing, so the system material shows. */
+:root[data-backdrop] body { background: transparent; }
+:root[data-backdrop="glass"] { background: transparent; }
+:root[data-backdrop="image"] { background: #1d1d1f; }
+:root[data-theme="contrast"][data-backdrop="image"] { background: #000; }
+:root[data-theme="light"][data-backdrop="image"] { background: #fbf9f4; }
+/* The welcome screens (onboarding and Home) are always the plain theme, never Glass or a picture. */
+:root[data-backdrop] .onboard { --bg: #1d1d1f; --bg-1: #232325; --bg-2: #2a2a2c; --bg-3: #323234; }
+:root[data-theme="contrast"][data-backdrop] .onboard { --bg: #000; --bg-1: #0b0b0d; --bg-2: #131316; --bg-3: #1c1c21; }
+:root[data-theme="light"][data-backdrop] .onboard { --bg: #fbf9f4; --bg-1: #f4f1e8; --bg-2: #ece8dc; --bg-3: #e3ded0; }
+/* The window's bottom corners are round like the panels above: the status bar's square corners showed against the picture. */
+:root[data-backdrop] .statusbar { border-radius: 0 0 12px 12px; }
+/* The left rail sits on .main, which already paints the base layer: its own --bg on top made a darker block with a
+   square corner against the picture or glass. */
+:root[data-backdrop] .activity { background: transparent; }
+:root[data-backdrop="image"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--bd-img) center / cover no-repeat;
+  opacity: var(--bd-o, .4);
+  pointer-events: none;
+}
+
 * {
   box-sizing: border-box;
   scrollbar-width: none;
@@ -4242,15 +4293,15 @@ svg.ico-svg:active {
 }
 
 .tk-tag {
-  color: var(--blue-text);
+  color: var(--syn-kw, var(--blue-text));
 }
 
 .tk-attr {
-  color: #c4b5fd;
+  color: var(--syn-kw, #c4b5fd);
 }
 
 .tk-str {
-  color: #86efac;
+  color: var(--syn-str, #86efac);
 }
 
 /* Comments in every language: a faint grey that reads on every theme, so the code around them stands out. */
@@ -4259,16 +4310,18 @@ svg.ico-svg:active {
   font-style: italic;
 }
 
+/* The three colours Settings → Appearance can change: --syn-kw (keywords, tags, attributes), --syn-str (strings) and
+   --syn-num (numbers, properties). Set from script on :root; with none set these are the theme's own colours. */
 .tk-kw {
-  color: #f9a8d4;
+  color: var(--syn-kw, #f9a8d4);
 }
 
 .tk-prop {
-  color: #7dd3fc;
+  color: var(--syn-num, #7dd3fc);
 }
 
 .tk-num {
-  color: #fdba74;
+  color: var(--syn-num, #fdba74);
 }
 
 /* Matches the side bar headings: sentence case in Instrument Sans. */
@@ -14834,11 +14887,11 @@ body.layout-animating #previewPane {
 
 /* ---------- light theme: colours drawn for a dark page, redrawn darker so they read on the paper ---------- */
 /* Code */
-:root[data-theme="light"] .tk-attr { color: #6d28d9; }
-:root[data-theme="light"] .tk-str { color: #137036; }
-:root[data-theme="light"] .tk-kw { color: #be185d; }
-:root[data-theme="light"] .tk-prop { color: #0369a1; }
-:root[data-theme="light"] .tk-num { color: #a8380a; }
+:root[data-theme="light"] .tk-attr { color: var(--syn-kw, #6d28d9); }
+:root[data-theme="light"] .tk-str { color: var(--syn-str, #137036); }
+:root[data-theme="light"] .tk-kw { color: var(--syn-kw, #be185d); }
+:root[data-theme="light"] .tk-prop { color: var(--syn-num, #0369a1); }
+:root[data-theme="light"] .tk-num { color: var(--syn-num, #a8380a); }
 :root[data-theme="light"] :is(.diag-msg, .tab.has-err, #sbProblems) { color: #b91c1c; }
 :root[data-theme="light"] .gutter .err.cur { color: #b91c1c; }
 :root[data-theme="light"] .ln.warn .diag-msg { color: #b45309; }
@@ -14923,6 +14976,109 @@ body.layout-animating #previewPane {
 :root[data-theme="light"] .ansi-fg-bright-black { color: var(--text-3); }
 :root[data-theme="light"] .ansi-bg-black { background-color: var(--line); }
 :root[data-theme="light"] .ansi-bg-bright-black { background-color: var(--bg-3); }
+
+/* ---------- Settings → Appearance: syntax colours (presets, three custom colours, a live sample) ---------- */
+.set-syn {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.set-syn-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, background-color .18s ease;
+}
+
+.set-syn-chip[aria-pressed="true"] {
+  border-color: rgba(122, 169, 255, .55);
+  background: rgba(0, 122, 255, .08);
+}
+
+:root[data-theme="light"] .set-syn-chip[aria-pressed="true"] {
+  border-color: rgba(10, 98, 201, .5);
+}
+
+.set-syn-dots {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
+
+.set-syn-dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c, var(--text-3));
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .35);
+}
+
+.set-syn-custom {
+  margin-bottom: 18px;
+}
+
+.set-syn-picks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.set-syn-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.set-syn-pick:hover {
+  border-color: var(--line-hi);
+}
+
+.set-syn-pick code {
+  font: 11.5px var(--font-code);
+  color: var(--text-3);
+}
+
+.set-syn-sw {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--c, var(--text-3));
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .4);
+}
+
+.set-syn-sample {
+  display: block;
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  font: 12.5px/1.5 var(--font-code);
+  white-space: pre;
+  overflow: hidden;
+}
 
 /* ---------- Settings → Appearance: one card per theme, each with a small picture of the window ---------- */
 .set-themes {
@@ -15073,6 +15229,93 @@ body.layout-animating #previewPane {
 .theme-swatch .sw-main b:nth-child(2) { width: 84%; background: #007AFF; opacity: .8; }
 .theme-swatch .sw-main b:nth-child(3) { width: 48%; }
 .theme-swatch .sw-main b:nth-child(4) { width: 70%; }
+
+/* Glass and Custom background: the same picture of a window, with see-through panels over a backdrop. The panels take
+   the colours of the theme in use (data-base). */
+.theme-swatch[data-swatch="glass"],
+.theme-swatch[data-swatch="image"] {
+  --sw-line: rgba(255, 255, 255, .22);
+  --sw-text: #f5f5f7;
+  --sw-panel: rgba(29, 29, 31, .5);
+  background: var(--sw-img, linear-gradient(135deg, #3b6fd1 0%, #5aa6c4 38%, #6fcf9d 62%, #2a3f7a 100%));
+}
+
+.theme-swatch[data-swatch="image"] {
+  background: var(--sw-img, linear-gradient(135deg, #2a2a2c, #4a4a50)) center / cover no-repeat;
+}
+
+.theme-swatch[data-base="contrast"] { --sw-panel: rgba(0, 0, 0, .55); }
+
+.theme-swatch[data-base="light"] {
+  --sw-panel: rgba(251, 249, 244, .6);
+  --sw-line: rgba(70, 55, 30, .2);
+  --sw-text: #26231e;
+}
+
+.theme-swatch[data-swatch="glass"] .sw-bar,
+.theme-swatch[data-swatch="glass"] .sw-side,
+.theme-swatch[data-swatch="image"] .sw-bar,
+.theme-swatch[data-swatch="image"] .sw-side {
+  background: var(--sw-panel);
+}
+
+.theme-swatch[data-swatch="glass"] .sw-main,
+.theme-swatch[data-swatch="image"] .sw-main {
+  background: color-mix(in srgb, var(--sw-panel) 55%, transparent);
+}
+
+.theme-swatch[data-swatch="glass"] .sw-bar,
+.theme-swatch[data-swatch="glass"] .sw-side {
+  backdrop-filter: blur(4px);
+}
+
+/* The Theme row: the three themes, with a small arrow beside them to the second page (Glass, Custom background). */
+.set-theme-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.set-theme-row .set-themes {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin-bottom: 0;
+}
+
+.set-theme-nav {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
+}
+
+.set-theme-nav:hover {
+  color: var(--text);
+  background: var(--bg-3);
+  border-color: var(--line-hi);
+}
+
+.set-theme-nav:active {
+  transform: scale(.94);
+}
+
+.set-bd {
+  margin: -6px 0 18px;
+}
+
+.set-btns {
+  display: inline-flex;
+  gap: 10px;
+}
 
 /* Opening Appearance: each picture's code lines grow from the left, line by line, one card after another. */
 .set-themes.grow .theme-swatch b {

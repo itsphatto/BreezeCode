@@ -103,34 +103,40 @@ function toHex(c: Rgba, like: string): string {
 }
 
 /* ----- The picker ----- */
+// One picker for every place that edits a hex colour: the editor's swatches and Settings → Appearance. What it edits is
+// behind `PickerIo`: `live` gets each new colour while it is dragged (false: the thing it edits is gone, so it closes),
+// `commit` runs on release, `leave` when Enter or Escape hands focus back, and `alpha: false` leaves the opacity bar out.
+interface PickerIo { live(next: string): boolean; commit(): void; leave?(): void; alpha?: boolean }
 let pickerEl: HTMLElement | null = null;
 let pickerCommit: (() => void) | null = null;
+let pickerLeave: (() => void) | null = null;
 function closeColorPicker(): void {
   const commit = pickerCommit;
   pickerCommit = null;
+  pickerLeave = null;
   commit?.();
   pickerEl?.remove();
   pickerEl = null;
 }
-function openColorPicker(b: EditorBuffer & { ta: CodeSurface }, off: number, len: number, anchor: DOMRect): void {
+function showColorPicker(orig: string, anchor: DOMRect, io: PickerIo): void {
   closeColorPicker();
-  // `committed`: the colour as the file's history has it; `shown`: what's drawn now, ahead of it while dragging.
-  const orig = b.text.slice(off, off + len);
-  let committed = orig, shown = orig;
+  let shown = orig; // what's drawn now, ahead of the committed colour while dragging
   const start = parseHex(orig);
   if (!start) return;
   let hsv = rgbToHsv(start);
+  const withAlpha = io.alpha !== false;
   const el = document.createElement('div');
   el.className = 'color-picker';
   el.innerHTML = `<div class="cp-sv"><div class="cp-sv-knob"></div></div>
     <div class="cp-row"><div class="cp-preview"></div><div class="cp-sliders">
       <div class="cp-hue"><div class="cp-knob"></div></div>
-      <div class="cp-alpha"><div class="cp-alpha-fill"></div><div class="cp-knob"></div></div>
+      ${withAlpha ? '<div class="cp-alpha"><div class="cp-alpha-fill"></div><div class="cp-knob"></div></div>' : ''}
     </div></div>
     <input class="input cp-hex" spellcheck="false" aria-label="Hex colour">`;
   document.body.append(el);
   pickerEl = el;
-  const sv = $('.cp-sv', el), hue = $('.cp-hue', el), alpha = $('.cp-alpha', el), hexIn = $<HTMLInputElement>('.cp-hex', el);
+  pickerLeave = io.leave ?? null;
+  const sv = $('.cp-sv', el), hue = $('.cp-hue', el), alpha = el.querySelector<HTMLElement>('.cp-alpha'), hexIn = $<HTMLInputElement>('.cp-hex', el);
 
   const paint = () => {
     const rgb = hsvToRgb(hsv), full = hsvToRgb({ ...hsv, s: 1, v: 1, a: 1 });
@@ -138,36 +144,22 @@ function openColorPicker(b: EditorBuffer & { ta: CodeSurface }, off: number, len
     $('.cp-sv-knob', el).style.left = `${hsv.s * 100}%`;
     $('.cp-sv-knob', el).style.top = `${(1 - hsv.v) * 100}%`;
     $('.cp-knob', hue).style.left = `${hsv.h / 360 * 100}%`;
-    $('.cp-knob', alpha).style.left = `${hsv.a * 100}%`;
-    $('.cp-alpha-fill', el).style.background = `linear-gradient(to right, transparent, rgb(${rgb.r},${rgb.g},${rgb.b}))`;
+    if (alpha) {
+      $('.cp-knob', alpha).style.left = `${hsv.a * 100}%`;
+      $('.cp-alpha-fill', el).style.background = `linear-gradient(to right, transparent, rgb(${rgb.r},${rgb.g},${rgb.b}))`;
+    }
     $('.cp-preview', el).style.setProperty('--sw', `rgba(${rgb.r},${rgb.g},${rgb.b},${rgb.a})`);
     if (document.activeElement !== hexIn) hexIn.value = shown;
   };
-  // While dragging: the text and its box change on screen only (no undo step, save, lint or language-server update).
+  // While dragging: the colour is handed over as it changes; the owner decides what that costs (the editor changes the
+  // text on screen only: no undo step, save, lint or language-server update).
   const write = () => {
     const next = toHex(hsvToRgb(hsv), orig);
     if (next === shown) return;
-    if (b.text.slice(off, off + shown.length) !== shown) { closeColorPicker(); return; } // the file changed under it
-    const before = b.text;
-    b.ta.setRangeText(next, off, off + shown.length, 'preserve');
-    b.text = b.ta.value;
-    docSync(b, before, b.text);
+    if (!io.live(next)) { closeColorPicker(); return; }
     shown = next;
-    queueRender();
   };
-  // On release: the change goes into the file as one edit (one undo step, one save), from the colour it started at.
-  const commit = () => {
-    if (shown === committed || b.text.slice(off, off + shown.length) !== shown) return;
-    const final = shown;
-    const before = b.text;
-    b.ta.setRangeText(committed, off, off + final.length, 'preserve');
-    b.text = b.ta.value;
-    docSync(b, before, b.text); // replaceRange below then makes the change through the surface's input handler
-    const caret = b.ta.selectionStart;
-    replaceRange(b.ta, off, off + committed.length, final, caret, caret);
-    committed = shown = final;
-  };
-  pickerCommit = commit;
+  pickerCommit = io.commit;
   const drag = (area: HTMLElement, set: (fx: number, fy: number) => void) => {
     area.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -181,21 +173,21 @@ function openColorPicker(b: EditorBuffer & { ta: CodeSurface }, off: number, len
       area.onpointermove = move;
       area.onpointerup = area.onpointercancel = () => {
         area.onpointermove = null; area.onpointerup = area.onpointercancel = null;
-        commit(); hexIn.value = shown;
+        io.commit(); hexIn.value = shown;
       };
     });
   };
   drag(sv, (x, y) => { hsv.s = x; hsv.v = 1 - y; });
   drag(hue, x => { hsv.h = x * 360; });
-  drag(alpha, x => { hsv.a = Math.round(x * 100) / 100; });
+  if (alpha) drag(alpha, x => { hsv.a = Math.round(x * 100) / 100; });
   hexIn.oninput = () => {
     const v = hexIn.value.trim(), c = parseHex(v.startsWith('#') ? v : '#' + v);
     if (!c || !/^#?([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) return;
-    hsv = rgbToHsv(c);
+    hsv = rgbToHsv(withAlpha ? c : { ...c, a: 1 });
     write(); paint();
   };
-  hexIn.onblur = () => commit();
-  hexIn.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); closeColorPicker(); b.ta.focus(); } };
+  hexIn.onblur = () => io.commit();
+  hexIn.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); const leave = pickerLeave; closeColorPicker(); leave?.(); } };
 
   // Under the swatch, flipped above it (and kept inside the window) when there's no room.
   const w = 220, h = el.offsetHeight || 240;
@@ -205,12 +197,43 @@ function openColorPicker(b: EditorBuffer & { ta: CodeSurface }, off: number, len
   el.style.top = `${clamp(y, 8, innerHeight - h - 8)}px`;
   paint();
 }
+// The editor's swatches: the colour is the text at [off, off + len) of the buffer.
+function openColorPicker(b: EditorBuffer & { ta: CodeSurface }, off: number, len: number, anchor: DOMRect): void {
+  // `committed`: the colour as the file's history has it; `shown`: what's in the text now, ahead of it while dragging.
+  const orig = b.text.slice(off, off + len);
+  let committed = orig, shown = orig;
+  showColorPicker(orig, anchor, {
+    live(next) {
+      if (b.text.slice(off, off + shown.length) !== shown) return false; // the file changed under it
+      const before = b.text;
+      b.ta.setRangeText(next, off, off + shown.length, 'preserve');
+      b.text = b.ta.value;
+      docSync(b, before, b.text);
+      shown = next;
+      queueRender();
+      return true;
+    },
+    // On release: the change goes into the file as one edit (one undo step, one save), from the colour it started at.
+    commit() {
+      if (shown === committed || b.text.slice(off, off + shown.length) !== shown) return;
+      const final = shown;
+      const before = b.text;
+      b.ta.setRangeText(committed, off, off + final.length, 'preserve');
+      b.text = b.ta.value;
+      docSync(b, before, b.text); // replaceRange below then makes the change through the surface's input handler
+      const caret = b.ta.selectionStart;
+      replaceRange(b.ta, off, off + committed.length, final, caret, caret);
+      committed = shown = final;
+    },
+    leave: () => b.ta.focus(),
+  });
+}
 // Clicks outside, Escape, or switching files close it.
 document.addEventListener('pointerdown', e => {
   const t = e.target as Element;
   if (pickerEl && !pickerEl.contains(t) && !t.closest?.('#editor .code')) closeColorPicker(); // the code area decides below
 }, true);
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && pickerEl) { e.stopPropagation(); closeColorPicker(); activeText()?.ta.focus(); } }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && pickerEl) { e.stopPropagation(); const leave = pickerLeave; closeColorPicker(); leave?.(); } }, true);
 
 // The swatches sit under the editing surface (which takes the pointer), so a press is matched to one by position.
 {

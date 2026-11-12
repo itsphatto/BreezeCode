@@ -173,10 +173,232 @@ function setTheme(t: Theme): void {
   store.set('breeze.theme', t);
   // A view transition cross-fades a snapshot of the window, so it costs the same however big the editor is
   // (easing every element's colours made big files lag behind the click).
-  const apply = () => { document.documentElement.dataset.theme = t; };
+  const apply = () => { document.documentElement.dataset.theme = t; applySyntax(); }; // a preset has a light and a dark version
   if (document.startViewTransition) document.startViewTransition(apply);
   else apply();
   background(api.win.theme(t));
+}
+
+/* ----- Syntax colours: five presets or three colours of your own. -----
+   Code is coloured by the tk-* classes (breeze.css), which read --syn-kw (keywords, tags, attributes), --syn-str (strings)
+   and --syn-num (numbers, properties) from :root. Set from script, since the page's CSP blocks inline style. With none
+   set, every token keeps the theme's own colour. */
+type SynTriple = [kw: string, str: string, num: string];
+const SYN_DEFAULTS: { dark: SynTriple; light: SynTriple } = { dark: ['#f9a8d4', '#86efac', '#fdba74'], light: ['#be185d', '#137036', '#a8380a'] };
+// Each preset has a version for the dark themes and a darker one for the light theme.
+const SYN_PRESETS: { id: string; name: string; dark: SynTriple; light: SynTriple }[] = [
+  { id: 'ocean', name: 'Ocean', dark: ['#7dd3fc', '#5eead4', '#a5b4fc'], light: ['#0369a1', '#0f766e', '#4338ca'] },
+  { id: 'sunset', name: 'Sunset', dark: ['#fb7185', '#fcd34d', '#fb923c'], light: ['#be123c', '#a16207', '#c2410c'] },
+  { id: 'forest', name: 'Forest', dark: ['#86efac', '#bef264', '#6ee7b7'], light: ['#15803d', '#4d7c0f', '#047857'] },
+  { id: 'lavender', name: 'Lavender', dark: ['#c4b5fd', '#f0abfc', '#93c5fd'], light: ['#6d28d9', '#a21caf', '#1d4ed8'] },
+  { id: 'mono', name: 'High contrast', dark: ['#ffffff', '#fde68a', '#67e8f9'], light: ['#000000', '#854d0e', '#155e75'] },
+];
+const SYN_SLOTS = [['sSynKw', 'Keywords', '--syn-kw'], ['sSynStr', 'Strings', '--syn-str'], ['sSynNum', 'Numbers', '--syn-num']] as const;
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const savedSynCustom = store.get<unknown>('breeze.synCustom', null);
+// A saved choice is checked on the way in: a custom triple must be three #rrggbb colours, a preset must still exist.
+let synCustom: SynTriple | null = Array.isArray(savedSynCustom) && savedSynCustom.length === 3 && savedSynCustom.every(c => typeof c === 'string' && HEX_COLOR.test(c)) ? savedSynCustom as SynTriple : null;
+const savedSynPreset = store.get<string>('breeze.synPreset', 'default');
+let synPreset = SYN_PRESETS.some(p => p.id === savedSynPreset) ? savedSynPreset : 'default';
+const themeKey = (): 'dark' | 'light' => (theme === 'light' ? 'light' : 'dark');
+// The colours in use right now, or null for the theme's own.
+function synColors(): SynTriple | null {
+  if (synCustom) return synCustom;
+  return SYN_PRESETS.find(p => p.id === synPreset)?.[themeKey()] ?? null;
+}
+function applySyntax(): void {
+  const root = document.documentElement.style, c = synColors();
+  SYN_SLOTS.forEach(([, , v], i) => { if (c) root.setProperty(v, c[i]); else root.removeProperty(v); });
+  mmColors.clear(); // the minimap draws in the same colours
+  queueMinimap();
+}
+function saveSyntax(): void {
+  store.set('breeze.synPreset', synPreset);
+  store.set('breeze.synCustom', synCustom);
+}
+function pickSynPreset(id: string): void {
+  synPreset = id;
+  synCustom = null;
+  saveSyntax();
+  applySyntax();
+}
+applySyntax();
+const synChipHtml = (id: string, name: string, pressed: boolean) =>
+  `<button class="set-syn-chip" data-syn="${id}" aria-pressed="${pressed}"><span class="set-syn-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${esc(name)}</span></button>`;
+function syntaxSettingsHtml(): string {
+  const cur = synColors() ?? SYN_DEFAULTS[themeKey()];
+  const chips = [synChipHtml('default', 'Default', !synCustom && synPreset === 'default'), ...SYN_PRESETS.map(p => synChipHtml(p.id, p.name, !synCustom && synPreset === p.id))].join('');
+  // Each colour is a button that opens the editor's own colour picker (colorpick.ts); its colour goes on from script.
+  const picks = SYN_SLOTS.map(([id, label], i) => `<button class="set-syn-pick" id="${id}" aria-label="${label} colour, ${cur[i]}" aria-haspopup="dialog"><i class="set-syn-sw"></i><span>${label}</span><code>${cur[i]}</code></button>`).join('');
+  return `<h5>Syntax colours</h5>
+      <div class="set-syn" role="group" aria-label="Syntax colour presets">${chips}</div>
+      <code class="set-syn-sample" aria-hidden="true"><span class="tk-com">// colours for your code</span>
+<span class="tk-kw">const</span> greeting = <span class="tk-str">"Hello, Breeze"</span>;
+<span class="tk-kw">return</span> greeting.<span class="tk-prop">length</span> + <span class="tk-num">42</span>;</code>
+      <div class="set-syn-custom"><div class="set-title">Custom colours</div><div class="set-sub">Keywords, strings and numbers. Picking one overrides the preset.</div>
+        <div class="set-syn-picks">${picks}<button class="btn btn-sm" id="sSynReset"${!synCustom && synPreset === 'default' ? ' disabled' : ''}>Reset</button></div></div>`;
+}
+// Paints the dots on the chips (colours go on from script) in the theme in use.
+function paintSynDots(pane: HTMLElement): void {
+  $$<HTMLElement>('[data-syn]', pane).forEach(chip => {
+    const c = chip.dataset.syn === 'default' ? SYN_DEFAULTS[themeKey()] : SYN_PRESETS.find(p => p.id === chip.dataset.syn)?.[themeKey()];
+    chip.querySelectorAll<HTMLElement>('i').forEach((dot, i) => c && dot.style.setProperty('--c', c[i]));
+  });
+}
+function bindSyntaxSettings(pane: HTMLElement): void {
+  if (!pane.querySelector('.set-syn')) return;
+  paintSynDots(pane);
+  $$<HTMLElement>('[data-syn]', pane).forEach(b => b.onclick = () => { pickSynPreset(b.dataset.syn ?? 'default'); refreshSettings(); });
+  const buttons = SYN_SLOTS.map(([id]) => $<HTMLButtonElement>(`#${id}`, pane));
+  const current = (): SynTriple => synColors() ?? SYN_DEFAULTS[themeKey()];
+  const showSlots = () => buttons.forEach((b, i) => {
+    $('.set-syn-sw', b).style.setProperty('--c', current()[i]);
+    $('code', b).textContent = current()[i];
+    b.setAttribute('aria-label', `${SYN_SLOTS[i][1]} colour, ${current()[i]}`);
+  });
+  showSlots();
+  // The same picker as the editor's colour swatches, without its opacity bar. Dragging repaints the code as it goes
+  // (no redraw of the pane, which would close the picker); the choice is kept as the custom colours.
+  buttons.forEach((btn, i) => btn.onclick = () => showColorPicker(current()[i], btn.getBoundingClientRect(), {
+    alpha: false,
+    live(next) {
+      const colors = [...current()] as SynTriple;
+      colors[i] = next.toLowerCase();
+      synCustom = colors;
+      synPreset = 'custom';
+      saveSyntax();
+      applySyntax();
+      showSlots();
+      $$('[data-syn]', pane).forEach(chip => chip.setAttribute('aria-pressed', 'false'));
+      $<HTMLButtonElement>('#sSynReset', pane).disabled = false;
+      return true;
+    },
+    commit() { /* every change is already kept */ },
+  }));
+  $('#sSynReset', pane).onclick = () => { pickSynPreset('default'); refreshSettings(); };
+}
+
+/* ----- Backdrops: Glass and a Custom background sit behind the chosen theme, on the Theme row's second page. -----
+   data-backdrop on <html> makes the theme's surfaces see-through (breeze.css). Glass lets the system blur the desktop
+   behind the window (main.ts win:glass); a picture is drawn full-window behind the surfaces at --bd-o opacity. */
+type Backdrop = 'none' | 'glass' | 'image';
+const BACKDROPS: [Exclude<Backdrop, 'none'>, string, string][] = [
+  ['image', 'Custom background', 'Your own picture.'],
+];
+const BG_OPACITY_MIN = 10, BG_OPACITY_MAX = 100, BG_OPACITY_DEFAULT = 40;
+const savedBackdrop = store.get<string>('breeze.backdrop', 'none');
+const savedBgImage = store.get<unknown>('breeze.bgImage', null) as { url?: unknown; name?: unknown } | null;
+// A saved picture is checked on the way in: a file or data URL and a name.
+let bgImage: { url: string; name: string } | null = savedBgImage && typeof savedBgImage.url === 'string' && /^(file:|data:image\/)/.test(savedBgImage.url) && typeof savedBgImage.name === 'string'
+  ? { url: savedBgImage.url, name: savedBgImage.name } : null;
+let backdrop: Backdrop = savedBackdrop === 'glass' || (savedBackdrop === 'image' && bgImage) ? savedBackdrop : 'none';
+let bgOpacity = clamp(Math.round(Number(store.get<number>('breeze.bgOpacity', BG_OPACITY_DEFAULT)) || BG_OPACITY_DEFAULT), BG_OPACITY_MIN, BG_OPACITY_MAX);
+let themePage = 0; // 0: the three themes, 1: Glass and Custom background
+let bgSize = ''; // "1920 × 1080" once the picture has loaded
+function applyBackdrop(): void {
+  const root = document.documentElement;
+  if (backdrop === 'none') delete root.dataset.backdrop; else root.dataset.backdrop = backdrop;
+  if (backdrop === 'image' && bgImage) {
+    root.style.setProperty('--bd-img', `url("${bgImage.url.replace(/"/g, '%22')}")`);
+    root.style.setProperty('--bd-o', String(bgOpacity / 100));
+  } else {
+    root.style.removeProperty('--bd-img');
+    root.style.removeProperty('--bd-o');
+  }
+  // The window itself goes see-through for Glass only. If this system can't, Glass switches back off.
+  void api.win.glass(backdrop === 'glass').then(ok => {
+    if (ok || backdrop !== 'glass') return;
+    setBackdrop('none');
+    toast('Glass needs Windows 11 (22H2 or newer) or macOS');
+    refreshSettings();
+  }).catch(() => undefined);
+}
+function setBackdrop(next: Backdrop): void {
+  backdrop = next;
+  store.set('breeze.backdrop', next);
+  applyBackdrop();
+}
+if (backdrop !== 'none') applyBackdrop();
+const backdropCardHtml = ([id, name, sub]: [Exclude<Backdrop, 'none'>, string, string]) =>
+  `<button class="set-theme ${id === backdrop ? 'on' : ''}" data-backdrop-pick="${id}" aria-pressed="${id === backdrop}">
+    <span class="theme-swatch" data-swatch="${id}" data-base="${theme}" aria-hidden="true"><span class="sw-bar"><i></i><i></i><i></i></span><span class="sw-side"><b></b><b></b><b></b></span><span class="sw-main"><b></b><b></b><b></b><b></b></span></span>
+    <span class="nm">${esc(name)}</span><span class="set-sub">${esc(sub)}</span></button>`;
+const chevronSvg = (flip: boolean) => `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="${flip ? 'M10 3 5 8l5 5' : 'M6 3l5 5-5 5'}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+function themePickerHtml(): string {
+  const cards = themePage === 0 ? THEMES.map(themeCardHtml).join('') : BACKDROPS.map(backdropCardHtml).join('');
+  const more = themePage === 0
+    ? `<button class="set-theme-nav" id="sThemeMore" aria-label="More options: Glass and Custom background" title="More options">${chevronSvg(false)}</button>`
+    : `<button class="set-theme-nav" id="sThemeBack" aria-label="Back to themes" title="Back to themes">${chevronSvg(true)}</button>`;
+  // Glass is a switch under the themes, not a card. It and a picture are alternatives: turning one on turns the other off.
+  const glass = settingRow('Glass', 'See-through, frosted window. Windows 11 and macOS.', switchHtml('sGlass', backdrop === 'glass', 'Glass'));
+  const options = themePage === 0 ? `<div class="set-bd">${glass}</div>` : `<div class="set-bd">
+      ${settingRow('Background picture', bgImage ? `${esc(bgImage.name)}${bgSize ? ` · ${bgSize}` : ''}` : 'Best at 1920 × 1080. Any picture fills the window.',
+        `<span class="set-btns"><button class="btn btn-sm" id="sBgPick">${bgImage ? 'Change' : 'Choose'}</button>${bgImage ? '<button class="btn btn-sm" id="sBgClear">Remove</button>' : ''}</span>`)}
+      ${settingRow('Picture opacity', 'How strongly the picture shows through.', `<div class="set-volume set-font-size"><input type="range" id="sBgOpacity" min="${BG_OPACITY_MIN}" max="${BG_OPACITY_MAX}" step="1" value="${bgOpacity}" aria-label="Picture opacity"${bgImage ? '' : ' disabled'}><span class="set-volume-val" id="sBgOpacityVal">${bgOpacity}%</span></div>`)}
+    </div>`;
+  return `<div class="set-theme-row"><div class="set-themes">${cards}</div>${more}</div>${options}`;
+}
+// The picture's size, read once it loads (shown under its name).
+function measureBg(): void {
+  if (!bgImage) { bgSize = ''; return; }
+  const img = new Image(), url = bgImage.url;
+  img.onload = () => { if (bgImage?.url === url) { bgSize = `${img.naturalWidth} × ${img.naturalHeight}`; refreshSettings(); } };
+  img.onerror = () => { // the file is gone: forget it
+    if (bgImage?.url !== url) return;
+    bgImage = null; store.del('breeze.bgImage');
+    if (backdrop === 'image') setBackdrop('none');
+    refreshSettings();
+  };
+  img.src = url;
+}
+if (bgImage) measureBg();
+function bindBackdropSettings(pane: HTMLElement): void {
+  $('#sThemeMore', pane)?.addEventListener('click', () => { themePage = 1; refreshSettings(); });
+  $('#sThemeBack', pane)?.addEventListener('click', () => { themePage = 0; refreshSettings(); });
+  // Sets the picture and puts it on; a cancelled picker changes nothing.
+  const choosePicture = async (): Promise<boolean> => {
+    const pick = await api.win.pickBackdrop();
+    if (!pick) return false;
+    bgImage = pick; bgSize = '';
+    store.set('breeze.bgImage', pick);
+    setBackdrop('image');
+    measureBg();
+    return true;
+  };
+  $$<HTMLElement>('[data-backdrop-pick]', pane).forEach(b => b.onclick = () => {
+    if (backdrop === 'image') { setBackdrop('none'); refreshSettings(); return; }
+    // The first time, Custom background asks for the picture straight away.
+    if (!bgImage) { background(choosePicture().then(ok => { if (ok) refreshSettings(); })); return; }
+    setBackdrop('image');
+    refreshSettings();
+  });
+  const glassSwitch = $('#sGlass', pane);
+  if (glassSwitch) glassSwitch.onclick = () => { setBackdrop(backdrop === 'glass' ? 'none' : 'glass'); refreshSettings(); };
+  $('#sBgPick', pane)?.addEventListener('click', () => background(choosePicture().then(ok => { if (ok) refreshSettings(); })));
+  $('#sBgClear', pane)?.addEventListener('click', () => {
+    bgImage = null; bgSize = '';
+    store.del('breeze.bgImage');
+    if (backdrop === 'image') setBackdrop('none');
+    refreshSettings();
+  });
+  // The picture's opacity follows the knob live (no redraw of the pane, which would drop the drag).
+  const slider = $<HTMLInputElement>('#sBgOpacity', pane);
+  if (slider) {
+    const show = (v: number) => {
+      bgOpacity = clamp(Math.round(v), BG_OPACITY_MIN, BG_OPACITY_MAX);
+      slider.value = String(bgOpacity);
+      slider.style.setProperty('--fill', `${(bgOpacity - BG_OPACITY_MIN) / (BG_OPACITY_MAX - BG_OPACITY_MIN) * 100}%`);
+      $('#sBgOpacityVal', pane).textContent = `${bgOpacity}%`;
+      store.set('breeze.bgOpacity', bgOpacity);
+      if (backdrop === 'image') document.documentElement.style.setProperty('--bd-o', String(bgOpacity / 100));
+    };
+    show(bgOpacity);
+    slider.oninput = () => show(+slider.value);
+    slider.addEventListener('wheel', e => { e.preventDefault(); show(bgOpacity + (e.deltaY < 0 || e.deltaX > 0 ? 2 : -2)); }, { passive: false });
+  }
+  // The pictures on the Custom background card and the panel's swatch show the chosen picture.
+  const sw = pane.querySelector<HTMLElement>('[data-swatch="image"]');
+  if (sw) { if (bgImage) sw.style.setProperty('--sw-img', `url("${bgImage.url.replace(/"/g, '%22')}")`); else sw.style.removeProperty('--sw-img'); }
 }
 
 // The account card sits at the top of General.
@@ -314,8 +536,9 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Reset layout', 'Put every panel back where it started.', '<button class="btn btn-sm" id="sResetLayout">Reset</button>')}`;
     case 'appearance': return `<h4>Appearance</h4>
       <h5>Theme</h5>
-      <div class="set-themes">${THEMES.map(themeCardHtml).join('')}</div>
+      ${themePickerHtml()}
       <p class="set-sub"></p>
+      ${syntaxSettingsHtml()}
       <h5>Text</h5>
       ${settingRow('Font size', 'Code in the editor and the debugger.', `<div class="set-volume set-font-size"><input type="range" id="sCodeSize" min="${CODE_SIZE_MIN}" max="${CODE_SIZE_MAX}" step="1" value="${codeSize}" aria-label="Code font size"><span class="set-volume-val" id="sCodeSizeVal">${codeSize}px</span></div>`)}
       <h5>Editor</h5>
@@ -670,6 +893,8 @@ function bindSettings(m: HTMLElement): void {
     refreshSettings();
     slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
   });
+  bindBackdropSettings(pane);
+  bindSyntaxSettings(pane);
   // Font size: the code redraws as the knob moves; the arrow keys and the wheel step one pixel.
   const sizeEl = $<HTMLInputElement>('#sCodeSize', pane);
   if (sizeEl) {

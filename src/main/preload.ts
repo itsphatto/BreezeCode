@@ -258,6 +258,8 @@ contextBridge.exposeInMainWorld('breeze', {
     quit: () => invoke('win:quit'),
     edit: (role: unknown) => invoke('win:edit', role),
     theme: (t: unknown) => invoke('win:theme', t),
+    glass: (on: unknown) => invoke('win:glass', on),
+    pickBackdrop: () => invoke('win:pickBackdrop'),
     devIcon: (on: unknown) => invoke('win:devIcon', on),
     minimize: () => invoke('win:minimize'),
     toggleMaximize: () => invoke('win:toggleMaximize'),

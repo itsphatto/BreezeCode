@@ -394,6 +394,8 @@ interface BreezeApi {
     hide(): Promise<void>;
   };
   win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>; devIcon(on: boolean): Promise<void>;
+    glass(on: boolean): Promise<boolean>; // false: this system can't draw a see-through window
+    pickBackdrop(): Promise<{ url: string; name: string } | null>;
     minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>;
     newTerminal(): Promise<void>;
     onMaximized(cb: (maximized: boolean) => void): () => void;
