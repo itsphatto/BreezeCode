@@ -6638,9 +6638,15 @@ body.vibing .ide {
   outline-offset: 2px;
 }
 
+/* Generating: the sparkles twist and shrink away while the spinner grows out of the same spot, and back when it's done.
+   Both sit in the one cell; the spinner shrinks on `scale`, since its turning owns `transform`. */
+#scmGenMsg > * {
+  grid-area: 1 / 1;
+}
+
 #scmGenMsg svg {
   color: #a78bfa;
-  transition: color .15s ease, transform .15s ease;
+  transition: color .15s ease, transform .3s cubic-bezier(.3, .7, .2, 1), opacity .2s ease, filter .3s ease;
 }
 
 #scmGenMsg:hover svg {
@@ -6648,12 +6654,30 @@ body.vibing .ide {
   transform: scale(1.12);
 }
 
-#scmGenMsg.busy .spinner {
+#scmGenMsg .spinner {
   width: 13px;
   height: 13px;
   border-width: 2px;
   border-color: rgba(167, 139, 250, .25);
   border-top-color: #a78bfa;
+  opacity: 0;
+  scale: .3;
+  filter: blur(2px);
+  animation-play-state: paused; /* stands still while unseen, and keeps its angle as it fades out */
+  transition: scale .3s cubic-bezier(.3, .7, .2, 1), opacity .2s ease, filter .3s ease;
+}
+
+#scmGenMsg.busy svg {
+  opacity: 0;
+  transform: rotate(120deg) scale(.3);
+  filter: blur(2px);
+}
+
+#scmGenMsg.busy .spinner {
+  opacity: 1;
+  scale: 1;
+  filter: none;
+  animation-play-state: running;
 }
 
 .scm-sec {
@@ -10567,7 +10591,7 @@ body.layout-animating .box > .terminal.open {
   }
 }
 
-/* Into and out of the debugger without Exaggerated animation: the pages share their title and activity bars, so a
+/* Into and out of the debugger: the pages share their title and activity bars, so a
    plain cross-fade leaves those still and only the work area changes. The new page's content settles in a few pixels;
    nothing scales or rises, which read as another window opening. */
 .screen-soft-in {
@@ -10609,144 +10633,12 @@ body.layout-animating .box > .terminal.open {
   }
 }
 
-/* Into and out of the debugger (teamswap.ts): the new screen comes in above the old one, which stays put beneath it and
-   shows through until each of its panels is replaced. Both activity bars match, so the new one simply takes over. */
-.screen-team:not(.screen-out) {
-  position: relative;
-  z-index: 31;
-  transition: none;
-}
-
-.screen-team:not(.screen-out),
-.screen-team:not(.screen-out) > :is(.main, .dbg-main, .titlebar) {
-  background: transparent;
-}
-
-.screen-out.screen-team {
-  animation: none;
-}
-
-/* The settings button is carried down and up the bar, past the end of the IDE's, which the status bar would cover. */
-.screen-team .activity {
-  z-index: 1;
-}
-
-.swap-team {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  width: 100vw;
-  height: 100vh;
-  pointer-events: none;
-}
-
 .box.screen-in .box-composer {
   animation: rise .5s .08s cubic-bezier(.2, .8, .2, 1) both;
 }
 
 .box.screen-in .box-chat {
   animation: fade .5s .05s both;
-}
-
-/* The flight between the IDE and Breeze Space (flyBetween, space.ts). Up: the page rounds its corners and drops away below
-   the camera, gathering speed as a climb does (so ease-in, for once). The sky falls past from pale blue to black, then
-   turns see-through onto Space itself, whose contents come in last. Down is the same flight played backwards, with the
-   page rising to meet the camera: `reverse` turns the page's ease-in into an ease-out landing. */
-.screen-out.screen-lift {
-  z-index: 33;
-  background: var(--bg);
-  animation: screenLift 1.3s cubic-bezier(.55, .055, .675, .19) forwards;
-}
-
-.screen-land {
-  position: fixed !important;
-  inset: 0;
-  z-index: 33;
-  pointer-events: none;
-  background: var(--bg);
-  animation: screenLift 1.3s cubic-bezier(.55, .055, .675, .19) 2.3s reverse both;
-}
-
-/* The corners round off first, while the page is still nearly in place. */
-@keyframes screenLift {
-  from {
-    transform: none;
-    clip-path: inset(0 round 0);
-  }
-  18% {
-    clip-path: inset(0 round 28px);
-  }
-  to {
-    transform: translateY(115vh) scale(.88);
-    clip-path: inset(0 round 28px);
-  }
-}
-
-/* Going down, Space stays put under the sky until it's covered; only its contents leave. */
-.screen-out.screen-drop {
-  animation: none;
-}
-
-.box.screen-drop > :is(.box-bar, .box-side, .box-live, .box-main, .box-composer, .terminal) {
-  animation: fadeOut .45s ease forwards;
-}
-
-/* Takes the clicks for the length of the flight. The two screens' switch buttons sit in the same corner, so without this
-   the second click of a double-click lands on the other one and turns the flight straight back. */
-.lift-space {
-  position: fixed;
-  inset: 0;
-  z-index: 32;
-  overflow: hidden;
-}
-
-.lift-clouds {
-  position: fixed;
-  inset: 0;
-  z-index: 34;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.lift-clouds canvas {
-  position: absolute;
-  top: 0;
-  height: auto;
-}
-
-/* The sky: four windows tall, sliding down so the window goes from its pale bottom to its top, which is clear. It thins out
-   over a long stretch, so Space's stars brighten through it gradually rather than being uncovered by a moving edge. */
-.lift-space::before {
-  content: "";
-  position: absolute;
-  top: -300%;
-  left: 0;
-  right: 0;
-  height: 400%;
-  background: linear-gradient(to top, #cfe9ff, #8ac6f7 10%, #4a93e0 22%, #2566bd 34%, rgba(19, 63, 143, .92) 44%, rgba(10, 35, 96, .72) 52%, rgba(6, 15, 43, .45) 60%, rgba(6, 8, 15, .18) 68%, rgba(6, 8, 15, 0) 75%);
-  animation: liftAir 3s cubic-bezier(.45, 0, .55, 1) both;
-}
-
-/* On the paper theme Space is pale, so the sky pales out into it instead of passing through black. */
-:root[data-theme="light"] .lift-space::before {
-  background: linear-gradient(to top, #cfe9ff, #8ac6f7 10%, #4a93e0 26%, rgba(138, 198, 247, .9) 44%, rgba(207, 233, 255, .5) 60%, rgba(207, 233, 255, 0) 75%);
-}
-
-.lift-space.down::before {
-  animation-delay: .6s;
-  animation-direction: reverse;
-}
-
-@keyframes liftAir {
-  to { transform: translateY(75%); }
-}
-
-.box.lift-arrive > :is(.box-bar, .box-side, .box-live, .box-main) {
-  animation: fade .6s 2.9s both;
-}
-
-.box.lift-arrive .box-composer {
-  animation: rise .6s 3s cubic-bezier(.23, 1, .32, 1) both;
 }
 
 /* ----- Hovering in Breeze Space: controls grow a touch (on `scale`, so a press's `transform` still plays, and a growing
@@ -12490,6 +12382,17 @@ body.layout-animating #previewPane {
   border-right: 1px solid var(--glass-line);
   background: rgba(var(--ink), .02);
   overflow-y: auto;
+  position: relative; /* the flying highlight is placed against it, and behind its rows */
+  isolation: isolate;
+}
+
+/* The selected section's highlight on its way from the old row to the new one (flowNavPill, settings.ts). */
+.set-pill {
+  position: absolute;
+  z-index: -1;
+  border-radius: 9px;
+  background: var(--blue-soft);
+  pointer-events: none;
 }
 
 .set-profile {
@@ -13048,7 +12951,7 @@ body.layout-animating #previewPane {
 
 /* Home's agent page, shown under Settings → Agents: as wide as the pane, without the page's own padding. */
 .set-dash {
-  max-width: 800px;
+  max-width: 920px; /* the pane's width (.set-pane), so its cards line up with the rows above */
   margin: 24px auto 0;
 }
 

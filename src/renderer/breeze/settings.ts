@@ -319,9 +319,7 @@ function settingsBody(tab: SettingsTab): string {
       <h5>Text</h5>
       ${settingRow('Font size', 'Code in the editor and the debugger.', `<div class="set-volume set-font-size"><input type="range" id="sCodeSize" min="${CODE_SIZE_MIN}" max="${CODE_SIZE_MAX}" step="1" value="${codeSize}" aria-label="Code font size"><span class="set-volume-val" id="sCodeSizeVal">${codeSize}px</span></div>`)}
       <h5>Editor</h5>
-      ${settingRow('Minimap', 'A zoomed-out view of the file beside the scrollbar. Click or drag it to scroll.', switchHtml('sMinimap', minimapOn, 'Minimap'))}
-      <h5>Motion</h5>
-      ${settingRow('Extra animation', 'Fly between Breeze Code and Breeze Space, and bring the debugger in panel by panel.', switchHtml('sBigAnim', bigAnim, 'Extra animation'))}`;
+      ${settingRow('Minimap', 'A zoomed-out view of the file beside the scrollbar. Click or drag it to scroll.', switchHtml('sMinimap', minimapOn, 'Minimap'))}`;
     case 'controls': return `<h4>Controls</h4>
       <h5>Keybinds</h5>
       <p class="set-sub">Click a shortcut, then press the new keys. Backspace removes it, Escape cancels.</p>
@@ -409,11 +407,6 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Classic switches', 'Use the flat on/off switch instead of the liquid one.', switchHtml('sClassicSwitch', classicSwitch, 'Classic switches'))}
       ${settingRow('Turn off Developer', 'Hide this section again.', '<button class="btn btn-sm" id="sDevOff">Turn off</button>')}`;
   }
-}
-
-function setBigAnim(on: boolean): void {
-  bigAnim = on;
-  store.set('breeze.bigAnim', on);
 }
 
 /* ----- Controls: key binds ----- */
@@ -544,6 +537,29 @@ function settingsNavListHtml(): string {
   }).filter(Boolean);
   return groups.length ? groups.join('<hr class="set-sep">') : '<p class="set-nav-empty">No settings match.</p>';
 }
+// A new section picked: its highlight flows from the old row (`from`, measured before the side tab was redrawn) to
+// the new one. The edge facing the new row runs ahead and the other catches up, so the box stretches between the two
+// like a drop and settles; the new row keeps its plain look until it lands.
+function flowNavPill(nav: HTMLElement, from: DOMRect | undefined): void {
+  const flying = nav.querySelector<HTMLElement>('.set-pill');
+  if (flying) from = flying.getBoundingClientRect(); // picked again on the way: it carries on from where it is
+  flying?.remove();
+  const el = nav.querySelector<HTMLElement>('.set-item.on');
+  if (!el || !from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const to = el.getBoundingClientRect(), box = nav.getBoundingClientRect();
+  if (Math.abs(to.top - from.top) < 1) return;
+  const k = box.width / nav.offsetWidth || 1; // on-screen pixels per CSS pixel, should the dialog be scaled
+  const top = (r: DOMRect) => (r.top - box.top) / k + nav.scrollTop;
+  const bottom = (r: DOMRect) => nav.clientHeight - top(r) - r.height / k;
+  const pill = document.createElement('div');
+  pill.className = 'set-pill';
+  Object.assign(pill.style, { left: `${(to.left - box.left) / k}px`, width: `${to.width / k}px`, top: `${top(to)}px`, bottom: `${bottom(to)}px` });
+  nav.append(pill);
+  const ms = 440, lead = 'cubic-bezier(.22, 1, .36, 1)', trail = 'cubic-bezier(.65, 0, .35, 1)', down = to.top > from.top;
+  pill.animate({ top: [`${top(from)}px`, `${top(to)}px`] }, { duration: ms, easing: down ? trail : lead });
+  pill.animate({ bottom: [`${bottom(from)}px`, `${bottom(to)}px`] }, { duration: ms, easing: down ? lead : trail }).onfinish = () => pill.remove();
+  el.animate([{ background: 'transparent' }, { background: 'transparent' }], { duration: ms });
+}
 // Scrolls the pane to one of its parts (an h5), as a search result asks.
 function showSettingsPart(m: HTMLElement, i: number): void {
   const h = $$('.set-pane h5', m)[i];
@@ -654,7 +670,6 @@ function bindSettings(m: HTMLElement): void {
     refreshSettings();
     slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
   });
-  on('sBigAnim', () => { setBigAnim(!bigAnim); refreshSettings(); });
   // Font size: the code redraws as the knob moves; the arrow keys and the wheel step one pixel.
   const sizeEl = $<HTMLInputElement>('#sCodeSize', pane);
   if (sizeEl) {
@@ -906,6 +921,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
     // at: a search result's part to scroll to (its h5's index).
     const switchTab = (tab: SettingsTab, at = 0) => {
       const changed = settingsTab !== tab;
+      const nav = $('.set-nav', root), from = changed ? nav.querySelector('.set-item.on')?.getBoundingClientRect() : undefined;
       settingsTab = tab;
       const pane = $('.set-pane', root);
       if (changed && pane) {
@@ -918,6 +934,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
         $('.set-main', root).scrollTop = 0;
         bindSettings(root);
       }
+      flowNavPill(nav, from);
       if (at) showSettingsPart(root, at); // the new pane is in the page already, so its headings can be measured
     };
     // Delegated, so the Developer button works when it is added after the code is entered.
