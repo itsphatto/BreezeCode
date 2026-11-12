@@ -139,10 +139,37 @@ let boxSideQuery = '';
 // Just the folder's own name ("BreezeCode"), whichever slashes its path uses.
 const folderName = (p: string | null | undefined) => (p ? baseName(p.replaceAll('\\', '/').replace(/\/+$/, '')) : '');
 function boxSideOpen(): boolean { return store.get<boolean>('breeze.boxSide', true); }
+// Hidden, the side bar takes its own Hide button with it; the title bar's Show button brings it back. On screen, the bar
+// folds away to the left (or opens out) while its toggle icon flies between the two buttons and the logo slides over.
+let boxSideAnim: TimeoutId | undefined;
 function setBoxSide(open: boolean): void {
   store.set('breeze.boxSide', open);
-  // Hidden, the side bar takes its own Hide button with it; the title bar's Show button brings it back.
-  $('#box').classList.toggle('side-closed', !open);
+  const box = $('#box'), side = $('#boxSide'), logo = $('#boxLogoHome');
+  const from = $(open ? '#boxSideShow' : '#boxSideHide'), to = $(open ? '#boxSideHide' : '#boxSideShow');
+  const was = from.getBoundingClientRect(), logoWas = logo.getBoundingClientRect().left;
+  const sideWas = getComputedStyle(side), widthWas = sideWas.width, padWas = sideWas.paddingLeft, fadeWas = sideWas.opacity;
+  const play = was.width > 0 && !matchMedia('(prefers-reduced-motion: reduce)').matches; // not at start-up, with Space hidden
+  // Laid out at once in its new state, so everything below is measured where it ends up; the animations then run
+  // from the old look to it. (Script-driven, so a drag on the bar's edge still follows the pointer straight away.)
+  box.classList.toggle('side-closed', !open);
+  side.inert = !open;
+  clearTimeout(boxSideAnim);
+  box.classList.toggle('side-anim', play);
+  if (!play) return;
+  const ms = 360, easing = 'cubic-bezier(.32, .72, 0, 1)', now = to.getBoundingClientRect();
+  boxSideAnim = setTimeout(() => box.classList.remove('side-anim'), ms + 40);
+  side.animate([{ width: widthWas, paddingLeft: padWas, paddingRight: padWas }, {}], { duration: ms, easing });
+  side.animate(open ? [{ opacity: fadeWas }, { opacity: 1, offset: .65 }, {}] : [{ opacity: fadeWas }, { opacity: fadeWas, offset: .2 }, { opacity: 0 }], { duration: ms });
+  // The icon flies as a copy above everything, since the bar clips its own button while it opens; the real one waits.
+  const ghost = to.cloneNode(true) as HTMLElement;
+  ghost.removeAttribute('id');
+  ghost.className = `${to.className} side-toggle-ghost`;
+  Object.assign(ghost.style, { left: `${now.left}px`, top: `${now.top}px`, width: `${now.width}px`, height: `${now.height}px` });
+  document.body.append(ghost);
+  ghost.animate([{ transform: `translate(${was.left - now.left}px, ${was.top - now.top}px)` }, { transform: 'none' }], { duration: ms, easing });
+  setTimeout(() => ghost.remove(), ms);
+  to.animate([{ opacity: 0 }, { opacity: 0 }], { duration: ms });
+  logo.animate([{ transform: `translateX(${logoWas - logo.getBoundingClientRect().left}px)` }, { transform: 'none' }], { duration: ms, easing });
 }
 function pruneBoxTabs(): void {
   const s = SURFACES.box;
@@ -187,12 +214,15 @@ function renameBoxChat(id: string): void {
   const row = $('#boxSideList').querySelector<HTMLElement>(`[data-chat="${CSS.escape(id)}"]`);
   const e = chatHistory(SURFACES.box).find(x => x.id === id);
   if (!row || !e) return;
+  const h = getComputedStyle(row).height; // the box takes the row's exact height (not rounded), so nothing below it moves
   renameInline(row, e.title, name => {
     if (!name) { renderBoxSide(); return; }
     const tab = surfaceTabs.box.find(t => t.historyId === id);
     if (tab) setChatTitle(tab, name);
     else renameChatEntry(SURFACES.box, id, name);
   });
+  const input = row.nextElementSibling as HTMLElement | null;
+  if (input?.matches('.rename-input')) input.style.height = h;
 }
 function deleteBoxChat(id: string): void {
   store.set(historyKey(SURFACES.box), chatHistory(SURFACES.box).filter(e => e.id !== id));

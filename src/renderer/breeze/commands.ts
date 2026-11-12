@@ -805,6 +805,7 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
     if (cls === 'menu' || it.sub) b.onmouseenter = () => (it.sub ? openSubmenu(b, it) : closeSubmenu(depth + 1));
     else if (depth) b.onmouseenter = () => closeSubmenu(depth + 1);
   });
+  hoverGlide(m, '.menu-item');
   return m;
 }
 // A menu with more rows than fit (every page in a project, say) keeps a fixed size: its rows scroll in a box inside it,

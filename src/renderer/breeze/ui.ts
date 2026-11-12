@@ -85,6 +85,34 @@ function slideSelected(el: HTMLElement | null, from: DOMRect | undefined): void 
     [{ ...looks[1 - i], color: 'transparent' }, { color: 'transparent', offset: .3 }, {}],
     { duration: ms, easing: 'ease-out' }));
 }
+// One hover highlight for a list of rows, instead of each row lighting up on its own: it fades in where the pointer
+// comes in, glides from row to row as it moves, and fades out where it leaves. Rows matching `skip` (disabled ones)
+// let it go. The block is the box's first child; CSS gives it its look (.hover-glide).
+function hoverGlide(box: HTMLElement, rows: string, skip = ':disabled'): void {
+  const pill = document.createElement('div');
+  pill.className = 'hover-glide';
+  pill.setAttribute('aria-hidden', 'true');
+  box.prepend(pill);
+  let on: HTMLElement | null = null, leftAt = 0;
+  const leave = () => { if (on) { on = null; leftAt = performance.now(); pill.classList.remove('on'); } };
+  box.addEventListener('pointerover', e => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>(rows);
+    if (!row || !box.contains(row) || row === on) return; // in the gap between rows: it stays where it is
+    if (row.matches(skip)) { leave(); return; }
+    // Measured by layout, not on screen: a menu opens under the pointer while its rows are still rising in, and the
+    // highlight must land where they settle. Rows in a scrolled box inside are measured where they show.
+    let x = 0, y = 0;
+    for (let el: HTMLElement | null = row; el && el !== box; el = el.offsetParent as HTMLElement | null) { x += el.offsetLeft; y += el.offsetTop; }
+    for (let el = row.parentElement; el && el !== box; el = el.parentElement) { x -= el.scrollLeft; y -= el.scrollTop; }
+    // Moving on from a row, or back in before it has faded: it glides there. Otherwise it appears in place.
+    pill.classList.toggle('glide', !!on || performance.now() - leftAt < 160);
+    Object.assign(pill.style, { left: `${x}px`, top: `${y}px`, width: `${row.offsetWidth}px`, height: `${row.offsetHeight}px` });
+    on = row;
+    pill.classList.add('on');
+  });
+  box.addEventListener('pointerleave', leave);
+  box.addEventListener('scroll', leave, { capture: true, passive: true }); // the rows moved out from under it
+}
 function staggerModal(m: HTMLElement): void {
   const settings = m.querySelector('.settings-modal');
   if (settings) { staggerIn(settings.querySelectorAll('.set-nav > *')); staggerIn(settings.querySelectorAll('.set-pane > *'), 2); return; }
