@@ -44,6 +44,14 @@ function treeRow(e: DirEntry, p: string, depth: number, decor: ReturnType<typeof
   return `<div class="${cls}" data-depth="${depth}" data-path="${escAttr(p)}" ${e.dir ? 'data-dir="1" ' : ''}draggable="${!renaming}" title="${escAttr(p)}">
     <span class="chev ${chevClass(e, open)}">${CHEV}</span><span class="ico">${icon}</span>${renaming ? treeInputHtml(`Rename ${e.name}`) : `<span class="nm">${nameHtml}</span>`}${lockTag}${gitTag}${inTag}</div>`;
 }
+// Off: a .js compiled from a .ts beside it (generatedFiles, treecore.ts) is left out of the tree. The tree's right-click
+// menu turns it on.
+let showGenerated = store.get<boolean>('breeze.showGenerated', false);
+function toggleGenerated(): void {
+  showGenerated = !showGenerated;
+  store.set('breeze.showGenerated', showGenerated);
+  renderTreeAnimated();
+}
 function renderTree(): void {
   const el = $('#tree');
   if (!rootInfo) {
@@ -56,8 +64,11 @@ function renderTree(): void {
   const decor = gitDecor();
   const walk = (rel: string, depth: number) => {
     if (treeEdit && treeEdit.rename == null && treeEdit.dir === rel) rows.push(treeEditRow(depth)); // a new entry's name box tops its folder
-    for (const e of dirCache.get(rel) ?? []) {
+    const list = dirCache.get(rel) ?? [];
+    const generated = showGenerated ? null : generatedFiles(list);
+    for (const e of list) {
       const p = joinPath(rel, e.name);
+      if (generated?.has(e.name) && p !== active) continue; // compiled output beside its .ts; the open file always shows
       const isEntering = !!justExpanded && (rel === justExpanded || rel.startsWith(justExpanded + '/'));
       rows.push(treeRow(e, p, depth, decor, isEntering));
       if (e.dir && expanded.has(p)) walk(p, depth + 1);
@@ -331,6 +342,8 @@ $('#tree').addEventListener('contextmenu', e => {
     ...(p ? [] : [{ sep: true }]),
     ...pasteItem,
     ...restItems,
+    { sep: true },
+    { label: 'Show Generated Files', checked: () => showGenerated, run: toggleGenerated },
   ], () => { ctxPath = null; renderTree(); });
 });
 async function toggleDir(p: string): Promise<void> {

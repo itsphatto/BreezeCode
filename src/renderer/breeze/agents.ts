@@ -851,17 +851,10 @@ function emptyChat(s: Surface = SURFACES.ide, tab?: AgentTabState): void {
 }
 // A small, safe subset of Markdown for agent replies: inline code, bold and line breaks. Fenced code blocks
 // become artifacts: a card with the file name, Copy and Download. A fence may name its file: ```html index.html
-const inlineMd = (s: string) => esc(s).replaceAll(/`([^`\n]+)`/g, '<code>$1</code>').replaceAll(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replaceAll('\n', '<br>');
+const inlineMd = (s: string) => codeSpans(esc(s)).replaceAll(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replaceAll('\n', '<br>');
+// Only a ``` at the start of a line opens a block (splitFences, mdcore.ts): one mid-sentence is text.
 function md(text: string): string {
-  const out: string[] = [];
-  let last = 0;
-  // An unclosed fence (the reply was cut off) still shows its code.
-  for (const m of text.matchAll(/```([^\n`]*)\n?([\s\S]*?)(?:```|$)/g)) {
-    out.push(inlineMd(text.slice(last, m.index)), artifactHtml(m[1].trim(), m[2].replace(/\n$/, '')));
-    last = m.index + m[0].length;
-  }
-  out.push(inlineMd(text.slice(last)));
-  return out.join('');
+  return splitFences(text).map(p => ('code' in p ? artifactHtml(p.info, p.code) : inlineMd(p.text))).join('');
 }
 const LANG_EXT: Record<string, string> = {
   javascript: 'js', js: 'js', jsx: 'jsx', typescript: 'ts', ts: 'ts', tsx: 'tsx', python: 'py', py: 'py', html: 'html', css: 'css',

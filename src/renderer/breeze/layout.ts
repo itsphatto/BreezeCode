@@ -3,7 +3,7 @@
 // boxSide, boxTerm: Breeze Space's chats side bar and terminal. boxTerm is 0 until it's dragged: it follows the window.
 interface Layout { side: number; agents: number; term: number; termW: number; termDock: 'bottom' | 'side'; preview: number; scmLeft: number; boxSide: number; boxTerm: number; sideOpen: boolean; agentsOpen: boolean; termOpen: boolean; previewOpen: boolean; view: string; }
 type SashKind = 'side' | 'agents' | 'preview' | 'term' | 'scm' | 'boxSide' | 'boxTerm';
-const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, termW: 420, termDock: 'bottom', preview: 460, scmLeft: 320, boxSide: 248, boxTerm: 0, sideOpen: true, agentsOpen: true, termOpen: false, previewOpen: true, view: 'files' };
+const DEFAULT_LAYOUT: Layout = { side: 240, agents: 340, term: 200, termW: 420, termDock: 'bottom', preview: 460, scmLeft: 320, boxSide: 248, boxTerm: 0, sideOpen: true, agentsOpen: false, termOpen: false, previewOpen: false, view: 'files' }; // a first launch shows the file explorer and the editor only
 const layout: Layout = { ...DEFAULT_LAYOUT, ...store.get<Partial<Layout>>('breeze.layout', {}) };
 const boxTermDefault = () => clamp(innerWidth * .34, 320, 560);
 const boxTermMax = () => Math.max(280, innerWidth - layout.boxSide - 420); // leaves the conversation usable

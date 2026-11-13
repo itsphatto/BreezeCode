@@ -350,13 +350,21 @@ function renderDetection(): void {
   if (!d) return;
   renderObTools(d);
 
-  const missing = d.tools.filter(t => !t.found && !t.optional).map(t => t.name);
-
-  const summary = d.tools.filter(t => t.found || !t.optional).map(t => `${t.name.replace('.js', '').replace('C/C++', 'C')} ${t.found ? 'ready' : 'missing'}`).join(' · ');
-  $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;
+  renderToolStatus();
   renderAgentBar();
   // Home's Agent tab, if it's showing, picks up agents the scan just found.
   if (dashOnScreen()) renderAgentDash();
+}
+// The status bar names only the open file's tools and anything missing (toolStatus, statuscore.ts); hovering it lists
+// every tool found. Runs again on each file switch (setActive).
+function renderToolStatus(): void {
+  const d = appState.detect;
+  if (!d) return;
+  const path = typeof active === 'string' ? active : '';
+  const { text, warn } = toolStatus(d.tools, path ? extOf(path) : '');
+  const el = $('#sbTools');
+  el.innerHTML = `<span class="${warn ? 'dot-warn' : 'dot-ok'}"></span> ${esc(text)}`;
+  el.title = d.tools.filter(t => t.found || !t.optional).map(t => `${toolLabel(t.name)} ${t.found ? 'ready' : 'missing'}`).join('\n');
 }
 $('#rescan').onclick = () => { detectTools(true).catch(() => { /* the agent card shows the error */ }); };
 
