@@ -166,8 +166,11 @@ function localAgentHtml(a: DetectedAgent, on: boolean, mark: string): string {
 }
 // A version number reads "v2.1.4"; a one-word model alias ("haiku") reads as a name, "Haiku". Anything else
 // ("gpt-5.5-codex") is shown as it is.
+// Claude Code's --model aliases, named with the model each one runs today. Update when a new model ships.
+const CLAUDE_ALIAS_LABELS: Record<string, string> = { fable: 'Fable 5.2', opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 5.5' };
 function versionLabel(v: string | null | undefined): string {
   if (!v) return '';
+  if (CLAUDE_ALIAS_LABELS[v.toLowerCase()]) return CLAUDE_ALIAS_LABELS[v.toLowerCase()];
   if (/^\d/.test(v)) return `v${v}`;
   return /^[a-z]+$/.test(v) ? v[0].toUpperCase() + v.slice(1) : v;
 }
@@ -622,6 +625,7 @@ function renderAgentBar(): void {
   renderAgents();
   renderPromptModels();
   updateScmGenBtn();
+  if (typeof renderHomeAsk === 'function') renderHomeAsk(); // Home's prompt box shows the same model and effort
 }
 
 $('#agentBar').addEventListener('click', e => {
@@ -1102,6 +1106,8 @@ function renderRecentList(): void {
     : list.length ? shown.map(recentRowHtml).join('') + more
     : '<div class="recent-empty">Folders you open show up here.</div>';
   // Start-up draws Home more than once; redrawing the same rows would make them flicker.
+  // Home's prompt box names a recent folder until one is picked (homedock.ts, which loads after this file).
+  if (typeof renderHomeAsk === 'function') renderHomeAsk();
   if (html === recentListHtml && el.childElementCount) return;
   recentListHtml = html;
   el.innerHTML = html;

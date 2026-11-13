@@ -193,7 +193,7 @@ function mentionedAgents(text: string): DetectedAgent[] {
 function promptModelHtml(a: DetectedAgent): string {
   const model = a.version || a.models?.[0] || '';
   const eff = a.api ? '' : `<small class="dd-eff"> · ${esc(agentEffort(a))}</small>`;
-  return `<b>${esc(agentShortName(a))}</b><span class="pm-model">${esc(model)}</span>${eff}${svgIcon('chevronDown', 10)}`;
+  return `<b>${esc(agentShortName(a))}</b><span class="pm-model">${esc(versionLabel(model))}</span>${eff}${svgIcon('chevronDown', 10)}`;
 }
 function renderPromptModels(): void {
   const box = $('#promptModels');

@@ -330,6 +330,10 @@
         </nav>
         <main class="home-main">
           <div class="home-view" data-view="session">
+            <!-- The contribution graph can be dragged to the left or right of the page, where it stands upright
+                 (homedock.ts); these slots hold it there. At the bottom it sits in the welcome, above the prompt. -->
+            <div class="home-layout" id="homeLayout">
+            <aside class="home-dock" id="homeDockLeft" data-dock="left"></aside>
             <div class="home-welcome">
               <!-- Clone Repository: the address is typed here, over the greeting (openCloneBar, setup.ts). -->
               <form class="home-clone hidden" id="homeClone" autocomplete="off">
@@ -368,6 +372,25 @@
                   </div>
                 </div>
               </section>
+              <!-- Ask an agent from Home: opens the folder shown in the chip in the IDE and sends there (homedock.ts). -->
+              <form class="home-ask" id="homeAsk" autocomplete="off">
+                <div class="home-ask-box">
+                  <textarea id="homeAskInput" rows="2" spellcheck="true" aria-label="Message to the agent" placeholder="Ask an agent to build something…"></textarea>
+                  <div class="home-ask-row">
+                    <button type="button" class="pill pill-btn box-folder home-ask-dir" id="homeAskDir" title="The folder the agent works in" aria-haspopup="menu"><svg data-i="folder" data-size="14"></svg><span id="homeAskDirName">Choose a folder</span><svg data-i="chevronDown" data-size="12"></svg></button>
+                    <span class="prompt-models home-ask-models" id="homeAskModels"></span>
+                    <span class="flex-1"></span>
+                    <button type="submit" class="btn btn-primary btn-sm" id="homeAskSend" title="Send (Enter)" aria-label="Send"><svg data-i="send" data-size="14"></svg></button>
+                  </div>
+                </div>
+              </form>
+            </div>
+            <aside class="home-dock" id="homeDockRight" data-dock="right"></aside>
+            <div class="home-dock-zones" aria-hidden="true">
+              <div class="home-zone" data-zone="left"><span>Left</span></div>
+              <div class="home-zone" data-zone="bottom"><span>Bottom</span></div>
+              <div class="home-zone" data-zone="right"><span>Right</span></div>
+            </div>
             </div>
           </div>
           <!-- Agent: one agent's token use (picked in the tabs or the table), and the other agents below (agentdash, setup.ts). -->
@@ -920,6 +943,7 @@
   <script src="breeze/friends.js" defer></script>
   <script src="breeze/ui.js" defer></script>
   <script src="breeze/whatsnew.js" defer></script>
+  <script src="breeze/homedock.js" defer></script>
   <script src="breeze/init.js" defer></script>
 </body>
 

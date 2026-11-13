@@ -7955,9 +7955,7 @@ body.vibing .ide {
   align-items: center;
 }
 
-.home-view[data-view="session"]:has(#homeContrib.hidden) .home-welcome {
-  padding-bottom: clamp(28px, 9vh, 110px);
-}
+
 
 /* Everything on the start page is sized in em from this one font size, which grows with the window (14px at about
    1280px wide, 19px at about 2200px), so a full-screen window gets a bigger page rather than a small one in the middle. */
@@ -8272,6 +8270,224 @@ body.vibing .ide {
 .contrib-legend i {
   width: .9em;
   margin: 0 1px;
+}
+
+/* ---------- Home: the movable graph (homedock.ts) ---------- */
+/* Home's page is a column the layout fills, so the prompt box can reach the bottom however short the page. */
+.home-view[data-view="session"]:not(.hidden) {
+  display: flex;
+}
+
+/* The welcome in the middle, with a slot either side for the graph when it's dragged there. */
+.home-layout {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 100%;
+}
+
+/* The welcome fills the page's height so the prompt box can sit at its foot, a little above the edge. */
+.home-layout > .home-welcome {
+  flex: 0 1 auto;
+  margin: 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
+.home-layout > .home-welcome > .home-ask {
+  margin-top: auto;
+}
+
+/* At the bottom, a big window doesn't stretch the year across it: the squares stop at 15px and the graph sits
+   at its natural width. */
+.home-welcome > .home-contrib .contrib-graph {
+  grid-template-columns: 2.7em repeat(var(--weeks, 53), minmax(10px, 15px));
+  justify-content: start;
+  min-width: calc(30px + var(--weeks, 53) * 13px);
+}
+
+.home-welcome > .home-contrib {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.home-dock {
+  display: none;
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  box-sizing: border-box;
+  max-height: calc(100vh - 92px);
+  padding: 2.2em 1.4em 1.4em;
+  font-size: clamp(14px, .55vw + 7px, 19px);
+}
+
+.home-dock:has(> .home-contrib:not(.hidden)) {
+  display: flex;
+  flex-direction: column;
+}
+
+#homeDockLeft { border-right: 1px solid var(--line); }
+#homeDockRight { border-left: 1px solid var(--line); }
+
+.home-dock .home-contrib {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 0;
+}
+
+.home-dock .contrib-box {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Upright, the year scrolls down rather than across. */
+.home-contrib.upright .contrib-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 10px;
+  scrollbar-gutter: stable;
+}
+
+.home-contrib.upright .contrib-graph {
+  grid-template-columns: 2.6em repeat(7, 11px);
+  grid-template-rows: 1.3em repeat(var(--weeks, 53), 11px);
+  gap: 3px;
+  min-width: 0;
+}
+
+.home-contrib.upright .cg-wd {
+  justify-self: center;
+}
+
+.home-contrib.upright .cg-month {
+  align-self: start;
+  line-height: 11px;
+}
+
+.home-contrib.upright .contrib-foot {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .4em;
+}
+
+.home-contrib.upright h3 {
+  font-size: 1em;
+}
+
+/* The title is the handle. */
+.home-drag-handle {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.home-contrib.lifted {
+  position: relative;
+  z-index: 20;
+  opacity: .88;
+  pointer-events: none;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, .35));
+}
+
+.home-contrib.lifted .home-drag-handle {
+  cursor: grabbing;
+}
+
+/* Where it can land: shown only while it's being dragged; the one under the pointer lights up. */
+.home-dock-zones {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.home-layout.graph-dragging .home-dock-zones {
+  opacity: 1;
+}
+
+.home-layout.graph-dragging {
+  cursor: grabbing;
+}
+
+.home-zone {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed rgba(var(--ink), .18);
+  border-radius: 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.home-zone[data-zone="left"] { left: 8px; top: 8px; bottom: 8px; width: calc(25% - 16px); }
+.home-zone[data-zone="right"] { right: 8px; top: 8px; bottom: 8px; width: calc(25% - 16px); }
+.home-zone[data-zone="bottom"] { left: 25%; right: 25%; bottom: 8px; height: 38%; }
+
+.home-zone.on {
+  border-color: var(--blue);
+  border-style: solid;
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  color: var(--text);
+}
+
+/* ---------- Home: the prompt box ---------- */
+/* Pinned to the bottom of the page while the page scrolls, so it's always in reach under a long Home. */
+.home-ask {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 2em 0 12px;
+  background: linear-gradient(transparent, var(--bg-1) 1.2em);
+}
+
+.home-ask-box {
+  padding: .7em .8em .6em;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  transition: border-color .18s ease;
+}
+
+.home-ask-box:focus-within {
+  border-color: color-mix(in srgb, var(--blue) 55%, var(--line));
+}
+
+.home-ask textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3em;
+  max-height: 14em;
+  padding: 2px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  field-sizing: content;
+}
+
+.home-ask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: .5em;
+}
+
+.home-ask-dir {
+  font-size: 12px;
 }
 
 /* ---------- Home → Agent: one agent's tokens, and the other agents ---------- */
