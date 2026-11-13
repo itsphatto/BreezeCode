@@ -533,7 +533,9 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Agents panel', esc(keyOf('view.toggleAgents')), switchHtml('sAgents', layout.agentsOpen, 'Agents panel'))}
       ${settingRow('Terminal', esc(keyOf('term.toggle')), switchHtml('sTerm', layout.termOpen, 'Terminal'))}
       ${settingRow('Preview', '', switchHtml('sPreview', layout.previewOpen, 'Preview'))}
-      ${settingRow('Reset layout', 'Put every panel back where it started.', '<button class="btn btn-sm" id="sResetLayout">Reset</button>')}`;
+      ${settingRow('Reset layout', 'Put every panel back where it started.', '<button class="btn btn-sm" id="sResetLayout">Reset</button>')}
+      <h5>Explorer</h5>
+      ${settingRow('Compiled JS files', 'Show a .js compiled from the .ts beside it in the file tree.', switchHtml('sGenerated', showGenerated, 'Compiled JS files'))}`;
     case 'appearance': return `<h4>Appearance</h4>
       <h5>Theme</h5>
       ${themePickerHtml()}
@@ -885,6 +887,7 @@ function bindSettings(m: HTMLElement): void {
   layoutSwitch('sResetLayout', 'view.resetLayout');
   // Appearance
   on('sMinimap', () => { setMinimap(!minimapOn); refreshSettings(); });
+  on('sGenerated', () => { toggleGenerated(); refreshSettings(); });
   $$('[data-theme-pick]', pane).forEach(b => b.onclick = () => {
     const pick = b.dataset.themePick as Theme;
     if (pick === theme) return;
