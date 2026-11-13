@@ -3392,23 +3392,29 @@ svg.ico-svg:active {
   min-width: 0;
 }
 
-/* Dragging a file over the editor's right half: a dotted line where the split will open, a wash that fades out
-   so the code stays readable, and a label saying what the drop does. */
+/* Dragging a file over the editor's right half: the whole area the split will fill is outlined in blue, the code
+   behind it blurs, and a pill says what the drop does. */
 .split-drop-hint {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
   z-index: 52;
-  background: linear-gradient(90deg, var(--blue-soft), transparent 55%);
+  box-sizing: border-box;
+  border: 2px solid var(--blue);
+  border-radius: 10px;
+  background: var(--blue-soft);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   pointer-events: none;
   opacity: 0;
   transition: opacity .22s ease;
 }
 
-/* Fades in and out, but goes at once on a drop: the split then slides in right where the wash is, and a fading wash
-   on top of it reads as a blue flash. */
+/* Fades in and out, but goes at once on a drop: the split then slides in right where the hint is, and a fading
+   hint on top of it reads as a blue flash. */
 .split-drop-hint.on {
+  opacity: 1;
   transition: opacity .18s ease;
 }
 
@@ -3416,44 +3422,19 @@ svg.ico-svg:active {
   transition: none;
 }
 
-/* Round dots (a CSS dotted border draws ragged squares at this size), inset from the pane's top and bottom. While
-   it waits for the drop the dots march downward, fading in at the top and out at the bottom. */
-.split-drop-hint::before {
-  content: "";
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: -2px;
-  width: 4px;
-  background: radial-gradient(circle, var(--blue) 1.3px, transparent 1.8px) center top / 4px 8px repeat-y;
-  mask-image: linear-gradient(transparent, #000 10%, #000 90%, transparent);
-}
-
-.split-drop-hint.on::before {
-  animation: split-march .5s linear infinite;
-}
-
-@keyframes split-march {
-  to { background-position-y: 8px; }
-}
-
 .split-drop-hint::after {
   content: "Open in Split";
   position: absolute;
   top: 50%;
   left: 50%;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
   background: var(--blue);
   color: #f5f5f7;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   transform: translate(-50%, -50%) scale(.94);
-}
-
-.split-drop-hint.on {
-  opacity: 1;
 }
 
 .split-drop-hint.on::after {
