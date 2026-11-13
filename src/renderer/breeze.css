@@ -60,6 +60,17 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* Google Sans, Thai letters only: no other font here has them, so each stack lists it right after its first font
+   and it only loads (and only shows) once Thai text appears. The UI itself stays in English. */
+@font-face {
+  font-family: 'Google Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../../assets/fonts/GoogleSans-Thai.woff2') format('woff2');
+  unicode-range: U+0E01-0E5B;
+}
+
 :root {
   color-scheme: dark;
   /* Signature accent: the launch sky (launch.css .launch-sky), the same in every theme. --sig-accent is the full
@@ -85,9 +96,9 @@
   --err: #ef4444;
   --c-planner: #a78bfa;
   --c-builder: #38bdf8;
-  --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-ui: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-display: Unbounded, var(--font-ui);
-  --font-code: "Google Sans Code", Consolas, monospace;
+  --font-code: "Google Sans Code", "Google Sans", Consolas, monospace;
   --r: 10px;
   /* Frosted glass shared by every popup: menus, dialogs, toasts, the find bar and Vibe Mode. */
   --glass: rgba(42, 42, 44, .6);
@@ -807,19 +818,24 @@ button {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
-  transition: background-color .15s ease, color .15s ease, box-shadow .18s ease, transform .12s cubic-bezier(.2, .8, .2, 1);
+  transition: box-shadow .2s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
 }
 
-.ob-start:hover {
-  background: #eef3ff;
-  box-shadow: 0 8px 28px rgba(10, 30, 120, .36);
-}
-
+/* Hover lifts it: a little bigger, a deeper shadow, the colours unchanged. */
+.ob-start:hover,
 .ob-step[data-step="0"] .ob-start:hover {
-  color: #fff;
+  background: #fff;
+  color: #1f4dff;
+  transform: scale(1.05);
+  box-shadow: 0 12px 34px rgba(10, 30, 120, .42);
 }
 
-.ob-start:active {
+.btn.ob-start:hover::after {
+  opacity: 0; /* not the app-wide button dim (--hover-dim, "Interaction feedback") */
+}
+
+.ob-start:active,
+.ob-step[data-step="0"] .ob-start:active {
   transform: scale(.97);
 }
 
@@ -2035,7 +2051,7 @@ textarea:focus-visible {
 .menu.kb-on .menu-item.kb:not(:hover) {
   background: none;
 }
-.menu.kb-on:has(.menu-item:hover:not(:disabled))::before {
+.menu.kb-on:not(.kb-nav):has(.menu-item:hover:not(:disabled))::before {
   opacity: 0;
 }
 
@@ -2079,10 +2095,12 @@ textarea:focus-visible {
 }
 
 /* The pointer wins over the keyboard: only the row under it is lit. */
-.menu:has(.menu-item:hover:not(:disabled)) .menu-item.kb:not(:hover) {
+.menu:not(.kb-nav):has(.menu-item:hover:not(:disabled)) .menu-item.kb:not(:hover) {
   background: none;
   color: var(--text-soft);
 }
+/* ...until an arrow key is pressed: then the keys' row is lit, even under a still pointer (commands.ts moveKbSelection). */
+.menu.kb-nav > .hover-glide { opacity: 0; }
 
 .menu-item:disabled {
   color: var(--text-3);
@@ -2480,14 +2498,14 @@ body.resizing-h iframe {
   letter-spacing: normal;
   color: var(--text-3);
   font-weight: 600;
-  font-family: "Instrument Sans", sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", sans-serif !important;
   overflow: visible;
 }
 
 .side-head span,
 .side-head > span,
 .side-head * {
-  font-family: "Instrument Sans", sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", sans-serif !important;
   text-transform: none;
   letter-spacing: normal;
   line-height: normal;
@@ -6807,7 +6825,7 @@ body.vibing .ide {
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   transform: none !important;
   animation: none !important;
   display: flex;
@@ -6827,7 +6845,7 @@ body.vibing .ide {
 .scm-head .title,
 .scm-head .chev,
 .scm-head .count {
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   text-transform: none;
   letter-spacing: normal;
 }
@@ -6917,7 +6935,7 @@ body.vibing .ide {
   color: var(--text-2);
   cursor: pointer;
   white-space: nowrap;
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   background: transparent !important;
   border: none !important;
   outline: none !important;
@@ -6928,7 +6946,7 @@ body.vibing .ide {
 .scm-row *,
 .scm-row .nm,
 .scm-row .dir {
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
 
 .scm-row .nm,
@@ -8655,10 +8673,13 @@ body.vibing .ide {
   from { opacity: 0; }
 }
 
+/* Same blue, shaded by the day's share of the busiest day (--lvl, setup.ts): the fewer tokens, the darker. */
 .ad-bar i {
   display: block;
   flex: none;
-  transition: filter .12s ease, height .45s cubic-bezier(.65, 0, .35, 1);
+  --shade: calc(.4 + .6 * var(--lvl, 1));
+  filter: brightness(var(--shade));
+  transition: filter .45s ease, height .45s cubic-bezier(.65, 0, .35, 1);
 }
 
 /* Even digits, so a number scrambling (setup.ts) keeps its width. */
@@ -8667,7 +8688,8 @@ body.vibing .ide {
 }
 
 .ad-bar:hover i {
-  filter: brightness(1.15);
+  filter: brightness(calc(var(--shade) * 1.15));
+  transition-duration: .12s, .45s;
 }
 
 .ad-bar.zero {
@@ -11676,8 +11698,7 @@ button.pill:active, .pill-btn:active {
 }
 .prompt-model.open { background: var(--bg-3); color: var(--text); }
 /* The border never changes colour on hover or open, and there's no ring; keyboard focus greys the edge like a text box. */
-.prompt-model, .prompt-model.open, .prompt-model:focus { border-color: var(--line); outline: none; box-shadow: none; }
-.prompt-model:focus-visible { border-color: var(--text-2); }
+.prompt-model, .prompt-model.open, .prompt-model:focus, .prompt-model:focus-visible { border-color: var(--line); outline: none; box-shadow: none; }
 .prompt-model b { font-weight: 600; color: var(--text); flex-shrink: 0; }
 /* Squeezed, the model name gives way first, then the effort; the agent's name and the arrow always show. */
 .prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 100; }
@@ -12087,7 +12108,7 @@ body.layout-animating #previewPane {
   height: var(--tab-h);
   border-radius: 6px;
   font-size: 11.5px;
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   color: var(--text-3);
   background: transparent;
   border: 1px solid transparent;
@@ -15183,7 +15204,7 @@ body.layout-animating #previewPane {
 /* ---------- Settings → Appearance: one card per theme, each with a small picture of the window ---------- */
 .set-themes {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   width: 100%;
   margin-bottom: 18px;
@@ -15369,45 +15390,6 @@ body.layout-animating #previewPane {
   backdrop-filter: blur(4px);
 }
 
-/* The Theme row: the three themes, with a small arrow beside them to the second page (Glass, Custom background). */
-.set-theme-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 18px;
-}
-
-.set-theme-row .set-themes {
-  flex: 1;
-  min-width: 0;
-  width: auto;
-  margin-bottom: 0;
-}
-
-.set-theme-nav {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--bg-2);
-  color: var(--text-2);
-  transition: color .15s ease, background-color .15s ease, border-color .15s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
-}
-
-.set-theme-nav:hover {
-  color: var(--text);
-  background: var(--bg-3);
-  border-color: var(--line-hi);
-}
-
-.set-theme-nav:active {
-  transform: scale(.94);
-}
-
 .set-bd {
   margin: -6px 0 18px;
 }
@@ -15426,6 +15408,7 @@ body.layout-animating #previewPane {
 
 .set-themes.grow .set-theme:nth-child(2) { --card: 1; }
 .set-themes.grow .set-theme:nth-child(3) { --card: 2; }
+.set-themes.grow .set-theme:nth-child(4) { --card: 3; }
 .set-themes.grow .theme-swatch b:nth-child(2) { --line: 1; }
 .set-themes.grow .theme-swatch b:nth-child(3) { --line: 2; }
 .set-themes.grow .theme-swatch b:nth-child(4) { --line: 3; }

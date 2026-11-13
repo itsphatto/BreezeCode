@@ -920,8 +920,13 @@ function moveKbSelection(down: boolean): void {
   const pos = usable.indexOf(kbIdx);
   kbIdx = usable[(pos + (down ? 1 : -1) + usable.length) % usable.length] ?? -1;
   $$('[data-mi]').forEach(b => b.classList.toggle('kb', Number(b.dataset.mi) === kbIdx));
+  // The keys win over a pointer resting on the menu (breeze.css .kb-nav) until the pointer moves again.
+  $$('#menuRoot .menu').forEach(m => m.classList.add('kb-nav'));
   slideKbHighlight();
 }
+document.addEventListener('pointermove', e => {
+  if (e.movementX || e.movementY) $$('#menuRoot .menu.kb-nav').forEach(m => m.classList.remove('kb-nav'));
+}, { capture: true, passive: true });
 // The keyboard highlight is one block (the menu's ::before) that slides to the selected row.
 function slideKbHighlight(): void {
   const b = document.querySelector<HTMLElement>('#menuRoot .menu-item.kb');

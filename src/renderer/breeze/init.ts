@@ -84,7 +84,7 @@ async function boot(): Promise<void> {
 }
 // Every launch opens behind the launch light (see launch.css); after setup it lifts straight onto Home, so a returning
 // user never sees the welcome flash by. A first run's welcome rises in on the same sky as the light lifts; sounds stay
-// off until start-up has settled (8s at most).
+// off until your first click or key press (sound.ts lifts data-starting), so nothing chirps on its own at launch.
 {
   if (appState.onboarded) goStep(STEP.home);
   if (reloadedMode) swapScreen(reloadedMode === 'ide' ? '#ide' : '#box'); // before start-up, so Home never flashes by
@@ -100,8 +100,6 @@ async function boot(): Promise<void> {
     if (rootInfo?.root !== info.root) await loadWorkspace(info);
     showLaunched(info);
   })()));
-  void Promise.race([starting.catch(() => undefined), new Promise(done => setTimeout(done, 8000))])
-    .then(() => document.documentElement.removeAttribute('data-starting'));
   const launch = $('#launch');
   const wait = (ms: number) => new Promise(done => setTimeout(done, ms));
   // The app comes out of hiding and the welcome rises in; greet: Home's greeting blurs into focus (once: a later visit

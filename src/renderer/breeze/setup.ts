@@ -977,6 +977,7 @@ function renderDashChart(a: DetectedAgent | null): void {
     // Set from script: the page's CSP blocks inline style attributes.
     DASH_KINDS.forEach(([k], j) => { (col.children[j] as HTMLElement).style.height = totals[i] ? `${(day?.[k] ?? 0) / totals[i] * 100}%` : '0%'; });
     col.style.height = totals[i] ? `${totals[i] / top * 100}%` : '';
+    col.style.setProperty('--lvl', String(max ? totals[i] / max : 1)); // the busiest day is full blue, quieter ones darker
     col.classList.toggle('zero', !totals[i]); // not .empty: that is the app-wide empty-state class (padding, centring)
     col.style.setProperty('--i', String(i));
   });

@@ -278,7 +278,7 @@ function bindSyntaxSettings(pane: HTMLElement): void {
   $('#sSynReset', pane).onclick = () => { pickSynPreset('default'); refreshSettings(); };
 }
 
-/* ----- Backdrops: Glass and a Custom background sit behind the chosen theme, on the Theme row's second page. -----
+/* ----- Backdrops: Glass and a Custom background sit behind the chosen theme, beside and under its cards. -----
    data-backdrop on <html> makes the theme's surfaces see-through (breeze.css). Glass lets the system blur the desktop
    behind the window (main.ts win:glass); a picture is drawn full-window behind the surfaces at --bd-o opacity. */
 type Backdrop = 'none' | 'glass' | 'image';
@@ -293,7 +293,6 @@ let bgImage: { url: string; name: string } | null = savedBgImage && typeof saved
   ? { url: savedBgImage.url, name: savedBgImage.name } : null;
 let backdrop: Backdrop = savedBackdrop === 'glass' || (savedBackdrop === 'image' && bgImage) ? savedBackdrop : 'none';
 let bgOpacity = clamp(Math.round(Number(store.get<number>('breeze.bgOpacity', BG_OPACITY_DEFAULT)) || BG_OPACITY_DEFAULT), BG_OPACITY_MIN, BG_OPACITY_MAX);
-let themePage = 0; // 0: the three themes, 1: Glass and Custom background
 let bgSize = ''; // "1920 × 1080" once the picture has loaded
 function applyBackdrop(): void {
   const root = document.documentElement;
@@ -309,7 +308,7 @@ function applyBackdrop(): void {
   void api.win.glass(backdrop === 'glass').then(ok => {
     if (ok || backdrop !== 'glass') return;
     setBackdrop('none');
-    toast('Glass needs Windows 11 (22H2 or newer) or macOS');
+    toast('Glass isn’t available on this system');
     refreshSettings();
   }).catch(() => undefined);
 }
@@ -323,20 +322,17 @@ const backdropCardHtml = ([id, name, sub]: [Exclude<Backdrop, 'none'>, string, s
   `<button class="set-theme ${id === backdrop ? 'on' : ''}" data-backdrop-pick="${id}" aria-pressed="${id === backdrop}">
     <span class="theme-swatch" data-swatch="${id}" data-base="${theme}" aria-hidden="true"><span class="sw-bar"><i></i><i></i><i></i></span><span class="sw-side"><b></b><b></b><b></b></span><span class="sw-main"><b></b><b></b><b></b><b></b></span></span>
     <span class="nm">${esc(name)}</span><span class="set-sub">${esc(sub)}</span></button>`;
-const chevronSvg = (flip: boolean) => `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="${flip ? 'M10 3 5 8l5 5' : 'M6 3l5 5-5 5'}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+// The themes and Custom background side by side, with Glass and the picture's settings under them, all on one page.
 function themePickerHtml(): string {
-  const cards = themePage === 0 ? THEMES.map(themeCardHtml).join('') : BACKDROPS.map(backdropCardHtml).join('');
-  const more = themePage === 0
-    ? `<button class="set-theme-nav" id="sThemeMore" aria-label="More options: Glass and Custom background" title="More options">${chevronSvg(false)}</button>`
-    : `<button class="set-theme-nav" id="sThemeBack" aria-label="Back to themes" title="Back to themes">${chevronSvg(true)}</button>`;
+  const cards = THEMES.map(themeCardHtml).join('') + BACKDROPS.map(backdropCardHtml).join('');
   // Glass is a switch under the themes, not a card. It and a picture are alternatives: turning one on turns the other off.
-  const glass = settingRow('Glass', 'See-through, frosted window. Windows 11 and macOS.', switchHtml('sGlass', backdrop === 'glass', 'Glass'));
-  const options = themePage === 0 ? `<div class="set-bd">${glass}</div>` : `<div class="set-bd">
+  const glass = settingRow('Glass', 'See-through, frosted window. Windows 10, 11 and macOS.', switchHtml('sGlass', backdrop === 'glass', 'Glass'));
+  const options = `<div class="set-bd">${glass}
       ${settingRow('Background picture', bgImage ? `${esc(bgImage.name)}${bgSize ? ` · ${bgSize}` : ''}` : 'Best at 1920 × 1080. Any picture fills the window.',
         `<span class="set-btns"><button class="btn btn-sm" id="sBgPick">${bgImage ? 'Change' : 'Choose'}</button>${bgImage ? '<button class="btn btn-sm" id="sBgClear">Remove</button>' : ''}</span>`)}
       ${settingRow('Picture opacity', 'How strongly the picture shows through.', `<div class="set-volume set-font-size"><input type="range" id="sBgOpacity" min="${BG_OPACITY_MIN}" max="${BG_OPACITY_MAX}" step="1" value="${bgOpacity}" aria-label="Picture opacity"${bgImage ? '' : ' disabled'}><span class="set-volume-val" id="sBgOpacityVal">${bgOpacity}%</span></div>`)}
     </div>`;
-  return `<div class="set-theme-row"><div class="set-themes">${cards}</div>${more}</div>${options}`;
+  return `<div class="set-themes">${cards}</div>${options}`;
 }
 // The picture's size, read once it loads (shown under its name).
 function measureBg(): void {
@@ -353,8 +349,6 @@ function measureBg(): void {
 }
 if (bgImage) measureBg();
 function bindBackdropSettings(pane: HTMLElement): void {
-  $('#sThemeMore', pane)?.addEventListener('click', () => { themePage = 1; refreshSettings(); });
-  $('#sThemeBack', pane)?.addEventListener('click', () => { themePage = 0; refreshSettings(); });
   // Sets the picture and puts it on; a cancelled picker changes nothing.
   const choosePicture = async (): Promise<boolean> => {
     const pick = await api.win.pickBackdrop();
@@ -836,7 +830,7 @@ function bindSettings(m: HTMLElement): void {
   if (pane.dataset.tab !== settingsTab) {
     pane.dataset.tab = settingsTab;
     staggerIn(pane.children);
-    staggerIn(pane.querySelectorAll('.set-agents > *, .set-tools > *'), 2);
+    staggerIn(pane.querySelectorAll('.set-agents > *, .set-tools > *, .set-themes > *, .set-bd > *, .set-syn > *, .set-syn-picks > *'), 2);
     pane.querySelector('.set-themes')?.classList.add('grow'); // the theme pictures' code lines grow in
   }
   // Just switched accounts: the account card turns over to the new one and Active pops onto its row.
@@ -888,7 +882,7 @@ function bindSettings(m: HTMLElement): void {
   $$('[data-theme-pick]', pane).forEach(b => b.onclick = () => {
     const pick = b.dataset.themePick as Theme;
     if (pick === theme) return;
-    const from = pane.querySelector('.set-theme.on')?.getBoundingClientRect();
+    const from = pane.querySelector('[data-theme-pick].on')?.getBoundingClientRect();
     setTheme(pick);
     refreshSettings();
     slideSelected(pane.querySelector<HTMLElement>(`[data-theme-pick="${CSS.escape(theme)}"]`), from);
