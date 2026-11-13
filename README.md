@@ -28,7 +28,8 @@ then watch Claude Code, Codex, Antigravity or a local model build it, live, righ
 
 <br>
 
-<img src="docs/screenshots/ide-hero.jpg" alt="Breeze Code with the explorer, editor, live preview and the agents panel after a finished run" width="900">
+<img width="1871" height="1079" alt="image" src="https://github.com/user-attachments/assets/81834af5-b2de-4c61-8576-5863f5acbc4e" />
+
 
 </div>
 
@@ -78,7 +79,8 @@ Breeze finds the coding agents already installed on your computer and signs in w
 | <img src="assets/icons/antigravity.png" height="16" alt=""> **Antigravity** | Antigravity's agent service | Not reported by Antigravity |
 | <img src="assets/icons/ollama.svg" height="16" alt=""> **Local model** | Ollama, LM Studio or any OpenAI-compatible server | No limit, it runs on your PC |
 
-<img src="docs/screenshots/settings.jpg" alt="Settings open on Agents, with the installed agents, the full access switch and each agent's usage" width="900">
+<img width="1868" height="1079" alt="image" src="https://github.com/user-attachments/assets/01ecdd31-b02e-43c1-8f54-bde27d31be09" />
+
 
 ## Several agents, one prompt
 
