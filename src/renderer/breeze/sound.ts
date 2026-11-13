@@ -12,6 +12,12 @@ const sfx = (() => {
   }
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
+  let verb: ConvolverNode | null = null;
+  let noise: AudioBuffer | null = null;
+  const secureRandom = () => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] / 4294967296; };
+  // Where the sound being played sits left–right, and whether it skips the room (set by play() for each sound).
+  let panNow = 0;
+  let dryNow = false;
   let lastAt = -Infinity; // when a control's sound last played, so a button that makes its own sound doesn't also click
   let anyAt = -Infinity; // when any sound at all last played
 
@@ -25,7 +31,35 @@ const sfx = (() => {
       ctx = new AudioContext();
       master = ctx.createGain();
       master.gain.value = gainFor(volume);
-      master.connect(ctx.destination);
+      // A gentle compressor on the way out, so a few sounds landing together don't spike.
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -18;
+      comp.knee.value = 12;
+      comp.ratio.value = 3;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.12;
+      master.connect(comp).connect(ctx.destination);
+      // A small room, made here rather than loaded: a short stereo burst of decaying noise. Control sounds send a
+      // little into it (the "breeze"); fast ambient ticks stay dry so typing never smears.
+      verb = ctx.createConvolver();
+      const len = Math.floor(ctx.sampleRate * 0.7);
+      const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = ir.getChannelData(ch);
+        for (let i = 0; i < len; i++) d[i] = (secureRandom() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+      }
+      verb.buffer = ir;
+      const wet = ctx.createGain();
+      wet.gain.value = 0.18;
+      const damp = ctx.createBiquadFilter();
+      damp.type = 'lowpass';
+      damp.frequency.value = 4200;
+      verb.connect(damp).connect(wet).connect(master);
+      // A 6 ms burst of noise, reused for the physical "tap" at the front of a click.
+      const tl = Math.floor(ctx.sampleRate * 0.006);
+      noise = ctx.createBuffer(1, tl, ctx.sampleRate);
+      const nd = noise.getChannelData(0);
+      for (let i = 0; i < tl; i++) nd[i] = (secureRandom() * 2 - 1) * (1 - i / tl);
       // Many Windows audio devices doze after a moment of silence and swallow the first short blip that wakes
       // them (a click after resting on a button, a tab's X, a lone key). A far-below-hearing signal keeps the
       // output awake. It is a tone, not a flat offset: the output chain filters a DC offset out and a 16-bit device
@@ -52,30 +86,74 @@ const sfx = (() => {
   unlock();
   addEventListener('focus', () => { if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => {}); });
 
-  // One blip: a pitch (optionally sliding) with a fast attack and a fade-out.
-  function tone(freq: number, dur: number, { type = 'sine', vol = 0.1, to = freq, at = 0 }: { type?: OscillatorType; vol?: number; to?: number; at?: number } = {}): void {
+  // Every pitch lands on D-major pentatonic (D E F# A B), in whatever octave it was asked for, so sounds that
+  // overlap (a tab and a save, the thinking hum and an answer) always agree. Pitch classes counted from C.
+  const SCALE = [2, 4, 6, 9, 11];
+  function snap(f: number): number {
+    const m = 69 + 12 * Math.log2(f / 440);
+    let best = m, dist = Infinity;
+    for (let o = Math.floor(m / 12) - 1; o <= Math.floor(m / 12) + 1; o++) {
+      for (const pc of SCALE) {
+        const n = o * 12 + pc;
+        if (Math.abs(n - m) < dist) { dist = Math.abs(n - m); best = n; }
+      }
+    }
+    return 440 * Math.pow(2, (best - 69) / 12);
+  }
+
+  // One blip: a pitch (optionally sliding) with a fast attack and a fade-out. It is two voices a few cents apart
+  // through a soft lowpass, so it reads warm rather than as a raw beep; `tap` adds a tiny noise click at the front.
+  function tone(freq: number, dur: number, { type = 'sine', vol = 0.1, to = freq, at = 0, tap = 0 }: { type?: OscillatorType; vol?: number; to?: number; at?: number; tap?: number } = {}): void {
     const c = ctx as AudioContext;
     // A little ahead of now: a note started at currentTime lands partly in the past and very short ones get lost.
     const t0 = c.currentTime + 0.012 + at;
-    const osc = c.createOscillator();
+    // The start snaps to the scale; a slide keeps its shape by moving its end by the same ratio.
+    const f0 = snap(freq);
+    const f1 = to * (f0 / freq);
     const g = c.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, t0);
-    if (to !== freq) osc.frequency.exponentialRampToValueAtTime(to, t0 + dur);
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(vol, t0 + 0.004);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(g).connect(master as GainNode);
-    osc.start(t0);
-    osc.stop(t0 + dur + 0.02);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = Math.min(Math.max(f0, f1) * (type === 'sine' ? 6 : 3), 12000);
+    lp.Q.value = 0.5;
+    const pan = c.createStereoPanner();
+    pan.pan.value = panNow;
+    g.connect(lp).connect(pan).connect(master as GainNode);
+    if (!dryNow && verb) pan.connect(verb);
+    for (const [cents, level] of [[0, 1], [7, 0.35]] as const) {
+      const osc = c.createOscillator();
+      const og = c.createGain();
+      osc.type = type;
+      osc.detune.value = cents;
+      og.gain.value = level;
+      osc.frequency.setValueAtTime(f0, t0);
+      if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+      osc.connect(og).connect(g);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    }
+    if (tap && noise) {
+      const src = c.createBufferSource();
+      src.buffer = noise;
+      const bp = c.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 3200;
+      bp.Q.value = 0.9;
+      const tg = c.createGain();
+      tg.gain.value = tap;
+      src.connect(bp).connect(tg).connect(pan);
+      src.start(t0);
+    }
   }
 
-  const secureRandom = () => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] / 4294967296; };
   const jitter = (n: number) => 1 + (secureRandom() - 0.5) * n;
   const SOUNDS = {
-    click: () => tone(1500 * jitter(0.06), 0.05, { to: 900, vol: 0.09 }),
-    hover: () => tone(2400, 0.025, { vol: 0.025 }),
-    key: () => tone(1900 * jitter(0.25), 0.03, { type: 'triangle', vol: 0.035 }),
+    click: () => tone(1500 * jitter(0.06), 0.05, { to: 900, vol: 0.09, tap: 0.05 }),
+    hover: () => tone(2400, 0.025, { vol: 0.016 }),
+    // Typing: a random step of the scale and a little give in loudness, so a long run never drones.
+    key: () => tone(1900 * jitter(0.35), 0.03, { type: 'triangle', vol: 0.035 * jitter(0.5), tap: 0.012 }),
     tab: () => tone(520, 0.08, { to: 760, vol: 0.09 }),
     close: () => tone(720, 0.08, { to: 420, vol: 0.08 }),
     menu: () => tone(420, 0.09, { to: 640, type: 'triangle', vol: 0.07 }),
@@ -96,10 +174,10 @@ const sfx = (() => {
     toggleOn: () => { tone(700, 0.05, { type: 'triangle', vol: 0.07 }); tone(1180, 0.07, { type: 'triangle', vol: 0.07, at: 0.045 }); },
     toggleOff: () => { tone(1050, 0.05, { type: 'triangle', vol: 0.06 }); tone(620, 0.07, { type: 'triangle', vol: 0.06, at: 0.045 }); },
     select: () => { tone(1320 * jitter(0.04), 0.04, { vol: 0.07 }); tone(1760, 0.06, { vol: 0.05, at: 0.03 }); },
-    rowHover: () => tone(3000 * jitter(0.08), 0.018, { vol: 0.018 }),
+    rowHover: () => tone(3000 * jitter(0.08), 0.018, { vol: 0.011 }),
     focus: () => tone(980, 0.06, { to: 1150, vol: 0.035 }),
     link: () => tone(1200, 0.07, { to: 1600, type: 'triangle', vol: 0.05 }),
-    row: () => tone(1100 * jitter(0.08), 0.035, { type: 'triangle', vol: 0.06 }),
+    row: () => tone(1100 * jitter(0.08), 0.035, { type: 'triangle', vol: 0.06, tap: 0.03 }),
     drop: () => { tone(500, 0.06, { to: 260, vol: 0.09 }); tone(160, 0.1, { type: 'triangle', vol: 0.05, at: 0.03 }); },
     copy: () => [1568, 2093].forEach((f, i) => tone(f, 0.05, { vol: 0.05, at: i * 0.04 })),
     trash: () => tone(260, 0.16, { to: 110, type: 'sawtooth', vol: 0.03 }),
@@ -120,6 +198,17 @@ const sfx = (() => {
   const GAP: Partial<Record<Sound, number>> = { key: 18, keyDel: 18, keyEnter: 18, tool: 40, rowHover: 45, slide: 35, stream: 90, remove: 70, trash: 200, drop: 150 };
   const last: Partial<Record<Sound, number>> = {};
   const AMBIENT = new Set<Sound>(['key', 'keyDel', 'keyEnter', 'stream', 'hum', 'tool', 'rowHover', 'hover', 'slide']);
+  // Left–right position of the last press, hover or focused box, as a gentle pan (±0.35 at the window edges).
+  let place = 0;
+  let placeAt = -Infinity;
+  const setPlace = (x: number) => { place = Math.max(-1, Math.min(1, (x / Math.max(1, innerWidth)) * 2 - 1)) * 0.35; placeAt = performance.now(); };
+  document.addEventListener('pointerdown', e => setPlace(e.clientX), { capture: true, passive: true });
+  document.addEventListener('pointerover', e => { if (e.pointerType === 'mouse') setPlace(e.clientX); }, { capture: true, passive: true });
+  document.addEventListener('focusin', e => {
+    const r = (e.target as Element).getBoundingClientRect?.();
+    if (r && r.width) setPlace(r.left + Math.min(r.width / 2, 200));
+  }, true);
+  document.addEventListener('keydown', () => { placeAt = performance.now(); }, { capture: true, passive: true });
 
   function play(name: Sound): void {
     if (!on || !volume || document.hidden) return;
@@ -138,6 +227,9 @@ const sfx = (() => {
     // click or focus landing next to one would stay silent.
     if (!AMBIENT.has(name)) lastAt = now;
     anyAt = now;
+    // Leans toward where you just clicked or typed; a sound nobody asked for (an agent answering) sits centre.
+    panNow = now - placeAt < 1500 ? place : 0;
+    dryNow = AMBIENT.has(name);
     // Chromium suspends an idle context (and Windows can interrupt one when the audio device changes). Notes
     // scheduled while it is paused would land in the past and be dropped, so they wait for it to run again.
     if (ctx.state !== 'running') {
