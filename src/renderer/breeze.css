@@ -384,8 +384,11 @@ button {
 }
 
 /* A menu's arrow keys count as keyboard use, which lit the ring on whatever opened the menu (a chat row, a chip) while
-   the menu's own highlight already shows where the keys are. */
-body:has(#menuRoot > .menu:not(.closing)) :focus-visible:not(#menuRoot *) {
+   the menu's own highlight already shows where the keys are.
+   body.menu-up / body.modal-up (power.ts) say a menu or a dialog is open. They were body:has(#menuRoot > .menu) and
+   body:has(#modalRoot > .scrim): with <body> as a :has() anchor, every element added or removed anywhere (each typed
+   character redraws the code lines) had Chromium restyle the whole page, about 3,000 elements a keystroke. */
+body.menu-up :focus-visible:not(#menuRoot *) {
   outline: none;
 }
 
@@ -13474,13 +13477,13 @@ body.layout-animating #previewPane {
 
   /* Under a dialog the layers go (the plain fade stays): its blur hides them, and the page under a dialog is drawn
      again on every frame the dialog changes, so they were costing Settings frames as it scrolled. */
-  body:has(#modalRoot > .scrim) :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::before,
-  body:has(#modalRoot > .scrim) :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::after {
+  body.modal-up :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::before,
+  body.modal-up :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::after {
     display: none;
   }
 
   /* The same goes for the frost on Breeze Space's prompt and terminal: a pixel of blur under the dialog's own. */
-  body:has(#modalRoot > .scrim) :is(.box-composer .composer-box, .box > .terminal) {
+  body.modal-up :is(.box-composer .composer-box, .box > .terminal) {
     backdrop-filter: none;
   }
 

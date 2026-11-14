@@ -61,5 +61,16 @@ window.addEventListener('focus', focusChanged);
 window.addEventListener('blur', () => setTimeout(focusChanged, 0));
 document.addEventListener('visibilitychange', decorChanged);
 
+// body.menu-up / body.modal-up: a menu or a dialog is open (breeze.css styles what's under them). A class rather
+// than body:has(...), which made every DOM change anywhere restyle the whole page. Observers run before the next
+// paint, so the class is never a frame behind.
+const syncOverlays = (): void => {
+  document.body.classList.toggle('menu-up', !!document.querySelector('#menuRoot > .menu:not(.closing)'));
+  document.body.classList.toggle('modal-up', !!document.querySelector('#modalRoot > .scrim'));
+};
+new MutationObserver(syncOverlays).observe($('#menuRoot'), { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+new MutationObserver(syncOverlays).observe($('#modalRoot'), { childList: true });
+syncOverlays();
+
 api.power.onChange(applyPower);
 background(api.power.get().then(applyPower));
