@@ -26,6 +26,9 @@ import { Kernels } from './kernel';
 import * as skillsLib from './skills';
 import * as mcpLib from './mcp';
 import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './previewServer';
+import { normalizeQuestion, QuestionDesk, NO_ANSWER } from './askuser';
+import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
+import type { ToolReply } from './breezemcp';
 import { expandAbbr } from './emmet';
 import { markdownBody } from './markdown';
 import { DebugManager, killTree } from './debug';
@@ -1870,6 +1873,7 @@ handle('skills:remove', async (_e, dir) => {
 // MCP servers connected in Breeze (handed to Claude Code runs), and the ones Claude Code has set up itself.
 const claudeJsonPath = () => (process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(os.homedir(), '.claude.json'));
 handle('mcp:list', () => ({
+  builtIn: mcpLib.builtInServers(BREEZE_TOOLS),
   breeze: ((loadState().mcpServers ?? []) as McpServer[]).map(s => ({ name: s.name, type: s.type, detail: mcpLib.serverDetail(s) })),
   claude: mcpLib.claudeConfigured({ claudeJson: claudeJsonPath(), root: root ?? undefined }),
 }));
@@ -2200,6 +2204,7 @@ function stopRun(runId: number | string): void {
   const r = runs.get(runId);
   if (!r) return;
   r.stopped = true;
+  questions.cancelRun(runId); // a question it was waiting on is closed, unanswered
   if (r.service) r.service.stop().then(r.onStopped, r.onStopped); // the service drops its exit event once stopped
   if (r.child) killTree(r.child);
   r.abort?.abort();
@@ -2740,8 +2745,9 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null }
 interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string }
-function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null): CliSpec {
-  if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick);
+// `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
+function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
+  if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
   const build = mode === 'build';
   const sandbox = !build ? 'read-only' : fullAccess() ? 'danger-full-access' : 'workspace-write';
   const args = ['exec', '--json', '-s', sandbox, '--skip-git-repo-check'];
@@ -2751,6 +2757,8 @@ function cliArgs(agent: string, mode: string, prompt: string, session: string | 
   const effort = effortArg(pick?.effort ?? st.codexEffort);
   // Unquoted: Codex reads a -c value that is not valid TOML as a plain string, and quotes can't pass the npm shim's shell.
   if (effort) args.push('-c', `model_reasoning_effort=${effort}`);
+  // Breeze's own tools. A question waits for the user, so its time limit is a day, not Codex's usual minute.
+  if (breezeUrl) args.push('-c', `mcp_servers.${BREEZE_MCP}.url=${breezeUrl}`, '-c', `mcp_servers.${BREEZE_MCP}.tool_timeout_sec=86400`);
   if (session) args.push('resume', session);
   args.push('-');
   if (build) return { args, prompt };
@@ -2766,16 +2774,19 @@ const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'
 const CLAUDE_ASK_DENIED = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 // On a team, build mode also denies editing what a teammate owns (rule paths are relative to the project root).
 // Those rules can't pass through a shell (`shell`: an npm .cmd shim), so they come back as `deny` for a settings file.
-function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null): CliSpec {
+function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   const build = mode === 'build';
   const full = build && fullAccess();
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
-  // MCP servers connected in Breeze. Print mode can't ask, so in build mode their tools are allowed up front.
-  const mcpFile = mcpConfigFile(shell);
+  // MCP servers connected in Breeze, and Breeze's own. Print mode can't ask, so in build mode their tools are allowed
+  // up front. Breeze's own only ask, show and look, so every mode gets them.
+  const mcpFile = mcpConfigFile(shell, breezeUrl);
   if (mcpFile) args.push('--mcp-config', mcpFile);
   const mcpTools = mcpFile ? ((loadState().mcpServers ?? []) as McpServer[]).map(s => `mcp__${s.name}`) : [];
+  const ownTools = mcpFile && breezeUrl ? [`mcp__${BREEZE_MCP}`] : [];
   if (!build) args.push('--disallowedTools', ...CLAUDE_WRITE_TOOLS);
-  else if (!full) args.push('--allowedTools', 'Bash', ...mcpTools); // print mode can't ask, so commands would otherwise be refused
+  if (!build && ownTools.length) args.push('--allowedTools', ...ownTools);
+  else if (build && !full) args.push('--allowedTools', 'Bash', ...ownTools, ...mcpTools); // print mode can't ask, so commands would otherwise be refused
   const deny = build && team ? claudeDenyArgs(team.coordinator.owners, team.agentId) : [];
   if (deny.length && !shell) args.push('--disallowedTools', ...deny);
   const st = loadState();
@@ -2803,12 +2814,12 @@ function dropSettingsFile(run: Run): void {
 }
 // The MCP servers connected in Breeze, for one Claude Code run, in a file only this user can read (env values and
 // headers may hold keys). Through an npm shim's shell the path must be a plain argument, as with the settings file.
-function mcpConfigFile(shell: boolean): string | null {
+function mcpConfigFile(shell: boolean, breezeUrl?: string | null): string | null {
   const servers: McpServer[] = loadState().mcpServers ?? [];
-  if (!servers.length) return null;
+  if (!servers.length && !breezeUrl) return null;
   const file = path.join(os.tmpdir(), `breeze-mcp-${crypto.randomBytes(6).toString('hex')}.json`).replaceAll('\\', '/');
   if (shell) { try { shellCommand('', [file]); } catch { return null; } }
-  try { fs.writeFileSync(file, JSON.stringify(mcpLib.claudeMcpConfig(servers)), { flag: 'wx', mode: 0o600 }); } catch { return null; }
+  try { fs.writeFileSync(file, JSON.stringify(mcpLib.claudeMcpConfig(servers, breezeUrl)), { flag: 'wx', mode: 0o600 }); } catch { return null; }
   return file;
 }
 const NO_BLOCK_NOTE = 'Claude can\'t be blocked from teammates\' files on this computer, so Breeze will undo any edit it makes to them instead.';
@@ -2834,6 +2845,8 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
     return;
   }
   if (c.type !== 'tool_use') return;
+  // Breeze's own tool: what it does shows in the chat itself. ToolSearch is Claude Code looking that tool up.
+  if (String(c.name).startsWith(`mcp__${BREEZE_MCP}__`) || c.name === 'ToolSearch') return;
   const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
   emit(runId, { t: 'tool', kind, label });
   if (c.name === 'Bash' && c.id) {
@@ -2910,9 +2923,12 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   const bin = agentBins.get(agent);
   if (!bin) throw new Error('That agent was not found on this computer. Rescan from Settings → Run Setup Again.');
   const shell = /\.(?:cmd|bat)$/i.test(bin);
+  // Breeze's own MCP server. A run still starts without it; the agent then has no way to ask or show.
+  const hasMcp = await breezeMcp.listen().then(() => true, () => false);
+  if (run.stopped) { runs.delete(runId); emit(runId, { t: 'done', ok: false, stopped: true }); return; }
   const launch = () => {
     dropSettingsFile(run);
-    const cli = cliArgs(agent, mode, prompt, session, run.team, shell, run.pick);
+    const cli = cliArgs(agent, mode, prompt, session, run.team, shell, run.pick, hasMcp ? breezeMcp.open(runId) : null);
     run.mcpFile = cli.mcpFile ?? null;
     if (cli.deny) {
       run.settingsFile = teamSettingsFile(runId, cli.deny);
@@ -2921,11 +2937,12 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     }
     // The prompt goes through stdin, so it never reaches a shell command line. Only fixed flags,
     // a validated model name and a validated session id do (npm .cmd shims need a shell on Windows).
-    const opts = { cwd: base, windowsHide: true, env: process.env };
+    // Claude Code's MCP time limit is raised to a day: a question waits for the user.
+    const opts = { cwd: base, windowsHide: true, env: { MCP_TOOL_TIMEOUT: '86400000', ...process.env } };
     let child: ChildProcess;
     try {
       child = shell ? spawn(shellCommand(bin, cli.args), { ...opts, shell: true }) : spawn(bin, cli.args, opts);
-    } catch (err) { dropSettingsFile(run); throw err; }
+    } catch (err) { dropSettingsFile(run); breezeMcp.close(runId); throw err; }
     run.child = child;
     child.stdin!.on('error', () => { /* the agent exited before reading its prompt; its output says why */ });
     child.stdin!.end(cli.prompt ?? undefined);
@@ -2982,6 +2999,8 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
   child.on('close', code => {
     runs.delete(runId);
     dropSettingsFile(run);
+    breezeMcp.close(runId);
+    questions.cancelRun(runId);
     if (!ctx.done && !ctx.retry && NO_SESSION.test(ctx.lastError + ctx.stderr)) ctx.retry = ctx.lastError + ctx.stderr;
     if (ctx.retry && !run.stopped && ctx.retryModel?.(ctx.retry)) return;
     if (ctx.done) return;
@@ -3009,7 +3028,7 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
       emit(runId, { t: 'file', path: relOut(ch.path), created: ch.kind === 'add', written: true });
     }
   },
-  mcp_tool_call: (runId, it) => emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }),
+  mcp_tool_call: (runId, it) => { if (it.server !== BREEZE_MCP) emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }); },
   web_search: (runId, it) => emit(runId, { t: 'tool', kind: 'web', label: `Searched the web for ${it.query}` }),
   todo_list: runId => emit(runId, { t: 'tool', kind: 'todo', label: 'Updated its to-do list' }),
   // Codex's warning about a model it has no metadata for is noise to the user.
@@ -3073,6 +3092,7 @@ const LLM_TOOLS = [
   { name: 'delete_file', description: 'Delete one file (it goes to the Recycle Bin, so the user can get it back).', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
   { name: 'move_file', description: 'Move or rename a file or folder. new_path must not exist yet.', parameters: { type: 'object', properties: { path: { type: 'string' }, new_path: { type: 'string' } }, required: ['path', 'new_path'] } },
   { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. The user may be asked to OK it first. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
+  { name: 'ask_user', description: 'Ask the user one question and wait for the answer. Use it when the request is unclear and a wrong guess would waste work.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', description: '2 to 4 answers to pick from; the user can also type another', items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } }, multi_select: { type: 'boolean', description: 'Let the user pick more than one' } }, required: ['question'] } },
 ].map(fn => ({ type: 'function', function: fn }));
 const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'delete_file', 'move_file', 'run_command']);
 const LIST_MAX = 200;
@@ -3123,6 +3143,30 @@ async function mayRun(ctx: LlmCtx, command: string): Promise<boolean> {
   return answer !== 'deny';
 }
 handle('agent:answer', (_e, id, answer) => pendingAsks.get(String(id))?.(['once', 'all'].includes(answer) ? answer : 'deny'));
+
+/* ----- Questions for the user, and Breeze's own MCP server ----- */
+// Any agent can ask the user a question: a card with a button per option and a box for another answer ('question'
+// event, answered through agent:reply). The local model calls ask_user as one of its tools; Claude Code and Codex
+// run as command lines that can't prompt, so they reach the same card through the MCP server Breeze hosts (breezemcp.ts).
+const questions = new QuestionDesk();
+async function askUser(runId: number, input: unknown, signal?: AbortSignal): Promise<string> {
+  const q = normalizeQuestion(input);
+  if (!runs.has(runId)) return NO_ANSWER;
+  // A team's claim pass shows nothing in the chat, so nobody would see the question.
+  const entry = teamOf.get(runId);
+  if (entry && (entry.team as Loose).runs?.get(runId)?.phase === 'claim') return 'Nobody can answer right now. Use your best judgment.';
+  return questions.ask(runId, q, ev => emit(runId, ev), signal);
+}
+handle('agent:reply', (_e, id, reply) => questions.answer(String(id), reply && typeof reply === 'object' ? reply : null));
+const BREEZE_TOOL_FNS: Record<string, (runId: number, args: Loose, signal: AbortSignal) => Promise<ToolReply>> = {
+  ask_user: async (runId, args, signal) => ({ text: await askUser(runId, args, signal) }),
+};
+const breezeMcp = new BreezeMcpServer({
+  call: (runId, name, args, signal) => {
+    if (!runs.has(runId)) throw new Error('That run has ended.');
+    return BREEZE_TOOL_FNS[name](runId, args, signal);
+  },
+});
 // While a write_file call is still arriving, a file that doesn't exist yet opens in the editor and its text types
 // in as the model writes it ('draft' events). Only new files: rewriting a whole file would flicker.
 const DRAFT_MS = 80;
@@ -3154,6 +3198,7 @@ async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
   } catch { return null; }
 }
 const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> = {
+  ask_user: (ctx, a) => askUser(ctx.runId, a, ctx.signal),
   async list_files(ctx, a) {
     const dir = agentPath(ctx, a.path || '.');
     emit(ctx.runId, { t: 'tool', kind: 'read', label: `Listed ${a.path && a.path !== '.' ? a.path : 'the project'}` });
@@ -3331,6 +3376,7 @@ Work efficiently:
 - Never repeat a tool call with the same arguments. Stop calling tools as soon as you can answer.
 - Only say something works or is fixed if a tool result showed it. Say what you could not check.
 - Stay inside the project and do only what was asked.
+- If the request is unclear and a wrong guess would waste work, call ask_user with 2 to 4 short options instead of guessing.
 Reply short and plain. After changing files, list the files, what you checked, and why.
 When the user asks for code or a file to keep (and you are not writing it into the project), give it as one fenced block with the language and a file name, like \`\`\`html index.html, so it shows as a card they can copy or download.`;
 async function llmPost(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefined): Promise<Loose> {

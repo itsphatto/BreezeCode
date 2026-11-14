@@ -379,6 +379,7 @@ function demoApi(): BreezeApi {
       },
       async stop() { /* demo runs finish on their own */ },
       async answer() { /* demo runs never ask */ },
+      async reply() { return true; },
       async setModel() { return true; },
       // Canned replies for the conflict Duel: an advocate argues its side; the judge merges the two versions it was shown
       // (ours, then theirs' lines that ours doesn't have) in a fenced block.
@@ -435,7 +436,7 @@ function demoApi(): BreezeApi {
     // MCP servers kept in the browser, so the preview can connect and remove them (nothing is started).
     mcp: {
       async list() {
-        return { breeze: store.get<McpServer[]>('breeze.demoMcp', []), claude: [{ name: 'github', type: 'stdio', detail: 'npx -y @modelcontextprotocol/server-github', scope: 'user' }] };
+        return { builtIn: [{ name: 'Breeze (built in)', type: 'http', detail: 'ask_user · for Claude Code, Codex and local models. Antigravity can\'t use them.' }], breeze: store.get<McpServer[]>('breeze.demoMcp', []), claude: [{ name: 'github', type: 'stdio', detail: 'npx -y @modelcontextprotocol/server-github', scope: 'user' }] };
       },
       async add(input) {
         const list = store.get<McpServer[]>('breeze.demoMcp', []);

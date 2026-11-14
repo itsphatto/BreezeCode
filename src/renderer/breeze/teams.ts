@@ -500,6 +500,51 @@ function approveCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   });
 }
 
+// An agent's question: a button for each option and a box for another answer. With one choice allowed a click
+// answers; with several, options switch on and off and Send answers. The run waits meanwhile.
+function questionCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  const id = ev.id;
+  if (!id || !ev.question) return;
+  const options = ev.options ?? [];
+  const multi = !!ev.multiSelect && options.length > 1;
+  r.lastMsg = undefined;
+  setAgent(r.phase, 'waiting', 'Waiting for your answer', r.tools);
+  sfx.play('plan');
+  const opts = options.map(o => `<button class="q-opt" type="button" data-q-opt="${escAttr(o.label)}"${multi ? ' aria-pressed="false"' : ''}><b>${esc(o.label)}</b>${o.description ? `<small>${esc(o.description)}</small>` : ''}</button>`).join('');
+  const otherLabel = options.length ? 'Another answer' : 'Your answer';
+  const el = addMsg(`<div class="card ask question" data-question="${escAttr(id)}"><h5>${svgIcon('info', 14)} ${esc(speaker(r.phase, r.agent).name)} has a question</h5><p class="q-text">${inlineMd(ev.question)}</p><div class="q-live" data-live>${opts ? `<div class="q-opts" role="group" aria-label="Answers">${opts}</div>` : ''}${multi ? '<p class="q-hint">Pick any that apply, then Send.</p>' : ''}<div class="row q-other"><input class="input" type="text" maxlength="2000" placeholder="${options.length ? 'Other…' : 'Type your answer'}" aria-label="${otherLabel}" spellcheck="false"><button class="btn btn-primary btn-sm" type="button" data-q-send>Send</button><button class="btn btn-sm" type="button" data-q-skip title="Let the agent decide">Skip</button></div></div></div>`, tab);
+  const input = $<HTMLInputElement>('.q-other input', el);
+  const answer = (reply: AskReply | null) => {
+    const said = reply ? [...reply.picked, reply.other].filter(Boolean).join(', ') : '';
+    endQuestion(el, said ? `✓ ${said}` : '✕ Skipped');
+    setAgent(r.phase, 'working', 'Working on your request', r.tools);
+    saveChat(tab);
+    const box = isBoardSurface(tab.surfaceName) ? boardBoxes.get(boxKeyOf(tab.surfaceName)) : undefined;
+    if (box) paintBox(box); // its box stops showing "waiting"
+    background(api.agent.reply(id, reply));
+  };
+  $$<HTMLElement>('.q-opt', el).forEach(b => b.onclick = () => {
+    if (!multi) { answer({ picked: [b.dataset.qOpt as string], other: '' }); return; }
+    b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
+  });
+  const send = () => {
+    const picked = multi ? $$<HTMLElement>('.q-opt[aria-pressed="true"]', el).map(b => b.dataset.qOpt as string) : [];
+    const other = input.value.trim();
+    if (picked.length || other) answer({ picked, other });
+    else input.focus();
+  };
+  $('[data-q-send]', el).onclick = send;
+  $('[data-q-skip]', el).onclick = () => answer(null);
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); send(); }
+  });
+}
+// The card stops taking answers and says how it ended.
+function endQuestion(card: Element | null | undefined, how: string): void {
+  card?.querySelector('[data-live]')?.replaceWith(Object.assign(document.createElement('div'), { className: 'resolved', textContent: how }));
+}
+
 function onFirstReply(r: Run, tab: AgentTabState): void {
   r.replied = true;
   if (r.announce) teamNeed = TEAM_SIZE[r.uiMode] ?? 1;
@@ -542,6 +587,9 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   draft: (r, ev) => { if (ev.path) onAgentDraft(r, ev.path, ev.text ?? ''); },
   plan: (r, ev) => { r.plan = ev.text ?? ''; },
   approve: (r, ev, tab) => approveCard(r, ev, tab),
+  question: (r, ev, tab) => questionCard(r, ev, tab),
+  // The run stopped (or the agent gave up waiting) before anyone answered.
+  'question-end': (_r, ev, tab) => { if (ev.id) endQuestion(tab.panel.querySelector(`[data-question="${CSS.escape(ev.id)}"]`), '✕ Not answered'); saveChat(tab); },
   note: (_r, ev, tab) => { if (ev.text) toolLine('note', ev.text, tab); },
   auth: (_r, ev, tab) => {
     const url = ev.url;

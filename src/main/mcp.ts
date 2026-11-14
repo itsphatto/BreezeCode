@@ -7,6 +7,11 @@ import * as path from 'node:path';
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const HEADER_KEY = /^[A-Za-z0-9-]{1,128}$/;
+// Breeze's own server (breezemcp.ts): what the Skills view lists it as, and which agents get its tools.
+const BUILT_IN_NAME = 'breeze';
+function builtInServers(tools: { name: string }[]) {
+  return [{ name: 'Breeze (built in)', type: 'http' as const, detail: `${tools.map(t => t.name).join(', ')} · for Claude Code, Codex and local models. Antigravity can't use them.` }];
+}
 
 // A command line split into words: whitespace separates them, and "double" or 'single' quotes keep spaces in one.
 function splitCommand(line: unknown): string[] {
@@ -52,6 +57,7 @@ interface ServerInput { name?: unknown; type?: unknown; url?: unknown; headers?:
 function normalizeServer(input: ServerInput | null | undefined, existing: McpServer[] = []): McpServer {
   const name = String(input?.name ?? '').trim();
   if (!NAME.test(name)) throw new Error('Name it with letters, numbers, - or _ (no spaces)');
+  if (name.toLowerCase() === BUILT_IN_NAME) throw new Error(`"${BUILT_IN_NAME}" is the name of Breeze's own built-in server. Pick another name.`);
   if (existing.some(s => s.name.toLowerCase() === name.toLowerCase())) throw new Error(`There's already a server called ${name}`);
   if (input?.type === 'http') {
     let url: URL;
@@ -64,14 +70,16 @@ function normalizeServer(input: ServerInput | null | undefined, existing: McpSer
   return { name, type: 'stdio', command, args, env: parsePairs(input?.env, '=', ENV_KEY, 'variable') };
 }
 
-// The servers in Claude Code's --mcp-config format.
-function claudeMcpConfig(servers: McpServer[]) {
+// The servers in Claude Code's --mcp-config format. `breezeUrl`: this run's address on Breeze's own server
+// (breezemcp.ts), which goes in beside the ones the user connected.
+function claudeMcpConfig(servers: McpServer[], breezeUrl?: string | null) {
   const mcpServers: Record<string, unknown> = {};
   for (const s of servers) {
     mcpServers[s.name] = s.type === 'http'
       ? { type: 'http', url: s.url, ...(Object.keys(s.headers ?? {}).length ? { headers: s.headers } : {}) }
       : { type: 'stdio', command: s.command, args: s.args ?? [], ...(Object.keys(s.env ?? {}).length ? { env: s.env } : {}) };
   }
+  if (breezeUrl) mcpServers[BUILT_IN_NAME] = { type: 'http', url: breezeUrl };
   return { mcpServers };
 }
 
@@ -99,4 +107,4 @@ function claudeConfigured({ claudeJson, root }: { claudeJson: string; root?: str
   return out;
 }
 
-export { splitCommand, parsePairs, normalizeServer, claudeMcpConfig, serverDetail, claudeConfigured };
+export { splitCommand, parsePairs, normalizeServer, claudeMcpConfig, serverDetail, claudeConfigured, builtInServers, BUILT_IN_NAME };

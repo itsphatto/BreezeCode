@@ -51,17 +51,19 @@ function pluginHtml(p: AgentPlugin): string {
 // Claude Code has set up itself, shown with where they come from.
 let mcpData: McpList | null = null;
 const MCP_SCOPES: Record<string, string> = { user: 'Claude Code', local: 'This project', project: '.mcp.json' };
-function mcpRowHtml(m: McpServer, mine: boolean): string {
-  const end = mine
+function mcpRowHtml(m: McpServer, mine: boolean, builtIn = false): string {
+  const end = builtIn
+    ? '<span class="skill-tag" title="Part of Breeze: every run gets it">Always on</span>'
+    : mine
     ? holdDelHtml(m.name, `data-mcp-del="${escAttr(m.name)}"`)
     : `<span class="skill-tag" title="Set up in Claude Code itself">${esc(MCP_SCOPES[m.scope ?? 'user'] ?? 'Claude Code')}</span>`;
   return `<div class="skill-row mcp-row" title="${escAttr(m.detail)}">
     <span class="skill-text"><b>${esc(m.name)}</b><small>${esc(m.detail || (m.type === 'http' ? 'URL' : 'Command'))}</small></span>${end}</div>`;
 }
 function mcpGroupHtml(): string {
-  const mine = mcpData?.breeze ?? [], theirs = mcpData?.claude ?? [];
-  const rows = mine.map(m => mcpRowHtml(m, true)).join('') + theirs.map(m => mcpRowHtml(m, false)).join('');
-  return skillGroupHtml('claude:mcp', 'MCP servers', mine.length + theirs.length, rows);
+  const own = mcpData?.builtIn ?? [], mine = mcpData?.breeze ?? [], theirs = mcpData?.claude ?? [];
+  const rows = own.map(m => mcpRowHtml(m, false, true)).join('') + mine.map(m => mcpRowHtml(m, true)).join('') + theirs.map(m => mcpRowHtml(m, false)).join('');
+  return skillGroupHtml('claude:mcp', 'MCP servers', own.length + mine.length + theirs.length, rows);
 }
 
 function renderSkills(): void {
