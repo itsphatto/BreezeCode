@@ -356,6 +356,7 @@ function applyBackdrop(fade = false): void {
   const show = () => {
     if (on) root.dataset.backdrop = backdrop; else delete root.dataset.backdrop;
     applyBackdropLook();
+    startGlassTune();
   };
   // The window itself goes see-through for Glass only. If this system can't, Glass switches back off.
   const glass = () => api.win.glass(backdrop === 'glass').then(ok => {
@@ -364,12 +365,12 @@ function applyBackdrop(fade = false): void {
     toast('Glass isn’t available on this system');
     refreshSettings();
   }).catch(() => undefined);
-  if (!fade) { show(); void glass(); return; }
+  if (!fade) { show(); void glass().then(tuneGlass); return; }
   if (on) {
     // The sheet goes up at once and stays until the window is see-through (on Windows 10 that takes a moment).
     if (!document.body.classList.contains('bd-fade')) { bdSheet?.cancel(); document.body.classList.add('bd-fade'); }
     show();
-    void glass().then(() => seq === bdSeq && bdFade(0, 450)).then(done => { if (done && seq === bdSeq) bdFadeDone(); });
+    void glass().then(() => seq === bdSeq && bdFade(0, 450)).then(done => { if (done && seq === bdSeq) { bdFadeDone(); void tuneGlass(); } });
   } else {
     void bdFade(1, 260).then(done => {
       if (!done || seq !== bdSeq) return;
@@ -385,6 +386,244 @@ function setBackdrop(next: Backdrop): void {
   store.set('breeze.backdrop', next);
   applyBackdrop(fade);
 }
+/* ----- Glass stays readable over whatever is behind the window -----
+   A dark theme's light text is lost over a white window, and the light theme's dark ink over a dark one. So while
+   Glass is on, the page reads how bright the screen is at a grid of points of the window (from a small picture of
+   the display, five frames a second, that never leaves this page), takes away what the page itself paints there
+   (each element's background colour, stacked) to get the brightness of what's behind, and makes every surface just
+   solid enough (--bd-a) that secondary text keeps about 4.5:1 over the brightest (light theme: darkest) spot. Over a
+   backdrop that already reads well, Glass is as see-through as ever.
+   The share depends only on what is behind the window, never on which page is showing, so the editor, the debugger,
+   Home and Breeze Space always wear the same Glass: the title-bar and status-bar rows count as one layer thick, the
+   rows between as two (a panel on the window's base layer), whatever is really there. Breeze Space's one deep-space
+   layer stands in for both of those, so it gets a share of its own (--bd-box) worth the two. */
+const GLASS_RANGE = { dark: [.34, .86], light: [.52, .9] } as const; // the least is breeze.css's own --bd-a for Glass
+const GLASS_TARGET = { dark: 62, light: 197 }; // the surface brightness (0–255) that --text-2 reads on at 4.5:1
+const GLASS_LEFT_MIN = .05; // a spot showing less than this much of the backdrop can't be read: its last value stands
+const GLASS_COLS = 8, GLASS_ROWS = 6, GLASS_EASE_MS = 200;
+let glassA = clamp(Number(store.get<number>('breeze.glassA', 0)) || 0, 0, .9); // the shares last used, kept for the next launch
+let glassBox = clamp(Number(store.get<number>('breeze.glassBox', 0)) || 0, 0, .9);
+const glassSeen: (number | undefined)[] = []; // the brightness behind each point, when last it could be told
+let glassLast: number[] = []; // the screen's brightness at each point at the last reading worked through
+let glassTimer = 0, glassStep = 0, glassEaseEnd = 0;
+// A CSS colour as [brightness 0–255, opacity]. Brightness is the usual weighted sum, on the colour's own (encoded)
+// values: the page blends its layers on those too, so the sum of a stack is the stack of the sums.
+function colorLuma(c: string): [number, number] | null {
+  const luma = (r: number, g: number, b: number) => .2126 * r + .7152 * g + .0722 * b;
+  const rgb = /^rgba?\(([^)]+)\)$/.exec(c);
+  if (rgb) { const [r, g, b, a = 1] = rgb[1].split(/[,\s/]+/).map(Number); return [luma(r, g, b), a]; }
+  const srgb = /^color\(srgb ([^)]+)\)$/.exec(c);
+  if (srgb) { const [r, g, b, a = 1] = srgb[1].split(/[\s/]+/).filter(Boolean).map(Number); return [255 * luma(r, g, b), a]; }
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim());
+  if (hex) { const h = hex[1].length === 3 ? hex[1].replace(/./g, '$&$&') : hex[1]; return [luma(parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4), 16)), 1]; }
+  return null;
+}
+// What the page paints at a point: its colours' brightness, stacked (`own`), and how much of the backdrop still shows
+// (`left`). null where something draws its own picture (a preview, an image), which says nothing about the backdrop.
+// Breeze Space's two nebulae, the one painted on top first: a background picture, which the colours below don't cover.
+// The same numbers as breeze.css's `.box` gradients (centre, radii in px, colour, strength; each fades out at 70%).
+const SPACE_GLOWS: { cx: number; cy: number; rx: number; ry: number; luma: number; a: number }[] = [
+  { cx: .78, cy: .08, rx: 900, ry: 500, luma: .2126 * 120 + .7152 * 80 + .0722 * 220, a: .13 },
+  { cx: .16, cy: .92, rx: 1000, ry: 620, luma: .7152 * 122 + .0722 * 255, a: .12 },
+];
+function glassStack(x: number, y: number): { own: number; left: number } | null {
+  let own = 0, left = 1;
+  for (const el of document.elementsFromPoint(x, y)) {
+    if (el.matches('iframe, webview, img, video, canvas')) return null;
+    if (el.id === 'box' && theme !== 'light') {
+      const r = el.getBoundingClientRect();
+      for (const g of SPACE_GLOWS) {
+        const d = Math.hypot((x - r.left - g.cx * r.width) / g.rx, (y - r.top - g.cy * r.height) / g.ry) / .7;
+        const a = d < 1 ? g.a * (1 - d) : 0;
+        own += left * a * g.luma;
+        left *= 1 - a;
+      }
+    }
+    const col = colorLuma(getComputedStyle(el).backgroundColor);
+    if (!col || !col[1]) continue;
+    own += left * col[1] * col[0];
+    left *= 1 - col[1];
+    if (left < .005) break;
+  }
+  return { own, left };
+}
+// The shares in use: --bd-a (every surface) and --bd-box (Breeze Space's base layer), as fractions.
+function glassNow(): { a: number; box: number } {
+  const cs = getComputedStyle(document.documentElement), a = parseFloat(cs.getPropertyValue('--bd-a')) / 100;
+  return { a, box: parseFloat(cs.getPropertyValue('--bd-box')) / 100 || a };
+}
+// Both shares eased to their new values (each step restyles the window, so it is short), or set at once.
+function setGlassA(a: number, box: number, ease = true): void {
+  const root = document.documentElement, from = glassNow();
+  glassA = a;
+  glassBox = box;
+  store.set('breeze.glassA', a);
+  store.set('breeze.glassBox', box);
+  cancelAnimationFrame(glassStep);
+  const put = (va: number, vb: number) => {
+    root.style.setProperty('--bd-a', `${(va * 100).toFixed(1)}%`);
+    root.style.setProperty('--bd-box', `${(vb * 100).toFixed(1)}%`);
+  };
+  if (!ease || motionOff() || !(from.a > 0)) { put(a, box); return; }
+  const t0 = performance.now();
+  glassEaseEnd = t0 + GLASS_EASE_MS;
+  const step = (now: number) => {
+    const p = clamp((now - t0) / GLASS_EASE_MS, 0, 1), e = 1 - (1 - p) ** 3; // a frame's time can be before t0
+    put(from.a + (a - from.a) * e, from.box + (box - from.box) * e);
+    if (p < 1) glassStep = requestAnimationFrame(step);
+  };
+  glassStep = requestAnimationFrame(step);
+}
+// The display the window is on, as a live picture at most 640px wide, five frames a second (reading one takes a few
+// ms; asking main for a fresh screenshot each time held its other work up for 0.4s). Stopped whenever Glass is off
+// or the window is hidden.
+interface GlassCam { source: string; stream: MediaStream; video: HTMLVideoElement; ctx: OffscreenCanvasRenderingContext2D }
+let glassCam: GlassCam | null = null;
+let glassCamFails = 0; // after three it stops trying: this system won't give a picture
+function stopGlassCam(): void {
+  glassCam?.stream.getTracks().forEach(t => t.stop());
+  glassCam = null;
+}
+// Where the window is on its display, with that display's picture showing a frame taken just now. null: not offered.
+async function glassFrame(): Promise<{ cam: GlassCam; x: number; y: number; w: number; h: number } | null> {
+  const at = glassCamFails < 3 ? await api.win.backdropWhere().catch(() => null) : null;
+  if (!at) { stopGlassCam(); return null; }
+  if (glassCam?.source !== at.source || glassCam.stream.getVideoTracks()[0]?.readyState !== 'live') {
+    stopGlassCam();
+    // Electron's own constraints for a screen; lib.dom doesn't know them.
+    const video = { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: at.source, maxWidth: 640, maxHeight: 640, maxFrameRate: 5 } } as unknown as MediaTrackConstraints;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video }).catch(() => null);
+    const el = document.createElement('video');
+    el.muted = true;
+    el.srcObject = stream;
+    const playing = stream ? await el.play().then(() => true, () => false) : false;
+    const ctx = playing && el.videoWidth ? new OffscreenCanvas(el.videoWidth, el.videoHeight).getContext('2d', { willReadFrequently: true }) : null;
+    if (!stream || !ctx) { stream?.getTracks().forEach(t => t.stop()); glassCamFails++; return null; }
+    glassCamFails = 0;
+    if (backdrop !== 'glass') { stream.getTracks().forEach(t => t.stop()); return null; } // turned off while it started
+    glassCam = { source: at.source, stream, video: el, ctx };
+  }
+  // The next frame, so the picture and what the page paints (read right after) are of the same moment.
+  const cam = glassCam;
+  await new Promise<void>(done => {
+    const late = setTimeout(done, 400);
+    cam.video.requestVideoFrameCallback(() => { clearTimeout(late); done(); });
+  });
+  return glassCam === cam ? { cam, ...at } : null;
+}
+// Glass just turned on, or off: the shares last used go on at once (before the first reading), or all of it comes off.
+function startGlassTune(): void {
+  clearTimeout(glassTimer);
+  cancelAnimationFrame(glassStep);
+  glassPending = null;
+  glassLast = [];
+  if (backdrop !== 'glass') {
+    stopGlassCam();
+    for (const v of ['--bd-a', '--bd-box']) document.documentElement.style.removeProperty(v);
+    return;
+  }
+  const [min, max] = GLASS_RANGE[themeKey()];
+  if (glassA) { const a = clamp(glassA, min, max); setGlassA(a, clamp(glassBox, a, max), false); }
+  glassTimer = window.setTimeout(tuneGlass, 600);
+}
+// The page is mid-change: a screen swap, a dialog or panel fading or sliding, a view transition, or the shares easing.
+// What it paints then isn't what its colours say (an element fading in counts as all there), so no reading is taken.
+function glassPageMoving(): boolean {
+  if (performance.now() < glassEaseEnd + 150 || document.querySelector('.screen-prep, .screen-out, .screen-in, .screen-soft-in')) return true;
+  const big = innerWidth * innerHeight * .15;
+  return document.getAnimations().some(an => {
+    const fx = an.effect as KeyframeEffect | null, el = fx?.target;
+    // Timed ones only: a scroll-linked animation (the lists' edge fades) is "running" for as long as its list exists.
+    return an.playState === 'running' && an.timeline === document.timeline && el instanceof HTMLElement && el.offsetWidth * el.offsetHeight > big && fx?.getComputedTiming().iterations !== Infinity;
+  });
+}
+// One reading, then the next, about four a second while the window shows. Most end at once: the screen at the points is
+// as it was. A change is made only when the next reading agrees (so nothing passing counts), about half a second after
+// the backdrop changed.
+let glassBusy = false;
+let glassPending: { a: number; box: number } | null = null; // what the last reading wanted, if it wanted a change
+async function tuneGlass(): Promise<void> {
+  if (glassBusy) return;
+  clearTimeout(glassTimer);
+  if (backdrop !== 'glass') return;
+  glassBusy = true;
+  let next = 250;
+  try {
+    const shown = document.visibilityState === 'visible' && !document.body.classList.contains('bd-fade');
+    if (!shown) { stopGlassCam(); next = 1000; }
+    // Only while this is the window in use: behind another one, the picture shows that window, not the backdrop.
+    // Getting the focus back reads at once (the listener below).
+    const front = shown && document.hasFocus();
+    if (shown && !front) { glassPending = null; next = 1000; }
+    const shot = front ? await glassFrame() : null;
+    const cur = glassNow();
+    if (!shot || backdrop !== 'glass' || !(cur.a > 0 && cur.a < 1)) { glassPending = null; if (front && !shot) next = 2000; return; }
+    const { cam } = shot, W = cam.ctx.canvas.width, H = cam.ctx.canvas.height, R = 3;
+    cam.ctx.drawImage(cam.video, 0, 0, W, H);
+    const px = cam.ctx.getImageData(0, 0, W, H).data;
+    const key = themeKey(), light = key === 'light', [min, max] = GLASS_RANGE[key], target = GLASS_TARGET[key];
+    // The title bar and the status bar, and four rows between. At each point, the surface's own brightness in a patch
+    // around it: text and icons are the brighter pixels on a dark theme (the darker on the light one), so the value a
+    // fifth of the way up from the dark end (or down from the light one) is the surface without them. The middle
+    // value let a label's pixels in, and where little of the backdrop shows a few levels of that read as a bright
+    // backdrop. -1 where the window hangs off the display.
+    const rows = [22 / innerHeight, .2, .4, .6, .8, 1 - 12 / innerHeight];
+    const at = (i: number): [number, number] => [(i % GLASS_COLS + .5) / GLASS_COLS, rows[Math.floor(i / GLASS_COLS)]];
+    const lum = Array.from({ length: GLASS_COLS * GLASS_ROWS }, (_, i) => {
+      const [fx, fy] = at(i), cx = Math.round((shot.x + fx * shot.w) * W), cy = Math.round((shot.y + fy * shot.h) * H);
+      if (cx < R || cy < R || cx >= W - R || cy >= H - R) return -1;
+      const patch: number[] = [];
+      for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) { const k = (y * W + x) * 4; patch.push(.2126 * px[k] + .7152 * px[k + 1] + .0722 * px[k + 2]); }
+      return patch.sort((p, q) => p - q)[Math.floor(patch.length * (light ? .8 : .2))];
+    });
+    if (!glassPending && lum.length === glassLast.length && lum.every((v, i) => Math.abs(v - glassLast[i]) <= 1.5)) return; // nothing moved
+    if (glassPageMoving()) { glassPending = null; return; }
+    const base = colorLuma(getComputedStyle(document.documentElement).getPropertyValue('--bd-solid'))?.[0] ?? (light ? 249 : 29);
+    // How solid the most demanding spot has to be (`most`), and the share per layer that gets every spot there (`share`).
+    let most = 0, share = 0;
+    lum.forEach((m, i) => {
+      const [fx, fy] = at(i), s = m < 0 ? null : glassStack(fx * innerWidth, fy * innerHeight);
+      if (!s) return;
+      const fresh = s.left >= GLASS_LEFT_MIN;
+      if (fresh) glassSeen[i] = clamp((m - s.own) / s.left, 0, 255);
+      const behind = glassSeen[i];
+      if (behind === undefined) return;
+      // Nothing where the backdrop already reads well (without that check, a backdrop darker than a dark theme's own
+      // colour divides two negatives into "all solid").
+      const short = light ? target - behind : behind - target;
+      const cover = short > 0 ? clamp(short / Math.abs(behind - base), 0, max) : 0;
+      // The layers really there (1.0: the bare title or status bar; more under a button or a panel). A bar's row is
+      // one layer thick where it really is, everything else two.
+      const layers = Math.log(Math.max(s.left, 1e-6)) / Math.log(1 - cur.a), row = Math.floor(i / GLASS_COLS);
+      const thin = (row === 0 || row === GLASS_ROWS - 1) && layers < 1.5;
+      const need = thin ? cover : 1 - Math.sqrt(1 - cover);
+      // A value remembered from when the spot could be read (it can't now: too little of the backdrop shows) counts
+      // only if the spot could be read again at the share it asks for. One that couldn't (a button on a bar, three
+      // layers deep) would hold the window solid for good after a white window behind it had gone.
+      if (!fresh && (1 - Math.max(need, min)) ** layers < GLASS_LEFT_MIN) return;
+      most = Math.max(most, cover);
+      share = Math.max(share, need);
+    });
+    // Small differences are left alone, so it doesn't shimmer with every pixel that changes behind.
+    const off = (to: number, from: number, least: number) => Math.abs(to - from) >= .03 || (to === least && Math.abs(from - least) > .001);
+    const wantA = clamp(share, min, max), a = off(wantA, cur.a, min) ? wantA : cur.a;
+    const wantBox = clamp(most, a, max), box = off(wantBox, cur.box, a) ? wantBox : cur.box;
+    // Settled (this reading wants nothing): the next ones are skipped until the screen at the points changes. A reading
+    // that wants a change, or one dropped above, isn't noted, so it is worked through again.
+    if (a === cur.a && box === cur.box) { glassPending = null; glassLast = lum; return; }
+    if (glassPending && Math.abs(glassPending.a - a) < .08 && Math.abs(glassPending.box - box) < .08) {
+      setGlassA(a, box);
+      glassPending = null;
+      glassLast = [];
+      next = GLASS_EASE_MS + 250; // past the easing and a frame
+    } else { glassPending = { a, box }; next = 100; }
+  } finally {
+    glassBusy = false;
+    if (backdrop === 'glass') glassTimer = window.setTimeout(tuneGlass, next);
+  }
+}
+for (const ev of ['resize', 'focus']) window.addEventListener(ev, () => { if (backdrop === 'glass' && !glassBusy) { clearTimeout(glassTimer); glassTimer = window.setTimeout(tuneGlass, 150); } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') stopGlassCam(); });
 if (backdrop !== 'none') applyBackdrop();
 const backdropCardHtml = ([id, name, sub]: [Exclude<Backdrop, 'none'>, string, string]) =>
   `<button class="set-theme ${id === backdrop ? 'on' : ''}" data-backdrop-pick="${id}" aria-pressed="${id === backdrop}">
