@@ -605,7 +605,8 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Preview', '', switchHtml('sPreview', layout.previewOpen, 'Preview'))}
       ${settingRow('Reset layout', 'Put every panel back where it started.', '<button class="btn btn-sm" id="sResetLayout">Reset</button>')}
       <h5>Explorer</h5>
-      ${settingRow('Compiled JS files', 'Show a .js compiled from the .ts beside it in the file tree.', switchHtml('sGenerated', showGenerated, 'Compiled JS files'))}`;
+      ${settingRow('Compiled JS files', 'Show a .js compiled from the .ts beside it in the file tree.', switchHtml('sGenerated', showGenerated, 'Compiled JS files'))}
+      ${settingRow('File path on hover', 'Show a file\'s full path when you hover it in the file tree.', switchHtml('sPathTips', showPathTips, 'File path on hover'))}`;
     case 'appearance': return `<h4>Appearance</h4>
       <h5>Theme</h5>
       ${themePickerHtml()}
@@ -1079,6 +1080,7 @@ function bindSettings(m: HTMLElement): void {
   // Appearance
   on('sMinimap', () => { setMinimap(!minimapOn); refreshSettings(); });
   on('sGenerated', () => { toggleGenerated(); refreshSettings(); });
+  on('sPathTips', () => { togglePathTips(); refreshSettings(); });
   $$('[data-theme-pick]', pane).forEach(b => b.onclick = () => {
     const pick = b.dataset.themePick as Theme;
     if (pick === theme) return;

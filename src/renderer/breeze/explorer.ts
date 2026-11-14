@@ -41,7 +41,7 @@ function treeRow(e: DirEntry, p: string, depth: number, decor: ReturnType<typeof
   const icon = e.dir ? folderIcon(e.name, open) : fileIcon(p);
   const nameHtml = e.dir ? `<span class="nm-base">${esc(e.name)}</span>` : fileNameHtml(e.name);
   const renaming = treeEdit?.rename === p;
-  return `<div class="${cls}" data-depth="${depth}" data-path="${escAttr(p)}" ${e.dir ? 'data-dir="1" ' : ''}draggable="${!renaming}" title="${escAttr(p)}">
+  return `<div class="${cls}" data-depth="${depth}" data-path="${escAttr(p)}" ${e.dir ? 'data-dir="1" ' : ''}draggable="${!renaming}"${showPathTips ? ` title="${escAttr(p)}"` : ''}>
     <span class="chev ${chevClass(e, open)}">${CHEV}</span><span class="ico">${icon}</span>${renaming ? treeInputHtml(`Rename ${e.name}`) : `<span class="nm">${nameHtml}</span>`}${lockTag}${gitTag}${inTag}</div>`;
 }
 // Off: a .js compiled from a .ts beside it (generatedFiles, treecore.ts) is left out of the tree. The tree's right-click
@@ -51,6 +51,13 @@ function toggleGenerated(): void {
   showGenerated = !showGenerated;
   store.set('breeze.showGenerated', showGenerated);
   renderTreeAnimated();
+}
+// Off by default: hovering a row in the file tree shows no path tip. Settings → General → Explorer turns it on.
+let showPathTips = store.get<boolean>('breeze.showPathTips', false);
+function togglePathTips(): void {
+  showPathTips = !showPathTips;
+  store.set('breeze.showPathTips', showPathTips);
+  renderTree();
 }
 function renderTree(): void {
   const el = $('#tree');
@@ -210,7 +217,7 @@ async function renderRecent(): Promise<void> {
   const recent = await api.fs.recent().catch(() => []);
   const el = document.getElementById('recentList');
   if (!el || !recent.length) return;
-  const rows = recent.map(r => `<div class="tree-item" data-recent="${escAttr(r.path)}" title="${escAttr(r.path)}"><span class="ico">${svgIcon('chevronRight', 14)}</span><span class="nm">${esc(r.name)}</span></div>`);
+  const rows = recent.map(r => `<div class="tree-item" data-recent="${escAttr(r.path)}"${showPathTips ? ` title="${escAttr(r.path)}"` : ''}><span class="ico">${svgIcon('chevronRight', 14)}</span><span class="nm">${esc(r.name)}</span></div>`);
   el.innerHTML = '<div class="side-head pl-8">Recent</div>' + rows.join('');
 }
 $('#tree').addEventListener('click', e => {
