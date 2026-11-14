@@ -53,7 +53,7 @@
         1 0 0 0 0  
         0 1 0 0 0  
         0 0 1 0 0  
-        -1 -1 -1 1 0
+        -1 -1 -1 1 0 
         " />
         <feComponentTransfer>
           <feFuncR type="linear" slope="3" intercept="-1" />
@@ -330,6 +330,10 @@
         </nav>
         <main class="home-main">
           <div class="home-view" data-view="session">
+            <!-- The contribution graph can be dragged to the left or right of the page, where it stands upright
+                 (homedock.ts); these slots hold it there. At the bottom it sits in the welcome, above the prompt. -->
+            <div class="home-layout" id="homeLayout">
+            <aside class="home-dock" id="homeDockLeft" data-dock="left"></aside>
             <div class="home-welcome">
               <!-- Clone Repository: the address is typed here, over the greeting (openCloneBar, setup.ts). -->
               <form class="home-clone hidden" id="homeClone" autocomplete="off">
@@ -368,6 +372,25 @@
                   </div>
                 </div>
               </section>
+              <!-- Ask an agent from Home: opens the folder shown in the chip in the IDE and sends there (homedock.ts). -->
+              <form class="home-ask" id="homeAsk" autocomplete="off">
+                <div class="home-ask-box">
+                  <textarea id="homeAskInput" rows="2" spellcheck="true" aria-label="Message to the agent" placeholder="Ask an agent to build something…"></textarea>
+                  <div class="home-ask-row">
+                    <button type="button" class="pill pill-btn box-folder home-ask-dir" id="homeAskDir" title="The folder the agent works in" aria-haspopup="menu"><svg data-i="folder" data-size="14"></svg><span id="homeAskDirName">Choose a folder</span><svg data-i="chevronDown" data-size="12"></svg></button>
+                    <span class="prompt-models home-ask-models" id="homeAskModels"></span>
+                    <span class="flex-1"></span>
+                    <button type="submit" class="btn btn-primary btn-sm" id="homeAskSend" title="Send (Enter)" aria-label="Send"><svg data-i="send" data-size="14"></svg></button>
+                  </div>
+                </div>
+              </form>
+            </div>
+            <aside class="home-dock" id="homeDockRight" data-dock="right"></aside>
+            <div class="home-dock-zones" aria-hidden="true">
+              <div class="home-zone" data-zone="left"><span>Left</span></div>
+              <div class="home-zone" data-zone="bottom"><span>Bottom</span></div>
+              <div class="home-zone" data-zone="right"><span>Right</span></div>
+            </div>
             </div>
           </div>
           <!-- Agent: one agent's token use (picked in the tabs or the table), and the other agents below (agentdash, setup.ts). -->
@@ -461,6 +484,8 @@
         <button class="act-btn" data-view="skills" title="Skills &amp; Plugins"><svg data-i="puzzle" data-size="20"></svg></button>
         <!-- Not a side-bar view: opens the full-page debugger (debugview.ts) -->
         <button class="act-btn" id="debugBtn" data-debug-btn title="Debug (Ctrl+Shift+D)" aria-label="Debug"><svg data-i="bug" data-size="20"></svg></button>
+        <!-- Not a side-bar view either: opens the full-page Agent board (board.ts) -->
+        <button class="act-btn" id="boardBtn" data-board-btn title="Agent board (Ctrl+Shift+B)" aria-label="Agent board"><svg data-i="layoutGrid" data-size="20"></svg></button>
         <span class="flex-1"></span>
         <button class="act-btn" title="Settings" id="settingsBtn" aria-haspopup="dialog" aria-expanded="false"><svg
             width="20" height="20">
@@ -748,6 +773,23 @@
 
   <!-- ================= DEBUGGER (full page; debugview.ts) ================= -->
   <!-- Shown with swapScreen like Breeze Space; leaving it keeps the session running. -->
+  <!-- Agent board (board.ts): drag agents into boxes; every box runs at once, and blocked edits are relayed -->
+  <div class="board hidden" id="board">
+    <header class="titlebar board-bar">
+      <span class="board-title"><svg data-i="layoutGrid" data-size="16"></svg><b>Agent board</b></span>
+      <div class="board-roster" id="boardRoster" role="list" aria-label="Your agents. Drag one into a box."></div>
+      <span class="spacer"></span>
+      <span class="board-auto" title="When on, a request one agent makes of another is sent on its own. Off, each waits for Send."><span>Auto-relay</span><button class="switch switch-sm" id="boardAuto" type="button" role="switch" aria-checked="true" aria-label="Auto-relay"><span class="sw-knob"></span></button></span>
+      <button class="btn btn-sm board-stop" id="boardStopAll" title="Stop every box and drop waiting relays"><svg data-i="stop" data-size="13"></svg><span>Stop all</span></button>
+      <button class="btn btn-sm dbg-back" id="boardBack" title="Back to the editor. The boxes keep running."><svg data-i="chevronLeft" data-size="14"></svg><span>Back to editor</span></button>
+    </header>
+    <div class="board-main">
+      <!-- The IDE's activity bar is copied in here at start-up, with the board lit -->
+      <nav class="activity dbg-rail" id="boardRail" aria-label="Views"></nav>
+      <div class="board-grid" id="boardGrid" aria-label="Boxes"></div>
+    </div>
+  </div>
+
   <div class="debug hidden" id="debug">
     <header class="titlebar dbg-bar">
       <div class="dbg-tools" id="dbgTools" role="toolbar" aria-label="Debug controls">
@@ -868,15 +910,18 @@
   <script src="breeze/core.js" defer></script>
   <script src="breeze/sound.js" defer></script>
   <script src="breeze/platform.js" defer></script>
+  <script src="breeze/power.js" defer></script>
   <script src="breeze/greetings.js" defer></script>
   <script src="breeze/onboarding.js" defer></script>
   <script src="breeze/sync.js" defer></script>
+  <script src="breeze/statuscore.js" defer></script>
   <script src="breeze/setup.js" defer></script>
   <script src="breeze/languages.js" defer></script>
   <script src="breeze/workspace.js" defer></script>
   <script src="breeze/docsync.js" defer></script>
   <script src="breeze/drop.js" defer></script>
   <script src="breeze/buffers.js" defer></script>
+  <script src="breeze/treecore.js" defer></script>
   <script src="breeze/explorer.js" defer></script>
   <script src="breeze/tabs.js" defer></script>
   <script src="breeze/colorpick.js" defer></script>
@@ -890,10 +935,14 @@
   <script src="breeze/lsp.js" defer></script>
   <script src="breeze/notebook.js" defer></script>
   <script src="breeze/settings.js" defer></script>
+  <script src="breeze/mdcore.js" defer></script>
   <script src="breeze/agents.js" defer></script>
   <script src="breeze/history.js" defer></script>
   <script src="breeze/mentions.js" defer></script>
   <script src="breeze/teams.js" defer></script>
+  <script src="breeze/boardrelay.js" defer></script>
+  <script src="breeze/boardlayout.js" defer></script>
+  <script src="breeze/board.js" defer></script>
   <script src="breeze/live.js" defer></script>
   <script src="breeze/space.js" defer></script>
   <script src="breeze/dropdowns.js" defer></script>
@@ -902,6 +951,8 @@
   <script src="breeze/git.js" defer></script>
   <script src="breeze/prs.js" defer></script>
   <script src="breeze/conflicts.js" defer></script>
+  <script src="breeze/explaincore.js" defer></script>
+  <script src="breeze/explain.js" defer></script>
   <script src="breeze/skills.js" defer></script>
   <script src="breeze/palette.js" defer></script>
   <script src="breeze/emmet.js" defer></script>
@@ -915,6 +966,7 @@
   <script src="breeze/friends.js" defer></script>
   <script src="breeze/ui.js" defer></script>
   <script src="breeze/whatsnew.js" defer></script>
+  <script src="breeze/homedock.js" defer></script>
   <script src="breeze/init.js" defer></script>
 </body>
 

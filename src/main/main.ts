@@ -1,5 +1,5 @@
 // Electron main process for Breeze IDE: window, file system, search, terminal, git, agents, sign-in and Vibe Mode.
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, net, powerMonitor, protocol, safeStorage, screen, session, shell } from 'electron';
 import { spawn, execFile, exec } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
@@ -19,6 +19,7 @@ import * as prconflict from './prconflict';
 import { looksBinary } from './sniff';
 import * as syncEngine from './sync';
 import { TeamCoordinator, claudeDenyArgs } from './team';
+import { BoardCoordinator } from './board';
 import { parseMentions, shortName } from './mentions';
 import { LspManager, SERVERS, lspInstalls, findOnPath } from './lsp';
 import { Kernels } from './kernel';
@@ -28,6 +29,7 @@ import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './prev
 import { expandAbbr } from './emmet';
 import { markdownBody } from './markdown';
 import { DebugManager, killTree } from './debug';
+import { PowerService } from './power';
 import type { AppUpdater } from 'electron-updater';
 import type { Member } from './team';
 import type { AgentMode } from './antigravityAgentService';
@@ -41,6 +43,7 @@ import type { Bp } from './debugTypes';
 import type { GdbBuild } from './debugGdb';
 import type { McpServer } from './mcp';
 import type { ServerSpec } from './lsp';
+import type { PowerState } from './power';
 
 // JSON read from other programs' logs and streams (Claude Code, Codex, Ollama, GitHub). Its shape changes between
 // versions, so it is read defensively and never trusted to have a field.
@@ -52,9 +55,6 @@ try {
 } catch {
   // Available when installed; only needed for packaged application updates.
 }
-
-// Windows "Animation effects" off makes Chromium report prefers-reduced-motion: reduce; play every animation anyway.
-app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', '.cache', '__pycache__', '.venv']);
@@ -250,6 +250,26 @@ function saveState(patch: Record<string, unknown>) {
   try { fs.writeFileSync(statePath(), JSON.stringify(s, null, 2)); } catch { /* best effort */ }
   return s;
 }
+
+/* ================= Power saver ================= */
+// On battery or on low-end hardware (power.ts) the page drops its blur, looping animations and idle timers
+// (data-power="saver": breeze.css, renderer power.ts). Settings → General → Performance picks Auto, Always on or Off.
+const power = new PowerService({ mode: loadState().powerMode, cpus: os.cpus().length, totalMem: os.totalmem() });
+// Windows "Animation effects" off makes Chromium report prefers-reduced-motion: reduce. Breeze plays every animation
+// anyway, except under the power saver, where the system's choice stands. The switch can only be set before the app
+// is ready and the battery can only be read after, so a battery run is known from how the last run ended.
+if (!power.state().saver && loadState().powerSaverLast !== true) app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
+function applyPower(s: PowerState): void {
+  if (loadState().powerSaverLast !== s.saver) saveState({ powerSaverLast: s.saver });
+  if (win && !win.isDestroyed()) win.webContents.send('power:changed', s);
+}
+power.onChange(applyPower);
+handle('power:get', () => power.state());
+handle('power:setMode', (_e, mode) => {
+  const s = power.setMode(mode);
+  saveState({ powerMode: s.mode });
+  return s;
+});
 
 /* ================= Window ================= */
 // The app icon on the taskbar, window and dock.
@@ -491,6 +511,8 @@ async function startApp() {
   if (process.platform === 'darwin') app.dock?.setIcon(APP_ICON);
   // Windows only shows notifications (Vibe Mode's "your code is ready") for an app with a user model id.
   if (isWin) app.setAppUserModelId(app.isPackaged ? 'com.breeze.ide' : process.execPath);
+  power.watch(powerMonitor); // on-battery / on-ac reach the page live
+  applyPower(power.state());
   createWindow();
   try { await getTools(); } catch (e) { logError('toolchains')(e); }
   app.on('activate', () => {
@@ -525,7 +547,7 @@ function boxDir() {
 async function setRoot(dir: string) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
-  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
+  if (root !== dir) { stopLiveServer(); stopTeams(); stopBoard(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
   termCwd = dir;
   const saved = loadState();
@@ -553,6 +575,7 @@ function startWatching(retried = false): void {
       const rel = String(file).split(path.sep).join('/');
       // Build output and dependencies change in bursts nobody is looking at (the file list skips them too).
       if (rel.split('/').some(part => IGNORED_DIRS.has(part))) return;
+      board?.diskChanged(rel); // a box's shell command may have written it (the board tells whose)
       pending.add(rel);
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -753,7 +776,7 @@ handle('fs:restore', async () => {
 handle('fs:openLaunch', () => openLaunch(root));
 
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
+  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); stopBoard(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {
@@ -2134,7 +2157,13 @@ let nextRun = 1;
 const sendEvent = (runId: number | string, ev: Loose) => win?.webContents.send('agent:event', runId, ev);
 // A team run's events go through its coordinator first, which hides the claim pass and enforces ownership.
 // A dropped team keeps the runs still going until their done, so a team stopped by a folder change hears them end.
-const teamOf = new Map<number, { team: TeamCoordinator; done: boolean }>(); // runId -> its team
+const teamOf = new Map<number, { team: TeamCoordinator | BoardCoordinator; done: boolean }>(); // runId -> its team or board
+// A shell command starting or ending (`end`), for a board run only: the board blames a file the command names and
+// the folder watcher sees change on that box. Nothing for the chat (its `tool` line shows the command).
+let shellSeq = 0; // ids for the Local LLM's commands
+function shellEvent(runId: number, id: string, command?: string): void {
+  if (teamOf.get(runId)?.team instanceof BoardCoordinator) emit(runId, command === undefined ? { t: 'shell', id, end: true } : { t: 'shell', id, command });
+}
 function emit(runId: number, ev: Loose): void {
   if (ev?.t === 'done' && ev.tokens) addUsage(runs.get(runId)?.agent, ev.tokens);
   const entry = teamOf.get(runId);
@@ -2524,6 +2553,52 @@ function stopTeams() {
 }
 const isPlainObject = (o: unknown) => Object.prototype.toString.call(o) === '[object Object]';
 
+/* ----- Agent board: boxes of agents running side by side, one owner per file, blocked edits relayed ----- */
+let board: BoardCoordinator | null = null;
+const BOX_KEY = /^box[1-8]$/;
+function openBoard(): BoardCoordinator {
+  if (!root) throw new Error('Open a folder first');
+  if (!board || board.root !== root) {
+    board?.close();
+    board = new BoardCoordinator({ id: crypto.randomUUID(), root, deps: { startRun: launchRun, stopRun, emit: sendEvent, setTimeout, clearTimeout } });
+  }
+  return board;
+}
+function stopBoard(): void {
+  board?.close();
+  board = null;
+}
+const boxKeyOf = (k: unknown): string => {
+  if (typeof k !== 'string' || !BOX_KEY.test(k)) throw new Error('That box does not exist.');
+  return k;
+};
+handle('board:open', () => {
+  const b = openBoard();
+  return { boardId: b.id, owners: { ...b.owners } };
+});
+handle('board:run', async (_e, o) => {
+  const boxKey = boxKeyOf(o?.boxKey);
+  const agent = (await teamAgents()).find(a => a.id === o?.agent);
+  if (!agent?.found) throw new Error('That agent was not found on this computer.');
+  if (typeof o.prompt !== 'string' || !o.prompt.trim()) throw new Error('Tell the agent what to do first.');
+  const session = typeof o.session === 'string' && SAFE_ID.test(o.session) ? o.session : null;
+  return openBoard().startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session, pick: boardPick(o, agent.id) });
+});
+// A box's model and effort, when it picked its own: a plain model name (it reaches a command line; a local model
+// never does, and runLocal only takes one its server lists) and a known effort.
+function boardPick(o: Loose, agent: string): { model?: string; effort?: string } | null {
+  const pick: { model?: string; effort?: string } = {};
+  const m = o?.model;
+  if (typeof m === 'string' && (agent === 'local' ? m.length > 0 && m.length <= 200 : SAFE_MODEL.test(m))) pick.model = m;
+  if (typeof o?.effort === 'string' && effortArg(o.effort)) pick.effort = o.effort;
+  return pick.model || pick.effort ? pick : null;
+}
+handle('board:stop', (_e, k) => { board?.stopBox(boxKeyOf(k)); });
+handle('board:stopAll', () => { board?.stopAll(); });
+handle('board:release', (_e, p) => { if (typeof p === 'string') board?.release(p); });
+handle('board:owners', () => ({ ...(board?.owners ?? {}) }));
+handle('board:clearBox', (_e, k) => { board?.clearBox(boxKeyOf(k)); });
+
 handle('team:parse', async (_e, text) => parseMentions(String(text ?? ''), await teamAgents()));
 handle('team:claim', async (_e, o) => {
   const agents = await teamAgents();
@@ -2568,8 +2643,8 @@ interface RunParams { mode: string; prompt: string; session?: string | null; bas
 async function runAntigravity(runId: number, run: Run, { mode, prompt, session, base }: RunParams): Promise<void> {
   const bin = agentBins.get('antigravity');
   const st = loadState();
-  const model = st.antigravityModel || 'claude-sonnet-4-6';
-  const effort = st.antigravityEffort || 'high';
+  const model = run.pick?.model || st.antigravityModel || 'claude-sonnet-4-6';
+  const effort = run.pick?.effort || st.antigravityEffort || 'high';
 
   const service = new AntigravityAgentService({
     executablePath: bin || undefined,
@@ -2664,16 +2739,16 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; retryModel?: (errText: string) => boolean; retry?: string }
-function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean): CliSpec {
-  if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell);
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string }
+function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null): CliSpec {
+  if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick);
   const build = mode === 'build';
   const sandbox = !build ? 'read-only' : fullAccess() ? 'danger-full-access' : 'workspace-write';
   const args = ['exec', '--json', '-s', sandbox, '--skip-git-repo-check'];
   const st = loadState();
-  const model = st.codexModel;
+  const model = pick?.model ?? st.codexModel;
   if (model && SAFE_MODEL.test(model)) args.push('-m', model);
-  const effort = effortArg(st.codexEffort);
+  const effort = effortArg(pick?.effort ?? st.codexEffort);
   // Unquoted: Codex reads a -c value that is not valid TOML as a plain string, and quotes can't pass the npm shim's shell.
   if (effort) args.push('-c', `model_reasoning_effort=${effort}`);
   if (session) args.push('resume', session);
@@ -2691,7 +2766,7 @@ const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'
 const CLAUDE_ASK_DENIED = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 // On a team, build mode also denies editing what a teammate owns (rule paths are relative to the project root).
 // Those rules can't pass through a shell (`shell`: an npm .cmd shim), so they come back as `deny` for a settings file.
-function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean): CliSpec {
+function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null): CliSpec {
   const build = mode === 'build';
   const full = build && fullAccess();
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
@@ -2704,9 +2779,9 @@ function claudeArgs(mode: string, prompt: string, session: string | null | undef
   const deny = build && team ? claudeDenyArgs(team.coordinator.owners, team.agentId) : [];
   if (deny.length && !shell) args.push('--disallowedTools', ...deny);
   const st = loadState();
-  const model = st.claudeModel;
+  const model = pick?.model ?? st.claudeModel;
   if (model && model !== 'default' && CLAUDE_MODELS.includes(model)) args.push('--model', model);
-  const effort = effortArg(st.claudeEffort);
+  const effort = effortArg(pick?.effort ?? st.claudeEffort);
   if (effort) args.push('--effort', effort);
   if (session) args.push('--resume', session);
   if (build) return deny.length && shell ? { args, prompt, deny, mcpFile } : { args, prompt, mcpFile };
@@ -2761,11 +2836,29 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
   if (c.type !== 'tool_use') return;
   const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
   emit(runId, { t: 'tool', kind, label });
+  if (c.name === 'Bash' && c.id) {
+    (ctx.shells ??= new Set()).add(c.id);
+    shellEvent(runId, c.id, String(c.input?.command ?? ''));
+  }
   if (!file) return;
   // A new file's whole text is in the call, before Claude writes it: the editor opens it and types it in.
   const created = c.name === 'Write' && typeof c.input?.content === 'string' && !fs.existsSync(path.resolve(root || HOME, file));
   if (created) emit(runId, { t: 'draft', path: relOut(file), text: c.input.content });
   emit(runId, { t: 'file', path: relOut(file), created });
+  if (c.id) (ctx.writes ??= new Map()).set(c.id, relOut(file)); // its tool_result says whether the write landed
+}
+// The result of a call that names a file: `written` once the change is on disk, `refused` when it failed (on a
+// board, a deny list that kept Claude out of a teammate's file). The `file` event above came before the write.
+function claudeToolResults(runId: number, d: Loose, ctx: StreamCtx): void {
+  const content = d.message?.content;
+  if (!Array.isArray(content)) return;
+  for (const c of content) {
+    if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) shellEvent(runId, c.tool_use_id);
+    if (c?.type !== 'tool_result' || !ctx.writes?.has(c.tool_use_id)) continue;
+    const file = ctx.writes.get(c.tool_use_id)!;
+    ctx.writes.delete(c.tool_use_id);
+    emit(runId, c.is_error ? { t: 'refused', path: file } : { t: 'written', path: file });
+  }
 }
 function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.is_error || d.subtype !== 'success') {
@@ -2782,6 +2875,7 @@ function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): vo
 function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
   else if (d.type === 'assistant') for (const c of d.message?.content || []) claudeContent(runId, c, ctx);
+  else if (d.type === 'user') claudeToolResults(runId, d, ctx);
   else if (d.type === 'result') claudeResult(runId, d, ctx, mode);
   else if (d.type === 'rate_limit_event' && d.rate_limit_info?.unifiedWindows) saveState({ claudeLimits: d.rate_limit_info.unifiedWindows });
 }
@@ -2804,11 +2898,12 @@ function codexFallback(errText: string): string | null {
 }
 
 // Agents work in the open project; Breeze Space chats may also run without one, in the Breeze Space folder.
-async function startRun(runId: number, { agent, mode, prompt, session, box, team }: { agent: string; mode: string; prompt: string; session?: string | null; box?: boolean; team?: Loose }): Promise<void> {
+// `pick`: a model and effort for this run only, over the agent's saved ones (an Agent board box's own).
+async function startRun(runId: number, { agent, mode, prompt, session, box, team, pick }: { agent: string; mode: string; prompt: string; session?: string | null; box?: boolean; team?: Loose; pick?: { model?: string; effort?: string } | null }): Promise<void> {
   const base = root || (box ? boxDir() : null);
   if (!base) throw new Error('Open a folder first');
   if (session && !SAFE_ID.test(session)) session = null;
-  const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null };
+  const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null, pick: pick || null };
   runs.set(runId, run);
   if (agent === 'local') return runLocal(runId, run, { mode, prompt, session, base });
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
@@ -2817,7 +2912,7 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   const shell = /\.(?:cmd|bat)$/i.test(bin);
   const launch = () => {
     dropSettingsFile(run);
-    const cli = cliArgs(agent, mode, prompt, session, run.team, shell);
+    const cli = cliArgs(agent, mode, prompt, session, run.team, shell, run.pick);
     run.mcpFile = cli.mcpFile ?? null;
     if (cli.deny) {
       run.settingsFile = teamSettingsFile(runId, cli.deny);
@@ -2858,7 +2953,8 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     const model = !retried && agent === 'codex' ? codexFallback(errText) : null;
     if (!model) return false;
     retried = true;
-    saveState({ codexModel: model });
+    if (run.pick?.model) run.pick.model = model;
+    else saveState({ codexModel: model });
     emit(runId, { t: 'note', text: `Codex can't use the model in its settings with your account, so Breeze switched it to ${model}.` });
     return relaunch();
   };
@@ -2902,6 +2998,7 @@ const CHANGE_VERB: Record<string, string> = { add: 'Created', delete: 'Deleted' 
 const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => void> = {
   agent_message: (runId, it, ctx) => { if (it.text) { ctx.lastText = it.text; emit(runId, { t: 'text', text: it.text }); } },
   command_execution: (runId, it) => {
+    if (it.id) shellEvent(runId, String(it.id));
     const exit = it.exit_code ? `  (exit ${it.exit_code})` : '';
     emit(runId, { t: 'tool', kind: 'run', label: `$ ${it.command}${exit}` });
   },
@@ -2920,6 +3017,7 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
 };
 function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'thread.started') emit(runId, { t: 'session', id: d.thread_id });
+  else if (d.type === 'item.started' && d.item?.type === 'command_execution' && d.item.id) shellEvent(runId, String(d.item.id), String(d.item.command ?? ''));
   else if (d.type === 'item.completed' && d.item) CODEX_ITEMS[d.item.type]?.(runId, d.item, ctx);
   else if (d.type === 'error') ctx.lastError = codexError(d.message || '');
   else if (d.type === 'turn.failed') {
@@ -3004,6 +3102,7 @@ async function checkTeamWrite(ctx: LlmCtx, rel: string): Promise<void> {
   const owner = await coordinator.foreignOwner(agentId, rel);
   if (!owner) return;
   emit(ctx.runId, { t: 'crossing', path: rel, agent: agentId, owner, blocked: true });
+  coordinator.blocked?.(agentId, owner, rel);
   const name = coordinator.members.find((m: Member) => m.agentId === owner)?.name || owner;
   throw new Error(`That file belongs to ${name} on this team. Leave it and mention what you need in your final message.`);
 }
@@ -3101,6 +3200,8 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
       return 'The user chose not to run this command. Don\'t run it again: carry on without it, or say in your final message what you needed it for.';
     }
     emit(ctx.runId, { t: 'tool', kind: 'run', label: `$ ${command}` });
+    const shellId = `sh_${++shellSeq}`;
+    shellEvent(ctx.runId, shellId, command);
     return new Promise<string>(resolve => {
       const child = spawn(command, { cwd: ctx.base, shell: true, windowsHide: true, env: ctx.full ? process.env : cleanEnv(process.env) });
       let out = '', timedOut = false;
@@ -3111,6 +3212,7 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
       const timer = setTimeout(() => { timedOut = true; stop(); }, COMMAND_MS);
       ctx.signal?.addEventListener('abort', stop, { once: true });
       const finish = (head: string) => {
+        shellEvent(ctx.runId, shellId);
         clearTimeout(timer);
         ctx.signal?.removeEventListener('abort', stop);
         const body = out.length > COMMAND_OUT_MAX ? `…${out.slice(-COMMAND_OUT_MAX)}` : out;
@@ -3327,8 +3429,10 @@ async function executeLlmTurns(ctx: LlmCtx, run: Run, ask: (tools: boolean) => P
 }
 
 async function runLocal(runId: number, run: Run, { mode, prompt, session, base }: RunParams): Promise<void> {
-  const cfg = await llmConfig(false);
+  let cfg = await llmConfig(false);
   if (!cfg?.model) throw new Error('Connect a local LLM server first (Settings → Run Setup Again).');
+  // An Agent board box's own model, when the server has it.
+  if (run.pick?.model && cfg.models?.includes(run.pick.model)) cfg = { ...cfg, model: run.pick.model };
   await llmReachable(cfg);
   const sid = session && loadLlmSession(session, base) ? session : crypto.randomUUID();
   const fresh = !llmSessions.has(sid);

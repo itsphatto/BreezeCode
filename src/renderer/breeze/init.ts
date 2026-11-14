@@ -5,7 +5,7 @@
 const lastMode: WorkMode | null = (() => {
   if (!appState.onboarded) return null;
   const s = store.get<string>(SCREEN_KEY, '');
-  return s === '#ide' || s === '#debug' ? 'ide' : s === '#box' ? 'box' : null;
+  return s === '#ide' || s === '#debug' || s === '#board' ? 'ide' : s === '#box' ? 'box' : null;
 })();
 // A reload of the window (Ctrl+R, a settings change that reloads) still has its project, so it swaps back before
 // start-up and Home never flashes by. A fresh launch waits for the project (the window stays hidden until then).

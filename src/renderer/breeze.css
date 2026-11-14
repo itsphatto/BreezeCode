@@ -387,8 +387,11 @@ button {
 }
 
 /* A menu's arrow keys count as keyboard use, which lit the ring on whatever opened the menu (a chat row, a chip) while
-   the menu's own highlight already shows where the keys are. */
-body:has(#menuRoot > .menu:not(.closing)) :focus-visible:not(#menuRoot *) {
+   the menu's own highlight already shows where the keys are.
+   body.menu-up / body.modal-up (power.ts) say a menu or a dialog is open. They were body:has(#menuRoot > .menu) and
+   body:has(#modalRoot > .scrim): with <body> as a :has() anchor, every element added or removed anywhere (each typed
+   character redraws the code lines) had Chromium restyle the whole page, about 3,000 elements a keystroke. */
+body.menu-up :focus-visible:not(#menuRoot *) {
   outline: none;
 }
 
@@ -8020,9 +8023,7 @@ body.vibing .ide {
   align-items: center;
 }
 
-.home-view[data-view="session"]:has(#homeContrib.hidden) .home-welcome {
-  padding-bottom: clamp(28px, 9vh, 110px);
-}
+
 
 /* Everything on the start page is sized in em from this one font size, which grows with the window (14px at about
    1280px wide, 19px at about 2200px), so a full-screen window gets a bigger page rather than a small one in the middle. */
@@ -8337,6 +8338,224 @@ body.vibing .ide {
 .contrib-legend i {
   width: .9em;
   margin: 0 1px;
+}
+
+/* ---------- Home: the movable graph (homedock.ts) ---------- */
+/* Home's page is a column the layout fills, so the prompt box can reach the bottom however short the page. */
+.home-view[data-view="session"]:not(.hidden) {
+  display: flex;
+}
+
+/* The welcome in the middle, with a slot either side for the graph when it's dragged there. */
+.home-layout {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 100%;
+}
+
+/* The welcome fills the page's height so the prompt box can sit at its foot, a little above the edge. */
+.home-layout > .home-welcome {
+  flex: 0 1 auto;
+  margin: 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
+.home-layout > .home-welcome > .home-ask {
+  margin-top: auto;
+}
+
+/* At the bottom, a big window doesn't stretch the year across it: the squares stop at 15px and the graph sits
+   at its natural width. */
+.home-welcome > .home-contrib .contrib-graph {
+  grid-template-columns: 2.7em repeat(var(--weeks, 53), minmax(10px, 15px));
+  justify-content: start;
+  min-width: calc(30px + var(--weeks, 53) * 13px);
+}
+
+.home-welcome > .home-contrib {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.home-dock {
+  display: none;
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  box-sizing: border-box;
+  max-height: calc(100vh - 92px);
+  padding: 2.2em 1.4em 1.4em;
+  font-size: clamp(14px, .55vw + 7px, 19px);
+}
+
+.home-dock:has(> .home-contrib:not(.hidden)) {
+  display: flex;
+  flex-direction: column;
+}
+
+#homeDockLeft { border-right: 1px solid var(--line); }
+#homeDockRight { border-left: 1px solid var(--line); }
+
+.home-dock .home-contrib {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 0;
+}
+
+.home-dock .contrib-box {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Upright, the year scrolls down rather than across. */
+.home-contrib.upright .contrib-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 10px;
+  scrollbar-gutter: stable;
+}
+
+.home-contrib.upright .contrib-graph {
+  grid-template-columns: 2.6em repeat(7, 11px);
+  grid-template-rows: 1.3em repeat(var(--weeks, 53), 11px);
+  gap: 3px;
+  min-width: 0;
+}
+
+.home-contrib.upright .cg-wd {
+  justify-self: center;
+}
+
+.home-contrib.upright .cg-month {
+  align-self: start;
+  line-height: 11px;
+}
+
+.home-contrib.upright .contrib-foot {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .4em;
+}
+
+.home-contrib.upright h3 {
+  font-size: 1em;
+}
+
+/* The title is the handle. */
+.home-drag-handle {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.home-contrib.lifted {
+  position: relative;
+  z-index: 20;
+  opacity: .88;
+  pointer-events: none;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, .35));
+}
+
+.home-contrib.lifted .home-drag-handle {
+  cursor: grabbing;
+}
+
+/* Where it can land: shown only while it's being dragged; the one under the pointer lights up. */
+.home-dock-zones {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.home-layout.graph-dragging .home-dock-zones {
+  opacity: 1;
+}
+
+.home-layout.graph-dragging {
+  cursor: grabbing;
+}
+
+.home-zone {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed rgba(var(--ink), .18);
+  border-radius: 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.home-zone[data-zone="left"] { left: 8px; top: 8px; bottom: 8px; width: calc(25% - 16px); }
+.home-zone[data-zone="right"] { right: 8px; top: 8px; bottom: 8px; width: calc(25% - 16px); }
+.home-zone[data-zone="bottom"] { left: 25%; right: 25%; bottom: 8px; height: 38%; }
+
+.home-zone.on {
+  border-color: var(--blue);
+  border-style: solid;
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  color: var(--text);
+}
+
+/* ---------- Home: the prompt box ---------- */
+/* Pinned to the bottom of the page while the page scrolls, so it's always in reach under a long Home. */
+.home-ask {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 2em 0 12px;
+  background: linear-gradient(transparent, var(--bg-1) 1.2em);
+}
+
+.home-ask-box {
+  padding: .7em .8em .6em;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  transition: border-color .18s ease;
+}
+
+.home-ask-box:focus-within {
+  border-color: color-mix(in srgb, var(--blue) 55%, var(--line));
+}
+
+.home-ask textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3em;
+  max-height: 14em;
+  padding: 2px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  field-sizing: content;
+}
+
+.home-ask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: .5em;
+}
+
+.home-ask-dir {
+  font-size: 12px;
 }
 
 /* ---------- Home → Agent: one agent's tokens, and the other agents ---------- */
@@ -9918,6 +10137,79 @@ body.layout-animating .box > .terminal.open {
   animation: lspHoverIn .18s cubic-bezier(.2, .8, .2, 1);
 }
 
+/* Explain with Agents: the card at a right-click on selected code (explain.ts). */
+.explain-card {
+  position: fixed;
+  z-index: 75;
+  width: min(460px, calc(100vw - 16px));
+  max-height: min(420px, calc(100vh - 16px));
+  display: flex;
+  flex-direction: column;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .45);
+  backdrop-filter: var(--glass-blur);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  animation: lspHoverIn .18s cubic-bezier(.2, .8, .2, 1);
+}
+.explain-card.hidden { display: none; }
+.explain-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 6px 7px 12px;
+  border-bottom: 1px solid var(--glass-line);
+}
+.explain-head b { color: var(--text); font-weight: 600; }
+.explain-ico { display: inline-grid; color: var(--blue-text); }
+.explain-where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); }
+.explain-head .icon-btn:disabled { opacity: .4; }
+.explain-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--glass-line);
+  border-radius: 6px;
+  background: var(--blue-soft);
+  color: var(--blue-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+.explain-ask:hover { background: var(--blue); color: #fff; }
+.explain-ask:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.explain-body {
+  overflow: auto;
+  padding: 10px 12px 12px;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.explain-body code { font-family: var(--font-code); font-size: .92em; }
+.explain-body .artifact { margin: 8px 0; }
+.explain-fail { color: var(--text-2); margin-bottom: 8px; }
+.explain-wait { display: flex; align-items: center; gap: 4px; color: var(--text-3); }
+.explain-wait span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: explainDot 1s ease-in-out infinite;
+}
+.explain-wait span:nth-child(2) { animation-delay: .15s; }
+.explain-wait span:nth-child(3) { animation-delay: .3s; margin-right: 4px; }
+@keyframes explainDot {
+  0%, 100% { opacity: .25; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .explain-card, .explain-wait span { animation: none; }
+}
+
 @keyframes lspHoverIn {
   from {
     opacity: 0;
@@ -10145,14 +10437,19 @@ body.layout-animating .box > .terminal.open {
   white-space: nowrap;
 }
 
-/* The pinned buttons are frosted: tabs scrolling underneath blur through instead of being cut off by a solid block.
-   #tabs, so this wins over the solid sticky background below. */
+/* The pinned buttons are solid, so a tab scrolling underneath never shows through them or the gap between them; the
+   leftmost one casts a short fade, so the tab runs out softly instead of being cut at a hard edge.
+   #tabs, so this wins over the shared sticky rule below. */
 #tabs .tab-split,
 #tabs .tab-run {
-  background: color-mix(in srgb, var(--bg-1) 45%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  background: var(--bg-1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3); /* with a see-through backdrop theme, --bg-1 isn't opaque */
   backdrop-filter: blur(16px) saturate(1.3);
-  box-shadow: none;
+  box-shadow: 4px 0 0 var(--bg-1); /* covers the gap to its right (Run's gap to Split) */
+}
+#tabs .tab-run,
+#tabs .tab-split:not(.tab-run ~ .tab-split) {
+  box-shadow: 4px 0 0 var(--bg-1), -18px 0 12px -6px var(--bg-1);
 }
 
 /* Pinned just left of the split button (the shared sticky rule above would put both at the right edge). */
@@ -13192,13 +13489,13 @@ body.layout-animating #previewPane {
 
   /* Under a dialog the layers go (the plain fade stays): its blur hides them, and the page under a dialog is drawn
      again on every frame the dialog changes, so they were costing Settings frames as it scrolled. */
-  body:has(#modalRoot > .scrim) :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::before,
-  body:has(#modalRoot > .scrim) :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::after {
+  body.modal-up :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::before,
+  body.modal-up :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::after {
     display: none;
   }
 
   /* The same goes for the frost on Breeze Space's prompt and terminal: a pixel of blur under the dialog's own. */
-  body:has(#modalRoot > .scrim) :is(.box-composer .composer-box, .box > .terminal) {
+  body.modal-up :is(.box-composer .composer-box, .box > .terminal) {
     backdrop-filter: none;
   }
 
@@ -18019,4 +18316,496 @@ input.dbg-edit.bad:focus-visible {
   width: 100%;
   font: 12px var(--font-code, monospace);
   text-align: center;
+}
+
+/* ================= Agent board (board.ts) ================= */
+/* Title bar with the roster · activity bar · a 2-column grid of boxes, each half the page high, that scrolls. */
+.board {
+  display: grid;
+  grid-template-rows: 45px minmax(0, 1fr);
+  height: 100vh;
+  background: var(--bg);
+}
+
+.board-bar {
+  gap: 12px;
+}
+
+.board-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.board-title b {
+  font-weight: 600;
+}
+
+.board-roster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-app-region: no-drag;
+}
+
+.board-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-1);
+  font-size: 12.5px;
+  cursor: grab;
+  user-select: none;
+  transition: background .15s, border-color .15s, transform .15s;
+}
+
+/* The global `-webkit-user-drag: none` rule would stop the chip from dragging at all. */
+.board-chip[draggable="true"] {
+  -webkit-user-drag: element;
+}
+
+.board-chip[draggable="true"] * {
+  pointer-events: none;
+}
+
+.empty-box {
+  cursor: pointer;
+}
+
+.board-chip:hover,
+.board-chip:focus-visible {
+  border-color: rgba(var(--ink), .28);
+  background: var(--bg-2);
+}
+
+.board-chip:active {
+  cursor: grabbing;
+  transform: scale(.97);
+}
+
+.board-chip b {
+  font-weight: 500;
+}
+
+.board-chip-logo,
+.board-box-logo,
+.board-empty-logo {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.board-empty-logo {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 10px;
+  border-radius: 11px;
+}
+
+:is(.board-chip-logo, .board-box-logo, .board-empty-logo) .brand-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.board-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.board-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  -webkit-app-region: no-drag;
+}
+
+.board-stop svg {
+  color: var(--err);
+}
+
+.board-main {
+  --gap: 6px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  min-height: 0;
+  padding: var(--gap) var(--gap) var(--gap) 0;
+}
+
+/* Columns and rows come from the number of boxes (layoutBoard, board.ts): 1 fills the page, 2 split it, 3 is one tall
+   box and two stacked, 4 is two by two, 5–8 are two rows. Too narrow for that: two to a row, half the page high. */
+.board-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--gap);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.board-grid.scroll {
+  grid-auto-rows: calc((100% - var(--gap)) / 2);
+  overflow-y: auto;
+  scroll-snap-type: y proximity;
+}
+
+/* The spot a dragged chip opens: lighter than the empty board's box, and lit while the chip is over it. */
+.board-box.spot-box {
+  border-color: rgba(var(--ink), .3);
+  background: rgba(var(--ink), .025);
+}
+
+/* Adding, emptying or maximizing a box (morphBoard, board.ts): each box glides and resizes to its new place. Its
+   picture keeps its own size, pinned top left, and is uncovered or cut off by the box rather than stretched. A new box
+   rises in, an emptied one sinks away. The page under it stays live and takes the pointer (a drag goes on). */
+:root.board-morph::view-transition {
+  pointer-events: none;
+}
+
+:root.board-morph::view-transition-old(root),
+:root.board-morph::view-transition-new(root) {
+  animation: none;
+}
+
+:root.board-morph::view-transition-group(*) {
+  overflow: clip;
+  border-radius: var(--r);
+  animation-duration: .36s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+:root.board-morph::view-transition-old(*),
+:root.board-morph::view-transition-new(*) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+  animation-duration: .22s;
+}
+
+:root.board-morph::view-transition-new(*):only-child {
+  animation: board-box-in .34s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+:root.board-morph::view-transition-old(*):only-child {
+  animation: board-box-out .2s ease-in both;
+}
+
+@keyframes board-box-in {
+  from { opacity: 0; transform: scale(.97); }
+}
+
+@keyframes board-box-out {
+  to { opacity: 0; transform: scale(.97); }
+}
+
+.board-box {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg-1);
+  scroll-snap-align: start;
+  overflow: hidden;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+
+.empty-box {
+  border-style: dashed;
+  background: transparent;
+  cursor: default;
+}
+
+.empty-box:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.board-drop {
+  display: grid;
+  place-content: center;
+  place-items: center;
+  gap: 6px;
+  height: 100%;
+  color: var(--text-3);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.board-drop small {
+  font-size: 11px;
+  opacity: .7;
+}
+
+.board-grid.dragging .board-box {
+  border-color: rgba(var(--ink), .22);
+}
+
+.board-box.drop-on {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+.board-box.shake {
+  animation: board-shake .4s ease;
+}
+
+@keyframes board-shake {
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.board-box-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  user-select: none;
+}
+
+.board-box-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The box's model beside its name, as the Agents tab's model chip shows it; a click picks another. */
+.board-box-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.board-box-model:hover,
+.board-box-model.open {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.board-box-model .bbm-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-box-model small {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.board-box-model.no-model {
+  padding: 0;
+  width: 22px;
+  justify-content: center;
+}
+
+.board-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-3);
+  opacity: .6;
+}
+
+.board-dot[data-status="working"] {
+  background: var(--c-builder);
+  opacity: 1;
+  animation: board-pulse 1.2s ease-in-out infinite;
+}
+
+.board-dot[data-status="waiting"] {
+  background: var(--warn);
+  opacity: 1;
+  animation: board-pulse 1.6s ease-in-out infinite;
+}
+
+.board-dot[data-status="done"] {
+  background: var(--ok);
+  opacity: 1;
+}
+
+.board-dot[data-status="failed"] {
+  background: var(--err);
+  opacity: 1;
+}
+
+@keyframes board-pulse {
+  50% { opacity: .35; }
+}
+
+.board-owns {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.board-owns:hover {
+  color: var(--text);
+}
+
+.board-chat {
+  flex: 1;
+  min-height: 0;
+}
+
+/* A box's prompt is the Agents tab's (.composer): sized to its text from one line, like #prompt. */
+.board-composer textarea {
+  min-height: 0;
+  overflow-y: hidden;
+}
+
+.board-composer textarea::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A double-clicked box fills the page; the others step aside until Esc. */
+.board-grid.has-max {
+  grid-template-columns: minmax(0, 1fr) !important; /* over the layout's own lines, set on the element */
+  grid-template-rows: minmax(0, 1fr) !important;
+  overflow: hidden;
+}
+
+.board-grid.has-max > .box-max {
+  grid-area: 1 / 1 / 2 / 2 !important;
+}
+
+.board-grid.has-max > .board-box:not(.box-max) {
+  display: none;
+}
+
+.board-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--blue-text);
+}
+
+/* Relay cards: one box asking another for a change, and the answer coming back. */
+.card.relay {
+  border-left: 3px solid var(--c-planner);
+}
+
+.card.relay h5 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card.relay pre {
+  max-height: 220px;
+  overflow: auto;
+  font: 11.5px/1.45 var(--font-code);
+  white-space: pre;
+}
+
+.card.relay .relay-wait {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+/* ================= Power saver =================
+   <html data-power="saver"> (power.ts): on battery, on low-end hardware, or as Settings → General → Performance says.
+   Everything here is scoped to that attribute, so a plugged-in machine draws exactly as before.
+   Blur behind a panel is re-drawn by the GPU whenever anything under it changes; on a weak integrated GPU that is
+   the costliest thing the page asks for. Glass goes nearly solid in the same tone instead (as the light theme's
+   already is), looping decoration stops, and the big layout slides finish at once. */
+:root[data-power="saver"] {
+  --glass-blur: none;
+  --space-blur: none;
+  --settings-blur: none;
+}
+:root[data-power="saver"]:not([data-theme="light"]),
+:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+  --glass: rgba(42, 42, 44, .96);
+  --glass-strong: rgba(35, 35, 37, .98);
+}
+:root[data-power="saver"][data-theme="contrast"],
+:root[data-power="saver"][data-theme="contrast"] :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+  --glass: rgba(28, 28, 34, .96);
+  --glass-strong: rgba(24, 24, 30, .98);
+}
+/* Blur written out in a rule rather than through the tokens above. */
+:root[data-power="saver"] *,
+:root[data-power="saver"] *::before,
+:root[data-power="saver"] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  /* Loops play once and stop, so the animationend events the UI waits on still fire. */
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+/* What the blur was softening shows sharp without it: a little more cover in its place. */
+:root[data-power="saver"] .scrim::before { background: rgba(0, 0, 0, .56); }
+:root[data-power="saver"] .feed-connect { background: rgba(0, 0, 0, .7); }
+:root[data-power="saver"] .drag-file-ghost { background: var(--bg-3); }
+:root[data-power="saver"] .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) { background-color: rgba(60, 60, 64, .92); }
+:root[data-power="saver"][data-theme="light"] .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) { background-color: rgba(255, 255, 255, .94); }
+/* Kept turning: they say "working" or "type here", and cost a few pixels each. */
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg) {
+  animation-iteration-count: infinite !important;
+}
+/* The welcome and launch sky's drifting light repaints the whole window behind everything. */
+:root[data-power="saver"] :is(.launch-sky, .ob-sky)::before,
+:root[data-power="saver"] :is(.launch-sky, .ob-sky)::after {
+  animation: none !important;
+}
+:root[data-power="saver"] .shimmer-text {
+  -webkit-text-fill-color: var(--text-3);
+}
+/* Slides that re-lay out or re-filter a large part of the window every frame end at once (1ms, not none: the
+   transitionend the layout code waits on still fires). Small hover fades stay as they are. */
+:root[data-power="saver"] :is(body.layout-animating, body.layout-animating :is(.main, .work, .sidebar, .agents, .terminal, .term-body, #previewPane, .center.term-side),
+  .work, .term-body, .box, .box-live, .box > .terminal, .skill-group-body, .plugin-skills, .editor-blur-out, .set-pane .social-grid, .composer-attachments.collapsing) {
+  transition-duration: 1ms !important;
+  transition-delay: 0s !important;
+}
+/* Blurring an element itself (not what's behind it) costs the same as blurring behind it: a closing editor only fades. */
+:root[data-power="saver"] .editor-blur-out {
+  filter: none !important;
 }

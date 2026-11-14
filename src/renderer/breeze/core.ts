@@ -27,7 +27,7 @@ interface Agent {
 }
 interface User { name: string; provider: string; login?: string; email?: string | null; avatar?: string | null; }
 type AgentMode = 'plan' | 'build' | 'ask';
-interface AgentEvent { t: 'session' | 'approve' | 'draft' | 'opening' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; written?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; }
+interface AgentEvent { t: 'session' | 'approve' | 'draft' | 'opening' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done' | 'relay' | 'written' | 'refused'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; written?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; from?: string; to?: string; diff?: string; note?: string; }
 // Agent teams: one prompt, several agents building in parallel (main process: team.js).
 // Skills view (main/skills.js): a skill is a folder with a SKILL.md; `id` is that folder.
 interface AgentSkill { id: string; file: string; folder: string; name: string; description: string; agent: string; scope: 'user' | 'plugin' | 'synced' | 'builtin'; removable: boolean; plugin?: string; agents?: string[]; }
@@ -162,6 +162,9 @@ interface DocState { rev: number; lines: number; dirty: boolean }
 interface DocLine { text: string; len: number }
 interface DocOpen extends DocState { doc: number; bytes: number; eol: '\n' | '\r\n'; readOnly: boolean; recovered: boolean }
 type DocKind = 'type' | 'delete' | 'paste' | 'other';
+
+type PowerMode = 'auto' | 'on' | 'off';
+interface PowerInfo { mode: PowerMode; saver: boolean; onBattery: boolean; lowEnd: boolean; reason: 'forced' | 'battery' | 'lowend' | null }
 
 interface BreezeApi {
   version?: string;
@@ -309,6 +312,15 @@ interface BreezeApi {
     stop(teamId: string): Promise<void>;
     undo(opts: { teamId: string; path: string }): Promise<void>;
   };
+  board: {
+    open(): Promise<{ boardId: string; owners: Record<string, string> }>;
+    run(opts: { boxKey: string; agent: string; prompt: string; session: string | null; model?: string; effort?: string }): Promise<number>;
+    stop(boxKey: string): Promise<void>;
+    stopAll(): Promise<void>;
+    release(path: string): Promise<void>;
+    owners(): Promise<Record<string, string>>;
+    clearBox(boxKey: string): Promise<void>;
+  };
   git: {
     status(): Promise<GitStatus>;
     log(): Promise<{ head: string | null; commits: GitCommit[]; details?: GitCommitDetail[] }>;
@@ -403,6 +415,8 @@ interface BreezeApi {
     termPopup(action: 'minimize' | 'toggleMaximize'): Promise<void>; // the popped-out terminal's window (layout.ts)
     onTermMaximized(cb: (maximized: boolean) => void): () => void;
     launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
+  // Power saver (power.ts): main decides when it is on and tells the page of every change.
+  power: { get(): Promise<PowerInfo>; setMode(mode: PowerMode): Promise<PowerInfo>; onChange(cb: (info: PowerInfo) => void): () => void; };
 }
 interface Window { breeze?: BreezeApi; }
 

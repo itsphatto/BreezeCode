@@ -88,10 +88,14 @@ interface AgentAttachment {
   fileRel?: string;
 }
 type ImageAttachment = AgentAttachment;
-const attachmentsMap: Record<WorkMode, AgentAttachment[]> = { ide: [], box: [] };
+// A chat surface: the IDE panel, Breeze Space, or one box of the Agent board (`board:box1`…`board:box8`).
+type SurfaceName = WorkMode | `board:${string}`;
+const isBoardSurface = (name: SurfaceName): name is `board:${string}` => name.startsWith('board:');
+const boxKeyOf = (name: SurfaceName): string => name.slice('board:'.length);
+const attachmentsMap: Record<string, AgentAttachment[]> = { ide: [], box: [] };
 
-interface Surface { name: WorkMode; chat: HTMLElement; prompt: HTMLTextAreaElement; send: HTMLElement; mode: HTMLSelectElement; attachmentsEl: HTMLElement; }
-const SURFACES: Record<WorkMode, Surface> = {
+interface Surface { name: SurfaceName; chat: HTMLElement; prompt: HTMLTextAreaElement; send: HTMLElement; mode: HTMLSelectElement; attachmentsEl: HTMLElement; }
+const SURFACES: Record<string, Surface> & Record<WorkMode, Surface> = {
   ide: { name: 'ide', chat: $('#chat'), prompt: $<HTMLTextAreaElement>('#prompt'), send: $('#send'), mode: $<HTMLSelectElement>('#agentMode'), attachmentsEl: $('#promptAttachments') },
   box: { name: 'box', chat: $('#boxChat'), prompt: $<HTMLTextAreaElement>('#boxPrompt'), send: $('#boxSend'), mode: $<HTMLSelectElement>('#boxMode'), attachmentsEl: $('#boxPromptAttachments') },
 };
@@ -101,7 +105,7 @@ let msgSurface = surface;       // fallback surface
 interface Run {
   id: number;
   tabId: string;
-  surfaceName: WorkMode;
+  surfaceName: SurfaceName;
   agent: string;
   mode: AgentMode;
   uiMode: string;
@@ -123,7 +127,7 @@ let lastRunFiles: string[] = [];
 
 interface AgentTabState {
   id: string;
-  surfaceName: WorkMode;
+  surfaceName: SurfaceName;
   title: string;
   titleAuto?: boolean;        // the name came from the first request (or the agent): the agent may still rename it
   panel: HTMLElement;
@@ -169,8 +173,8 @@ interface AgentTeamState {
 
 // The tab (and run) a run id belongs to: a tab's own single run, or one member of its agent team.
 function findTabForRun(runId: number): { tab: AgentTabState; run: Run } | null {
-  for (const sName of (['ide', 'box'] as WorkMode[])) {
-    for (const tab of surfaceTabs[sName]) {
+  for (const list of Object.values(surfaceTabs)) {
+    for (const tab of list) {
       const run = tab.runId === runId ? tab.run : tab.agentTeam?.runs.get(runId);
       if (run) return { tab, run };
     }
@@ -178,8 +182,16 @@ function findTabForRun(runId: number): { tab: AgentTabState; run: Run } | null {
   return null;
 }
 
-const surfaceTabs: Record<WorkMode, AgentTabState[]> = { ide: [], box: [] };
-const activeTabId: Record<WorkMode, string> = { ide: '', box: '' };
+const surfaceTabs: Record<string, AgentTabState[]> & Record<WorkMode, AgentTabState[]> = { ide: [], box: [] };
+const activeTabId: Record<string, string> = { ide: '', box: '' };
+// An Agent board box: a surface of its own with one chat and no tab strip.
+function registerSurface(s: Surface): void {
+  SURFACES[s.name] = s;
+  surfaceTabs[s.name] ??= [];
+  activeTabId[s.name] ??= '';
+  attachmentsMap[s.name] ??= [];
+  agentInkAt[s.name] ??= null;
+}
 const createdTabIds = new Set<string>();
 
 // A tab is busy while a run, a team's claim pass (runId -1) or any member of its team is still going.
@@ -249,6 +261,7 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
 
 const agentInkAt: Record<string, { x: number; y: number; w: number } | null> = { ide: null, box: null };
 function placeAgentTabInk(s: Surface): void {
+  if (isBoardSurface(s.name)) return;
   const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
   if (!tabsList) return;
   const on = tabsList.querySelector<HTMLElement>('.agent-tab.active:not(.leaving)');
@@ -284,6 +297,7 @@ function placeAgentTabInk(s: Surface): void {
 
 const closingAgentTabs = new Set<string>();
 function renderAgentTabs(s: Surface): void {
+  if (isBoardSurface(s.name)) return; // a box has one chat and no tab strip
   const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
   if (!tabsList) return;
   const list = surfaceTabs[s.name];
@@ -573,7 +587,7 @@ function newAgentTabAction(s: Surface = surface): void {
   bar?.scrollTo({ left: bar.scrollWidth, behavior: 'smooth' });
 }
 
-function useSurface(name: WorkMode): void {
+function useSurface(name: SurfaceName): void {
   surface = SURFACES[name];
   msgSurface = surface;
 }
@@ -769,12 +783,14 @@ function blurSwap(el: HTMLElement, text: string): void {
   if (el.textContent === text) return;
   if (!el.isConnected) { el.textContent = text; return; }
   el.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); });
-  const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: 'blur(6px)', transform: 'translateY(-3px)' }], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  // Power saver: the same swap as a plain fade; a blur is re-filtered on every frame of it.
+  const soft = powerSaver() ? 'blur(0)' : 'blur(6px)';
+  const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: soft, transform: 'translateY(-3px)' }], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
   out.id = 'blurSwap';
   out.onfinish = () => {
     el.textContent = text;
     out.cancel();
-    const into = el.animate([{ opacity: 0, filter: 'blur(6px)', transform: 'translateY(3px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    const into = el.animate([{ opacity: 0, filter: soft, transform: 'translateY(3px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' });
     into.id = 'blurSwap';
   };
 }
@@ -805,26 +821,32 @@ function rotatePlaceholder(ta: HTMLTextAreaElement, home: string, list: string[]
   ta.addEventListener('pointerenter', () => {
     nextPlaceholder(r);
     clearInterval(hoverTimer);
-    hoverTimer = setInterval(() => nextPlaceholder(r), 5000);
+    hoverTimer = powerSaver() ? undefined : setInterval(() => nextPlaceholder(r), 5000); // the saver shows one example and leaves it
   });
   ta.addEventListener('pointerleave', () => { clearInterval(hoverTimer); hoverTimer = undefined; });
   // Typing mid-swap: drop the swap so the placeholder can blur away at once.
   ta.addEventListener('input', () => layer.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); }));
 }
 function nextPlaceholder(r: PlaceholderRotator): void {
-  if (r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
+  if (decorResting() || r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
   blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
 }
 rotatePlaceholder(SURFACES.ide.prompt, ' ', IDE_PLACEHOLDERS);
 rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS[0], BOX_PLACEHOLDERS);
-setInterval(() => {
-  if (document.hidden) return;
+// Rests under the power saver and while the window is unseen (power.ts).
+decorInterval(() => {
   for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) blurSwap(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
 }, 5000);
 // The empty state's logo: Agent.png with its strokes rippling in a breeze, as a lossless animated WebP rendered from
-// that image. An image, not a video: a looping video shows a seam each time it restarts. Reduced motion gets the still.
+// that image. An image, not a video: a looping video shows a seam each time it restarts. Reduced motion and the power
+// saver get the still: the animated one decodes and paints a frame for as long as it is on screen.
+const idleLogoFile = (): string => powerSaver() || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'Agent.png' : 'AgentIdle.webp';
+document.addEventListener('powerchange', () => {
+  const src = `../../assets/brand/${idleLogoFile()}`;
+  for (const img of $$<HTMLImageElement>('img.idle-logo')) if (img.getAttribute('src') !== src) img.src = src;
+});
 function idleLogo(size: number): string {
-  const file = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'Agent.png' : 'AgentIdle.webp';
+  const file = idleLogoFile();
   return `<img class="idle-logo" src="../../assets/brand/${file}" alt="" width="${size}" height="${size}" draggable="false">`;
 }
 
@@ -851,17 +873,10 @@ function emptyChat(s: Surface = SURFACES.ide, tab?: AgentTabState): void {
 }
 // A small, safe subset of Markdown for agent replies: inline code, bold and line breaks. Fenced code blocks
 // become artifacts: a card with the file name, Copy and Download. A fence may name its file: ```html index.html
-const inlineMd = (s: string) => esc(s).replaceAll(/`([^`\n]+)`/g, '<code>$1</code>').replaceAll(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replaceAll('\n', '<br>');
+const inlineMd = (s: string) => codeSpans(esc(s)).replaceAll(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replaceAll('\n', '<br>');
+// Only a ``` at the start of a line opens a block (splitFences, mdcore.ts): one mid-sentence is text.
 function md(text: string): string {
-  const out: string[] = [];
-  let last = 0;
-  // An unclosed fence (the reply was cut off) still shows its code.
-  for (const m of text.matchAll(/```([^\n`]*)\n?([\s\S]*?)(?:```|$)/g)) {
-    out.push(inlineMd(text.slice(last, m.index)), artifactHtml(m[1].trim(), m[2].replace(/\n$/, '')));
-    last = m.index + m[0].length;
-  }
-  out.push(inlineMd(text.slice(last)));
-  return out.join('');
+  return splitFences(text).map(p => ('code' in p ? artifactHtml(p.info, p.code) : inlineMd(p.text))).join('');
 }
 const LANG_EXT: Record<string, string> = {
   javascript: 'js', js: 'js', jsx: 'jsx', typescript: 'ts', ts: 'ts', tsx: 'tsx', python: 'py', py: 'py', html: 'html', css: 'css',

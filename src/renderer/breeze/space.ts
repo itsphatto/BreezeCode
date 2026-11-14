@@ -66,6 +66,7 @@ function startSpace(): void {
   if (!ctx) return;
   const stars = scatterSpecks(SPACE_STARS), dust = scatterSpecks(SPACE_DUST);
   let w = 0, h = 0, last = 0, frame = 0;
+  let still = ''; // under the power saver the sky is one still picture: the size it was painted at
   // Not under a dialog either: its blur hides the drift, and every frame drawn behind one costs the dialog a frame.
   const showing = () => !document.hidden && !$('#box').classList.contains('hidden') && !document.body.matches('.vibing:not(.vibe-side)') // beside Vibe Mode the sky still shows
     && !document.querySelector('#modalRoot > .scrim');
@@ -78,21 +79,30 @@ function startSpace(): void {
 
   const step = (t: number) => {
     frame = 0;
-    if (!showing()) { last = 0; spaceSpeed = SPACE_IDLE; return; } // the watcher below starts it again; the last picture stays for the way back
+    if (!showing() || decorUnseen()) { last = 0; spaceSpeed = SPACE_IDLE; return; } // the watcher below starts it again; the last picture stays for the way back
     const target = surfaceTabs.box.some(tabBusy) ? SPACE_BUSY : SPACE_IDLE;
     const warp = (Math.abs(spaceSpeed) - SPACE_IDLE) / (SPACE_BUSY - SPACE_IDLE);
     // Idling takes every other frame: it runs for hours, and the drift is too slow to tell.
-    if (warp < .02 && target === SPACE_IDLE && last && t - last < 30) { frame = requestAnimationFrame(step); return; }
+    if (!powerSaver() && warp < .02 && target === SPACE_IDLE && last && t - last < 30) { frame = requestAnimationFrame(step); return; }
     if (canvas.clientWidth !== w || canvas.clientHeight !== h) fit();
     const dt = last ? t - last : 16.7;
     const k = Math.min(3, dt / 16.7); // in 60fps frames, so a slow frame doesn't slow the climb
     last = t;
     spaceSpeed += (target - spaceSpeed) * (1 - Math.exp(-dt / 450)); // eases into the new speed over about a second
     paintSpace(ctx, w, h, stars, dust, t, spaceSpeed, k, warp);
+    // Power saver (power.ts): this one frame is the sky. It is painted again only if the window changes size.
+    if (powerSaver()) { still = `${w}x${h}`; last = 0; spaceSpeed = SPACE_IDLE; return; }
+    still = '';
     frame = requestAnimationFrame(step);
   };
-  // Starts the climb whenever the screen comes up.
-  setInterval(() => { if (!frame && showing()) frame = requestAnimationFrame(step); }, 500);
+  // Starts the climb whenever the screen comes up. The watcher itself rests while the window is unseen.
+  const kick = () => {
+    if (frame || !showing() || decorUnseen()) return;
+    if (powerSaver() && still === `${canvas.clientWidth}x${canvas.clientHeight}`) return;
+    frame = requestAnimationFrame(step);
+  };
+  decorInterval(kick, 500, 1000);
+  onDecorChange(kick);
 }
 startSpace();
 
@@ -131,7 +141,7 @@ for (const btn of $$<HTMLElement>('.space-btn')) {
     frame = requestAnimationFrame(draw);
   };
   // The light theme has no sky on the button (breeze.css): it just fades its hover in like any other button.
-  const start = () => { if (!frame && document.documentElement.dataset.theme !== 'light') frame = requestAnimationFrame(draw); };
+  const start = () => { if (!frame && !powerSaver() && document.documentElement.dataset.theme !== 'light') frame = requestAnimationFrame(draw); };
   const stop = () => { cancelAnimationFrame(frame); frame = 0; last = 0; }; // the last picture stays for the fade out
   btn.addEventListener('pointerenter', start);
   btn.addEventListener('focus', start);

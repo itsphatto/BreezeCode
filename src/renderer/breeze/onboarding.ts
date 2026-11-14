@@ -255,7 +255,12 @@ function renderHomeContrib(): void {
     box.classList.remove('hidden');
   }));
 }
+// The last year drawn, so moving the graph to a side (homedock.ts) can redraw it upright without asking GitHub again.
+let lastContrib: GhContributions | null = null;
 function drawContrib(c: GhContributions): void {
+  lastContrib = c;
+  if (homeGraphDock() !== 'bottom') { drawContribUpright(c); return; }
+  $('#homeContrib').classList.remove('upright');
   $('#homeContribTitle').textContent = `${c.total.toLocaleString()} contribution${c.total === 1 ? '' : 's'} in the last year`;
   const graph = $('#homeContribGraph');
   graph.setAttribute('aria-label', `${c.total} GitHub contributions in the last year`);

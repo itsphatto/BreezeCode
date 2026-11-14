@@ -42,10 +42,12 @@ function setActive(path: string | null): void {
   const changed = active !== path;
   if (changed && autoSave === 'focus') autoSaveNow();
   if (changed && path) ghostEditor();
+  if (changed && typeof closeExplain === 'function') closeExplain(); // an explanation belongs to the file it was asked in
   active = path;
   if (changed && path) sfx.play('tab');
   renderTabs(); renderEditor(); renderTree(); saveSession();
   if (changed) queueDiscord();
+  if (changed) renderToolStatus();
   if (changed) fadeInEditor();
   if (running && path && /\.(html?|css|js|md|markdown)$/i.test(path)) $('#urlText').title = path;
 }

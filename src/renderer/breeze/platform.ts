@@ -482,6 +482,15 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async stop() { throw new Error('Teams need the desktop app'); },
       async undo() { throw new Error('Teams need the desktop app'); },
     },
+    board: {
+      async open() { return { boardId: 'demo', owners: {} }; },
+      async run() { throw new Error('The Agent board needs the desktop app'); },
+      async stop() { },
+      async stopAll() { },
+      async release() { },
+      async owners() { return {}; },
+      async clearBox() { },
+    },
     lsp: {
       async open() { return { available: false }; },
       async change() { },
@@ -724,6 +733,11 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async remove() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
       async settings() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
     },
+    // The browser can't tell the page about the battery: the saver is on only when chosen, for this visit.
+    power: (() => {
+      const info = (mode: PowerMode): PowerInfo => ({ mode, saver: mode === 'on', onBattery: false, lowEnd: false, reason: mode === 'on' ? 'forced' : null });
+      return { async get() { return info('auto'); }, async setMode(mode: PowerMode) { return info(mode); }, onChange() { return () => { /* nothing to stop */ }; } };
+    })(),
     win: {
       async reload() { location.reload(); },
       async toggleDevTools() { toast('Developer tools are available in the desktop app'); },
@@ -847,6 +861,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   file: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }]],
   filePlus: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }], ['path', { d: 'M12 12v6' }], ['path', { d: 'M9 15h6' }]],
   mouse: [['rect', { x: 5, y: 2, width: 14, height: 20, rx: 7 }], ['path', { d: 'M12 6v4' }]],
+  layoutGrid: [['rect', { x: 3, y: 3, width: 7, height: 7, rx: 1 }], ['rect', { x: 14, y: 3, width: 7, height: 7, rx: 1 }], ['rect', { x: 14, y: 14, width: 7, height: 7, rx: 1 }], ['rect', { x: 3, y: 14, width: 7, height: 7, rx: 1 }]],
   home: [['path', { d: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8' }], ['path', { d: 'M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }]],
 };
 const formatAttr = ([k, v]: [string, string | number]): string => `${k}="${v}"`;

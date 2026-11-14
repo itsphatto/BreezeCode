@@ -731,6 +731,8 @@ function stopAgentDragPointer(immediate = false): void {
 
 function startFluidCanvasLoop(state: FluidCanvasState): void {
   if (state.animId != null) return;
+  // Power saver (power.ts): no fluid under the drag; the drop target's own highlight (agent-drop-over) still shows.
+  if (powerSaver()) return;
   function loop(): void {
     if (!state.active) {
       let maxEnergy = 0;
@@ -746,6 +748,12 @@ function startFluidCanvasLoop(state: FluidCanvasState): void {
         state.animId = null;
         return;
       }
+    }
+    if (powerSaver()) { // switched on mid-drag
+      state.ctx.clearRect(0, 0, state.canvas.width, state.canvas.height);
+      if (state.energies) state.energies.fill(0);
+      state.animId = null;
+      return;
     }
     renderFluidFrame(state);
     state.animId = requestAnimationFrame(loop);

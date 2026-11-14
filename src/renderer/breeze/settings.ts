@@ -835,6 +835,7 @@ function settingsBody(tab: SettingsTab): string {
       <h5>Preferences</h5>
       ${settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode))}
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
+      ${settingRow('Performance', powerNote(), segHtml('sPower', [['auto', 'Auto'], ['on', 'Always on'], ['off', 'Off']], powerInfo.mode))}
       <h5>Editor</h5>
       ${settingRow('Auto save', 'Off, a second after you stop typing, or when you switch tabs or windows.', segHtml('sAutoSave', [['off', 'Off'], ['delay', 'After delay'], ['focus', 'On focus change']], autoSave))}
       <h5>Layout</h5>
@@ -842,7 +843,10 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Agents panel', esc(keyOf('view.toggleAgents')), switchHtml('sAgents', layout.agentsOpen, 'Agents panel'))}
       ${settingRow('Terminal', esc(keyOf('term.toggle')), switchHtml('sTerm', layout.termOpen, 'Terminal'))}
       ${settingRow('Preview', '', switchHtml('sPreview', layout.previewOpen, 'Preview'))}
-      ${settingRow('Reset layout', 'Put every panel back where it started.', '<button class="btn btn-sm" id="sResetLayout">Reset</button>')}`;
+      ${settingRow('Reset layout', 'Put every panel back where it started.', '<button class="btn btn-sm" id="sResetLayout">Reset</button>')}
+      <h5>Explorer</h5>
+      ${settingRow('Compiled JS files', 'Show a .js compiled from the .ts beside it in the file tree.', switchHtml('sGenerated', showGenerated, 'Compiled JS files'))}
+      ${settingRow('File path on hover', 'Show a file\'s full path when you hover it in the file tree.', switchHtml('sPathTips', showPathTips, 'File path on hover'))}`;
     case 'appearance': return `<h4>Appearance</h4>
       <h5>Theme</h5>
       ${themePickerHtml()}
@@ -1307,6 +1311,7 @@ function bindSettings(m: HTMLElement): void {
 
   // General
   seg('sMode', v => { if (v !== appState.mode) { closeModal(); enterMode(v as WorkMode); } });
+  seg('sPower', v => { if (v !== powerInfo.mode) setPowerMode(v as PowerMode); });
   seg('sAutoSave', v => { const m = AUTO_SAVE_MODES.find(x => x === v); if (m && m !== autoSave) { setAutoSave(m); refreshSettings(); } });
   layoutSwitch('sSide', 'view.toggleSide');
   layoutSwitch('sAgents', 'view.toggleAgents');
@@ -1315,6 +1320,8 @@ function bindSettings(m: HTMLElement): void {
   layoutSwitch('sResetLayout', 'view.resetLayout');
   // Appearance
   on('sMinimap', () => { setMinimap(!minimapOn); refreshSettings(); });
+  on('sGenerated', () => { toggleGenerated(); refreshSettings(); });
+  on('sPathTips', () => { togglePathTips(); refreshSettings(); });
   $$('[data-theme-pick]', pane).forEach(b => b.onclick = () => {
     const pick = b.dataset.themePick as Theme;
     if (pick === theme) return;
@@ -1541,6 +1548,16 @@ function refreshSettings(): void {
   const m = settingsRoot();
   if (m) bindSettings(m);
 }
+// Settings → General → Performance: what the power saver does, and whether it is on right now and why.
+function powerNote(): string {
+  const now = powerInfo.reason === 'battery' ? 'On now: running on battery.'
+    : powerInfo.reason === 'lowend' ? 'On now: this machine is light on cores or memory.'
+    : powerInfo.reason === 'forced' ? 'On now.'
+    : 'Off now.';
+  return `Power saver drops blur, looping motion and idle work. Auto turns it on while on battery or on a slower machine. ${now}`;
+}
+// Unplugging (or plugging in) with Settings open updates the row.
+document.addEventListener('powerchange', refreshSettings);
 
 // The switch beside each Send button is the same setting as Settings → Agents → Full access.
 function renderAccessSwitches(): void {

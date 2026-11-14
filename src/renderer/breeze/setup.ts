@@ -166,8 +166,11 @@ function localAgentHtml(a: DetectedAgent, on: boolean, mark: string): string {
 }
 // A version number reads "v2.1.4"; a one-word model alias ("haiku") reads as a name, "Haiku". Anything else
 // ("gpt-5.5-codex") is shown as it is.
+// Claude Code's --model aliases, named with the model each one runs today. Update when a new model ships.
+const CLAUDE_ALIAS_LABELS: Record<string, string> = { fable: 'Fable 5.2', opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 5.5' };
 function versionLabel(v: string | null | undefined): string {
   if (!v) return '';
+  if (CLAUDE_ALIAS_LABELS[v.toLowerCase()]) return CLAUDE_ALIAS_LABELS[v.toLowerCase()];
   if (/^\d/.test(v)) return `v${v}`;
   return /^[a-z]+$/.test(v) ? v[0].toUpperCase() + v.slice(1) : v;
 }
@@ -350,13 +353,21 @@ function renderDetection(): void {
   if (!d) return;
   renderObTools(d);
 
-  const missing = d.tools.filter(t => !t.found && !t.optional).map(t => t.name);
-
-  const summary = d.tools.filter(t => t.found || !t.optional).map(t => `${t.name.replace('.js', '').replace('C/C++', 'C')} ${t.found ? 'ready' : 'missing'}`).join(' · ');
-  $('#sbTools').innerHTML = `<span class="${missing.length ? 'dot-warn' : 'dot-ok'}"></span> ${summary}`;
+  renderToolStatus();
   renderAgentBar();
   // Home's Agent tab, if it's showing, picks up agents the scan just found.
   if (dashOnScreen()) renderAgentDash();
+}
+// The status bar names only the open file's tools and anything missing (toolStatus, statuscore.ts); hovering it lists
+// every tool found. Runs again on each file switch (setActive).
+function renderToolStatus(): void {
+  const d = appState.detect;
+  if (!d) return;
+  const path = typeof active === 'string' ? active : '';
+  const { text, warn } = toolStatus(d.tools, path ? extOf(path) : '');
+  const el = $('#sbTools');
+  el.innerHTML = `<span class="${warn ? 'dot-warn' : 'dot-ok'}"></span> ${esc(text)}`;
+  el.title = d.tools.filter(t => t.found || !t.optional).map(t => `${toolLabel(t.name)} ${t.found ? 'ready' : 'missing'}`).join('\n');
 }
 $('#rescan').onclick = () => { detectTools(true).catch(() => { /* the agent card shows the error */ }); };
 
@@ -418,22 +429,29 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
 // "Switch Model": the agent's models in a flat list, then a slider for its effort (a local server has none).
 // Every surface that picks a model uses this, so Breeze Space and the agents panel behave the same.
 // makeDefault (an agent's own chip): setting its model or effort also makes it the default agent.
-function modelPickerItems(a: DetectedAgent, makeDefault = false): MenuItem[] {
-  const current = () => a.version || a.models?.[0] || '';
-  const apply = (m: string, eff: EffortLevel) => background(applyModelAndEffort(a, m, eff).then(() => {
-    if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
-  }));
+// `target`: where the pick goes instead of the agent's own settings (an Agent board box keeps its own model and effort).
+interface ModelTarget { model(): string; effort(): EffortLevel; set(model: string, effort: EffortLevel): void }
+function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelTarget): MenuItem[] {
+  const current = () => target?.model() || a.version || a.models?.[0] || '';
+  const effortNow = () => (target ? target.effort() : agentEffort(a));
+  const apply = (m: string, eff: EffortLevel) => {
+    if (target) { target.set(m, eff); return; }
+    background(applyModelAndEffort(a, m, eff).then(() => {
+      if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
+    }));
+  };
   const models: MenuItem[] = (a.models ?? []).map(m => ({
     label: versionLabel(m),
     checked: () => current() === m,
-    run: () => apply(m, agentEffort(a)),
+    run: () => apply(m, effortNow()),
   }));
   const effort: MenuItem[] = a.api ? [] : [{ slider: {
     label: `${agentShortName(a)} effort`,
     steps: EFFORTS,
-    value: () => EFFORTS.indexOf(agentEffort(a)),
+    value: () => EFFORTS.indexOf(effortNow()),
     set: i => apply(current(), EFFORTS[i]),
     hint: i => EFFORT_HINTS[EFFORTS[i]],
+    charge: true,
   } }];
   return [{ label: 'Switch Model', enabled: () => false }, ...models, ...effort];
 }
@@ -614,6 +632,8 @@ function renderAgentBar(): void {
   renderAgents();
   renderPromptModels();
   updateScmGenBtn();
+  if (typeof renderHomeAsk === 'function') renderHomeAsk(); // Home's prompt box shows the same model and effort
+  if (typeof renderBoardModels === 'function') renderBoardModels(); // and so do the Agent board's boxes
 }
 
 $('#agentBar').addEventListener('click', e => {
@@ -757,10 +777,11 @@ function mountAgentDash(slot: HTMLElement | null): void {
 // Main reads the agents' logs afresh on each ask (only changed logs are re-read, ~60–100ms with a session running), so
 // a page left open asks again every 5 seconds while it is on screen and the window is shown, and as soon as the window
 // comes back. Claude's plan limits are fetched at most once a minute however often it asks (claudeLiveLimits).
+// Under the power saver every 15 seconds; not at all behind another window (power.ts): it asks again on focus.
 const DASH_REFRESH_MS = 5_000;
-setInterval(() => {
+decorInterval(() => {
   if (document.visibilityState === 'visible' && dashOnScreen()) refreshAgentDash();
-}, DASH_REFRESH_MS);
+}, DASH_REFRESH_MS, 15_000);
 window.addEventListener('focus', () => { if (dashOnScreen()) refreshAgentDash(); });
 function refreshAgentDash(): void {
   const seq = ++dashSeq;
@@ -1131,6 +1152,8 @@ function renderRecentList(): void {
     : list.length ? shown.map(recentRowHtml).join('') + more
     : '<div class="recent-empty">Folders you open show up here.</div>';
   // Start-up draws Home more than once; redrawing the same rows would make them flicker.
+  // Home's prompt box names a recent folder until one is picked (homedock.ts, which loads after this file).
+  if (typeof renderHomeAsk === 'function') renderHomeAsk();
   if (html === recentListHtml && el.childElementCount) return;
   recentListHtml = html;
   el.innerHTML = html;
@@ -1312,8 +1335,9 @@ const SCREEN_KEY = 'breeze.screen'; // the screen showing, for a reload or the n
 function swapScreen(to: string): void {
   store.set(SCREEN_KEY, to);
   const next = $(to);
-  const screens = ['#onboard', '#ide', '#box', '#debug'].map(id => $(id));
+  const screens = ['#onboard', '#ide', '#box', '#debug', '#board'].map(id => $(id));
   $('#debugBtn').classList.toggle('on', to === '#debug'); // the activity bar's Debug stays lit while its page shows
+  $('#boardBtn').classList.toggle('on', to === '#board');
   // At launch the remembered screen just appears; the animation is for switching.
   if (!booted) {
     for (const el of screens) {
@@ -1323,7 +1347,7 @@ function swapScreen(to: string): void {
   }
 
   const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out') && !el.classList.contains('screen-prep'));
-  const debugSwap = !!prev && (prev.id === 'debug' || next.id === 'debug');
+  const debugSwap = !!prev && ['debug', 'board'].some(id => prev.id === id || next.id === id); // full pages cross-fade in place
   // Clicked away while a debugger swap is still playing: the next one plays faster.
   const quick = debugSwap && next.classList.contains('screen-out');
   clearTimeout(swapTimer);

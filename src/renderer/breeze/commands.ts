@@ -16,6 +16,7 @@ interface MenuSlider {
   set: (i: number) => void;
   hint?: (i: number) => string;       // a line under the value
   reset?: () => void;                 // shows a reset button
+  charge?: boolean;                   // a charge-up hum while the pointer is on it, pitched by the step (the effort slider)
 }
 const hasFile = () => !!activeText();
 function searchSelection(): void {
@@ -28,7 +29,7 @@ function searchSelection(): void {
 }
 function backToOnboarding(n: number): void {
   appState.onboarded = false; saveApp();
-  for (const id of ['#ide', '#box', '#debug']) $(id).classList.add('hidden');
+  for (const id of ['#ide', '#box', '#debug', '#board']) $(id).classList.add('hidden');
   $('#onboard').classList.remove('hidden');
   goStep(n);
 }
@@ -382,6 +383,7 @@ const MENUS: Menu[] = [
       { label: 'Explorer', act: 'view.files', key: 'Ctrl+Shift+E' },
       { label: 'Search', act: 'view.search', key: 'Ctrl+Shift+F' },
       { label: 'Checkpoints', act: 'view.git', key: 'Ctrl+Shift+G' },
+      { label: 'Agent Board', act: 'view.board', key: 'Ctrl+Shift+B' },
       { sep: true },
       { label: 'Primary Side Bar', act: 'view.toggleSide', key: 'Ctrl+B', checked: () => layout.sideOpen },
       { label: 'Agents Panel', act: 'view.toggleAgents', key: 'Ctrl+Alt+B', checked: () => layout.agentsOpen },
@@ -727,7 +729,23 @@ function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
         { duration: dur, delay: -Math.random() * dur, iterations: Infinity }));
     }
   }
+  // The charge hum: held while the pointer is on the slider (or a drag that started on it), following the step shown,
+  // and powered down when the pointer leaves or the menu closes (the row leaves the page).
+  let shown = sl.value();
+  let hum: { set(level: number, max: boolean): void; stop(): void } | null = null;
+  let watch = 0;
+  const humOff = () => { hum?.stop(); hum = null; clearInterval(watch); };
+  const humOn = () => {
+    if (!sl.charge || hum) return;
+    hum = sfx.chargeHum(shown / last, shown === last);
+    watch = window.setInterval(() => { if (!row.isConnected) humOff(); }, 50);
+  };
+  if (sl.charge) {
+    row.addEventListener('pointerenter', humOn);
+    row.addEventListener('pointerleave', () => { if (!row.classList.contains('dragging')) humOff(); });
+  }
   const paint = (i: number, at = i / last) => {
+    if (i !== shown) { shown = i; hum?.set(i / last, i === last); }
     row.style.setProperty('--pos', String(at));
     // The top step (Extra) turns the fill red and races the bubbles.
     row.classList.toggle('max', i === last);
@@ -757,8 +775,9 @@ function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
   track.onpointerup = e => {
     row.classList.remove('dragging');
     pick(Math.round(fraction(e) * last));
+    if (!row.matches(':hover')) humOff(); // a drag that ended off the slider
   };
-  track.onpointercancel = () => { row.classList.remove('dragging'); paint(sl.value()); };
+  track.onpointercancel = () => { row.classList.remove('dragging'); paint(sl.value()); if (!row.matches(':hover')) humOff(); };
   track.onkeydown = e => {
     const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
     const to = e.key === 'Home' ? 0 : e.key === 'End' ? last : step != null ? sl.value() + step : null;

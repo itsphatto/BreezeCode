@@ -218,6 +218,7 @@ function crossingKey(agent: string, path: string): string {
 }
 
 function crossingCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  if (isBoardSurface(tab.surfaceName)) { boardCrossingCard(ev, tab); return; }
   const team = tab.agentTeam;
   if (!team) return;
   const who = ev.agent ?? r.agent;
@@ -334,7 +335,7 @@ function finishTeamMember(r: Run, ev: AgentEvent, tab: AgentTabState, team: Agen
   labelAgent = label;
   if (!hasAnyActiveRun()) vibeDone(allOk);
   const s = SURFACES[tab.surfaceName];
-  s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' ';
+  if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
   if (lastRunFiles.length && running) void reloadPreview();
 }
 
@@ -362,7 +363,11 @@ async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, u
   try {
     const box = tab.surfaceName === 'box';
     // Each agent resumes only its own session (a Codex thread id means nothing to Claude Code).
-    const id = await api.agent.run({ agent: agentId, mode, prompt, session: tab.sessions[agentId] ?? null, box });
+    const session = tab.sessions[agentId] ?? null;
+    // An Agent board box runs through the board, which keeps its files apart from the other boxes'.
+    const id = isBoardSurface(tab.surfaceName)
+      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, ...boardPickOf(boxKeyOf(tab.surfaceName)) })
+      : await api.agent.run({ agent: agentId, mode, prompt, session, box });
     const run: Run = {
       id,
       tabId: tab.id,
@@ -412,7 +417,7 @@ function onAgentFile(r: Run, path: string, created = false, written = false): vo
   renderTree(); renderTabs();
   queueGitRefresh();
   if (r.surfaceName === 'ide') background(openAgentFile(path, created, written));
-  else liveFile(path);
+  else if (r.surfaceName === 'box') liveFile(path); // a board box leaves the editor alone: several agents would fight over it
 }
 // The agent is about to change `path` (`before`: the file as it is now). Its tab opens with that text and is shown
 // first; the write then types out in it (fs.onChange → reloadText → typeAgentEdit).
@@ -734,7 +739,7 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
     background(fillEditCounts(edits, files, tab));
   }
   addMsg(`<div class="run-done"><span>✓ Done${summary}</span></div>`, tab);
-  s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' ';
+  if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
   if (r.files.size && running) void reloadPreview();
 }
 
