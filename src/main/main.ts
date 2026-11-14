@@ -1908,20 +1908,45 @@ handle('win:theme', (_e, theme) => {
   if (glassOn) tintGlass();
   if (win && !glassOn) win.setBackgroundColor(themeBg); // glass keeps the window see-through
 });
-// Appearance → Glass: the system blurs and tints whatever is behind the window (acrylic on Windows 11, vibrancy on
-// macOS) and the page draws its panels see-through over it. Returns false where the system can't (older Windows, Linux).
-handle('win:glass', (_e, on) => {
+// Windows 10 (and Windows 11 before 22H2) has no backgroundMaterial, so the blur is asked of the window manager
+// directly: SetWindowCompositionAttribute with the blur-behind accent (3; 0 turns it off). Breeze has no native module,
+// so a short PowerShell makes the call. Blur-behind, not the acrylic accent: on Windows 10 acrylic makes dragging and
+// resizing the window lag. Resolves whether the call took.
+const BLUR_CS = `using System; using System.Runtime.InteropServices;
+public static class BreezeBlur {
+  [StructLayout(LayoutKind.Sequential)] struct Accent { public int State, Flags; public uint Color; public int Anim; }
+  [StructLayout(LayoutKind.Sequential)] struct Data { public int Attr; public IntPtr Ptr; public int Size; }
+  [DllImport("user32.dll")] static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref Data data);
+  public static int Set(long hwnd, int state) {
+    var a = new Accent { State = state, Flags = 2 };
+    int size = Marshal.SizeOf(a); IntPtr p = Marshal.AllocHGlobal(size);
+    try { Marshal.StructureToPtr(a, p, false); var d = new Data { Attr = 19, Ptr = p, Size = size }; return SetWindowCompositionAttribute(new IntPtr(hwnd), ref d); }
+    finally { Marshal.FreeHGlobal(p); }
+  }
+}`;
+function windowsBlur(w: BrowserWindow, on: boolean): Promise<boolean> {
+  const handle = w.getNativeWindowHandle();
+  const hwnd = handle.length >= 8 ? handle.readBigUInt64LE(0) : BigInt(handle.readUInt32LE(0));
+  const script = `Add-Type -TypeDefinition @'\n${BLUR_CS}\n'@\nexit ([int]([BreezeBlur]::Set(${hwnd}, ${on ? 3 : 0}) -eq 0))`;
+  return new Promise(resolve => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+    { windowsHide: true, timeout: 20_000 }, err => resolve(!err)));
+}
+// Appearance → Glass: the system blurs and tints whatever is behind the window (acrylic on Windows 11 22H2+, a blur on
+// older Windows, vibrancy on macOS) and the page draws its panels see-through over it. Returns false where the system
+// can't (Linux, or a Windows call that failed).
+handle('win:glass', async (_e, on) => {
   if (!win) return false;
   on = on === true;
   if (process.platform === 'win32') {
     const build = Number(process.getSystemVersion().split('.')[2]); // backgroundMaterial needs Windows 11 22H2 (22621)
-    if (!(build >= 22621)) return false;
-    win.setBackgroundMaterial(on ? 'acrylic' : 'none');
+    if (build >= 22621) win.setBackgroundMaterial(on ? 'acrylic' : 'none');
+    else if (!(await windowsBlur(win, on)) && on) return false;
   } else if (process.platform === 'darwin') {
     win.setVibrancy(on ? 'under-window' : null);
   } else {
     return false;
   }
+  if (!win) return false; // closed while PowerShell ran
   glassOn = on;
   tintGlass();
   win.setBackgroundColor(on ? '#00000000' : themeBg);

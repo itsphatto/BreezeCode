@@ -10,6 +10,7 @@ let skillData: SkillList | null = null;
 const openPlugins = new Set<string>();
 // Groups ("skills", "claude:plugins", "claude:mcp") start open; these are the ones folded shut.
 const foldedSkillGroups = new Set<string>();
+let skillsIntroDone = false;
 
 // A drop-down group: open by default, folds on a click. An empty one stays shut and can't be opened.
 function skillGroupHtml(key: string, title: string, count: number, rows: string): string {
@@ -69,6 +70,9 @@ function renderSkills(): void {
   const { skills, plugins } = skillData;
   box.innerHTML = skillGroupHtml('skills', 'Skills', skills.length, skills.map(skillRowHtml).join(''))
     + skillGroupHtml('claude:plugins', 'Plugins', plugins.length, plugins.map(pluginHtml).join('')) + mcpGroupHtml();
+  // The first time the list fills in, its headings and rows come in one after another (the app's stagger, ui.ts);
+  // later redraws (a plugin switched, a skill removed) just appear.
+  if (!skillsIntroDone) { skillsIntroDone = true; staggerIn(box.querySelectorAll('.skill-group-head, .skill-group-body > div > *')); }
   $$<HTMLElement>('[data-skill-del]', box).forEach(b => holdToDelete(b, () => { const k = allSkills().find(x => x.id === b.dataset.skillDel); if (k) void removeSkill(k); }));
   $$<HTMLElement>('[data-mcp-del]', box).forEach(b => holdToDelete(b, () => {
     const name = b.dataset.mcpDel as string;

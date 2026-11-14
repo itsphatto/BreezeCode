@@ -128,7 +128,7 @@ function boxAgentItems(): MenuItem[] {
 }
 $('#boxModel').onclick = e => {
   const btn = e.currentTarget as HTMLElement;
-  if (btn.classList.contains('open')) { closeMenu(); return; }
+  if (menuWasOpen(btn)) { closeMenu(); return; }
   btn.classList.add('open');
   const r = btn.getBoundingClientRect();
   popupMenu(r.left, r.top - 8, boxAgentItems(), () => btn.classList.remove('open'));
@@ -138,7 +138,7 @@ $('#boxModel').onclick = e => {
 };
 $('#boxFolder').onclick = e => {
   const btn = e.currentTarget as HTMLElement;
-  if (btn.classList.contains('open')) { closeMenu(); return; }
+  if (menuWasOpen(btn)) { closeMenu(); return; }
   btn.classList.add('open');
   const r = btn.getBoundingClientRect();
   const choose = (create: boolean) => background(chooseProject(create).then(renderBoxFolder));

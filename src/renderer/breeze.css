@@ -60,6 +60,17 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* Google Sans, Thai letters only: no other font here has them, so each stack lists it right after its first font
+   and it only loads (and only shows) once Thai text appears. The UI itself stays in English. */
+@font-face {
+  font-family: 'Google Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../../assets/fonts/GoogleSans-Thai.woff2') format('woff2');
+  unicode-range: U+0E01-0E5B;
+}
+
 :root {
   color-scheme: dark;
   /* Signature accent: the launch sky (launch.css .launch-sky), the same in every theme. --sig-accent is the full
@@ -85,9 +96,9 @@
   --err: #ef4444;
   --c-planner: #a78bfa;
   --c-builder: #38bdf8;
-  --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-ui: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-display: Unbounded, var(--font-ui);
-  --font-code: "Google Sans Code", Consolas, monospace;
+  --font-code: "Google Sans Code", "Google Sans", Consolas, monospace;
   --r: 10px;
   /* Frosted glass shared by every popup: menus, dialogs, toasts, the find bar and Vibe Mode. */
   --glass: rgba(42, 42, 44, .6);
@@ -214,22 +225,60 @@
 :root[data-backdrop="image"] { background: #1d1d1f; }
 :root[data-theme="contrast"][data-backdrop="image"] { background: #000; }
 :root[data-theme="light"][data-backdrop="image"] { background: #fbf9f4; }
-/* The welcome screens (onboarding and Home) are always the plain theme, never Glass or a picture. */
-:root[data-backdrop] .onboard { --bg: #1d1d1f; --bg-1: #232325; --bg-2: #2a2a2c; --bg-3: #323234; }
-:root[data-theme="contrast"][data-backdrop] .onboard { --bg: #000; --bg-1: #0b0b0d; --bg-2: #131316; --bg-3: #1c1c21; }
-:root[data-theme="light"][data-backdrop] .onboard { --bg: #fbf9f4; --bg-1: #f4f1e8; --bg-2: #ece8dc; --bg-3: #e3ded0; }
+/* The setup steps over the sky are always the plain theme, never Glass or a picture. Home takes the backdrop like the
+   IDE does: its sky is hidden and its panel turns see-through. */
+:root[data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #1d1d1f; --bg-1: #232325; --bg-2: #2a2a2c; --bg-3: #323234; }
+:root[data-theme="contrast"][data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #000; --bg-1: #0b0b0d; --bg-2: #131316; --bg-3: #1c1c21; }
+:root[data-theme="light"][data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #fbf9f4; --bg-1: #f4f1e8; --bg-2: #ece8dc; --bg-3: #e3ded0; }
+:root[data-backdrop] .onboard:has(.home-step:not(.hidden)) { background: transparent; }
+:root[data-backdrop] .onboard:has(.home-step:not(.hidden)) > .ob-sky { visibility: hidden; }
+:root[data-theme="light"][data-backdrop] .onboard .ob-step.home-step { --bg: inherit; --bg-1: inherit; --bg-2: inherit; --bg-3: inherit; }
+/* Breeze Space's deep-space colour thins the same way, with its nebulae and stars kept. */
+:root[data-backdrop]:not([data-theme="light"]) .box {
+  background:
+    radial-gradient(900px 500px at 78% 8%, rgba(120, 80, 220, .13), transparent 70%),
+    radial-gradient(1000px 620px at 16% 92%, rgba(0, 122, 255, .12), transparent 70%),
+    color-mix(in srgb, #06080f var(--bd-a), transparent);
+}
+/* Under Glass or a picture what's behind a popup is see-through too, and Chromium lays the blurred copy over the
+   original rather than in its place: at 60% the sharp original showed through the frost. Small popups go nearly
+   solid there (the light theme's already are). */
+:root[data-backdrop]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+  --glass: rgba(42, 42, 44, .9);
+  --glass-strong: rgba(35, 35, 37, .93);
+}
+:root[data-theme="contrast"][data-backdrop] :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+  --glass: rgba(28, 28, 34, .9);
+  --glass-strong: rgba(24, 24, 30, .93);
+}
+/* Turning a backdrop on or off (applyBackdrop, settings.ts): the theme's solid colour behind every surface, faded. */
+:root { --bd-solid: #1d1d1f; }
+:root[data-theme="contrast"] { --bd-solid: #000; }
+:root[data-theme="light"] { --bd-solid: #fbf9f4; }
+body.bd-fade::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--bd-solid);
+  pointer-events: none;
+}
 /* The window's bottom corners are round like the panels above: the status bar's square corners showed against the picture. */
 :root[data-backdrop] .statusbar { border-radius: 0 0 12px 12px; }
 /* The left rail sits on .main, which already paints the base layer: its own --bg on top made a darker block with a
    square corner against the picture or glass. */
 :root[data-backdrop] .activity { background: transparent; }
+/* The debugger page's title bar and main area paint the base layer themselves, as the editor's do: the page's own
+   --bg under them doubled it, a darker window than the editor's. */
+:root[data-backdrop] .debug { background: transparent; }
 :root[data-backdrop="image"]::before {
   content: "";
   position: fixed;
-  inset: 0;
+  inset: calc(var(--bd-blur, 0px) * -2); /* past the window's edges, so the blur doesn't fade them out */
   z-index: -1;
   background: var(--bd-img) center / cover no-repeat;
   opacity: var(--bd-o, .4);
+  filter: blur(var(--bd-blur, 0px)); /* Settings → Appearance → Picture blur */
   pointer-events: none;
 }
 
@@ -332,6 +381,12 @@ button {
 :focus-visible {
   outline: 2px solid var(--blue-text);
   outline-offset: 2px;
+}
+
+/* A menu's arrow keys count as keyboard use, which lit the ring on whatever opened the menu (a chat row, a chip) while
+   the menu's own highlight already shows where the keys are. */
+body:has(#menuRoot > .menu:not(.closing)) :focus-visible:not(#menuRoot *) {
+  outline: none;
 }
 
 .hidden {
@@ -807,19 +862,24 @@ button {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
-  transition: background-color .15s ease, color .15s ease, box-shadow .18s ease, transform .12s cubic-bezier(.2, .8, .2, 1);
+  transition: box-shadow .2s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
 }
 
-.ob-start:hover {
-  background: #eef3ff;
-  box-shadow: 0 8px 28px rgba(10, 30, 120, .36);
-}
-
+/* Hover lifts it: a little bigger, a deeper shadow, the colours unchanged. */
+.ob-start:hover,
 .ob-step[data-step="0"] .ob-start:hover {
-  color: #fff;
+  background: #fff;
+  color: #1f4dff;
+  transform: scale(1.05);
+  box-shadow: 0 12px 34px rgba(10, 30, 120, .42);
 }
 
-.ob-start:active {
+.btn.ob-start:hover::after {
+  opacity: 0; /* not the app-wide button dim (--hover-dim, "Interaction feedback") */
+}
+
+.ob-start:active,
+.ob-step[data-step="0"] .ob-start:active {
   transform: scale(.97);
 }
 
@@ -2035,7 +2095,7 @@ textarea:focus-visible {
 .menu.kb-on .menu-item.kb:not(:hover) {
   background: none;
 }
-.menu.kb-on:has(.menu-item:hover:not(:disabled))::before {
+.menu.kb-on:not(.kb-nav):has(.menu-item:hover:not(:disabled))::before {
   opacity: 0;
 }
 
@@ -2079,10 +2139,12 @@ textarea:focus-visible {
 }
 
 /* The pointer wins over the keyboard: only the row under it is lit. */
-.menu:has(.menu-item:hover:not(:disabled)) .menu-item.kb:not(:hover) {
+.menu:not(.kb-nav):has(.menu-item:hover:not(:disabled)) .menu-item.kb:not(:hover) {
   background: none;
   color: var(--text-soft);
 }
+/* ...until an arrow key is pressed: then the keys' row is lit, even under a still pointer (commands.ts moveKbSelection). */
+.menu.kb-nav > .hover-glide { opacity: 0; }
 
 .menu-item:disabled {
   color: var(--text-3);
@@ -2480,14 +2542,14 @@ body.resizing-h iframe {
   letter-spacing: normal;
   color: var(--text-3);
   font-weight: 600;
-  font-family: "Instrument Sans", sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", sans-serif !important;
   overflow: visible;
 }
 
 .side-head span,
 .side-head > span,
 .side-head * {
-  font-family: "Instrument Sans", sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", sans-serif !important;
   text-transform: none;
   letter-spacing: normal;
   line-height: normal;
@@ -6807,7 +6869,7 @@ body.vibing .ide {
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   transform: none !important;
   animation: none !important;
   display: flex;
@@ -6827,7 +6889,7 @@ body.vibing .ide {
 .scm-head .title,
 .scm-head .chev,
 .scm-head .count {
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   text-transform: none;
   letter-spacing: normal;
 }
@@ -6917,7 +6979,7 @@ body.vibing .ide {
   color: var(--text-2);
   cursor: pointer;
   white-space: nowrap;
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   background: transparent !important;
   border: none !important;
   outline: none !important;
@@ -6928,7 +6990,7 @@ body.vibing .ide {
 .scm-row *,
 .scm-row .nm,
 .scm-row .dir {
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
 
 .scm-row .nm,
@@ -8500,7 +8562,7 @@ body.vibing .ide {
 
 .agent-dash {
   --k-input: #5b6dff;
-  --k-cacheWrite: #dfe7ff;
+  --k-cacheWrite: #7590ff;
   --k-cacheRead: #8fb3ff;
   --k-output: #a466ff;
   --k-other: #6f8cff;
@@ -8515,7 +8577,7 @@ body.vibing .ide {
 
 :root[data-theme="light"] .agent-dash {
   --k-input: #3d4fe0;
-  --k-cacheWrite: #b9c8f5;
+  --k-cacheWrite: #5672e6;
   --k-cacheRead: #6f93ec;
   --k-output: #8a46e8;
   --k-other: #4f6fe0;
@@ -8785,6 +8847,7 @@ body.vibing .ide {
   background: var(--k-cacheRead);
   transform-origin: left;
   animation: ad-fill .8s cubic-bezier(.16, 1, .3, 1) both;
+  transition: width .45s cubic-bezier(.65, 0, .35, 1); /* a refresh with new numbers slides it (renderDashLimits) */
 }
 
 .ad-limit.warm .ad-meter i { background: var(--warn); }
@@ -8801,12 +8864,18 @@ body.vibing .ide {
   from { transform: scaleX(0); }
 }
 
-/* The plot: a scale on the left, a stacked bar a day. */
+/* The plot: a scale on the left, a stacked bar a day. It takes whatever height the card has spare (the row is as tall
+   as the usage card beside it), 13em at least; the dates and legend stay under it. */
+.ad-chart {
+  display: flex;
+  flex-direction: column;
+}
+
 .ad-plot {
   display: grid;
   grid-template-columns: 3em 1fr;
   gap: .5em;
-  height: 13em;
+  flex: 1 0 13em;
 }
 
 .ad-y {
@@ -8871,10 +8940,13 @@ body.vibing .ide {
   from { opacity: 0; }
 }
 
+/* Same blue, shaded by the day's share of the busiest day (--lvl, setup.ts): the fewer tokens, the darker. */
 .ad-bar i {
   display: block;
   flex: none;
-  transition: filter .12s ease, height .45s cubic-bezier(.65, 0, .35, 1);
+  --shade: calc(.4 + .6 * var(--lvl, 1));
+  filter: brightness(var(--shade));
+  transition: filter .45s ease, height .45s cubic-bezier(.65, 0, .35, 1);
 }
 
 /* Even digits, so a number scrambling (setup.ts) keeps its width. */
@@ -8883,7 +8955,8 @@ body.vibing .ide {
 }
 
 .ad-bar:hover i {
-  filter: brightness(1.15);
+  filter: brightness(calc(var(--shade) * 1.15));
+  transition-duration: .12s, .45s;
 }
 
 .ad-bar.zero {
@@ -8960,9 +9033,11 @@ body.vibing .ide {
   overflow: hidden;
   min-width: 11em;
   padding: .6em .75em;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: 8px;
-  background: var(--bg-3);
+  /* Frosted like the app's other popups: --bg-3 went see-through under Glass, with the bars sharp behind it. */
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
   font-size: .8em;
   pointer-events: none;
@@ -11970,8 +12045,7 @@ button.pill:active, .pill-btn:active {
 }
 .prompt-model.open { background: var(--bg-3); color: var(--text); }
 /* The border never changes colour on hover or open, and there's no ring; keyboard focus greys the edge like a text box. */
-.prompt-model, .prompt-model.open, .prompt-model:focus { border-color: var(--line); outline: none; box-shadow: none; }
-.prompt-model:focus-visible { border-color: var(--text-2); }
+.prompt-model, .prompt-model.open, .prompt-model:focus, .prompt-model:focus-visible { border-color: var(--line); outline: none; box-shadow: none; }
 .prompt-model b { font-weight: 600; color: var(--text); flex-shrink: 0; }
 /* Squeezed, the model name gives way first, then the effort; the agent's name and the arrow always show. */
 .prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 100; }
@@ -12381,7 +12455,7 @@ body.layout-animating #previewPane {
   height: var(--tab-h);
   border-radius: 6px;
   font-size: 11.5px;
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   color: var(--text-3);
   background: transparent;
   border: 1px solid transparent;
@@ -12963,6 +13037,109 @@ body.layout-animating #previewPane {
   margin: 8px 12px;
   color: var(--text-3);
   font-size: 13px;
+}
+
+/* Settings search: the results stand in for the section (renderSettingsSearch, settings.ts). */
+.set-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+}
+
+.set-hit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
+}
+
+.set-hit:hover,
+.set-hit:focus-visible {
+  background: var(--bg-2);
+  border-color: var(--line);
+  outline: none;
+}
+
+.set-hit:active {
+  transform: scale(.99);
+}
+
+.set-hit-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+
+.set-hit:is(:hover, :focus-visible) .set-hit-ico {
+  background: var(--bg-3);
+  color: var(--blue-text);
+}
+
+.set-hit-txt {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.set-hit-path {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.set-hit b {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.set-hit small {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.set-hit mark {
+  background: none;
+  color: var(--blue-text);
+  font-weight: 600;
+}
+
+.set-hit-key {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-3);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+/* The row a result opened glows for a moment, so the eye finds it. */
+.set-found {
+  border-radius: 10px;
+  animation: setFound 1.6s ease-out;
+}
+
+@keyframes setFound {
+  0%, 30% { background-color: rgba(0, 122, 255, .16); box-shadow: 0 0 0 6px rgba(0, 122, 255, .16); }
+  100% { background-color: transparent; box-shadow: 0 0 0 6px transparent; }
 }
 
 /* The pages get more room around them, and stop at a readable width on a wide window. */
@@ -15477,7 +15654,7 @@ body.layout-animating #previewPane {
 /* ---------- Settings → Appearance: one card per theme, each with a small picture of the window ---------- */
 .set-themes {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   width: 100%;
   margin-bottom: 18px;
@@ -15663,45 +15840,6 @@ body.layout-animating #previewPane {
   backdrop-filter: blur(4px);
 }
 
-/* The Theme row: the three themes, with a small arrow beside them to the second page (Glass, Custom background). */
-.set-theme-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 18px;
-}
-
-.set-theme-row .set-themes {
-  flex: 1;
-  min-width: 0;
-  width: auto;
-  margin-bottom: 0;
-}
-
-.set-theme-nav {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--bg-2);
-  color: var(--text-2);
-  transition: color .15s ease, background-color .15s ease, border-color .15s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
-}
-
-.set-theme-nav:hover {
-  color: var(--text);
-  background: var(--bg-3);
-  border-color: var(--line-hi);
-}
-
-.set-theme-nav:active {
-  transform: scale(.94);
-}
-
 .set-bd {
   margin: -6px 0 18px;
 }
@@ -15720,6 +15858,7 @@ body.layout-animating #previewPane {
 
 .set-themes.grow .set-theme:nth-child(2) { --card: 1; }
 .set-themes.grow .set-theme:nth-child(3) { --card: 2; }
+.set-themes.grow .set-theme:nth-child(4) { --card: 3; }
 .set-themes.grow .theme-swatch b:nth-child(2) { --line: 1; }
 .set-themes.grow .theme-swatch b:nth-child(3) { --line: 2; }
 .set-themes.grow .theme-swatch b:nth-child(4) { --line: 3; }
@@ -16983,6 +17122,12 @@ input.dbg-edit.bad:focus-visible {
   animation: none;
 }
 
+/* Without its fade the old picture of the window sat whole under the new one: invisible on a solid theme, but under
+   Glass or a picture the two see-through copies stacked into a darker, more solid window for the length of the morph. */
+:root.scm-fade::view-transition-old(root) {
+  display: none;
+}
+
 ::view-transition-group(scm-work),
 ::view-transition-group(scm-page),
 ::view-transition-group(scm-side) {
@@ -18075,6 +18220,11 @@ input.dbg-edit.bad:focus-visible {
   box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
   backdrop-filter: var(--glass-blur);
   animation: dropIn .16s cubic-bezier(.2, .8, .2, 1);
+}
+
+.color-picker.closing {
+  pointer-events: none;
+  animation: menuOut .14s ease-in forwards;
 }
 
 .cp-sv {

@@ -672,17 +672,21 @@ const laneColor = (i: number) => LANE_COLORS[i % LANE_COLORS.length];
 // The top row's lines start a pixel down so their round caps aren't clipped flat by the svg edge.
 function graphSvg(r: GraphRow, H: number, X: (i: number) => number, top = false): string {
   const mid = H / 2, y0 = top ? 1 : 0;
+  const isHead = r.c.hash === gitLog.head;
+  const rad = isHead ? 5 : 4;
+  // The commit's own lines stop at its ring rather than its centre: the ring's inside stays empty (under Glass its
+  // fill is see-through, and a line ran through it). The round caps reach the ring's stroke.
+  const top0 = mid - rad - 1, bot0 = mid + rad + 1;
   const paths = r.before.map((h, i) => {
     if (!h) return '';
-    if (i === r.lane) return `<path d="M${X(i)} ${y0}V${mid}" stroke="${laneColor(i)}"/>`;
-    if (r.merges.includes(i)) return `<path d="M${X(i)} ${y0}C${X(i)} ${mid} ${X(r.lane)} ${mid / 2} ${X(r.lane)} ${mid}" stroke="${laneColor(i)}"/>`;
+    if (i === r.lane) return `<path d="M${X(i)} ${y0}V${top0}" stroke="${laneColor(i)}"/>`;
+    if (r.merges.includes(i)) return `<path d="M${X(i)} ${y0}C${X(i)} ${mid} ${X(r.lane)} ${mid / 2} ${X(r.lane)} ${top0}" stroke="${laneColor(i)}"/>`;
     return `<path d="M${X(i)} ${y0}V${H}" stroke="${laneColor(i)}"/>`;
   });
-  if (r.after[r.lane]) paths.push(`<path d="M${X(r.lane)} ${mid}V${H}" stroke="${laneColor(r.lane)}"/>`);
-  for (const f of r.forks) paths.push(`<path d="M${X(r.lane)} ${mid}C${X(r.lane)} ${H} ${X(f)} ${mid} ${X(f)} ${H}" stroke="${laneColor(f)}"/>`);
-  const isHead = r.c.hash === gitLog.head;
+  if (r.after[r.lane]) paths.push(`<path d="M${X(r.lane)} ${bot0}V${H}" stroke="${laneColor(r.lane)}"/>`);
+  for (const f of r.forks) paths.push(`<path d="M${X(r.lane)} ${bot0}C${X(r.lane)} ${H} ${X(f)} ${mid} ${X(f)} ${H}" stroke="${laneColor(f)}"/>`);
   const fill = isHead ? laneColor(r.lane) : 'var(--bg-1)';
-  paths.push(`<circle cx="${X(r.lane)}" cy="${mid}" r="${isHead ? 5 : 4}" fill="${fill}" stroke="${laneColor(r.lane)}" stroke-width="2"/>`);
+  paths.push(`<circle cx="${X(r.lane)}" cy="${mid}" r="${rad}" fill="${fill}" stroke="${laneColor(r.lane)}" stroke-width="2"/>`);
   return paths.join('');
 }
 function refClass(ref: string): string {
@@ -964,7 +968,7 @@ Object.assign(commands, {
   'git.genCommitMsg': () => void generateCommitMsg(),
   'git.more': () => {
     const btn = $('[data-act="git.more"]');
-    if (btn && (btn.classList.contains('open') || (justClosedTrigger === btn && Date.now() - justClosedAt < 350))) {
+    if (btn && menuWasOpen(btn)) {
       closeMenu();
       return;
     }

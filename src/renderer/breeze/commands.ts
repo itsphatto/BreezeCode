@@ -642,8 +642,15 @@ function openMenu(i: number, viaKeyboard = false, pinned = viaKeyboard): void {
 let popTrigger: { el: HTMLElement; at: number } | null = null;
 let menuOwner: HTMLElement | null = null; // the button whose menu is (or was just) open, for modals its items open
 let activeMenuTrigger: HTMLElement | null = null;
-let justClosedTrigger: HTMLElement | null = null;
-let justClosedAt = 0;
+// The dropdown button whose open menu this mouse press closed (the mousedown handler below), until the next press.
+let pressClosedTrigger: HTMLElement | null = null;
+// A dropdown button's click handler asks this first: true when its menu is open, or was open until this very press
+// closed it. Either way a second press means "close", so the click must not open it again (however slow the click).
+function menuWasOpen(btn: HTMLElement): boolean {
+  const pressed = pressClosedTrigger === btn;
+  pressClosedTrigger = null;
+  return pressed || btn.classList.contains('open');
+}
 const noteTrigger = (e: Event) => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('button, [role="button"]');
   if (el) popTrigger = { el, at: Date.now() };
@@ -880,8 +887,6 @@ function closeMenu(): void {
   cancelMenuClose();
   if (openMenuIdx === -1) return;
   if (activeMenuTrigger) {
-    justClosedTrigger = activeMenuTrigger;
-    justClosedAt = Date.now();
     activeMenuTrigger.classList.remove('open');
     activeMenuTrigger.setAttribute('aria-expanded', 'false');
     activeMenuTrigger = null;
@@ -902,11 +907,11 @@ function closeMenu(): void {
 }
 document.addEventListener('mousedown', e => {
   const target = e.target as HTMLElement;
+  pressClosedTrigger = null;
   if (openMenuIdx !== -1) {
     const trig = activeMenuTrigger;
     if (trig && (trig === target || trig.contains(target))) {
-      justClosedTrigger = trig;
-      justClosedAt = Date.now();
+      pressClosedTrigger = trig;
       closeMenu();
       return;
     }
@@ -921,8 +926,13 @@ function moveKbSelection(down: boolean): void {
   const pos = usable.indexOf(kbIdx);
   kbIdx = usable[(pos + (down ? 1 : -1) + usable.length) % usable.length] ?? -1;
   $$('[data-mi]').forEach(b => b.classList.toggle('kb', Number(b.dataset.mi) === kbIdx));
+  // The keys win over a pointer resting on the menu (breeze.css .kb-nav) until the pointer moves again.
+  $$('#menuRoot .menu').forEach(m => m.classList.add('kb-nav'));
   slideKbHighlight();
 }
+document.addEventListener('pointermove', e => {
+  if (e.movementX || e.movementY) $$('#menuRoot .menu.kb-nav').forEach(m => m.classList.remove('kb-nav'));
+}, { capture: true, passive: true });
 // The keyboard highlight is one block (the menu's ::before) that slides to the selected row.
 function slideKbHighlight(): void {
   const b = document.querySelector<HTMLElement>('#menuRoot .menu-item.kb');

@@ -110,7 +110,7 @@ function timeAgo(at: number): string {
   return d < 30 ? `${d}d ago` : new Date(at).toLocaleDateString();
 }
 function showHistory(s: Surface, anchor: HTMLElement): void {
-  if (anchor.classList.contains('open') || (justClosedTrigger === anchor && Date.now() - justClosedAt < 350)) { closeMenu(); return; }
+  if (menuWasOpen(anchor)) { closeMenu(); return; }
   closeMenu();
   const list = chatHistory(s);
   const items: MenuItem[] = list.length
