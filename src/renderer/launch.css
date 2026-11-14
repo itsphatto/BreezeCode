@@ -293,3 +293,10 @@
 @keyframes launch-fade {
   to { opacity: 0; visibility: hidden; }
 }
+
+/* Power saver (breeze.css): the sky's drifting light holds still. The splash window runs no scripts and never has
+   the attribute, so the launch intro itself plays as always. */
+:root[data-power="saver"] :is(.launch-sky, .ob-sky)::before,
+:root[data-power="saver"] :is(.launch-sky, .ob-sky)::after {
+  animation: none !important;
+}

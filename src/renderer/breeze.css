@@ -18733,3 +18733,64 @@ input.dbg-edit.bad:focus-visible {
   color: var(--text-2);
   font-size: 12px;
 }
+
+/* ================= Power saver =================
+   <html data-power="saver"> (power.ts): on battery, on low-end hardware, or as Settings → General → Performance says.
+   Everything here is scoped to that attribute, so a plugged-in machine draws exactly as before.
+   Blur behind a panel is re-drawn by the GPU whenever anything under it changes; on a weak integrated GPU that is
+   the costliest thing the page asks for. Glass goes nearly solid in the same tone instead (as the light theme's
+   already is), looping decoration stops, and the big layout slides finish at once. */
+:root[data-power="saver"] {
+  --glass-blur: none;
+  --space-blur: none;
+  --settings-blur: none;
+}
+:root[data-power="saver"]:not([data-theme="light"]),
+:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+  --glass: rgba(42, 42, 44, .96);
+  --glass-strong: rgba(35, 35, 37, .98);
+}
+:root[data-power="saver"][data-theme="contrast"],
+:root[data-power="saver"][data-theme="contrast"] :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+  --glass: rgba(28, 28, 34, .96);
+  --glass-strong: rgba(24, 24, 30, .98);
+}
+/* Blur written out in a rule rather than through the tokens above. */
+:root[data-power="saver"] *,
+:root[data-power="saver"] *::before,
+:root[data-power="saver"] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  /* Loops play once and stop, so the animationend events the UI waits on still fire. */
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+/* What the blur was softening shows sharp without it: a little more cover in its place. */
+:root[data-power="saver"] .scrim::before { background: rgba(0, 0, 0, .56); }
+:root[data-power="saver"] .feed-connect { background: rgba(0, 0, 0, .7); }
+:root[data-power="saver"] .drag-file-ghost { background: var(--bg-3); }
+:root[data-power="saver"] .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) { background-color: rgba(60, 60, 64, .92); }
+:root[data-power="saver"][data-theme="light"] .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) { background-color: rgba(255, 255, 255, .94); }
+/* Kept turning: they say "working" or "type here", and cost a few pixels each. */
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg) {
+  animation-iteration-count: infinite !important;
+}
+/* The welcome and launch sky's drifting light repaints the whole window behind everything. */
+:root[data-power="saver"] :is(.launch-sky, .ob-sky)::before,
+:root[data-power="saver"] :is(.launch-sky, .ob-sky)::after {
+  animation: none !important;
+}
+:root[data-power="saver"] .shimmer-text {
+  -webkit-text-fill-color: var(--text-3);
+}
+/* Slides that re-lay out or re-filter a large part of the window every frame end at once (1ms, not none: the
+   transitionend the layout code waits on still fires). Small hover fades stay as they are. */
+:root[data-power="saver"] :is(body.layout-animating, body.layout-animating :is(.main, .work, .sidebar, .agents, .terminal, .term-body, #previewPane, .center.term-side),
+  .work, .term-body, .box, .box-live, .box > .terminal, .skill-group-body, .plugin-skills, .editor-blur-out, .set-pane .social-grid, .composer-attachments.collapsing) {
+  transition-duration: 1ms !important;
+  transition-delay: 0s !important;
+}
+/* Blurring an element itself (not what's behind it) costs the same as blurring behind it: a closing editor only fades. */
+:root[data-power="saver"] .editor-blur-out {
+  filter: none !important;
+}
