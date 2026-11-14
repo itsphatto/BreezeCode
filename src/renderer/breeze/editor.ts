@@ -782,10 +782,14 @@ function setMinimap(on: boolean): void {
   store.set('breeze.minimap', on);
   queueMinimap();
 }
+// Once a frame at most. Under the power saver (power.ts) about eight times a second: every scroll step redraws the
+// whole map, which is the costliest thing scrolling does after the code itself.
+const MM_SAVER_MS = 120;
 function queueMinimap(): void {
   if (mmQueued) return;
   mmQueued = true;
-  requestAnimationFrame(() => { mmQueued = false; drawMinimap(); });
+  const draw = () => requestAnimationFrame(() => { mmQueued = false; drawMinimap(); });
+  if (powerSaver()) setTimeout(draw, MM_SAVER_MS); else draw();
 }
 // Token colours come from the editor's own CSS (tk-* classes), read once per theme.
 const mmColors = new Map<string, string>();

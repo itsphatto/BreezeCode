@@ -776,10 +776,11 @@ function mountAgentDash(slot: HTMLElement | null): void {
 // Main reads the agents' logs afresh on each ask (only changed logs are re-read, ~60–100ms with a session running), so
 // a page left open asks again every 5 seconds while it is on screen and the window is shown, and as soon as the window
 // comes back. Claude's plan limits are fetched at most once a minute however often it asks (claudeLiveLimits).
+// Under the power saver every 15 seconds; not at all behind another window (power.ts): it asks again on focus.
 const DASH_REFRESH_MS = 5_000;
-setInterval(() => {
+decorInterval(() => {
   if (document.visibilityState === 'visible' && dashOnScreen()) refreshAgentDash();
-}, DASH_REFRESH_MS);
+}, DASH_REFRESH_MS, 15_000);
 window.addEventListener('focus', () => { if (dashOnScreen()) refreshAgentDash(); });
 function refreshAgentDash(): void {
   const seq = ++dashSeq;

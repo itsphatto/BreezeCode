@@ -783,12 +783,14 @@ function blurSwap(el: HTMLElement, text: string): void {
   if (el.textContent === text) return;
   if (!el.isConnected) { el.textContent = text; return; }
   el.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); });
-  const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: 'blur(6px)', transform: 'translateY(-3px)' }], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  // Power saver: the same swap as a plain fade; a blur is re-filtered on every frame of it.
+  const soft = powerSaver() ? 'blur(0)' : 'blur(6px)';
+  const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: soft, transform: 'translateY(-3px)' }], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
   out.id = 'blurSwap';
   out.onfinish = () => {
     el.textContent = text;
     out.cancel();
-    const into = el.animate([{ opacity: 0, filter: 'blur(6px)', transform: 'translateY(3px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    const into = el.animate([{ opacity: 0, filter: soft, transform: 'translateY(3px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' });
     into.id = 'blurSwap';
   };
 }
@@ -819,26 +821,32 @@ function rotatePlaceholder(ta: HTMLTextAreaElement, home: string, list: string[]
   ta.addEventListener('pointerenter', () => {
     nextPlaceholder(r);
     clearInterval(hoverTimer);
-    hoverTimer = setInterval(() => nextPlaceholder(r), 5000);
+    hoverTimer = powerSaver() ? undefined : setInterval(() => nextPlaceholder(r), 5000); // the saver shows one example and leaves it
   });
   ta.addEventListener('pointerleave', () => { clearInterval(hoverTimer); hoverTimer = undefined; });
   // Typing mid-swap: drop the swap so the placeholder can blur away at once.
   ta.addEventListener('input', () => layer.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); }));
 }
 function nextPlaceholder(r: PlaceholderRotator): void {
-  if (r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
+  if (decorResting() || r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
   blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
 }
 rotatePlaceholder(SURFACES.ide.prompt, ' ', IDE_PLACEHOLDERS);
 rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS[0], BOX_PLACEHOLDERS);
-setInterval(() => {
-  if (document.hidden) return;
+// Rests under the power saver and while the window is unseen (power.ts).
+decorInterval(() => {
   for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) blurSwap(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
 }, 5000);
 // The empty state's logo: Agent.png with its strokes rippling in a breeze, as a lossless animated WebP rendered from
-// that image. An image, not a video: a looping video shows a seam each time it restarts. Reduced motion gets the still.
+// that image. An image, not a video: a looping video shows a seam each time it restarts. Reduced motion and the power
+// saver get the still: the animated one decodes and paints a frame for as long as it is on screen.
+const idleLogoFile = (): string => powerSaver() || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'Agent.png' : 'AgentIdle.webp';
+document.addEventListener('powerchange', () => {
+  const src = `../../assets/brand/${idleLogoFile()}`;
+  for (const img of $$<HTMLImageElement>('img.idle-logo')) if (img.getAttribute('src') !== src) img.src = src;
+});
 function idleLogo(size: number): string {
-  const file = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'Agent.png' : 'AgentIdle.webp';
+  const file = idleLogoFile();
   return `<img class="idle-logo" src="../../assets/brand/${file}" alt="" width="${size}" height="${size}" draggable="false">`;
 }
 

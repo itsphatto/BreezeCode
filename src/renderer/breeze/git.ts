@@ -84,9 +84,11 @@ function gitDecor(): { files: Map<string, string>; dirs: Set<string>; ignored: S
   return { files, dirs, ignored, incoming, incomingDirs };
 }
 // Fetches quietly now and then, so files changed on the remote show M↓ before anyone pulls.
+// Every 5 minutes, or every 15 under the power saver (power.ts): a fetch wakes the network and runs git.
 let lastFetch = 0;
+const fetchEvery = (): number => (powerSaver() ? 15 : 5) * 60_000;
 function backgroundFetch(): void {
-  if (!rootInfo || !gitState.repo || !gitState.upstream || Date.now() - lastFetch < 5 * 60_000) return;
+  if (!rootInfo || !gitState.repo || !gitState.upstream || Date.now() - lastFetch < fetchEvery()) return;
   lastFetch = Date.now();
   api.git.sync('fetch').then(() => queueGitRefresh(), () => { /* offline or no access: try again later */ });
 }

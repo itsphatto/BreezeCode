@@ -825,11 +825,14 @@ function timeGreeting(now = new Date()): string {
     .replace('{day}', now.toLocaleDateString([], { weekday: 'long' }));
   return greetPick.shown;
 }
-// Keeps the clock in a line current (and moves to the next slot's line) while Home shows it.
-setInterval(() => {
+// Keeps the clock in a line current (and moves to the next slot's line) while Home shows it. It rests while the
+// window is unseen, and under the power saver looks twice a minute (power.ts).
+const tickGreeting = () => {
   const lead = $('#homeLead');
   if (greetPick && lead.textContent === greetPick.shown) lead.textContent = timeGreeting();
-}, 10_000);
+};
+decorInterval(tickGreeting, 10_000, 30_000);
+onDecorChange(() => { if (!decorUnseen()) tickGreeting(); }); // back in view: the time shown may be minutes old
 
 /* ----- Holidays: the signature sky (launch and Home) takes the day's colours (launch.css) ----- */
 // Month-day keys as in GREET_DATES. main.js has the same list for the splash window, which runs no scripts.
@@ -855,7 +858,8 @@ function startFireworks(): void {
   type Rocket = { x: number; y: number; vy: number; top: number; color: string };
   let sparks: Spark[] = [], rockets: Rocket[] = [];
   let w = 0, h = 0, last = 0, nextLaunch = 0, frame = 0;
-  const onHome = () => !document.hidden && !$('#onboard').classList.contains('hidden') && !$('.home-step').classList.contains('hidden');
+  // Not under the power saver, nor behind another window (power.ts).
+  const onHome = () => !decorResting() && !$('#onboard').classList.contains('hidden') && !$('.home-step').classList.contains('hidden');
   const fit = () => {
     const dpr = devicePixelRatio || 1;
     w = canvas.clientWidth; h = canvas.clientHeight;
@@ -906,6 +910,6 @@ function startFireworks(): void {
     frame = requestAnimationFrame(step);
   };
   // Starts the show whenever Home comes up; it stops itself when Home goes.
-  setInterval(() => { if (!frame && onHome()) frame = requestAnimationFrame(step); }, 500);
+  decorInterval(() => { if (!frame && onHome()) frame = requestAnimationFrame(step); }, 500);
 }
 if (holiday === 'newyear') startFireworks();

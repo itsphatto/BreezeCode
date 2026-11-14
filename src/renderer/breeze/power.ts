@@ -8,7 +8,8 @@ const powerSaver = (): boolean => powerInfo.saver;
 // Decoration (rotating greetings, drifting skies, hover shows) rests under the saver, and whenever nobody is
 // looking: the window hidden, or another window in front. A frame inside the page having focus still counts as here.
 let pageFocused = document.hasFocus();
-const decorResting = (): boolean => powerInfo.saver || document.hidden || !pageFocused;
+const decorUnseen = (): boolean => document.hidden || !pageFocused;
+const decorResting = (): boolean => powerInfo.saver || decorUnseen();
 
 const decorWatchers = new Set<() => void>();
 // Runs `cb` whenever decorResting() may have changed.
@@ -25,8 +26,7 @@ const decorTimers = new Set<{ id: TimeoutId | undefined; every: number }>();
 function decorInterval(fn: () => void, ms: number, saverMs?: number): () => void {
   const t: { id: TimeoutId | undefined; every: number } = { id: undefined, every: 0 };
   const sync = () => {
-    const unseen = document.hidden || !pageFocused;
-    const every = unseen ? 0 : powerInfo.saver ? saverMs ?? 0 : ms;
+    const every = decorUnseen() ? 0 : powerInfo.saver ? saverMs ?? 0 : ms;
     if (every === t.every) return;
     clearInterval(t.id);
     t.every = every;
