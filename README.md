@@ -13,7 +13,7 @@ and you see every file it reads, every edit and every command while it works.
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.7.3-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.7.4-007AFF?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows_10_%26_11-64--bit-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![Price](https://img.shields.io/badge/price-free-1d1d1f?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-source--available-1d1d1f?style=for-the-badge)
