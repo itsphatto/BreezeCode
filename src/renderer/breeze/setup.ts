@@ -495,7 +495,7 @@ function agentChipMenuItems(ag: DetectedAgent): MenuItem[] {
 }
 // Opens (or, if it is already open, closes) a popup under a chip.
 function openChipMenu(chip: HTMLElement, items: MenuItem[]): void {
-  if (chip.classList.contains('open') || (justClosedTrigger === chip && Date.now() - justClosedAt < 350)) {
+  if (menuWasOpen(chip)) {
     closeMenu();
     return;
   }
@@ -661,7 +661,8 @@ $('#agentBar').addEventListener('click', e => {
 $('#agentBar').addEventListener('keydown', e => {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.agent-chip[data-agent]');
   const ag = chip && appState.detect?.agents.find(x => x.id === chip.dataset.agent);
-  if (chip && ag && e.key === 'ArrowDown') { e.preventDefault(); openChipMenu(chip, agentChipMenuItems(ag)); }
+  // Once its menu is open the arrows walk the menu (menuKeys); here ArrowDown toggled it shut again.
+  if (chip && ag && e.key === 'ArrowDown' && !chip.classList.contains('open')) { e.preventDefault(); openChipMenu(chip, agentChipMenuItems(ag)); }
 });
 new ResizeObserver(() => { if (!sashDragging()) fitAgentBar(); }).observe($('#agentBar'));
 addEventListener('sashdragend', fitAgentBar);
@@ -772,11 +773,14 @@ function mountAgentDash(slot: HTMLElement | null): void {
   to.append(dash);
   if (dashOnScreen()) { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
 }
-// Main reads the agents' logs afresh on each ask (only changed logs are re-read), so a page left open asks again every
-// minute while it is on screen and the window is shown.
+// Main reads the agents' logs afresh on each ask (only changed logs are re-read, ~60–100ms with a session running), so
+// a page left open asks again every 5 seconds while it is on screen and the window is shown, and as soon as the window
+// comes back. Claude's plan limits are fetched at most once a minute however often it asks (claudeLiveLimits).
+const DASH_REFRESH_MS = 5_000;
 setInterval(() => {
   if (document.visibilityState === 'visible' && dashOnScreen()) refreshAgentDash();
-}, 60_000);
+}, DASH_REFRESH_MS);
+window.addEventListener('focus', () => { if (dashOnScreen()) refreshAgentDash(); });
 function refreshAgentDash(): void {
   const seq = ++dashSeq;
   background(Promise.all([api.agent.usage(), api.agent.history()]).then(([u, h]) => {
@@ -885,8 +889,17 @@ function renderAgentDash(): void {
   const row = $('.ad-cards');
   if (row.offsetParent) {
     row.style.minHeight = '';
+    // Measured with a stand-in for the limits: the bars on screen stay untouched (moved or redrawn, they play their
+    // fill from empty again), out of the flow meanwhile, and the shown agent's are updated below.
+    const limits = $('#adLimits'), stand = document.createElement('div');
+    stand.className = 'ad-limits';
+    limits.after(stand);
+    limits.style.position = 'absolute';
+    limits.style.visibility = 'hidden';
     let tall = 0;
-    for (const x of agents) { renderDashUsage(x); tall = Math.max(tall, row.offsetHeight); }
+    for (const x of agents) { renderDashUsage(x, stand); tall = Math.max(tall, row.offsetHeight); }
+    stand.replaceWith();
+    limits.style.position = limits.style.visibility = '';
     row.style.minHeight = `${tall / parseFloat(getComputedStyle(row).fontSize)}em`;
   }
   // Tabs: one per agent.
@@ -898,7 +911,7 @@ function renderAgentDash(): void {
   playDash(shot);
 }
 // The usage card: this month's tokens, how the last week compares with the week before, and a few facts.
-function renderDashUsage(a: DetectedAgent | null): void {
+function renderDashUsage(a: DetectedAgent | null, limitsEl = $('#adLimits')): void {
   const h = a && dashHistory?.agents[a.id];
   const month = a ? dashUsage?.usage[a.id] ?? 0 : 0;
   if (a && !dashUsage) $('#adBig').innerHTML = DASH_SKEL;
@@ -918,7 +931,7 @@ function renderDashUsage(a: DetectedAgent | null): void {
     if (h.last) facts.push(['Last used', timeAgo(h.last)]);
   }
   $('#adFacts').innerHTML = facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
-  renderDashLimits(a ? dashUsage?.limits[a.id] ?? [] : []);
+  renderDashLimits(a ? dashUsage?.limits[a.id] ?? [] : [], limitsEl);
 }
 // When a limit lifts, from its reset time (epoch seconds): "in 42m" today, "in 5h 12m" within a day, else the day and time.
 function dashResetText(at: number | null): string {
@@ -931,9 +944,8 @@ function dashResetText(at: number | null): string {
   return `Resets ${new Date(at * 1000).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`;
 }
 // Every usage limit the agent reports (5-hour, weekly…): what is left, a bar of what is used, and when it resets.
-function renderDashLimits(limits: LimitWindow[]): void {
-  const el = $('#adLimits');
-  el.innerHTML = limits.map(l => {
+function renderDashLimits(limits: LimitWindow[], el = $('#adLimits')): void {
+  const html = limits.map(l => {
     const used = Math.round(l.used), left = 100 - used;
     const level = used >= 90 ? 'hot' : used >= 75 ? 'warm' : '';
     const reset = dashResetText(l.resetsAt);
@@ -943,8 +955,32 @@ function renderDashLimits(limits: LimitWindow[]): void {
       ${reset ? `<div class="ad-limit-reset">${esc(reset)}</div>` : ''}
     </div>`;
   }).join('');
-  $$<HTMLElement>('.ad-meter i', el).forEach(i => i.style.width = `${Math.max(Number(i.dataset.used), 1)}%`);
   el.classList.toggle('hidden', !limits.length);
+  const width = (i: HTMLElement) => { i.style.width = `${Math.max(Number(i.dataset.used), 1)}%`; };
+  // The same limits as on screen keep their bars, which only take the new width: redrawn on every refresh, each one
+  // played its fill from empty again. Their texts are swapped (playDash animates what changed).
+  const fresh = document.createElement('div');
+  fresh.innerHTML = html;
+  const names = (r: ParentNode) => $$('.ad-limit-top span', r).map(s => s.textContent).join('|');
+  const was = $$<HTMLElement>('.ad-limit', el);
+  if (!was.length || names(el) !== names(fresh)) {
+    el.innerHTML = html;
+    $$<HTMLElement>('.ad-meter i', el).forEach(width);
+    return;
+  }
+  $$<HTMLElement>('.ad-limit', fresh).forEach((n, k) => {
+    const o = was[k];
+    o.className = n.className;
+    $('.ad-limit-top', o).replaceWith($('.ad-limit-top', n));
+    const meter = $('.ad-meter', o), bar = $<HTMLElement>('i', meter);
+    meter.setAttribute('aria-valuenow', $('.ad-meter', n).getAttribute('aria-valuenow') ?? '');
+    bar.dataset.used = $<HTMLElement>('.ad-meter i', n).dataset.used;
+    width(bar);
+    const oldReset = o.querySelector('.ad-limit-reset'), newReset = n.querySelector('.ad-limit-reset');
+    if (oldReset && newReset) oldReset.replaceWith(newReset);
+    else if (newReset) o.append(newReset);
+    else oldReset?.replaceWith();
+  });
 }
 // The history's days, oldest first.
 function dashAllDays(): string[] {
@@ -996,6 +1032,7 @@ function renderDashChart(a: DetectedAgent | null): void {
     // Set from script: the page's CSP blocks inline style attributes.
     DASH_KINDS.forEach(([k], j) => { (col.children[j] as HTMLElement).style.height = totals[i] ? `${(day?.[k] ?? 0) / totals[i] * 100}%` : '0%'; });
     col.style.height = totals[i] ? `${totals[i] / top * 100}%` : '';
+    col.style.setProperty('--lvl', String(max ? totals[i] / max : 1)); // the busiest day is full blue, quieter ones darker
     col.classList.toggle('zero', !totals[i]); // not .empty: that is the app-wide empty-state class (padding, centring)
     col.style.setProperty('--i', String(i));
   });

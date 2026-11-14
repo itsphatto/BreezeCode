@@ -106,8 +106,16 @@ function toHex(c: Rgba, like: string): string {
 // One picker for every place that edits a hex colour: the editor's swatches and Settings → Appearance. What it edits is
 // behind `PickerIo`: `live` gets each new colour while it is dragged (false: the thing it edits is gone, so it closes),
 // `commit` runs on release, `leave` when Enter or Escape hands focus back, and `alpha: false` leaves the opacity bar out.
-interface PickerIo { live(next: string): boolean; commit(): void; leave?(): void; alpha?: boolean }
+interface PickerIo { live(next: string): boolean; commit(): void; leave?(): void; alpha?: boolean; from?: HTMLElement }
 let pickerEl: HTMLElement | null = null;
+let pickerFrom: HTMLElement | null = null; // the button that opened it
+let pickerPressClosed: HTMLElement | null = null; // that button, when a press on it just closed the picker
+// For a button that opens the picker: true when this click's press closed it, so the click mustn't open it again.
+function pickerWasOpen(btn: HTMLElement): boolean {
+  const was = pickerPressClosed === btn;
+  pickerPressClosed = null;
+  return was;
+}
 let pickerCommit: (() => void) | null = null;
 let pickerLeave: (() => void) | null = null;
 function closeColorPicker(): void {
@@ -115,8 +123,14 @@ function closeColorPicker(): void {
   pickerCommit = null;
   pickerLeave = null;
   commit?.();
-  pickerEl?.remove();
+  // It fades and lifts away (breeze.css .color-picker.closing) instead of vanishing; it can't be used meanwhile.
+  const el = pickerEl;
   pickerEl = null;
+  pickerFrom = null;
+  if (!el) return;
+  el.classList.add('closing');
+  el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });
+  setTimeout(() => el.remove(), 300); // in case the animation never runs (a hidden window)
 }
 function showColorPicker(orig: string, anchor: DOMRect, io: PickerIo): void {
   closeColorPicker();
@@ -135,6 +149,7 @@ function showColorPicker(orig: string, anchor: DOMRect, io: PickerIo): void {
     <input class="input cp-hex" spellcheck="false" aria-label="Hex colour">`;
   document.body.append(el);
   pickerEl = el;
+  pickerFrom = io.from ?? null;
   pickerLeave = io.leave ?? null;
   const sv = $('.cp-sv', el), hue = $('.cp-hue', el), alpha = el.querySelector<HTMLElement>('.cp-alpha'), hexIn = $<HTMLInputElement>('.cp-hex', el);
 
@@ -231,6 +246,7 @@ function openColorPicker(b: EditorBuffer & { ta: CodeSurface }, off: number, len
 // Clicks outside, Escape, or switching files close it.
 document.addEventListener('pointerdown', e => {
   const t = e.target as Element;
+  pickerPressClosed = pickerEl && pickerFrom?.contains(t) ? pickerFrom : null;
   if (pickerEl && !pickerEl.contains(t) && !t.closest?.('#editor .code')) closeColorPicker(); // the code area decides below
 }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && pickerEl) { e.stopPropagation(); const leave = pickerLeave; closeColorPicker(); leave?.(); } }, true);

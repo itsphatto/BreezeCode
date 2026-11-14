@@ -6,7 +6,7 @@ function updateDropdownLabel(sel: HTMLSelectElement, btn: HTMLElement): void {
   btn.title = text;
 }
 function openDropdown(sel: HTMLSelectElement, btn: HTMLElement): void {
-  if (btn.classList.contains('open') || (justClosedTrigger === btn && Date.now() - justClosedAt < 350)) { closeMenu(); return; }
+  if (menuWasOpen(btn)) { closeMenu(); return; }
   closeMenu();
   const label = () => updateDropdownLabel(sel, btn);
   const items: MenuItem[] = [...sel.options].map(o => ({

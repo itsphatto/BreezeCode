@@ -301,7 +301,7 @@ function confirmRemoveFriend(f: Friend): void {
   });
 }
 function openFriendMenu(anchor: HTMLElement, f: Friend): void {
-  if (anchor.classList.contains('open') || (justClosedTrigger === anchor && Date.now() - justClosedAt < 350)) { closeMenu(); return; }
+  if (menuWasOpen(anchor)) { closeMenu(); return; }
   closeMenu();
   const r = anchor.getBoundingClientRect();
   popupMenu(r.left, r.bottom + 4, [{ label: 'Remove', run: () => confirmRemoveFriend(f) }], undefined, anchor);

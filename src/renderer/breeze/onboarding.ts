@@ -346,7 +346,7 @@ function accountItems(): MenuItem[] {
 }
 // Clicking your picture: who you are, your other accounts (in a submenu) and signing out.
 function openAccountMenu(anchor: HTMLElement): void {
-  if (anchor.classList.contains('open') || (justClosedTrigger === anchor && Date.now() - justClosedAt < 350)) {
+  if (menuWasOpen(anchor)) {
     closeMenu();
     return;
   }
@@ -367,7 +367,7 @@ for (const id of ['#avatars', '#boxAvatar', '#homeProfile']) {
   $(id).onclick = e => {
     const anchor = e.currentTarget as HTMLElement;
     if (anchor.id === 'homeProfile' && !user) { closeMenu(); addAccount(); return; }
-    if (anchor.classList.contains('open') || (justClosedTrigger === anchor && Date.now() - justClosedAt < 350)) {
+    if (menuWasOpen(anchor)) {
       closeMenu();
       return;
     }
