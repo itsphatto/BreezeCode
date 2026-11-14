@@ -1,5 +1,5 @@
 // Electron main process for Breeze IDE: window, file system, search, terminal, git, agents, sign-in and Vibe Mode.
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell } from 'electron';
 import { spawn, execFile, exec } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
@@ -1950,6 +1950,26 @@ handle('win:glass', async (_e, on) => {
   tintGlass();
   win.setBackgroundColor(on ? '#00000000' : themeBg);
   return true;
+});
+// Glass keeps its text readable over whatever is behind the window (settings.ts tuneGlass). The page watches the
+// display through a small, slow capture stream of its own and reads brightness from it; main only says which display
+// the window is on (as a capture source) and where on it the window's content is, as fractions of the display. null
+// where it isn't offered: Windows 10 only (Windows 11's acrylic and macOS's vibrancy tint the backdrop themselves,
+// and macOS would ask for the Screen Recording permission), and not while the window is hidden.
+const screenSources = new Map<string, string>(); // display id → capture source id; looked up once (it takes ~0.4s)
+handle('win:backdropWhere', async () => {
+  const visible = () => !!win && glassOn && !win.isMinimized() && win.isVisible();
+  if (process.platform !== 'win32' || Number(process.getSystemVersion().split('.')[2]) >= 22000 || !visible()) return null;
+  const displays = screen.getAllDisplays();
+  if (screenSources.size !== displays.length || displays.some(d => !screenSources.has(String(d.id)))) {
+    screenSources.clear();
+    const found = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => []);
+    for (const s of found) screenSources.set(s.display_id || String(displays[0].id), s.id);
+  }
+  if (!win || !visible()) return null;
+  const b = win.getContentBounds(), d = screen.getDisplayMatching(b), source = screenSources.get(String(d.id));
+  if (!source) return null;
+  return { source, x: (b.x - d.bounds.x) / d.bounds.width, y: (b.y - d.bounds.y) / d.bounds.height, w: b.width / d.bounds.width, h: b.height / d.bounds.height };
 });
 // Appearance → Custom background: the picture is copied into the app's own folder (so moving or deleting the original
 // is fine) and the page reads it from there. Returns its file URL, or null if the picker was cancelled.

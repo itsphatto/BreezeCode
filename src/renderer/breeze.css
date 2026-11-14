@@ -238,7 +238,7 @@
   background:
     radial-gradient(900px 500px at 78% 8%, rgba(120, 80, 220, .13), transparent 70%),
     radial-gradient(1000px 620px at 16% 92%, rgba(0, 122, 255, .12), transparent 70%),
-    color-mix(in srgb, #06080f var(--bd-a), transparent);
+    color-mix(in srgb, #06080f var(--bd-box, var(--bd-a)), transparent); /* --bd-box: settings.ts tuneGlass */
 }
 /* Under Glass or a picture what's behind a popup is see-through too, and Chromium lays the blurred copy over the
    original rather than in its place: at 60% the sharp original showed through the frost. Small popups go nearly
@@ -271,6 +271,9 @@ body.bd-fade::before {
 /* The debugger page's title bar and main area paint the base layer themselves, as the editor's do: the page's own
    --bg under them doubled it, a darker window than the editor's. */
 :root[data-backdrop] .debug { background: transparent; }
+/* Home is the other way round: its page paints the base layer and its title bar painted it again on top, a darker bar
+   than the editor's. (One layer there is also what settings.ts tuneGlass counts on, so Home wears the same Glass.) */
+:root[data-backdrop] .home-bar { background: transparent; }
 :root[data-backdrop="image"]::before {
   content: "";
   position: fixed;
@@ -10824,6 +10827,15 @@ body.layout-animating .box > .terminal.open {
 
 .screen-out.screen-soft {
   animation: screenSoftOut .2s ease forwards;
+}
+
+/* Under Glass or a picture the two pages don't cross-fade: each is see-through, so half of one over half of the other
+   let more of the backdrop through for the length of the fade, and the window flashed paler. One takes the other's
+   place at once (the animations still run, a frame long, since swapScreen waits for them to end); the new page's
+   content still settles in. */
+:root[data-backdrop] .screen-soft-in,
+:root[data-backdrop] .screen-out.screen-soft {
+  animation-duration: .01s;
 }
 
 /* Clicked away while a debugger swap was still playing (swapScreen, setup.ts). */

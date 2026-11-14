@@ -731,6 +731,7 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       edit: demoEdit,
       async theme() { /* the browser draws its own title bar */ },
       async glass() { return true; /* the page's own see-through panels show over the tab */ },
+      async backdropWhere() { return null; },
       async pickBackdrop() { toast('Custom backgrounds are available in the desktop app'); return null; },
       async devIcon() { /* the tab keeps its favicon */ },
       // Nor are there window buttons: the page shows none in the browser.
