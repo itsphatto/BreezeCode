@@ -7,20 +7,33 @@ import { absOf, throughLink, readEntry, cleanRel, ownerOf, claimFirstTouch, addT
 import type { RunId, Owners, RunEvent, Snapshot } from './team';
 
 export interface BoxMember { agentId: string; agent: string; name: string } // agentId: the box key (box1…box8)
+// A box's own model and effort for its runs (another box with the same agent can use another model). Unset: the agent's.
+export interface BoxPick { model?: string; effort?: string }
 export interface BoardDeps {
-  startRun(opts: { agent: string; mode: 'build'; prompt: string; session?: string | null; team: { coordinator: BoardCoordinator; agentId: string } }): RunId;
+  startRun(opts: { agent: string; mode: 'build'; prompt: string; session?: string | null; pick: BoxPick | null; team: { coordinator: BoardCoordinator; agentId: string } }): RunId;
   stopRun(runId: RunId): void;
   emit(runId: RunId, ev: RunEvent): void;
   setTimeout(fn: () => void, ms: number): unknown;
   clearTimeout(handle: unknown): void;
+  now?(): number; // Date.now unless a test sets the clock
 }
 // `preWrite`: the agent reports `file` when it asks to write (Claude Code), so only its `written` event shows what
 // landed. `relayed`: "<owner>|<path>" relays this run already sent, so a retry doesn't ask twice.
-interface BoxRun { boxKey: string; lastText: string; done: boolean; stopping?: boolean; preWrite: boolean; relayed: Set<string> }
+// `shells`: its shell commands by call id, while they run and for SHELL_GRACE_MS after (`endedAt`).
+interface Shell { command: string; endedAt: number | null }
+interface BoxRun { boxKey: string; lastText: string; done: boolean; stopping?: boolean; preWrite: boolean; relayed: Set<string>; shells: Map<string, Shell> }
 const PRE_WRITE_AGENTS = new Set(['claude']);
 
 const MAX_DIFF = 200;
 const RECHECK_MS = 300; // a write can land after the first restore (Codex reports before it finishes)
+const SHELL_GRACE_MS = 1000; // the folder watcher reports a write a little after the command that made it ends
+
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// True when a shell command names `rel` (its file name, as a word of its own: "util.ts", "src/util.ts", "'util.ts'").
+function commandNames(command: string, rel: string): boolean {
+  const base = rel.split('/').pop() || rel;
+  return new RegExp(`(^|[^\\w.-])${escRe(base)}($|[^\\w.-])`).test(command);
+}
 
 // The lines between the common start and the common end, as "-" (before) then "+" (after), capped at `max`.
 function lineDiff(before: string, after: string, max = MAX_DIFF): string {
@@ -81,7 +94,7 @@ class BoardCoordinator {
     return null;
   }
 
-  startBox(boxKey: string, { agent, name, prompt, session }: { agent: string; name: string; prompt: string; session?: string | null }): RunId {
+  startBox(boxKey: string, { agent, name, prompt, session, pick }: { agent: string; name: string; prompt: string; session?: string | null; pick?: BoxPick | null }): RunId {
     if (this.stopped) throw new Error('The board has closed.');
     if (this.#running(boxKey) !== null) throw new Error(`${name} is still working.`);
     const member: BoxMember = { agentId: boxKey, agent, name };
@@ -89,10 +102,10 @@ class BoardCoordinator {
     if (i >= 0) this.members[i] = member; else this.members.push(member);
     this.tasks[boxKey] = prompt;
     const runId = this.deps.startRun({
-      agent, mode: 'build', prompt: boardBrief(member, prompt, this), session: session ?? null,
+      agent, mode: 'build', prompt: boardBrief(member, prompt, this), session: session ?? null, pick: pick ?? null,
       team: { coordinator: this, agentId: boxKey },
     });
-    this.runs.set(runId, { boxKey, lastText: '', done: false, preWrite: PRE_WRITE_AGENTS.has(agent), relayed: new Set() });
+    this.runs.set(runId, { boxKey, lastText: '', done: false, preWrite: PRE_WRITE_AGENTS.has(agent), relayed: new Set(), shells: new Map() });
     return runId;
   }
 
@@ -110,6 +123,7 @@ class BoardCoordinator {
   observe(runId: RunId, ev: RunEvent | null | undefined): boolean {
     const run = this.runs.get(runId);
     if (!run || !ev) return false;
+    if (ev.t === 'shell') { this.#onShell(run, ev); return true; } // main's own bookkeeping: the chat shows the `tool` line
     if (ev.t === 'text') run.lastText = String(ev.text ?? '');
     else if (ev.t === 'file' || ev.t === 'written' || ev.t === 'refused') {
       const rel = cleanRel(ev.path, this.root);
@@ -124,6 +138,35 @@ class BoardCoordinator {
     }
     return false;
   }
+
+  // The folder watcher saw `rel` change. A box's shell command that names it, running now or just ended, made the
+  // change: it counts as that box's write (claims a free file, puts back a teammate's). With no such command, or
+  // with two boxes' commands naming it at once, nobody can be told apart, so it is left alone.
+  diskChanged(rel: string): void {
+    const r = cleanRel(rel, this.root);
+    if (!r || r.endsWith('/') || this.stopped) return;
+    const now = this.#now();
+    const by: [RunId, BoxRun][] = [];
+    for (const [id, run] of this.runs) {
+      if (run.done || run.stopping) continue;
+      for (const [key, sh] of run.shells) {
+        if (sh.endedAt !== null && now - sh.endedAt > SHELL_GRACE_MS) { run.shells.delete(key); continue; }
+        if (commandNames(sh.command, r)) { by.push([id, run]); break; }
+      }
+    }
+    if (by.length !== 1) return;
+    const [runId, run] = by[0];
+    this.#track(this.#inLane(r, () => this.#onFile(runId, run.boxKey, r, true)));
+  }
+
+  #onShell(run: BoxRun, ev: RunEvent): void {
+    const id = String(ev.id ?? '');
+    if (!id) return;
+    if (ev.end) { const sh = run.shells.get(id); if (sh) sh.endedAt = this.#now(); }
+    else run.shells.set(id, { command: String(ev.command ?? ''), endedAt: null });
+  }
+
+  #now(): number { return this.deps.now ? this.deps.now() : Date.now(); }
 
   // A write main refused before it landed (Local LLM): main emitted the crossing, this sends the relay.
   blocked(fromBox: string, toBox: string, rel: string): void {
@@ -173,7 +216,9 @@ class BoardCoordinator {
     return last;
   }
 
-  async #onFile(runId: RunId, boxKey: string, rel: string): Promise<void> {
+  // `fromShell`: seen on disk while the box's command ran. A file still as its owner left it (Breeze putting it back,
+  // or a command that only read it) is no crossing.
+  async #onFile(runId: RunId, boxKey: string, rel: string, fromShell = false): Promise<void> {
     let owner: string | null;
     try { owner = await this.foreignOwner(boxKey, rel); } catch {
       owner = ownerOf(this.owners, rel);
@@ -187,6 +232,7 @@ class BoardCoordinator {
       attempted = data ? data.toString('utf8') : '';
     } catch { /* unreadable: the relay goes without a diff */ }
     const saved = this.snap.files.get(rel);
+    if (fromShell && saved !== undefined && (saved ? saved.toString('utf8') : '') === attempted) return;
     if (!this.snap.files.has(rel)) {
       ev.error = this.snap.skipped.includes(rel) ? `${rel} is over 2 MB, so no copy was kept` : `${rel} had no saved copy`;
     } else {
@@ -279,4 +325,4 @@ class BoardCoordinator {
   }
 }
 
-export { lineDiff, boardBrief, BoardCoordinator };
+export { lineDiff, boardBrief, commandNames, BoardCoordinator };

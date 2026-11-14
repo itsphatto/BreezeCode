@@ -311,7 +311,7 @@ interface BreezeApi {
   };
   board: {
     open(): Promise<{ boardId: string; owners: Record<string, string> }>;
-    run(opts: { boxKey: string; agent: string; prompt: string; session: string | null }): Promise<number>;
+    run(opts: { boxKey: string; agent: string; prompt: string; session: string | null; model?: string; effort?: string }): Promise<number>;
     stop(boxKey: string): Promise<void>;
     stopAll(): Promise<void>;
     release(path: string): Promise<void>;

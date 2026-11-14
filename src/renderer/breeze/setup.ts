@@ -429,20 +429,26 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
 // "Switch Model": the agent's models in a flat list, then a slider for its effort (a local server has none).
 // Every surface that picks a model uses this, so Breeze Space and the agents panel behave the same.
 // makeDefault (an agent's own chip): setting its model or effort also makes it the default agent.
-function modelPickerItems(a: DetectedAgent, makeDefault = false): MenuItem[] {
-  const current = () => a.version || a.models?.[0] || '';
-  const apply = (m: string, eff: EffortLevel) => background(applyModelAndEffort(a, m, eff).then(() => {
-    if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
-  }));
+// `target`: where the pick goes instead of the agent's own settings (an Agent board box keeps its own model and effort).
+interface ModelTarget { model(): string; effort(): EffortLevel; set(model: string, effort: EffortLevel): void }
+function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelTarget): MenuItem[] {
+  const current = () => target?.model() || a.version || a.models?.[0] || '';
+  const effortNow = () => (target ? target.effort() : agentEffort(a));
+  const apply = (m: string, eff: EffortLevel) => {
+    if (target) { target.set(m, eff); return; }
+    background(applyModelAndEffort(a, m, eff).then(() => {
+      if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
+    }));
+  };
   const models: MenuItem[] = (a.models ?? []).map(m => ({
     label: versionLabel(m),
     checked: () => current() === m,
-    run: () => apply(m, agentEffort(a)),
+    run: () => apply(m, effortNow()),
   }));
   const effort: MenuItem[] = a.api ? [] : [{ slider: {
     label: `${agentShortName(a)} effort`,
     steps: EFFORTS,
-    value: () => EFFORTS.indexOf(agentEffort(a)),
+    value: () => EFFORTS.indexOf(effortNow()),
     set: i => apply(current(), EFFORTS[i]),
     hint: i => EFFORT_HINTS[EFFORTS[i]],
   } }];
@@ -626,6 +632,7 @@ function renderAgentBar(): void {
   renderPromptModels();
   updateScmGenBtn();
   if (typeof renderHomeAsk === 'function') renderHomeAsk(); // Home's prompt box shows the same model and effort
+  if (typeof renderBoardModels === 'function') renderBoardModels(); // and so do the Agent board's boxes
 }
 
 $('#agentBar').addEventListener('click', e => {

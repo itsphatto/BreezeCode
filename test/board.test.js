@@ -31,6 +31,8 @@ function fakeDeps() {
     due.forEach(h => h.fn());
   };
   d.of = type => d.events.filter(e => e.ev.t === type);
+  d.clock = 1000;
+  d.now = () => d.clock;
   return d;
 }
 function newBoard(t) {
@@ -301,4 +303,111 @@ test('clearBox forgets an emptied box and frees its files', async t => {
   assert.deepEqual(co.members.map(m => m.agentId), ['box1']);
   assert.equal(co.owners['api.ts'], undefined);
   assert.equal(await co.foreignOwner('box1', 'api.ts'), null);
+});
+
+/* ----- Shell writes: a box that writes a file with a command, not its edit tool ----- */
+const shell = (co, runId, id, command) => co.observe(runId, { t: 'shell', id, command });
+const shellEnd = (co, runId, id) => co.observe(runId, { t: 'shell', id, end: true });
+
+test("a file a shell command names and changes becomes that box's", async t => {
+  const { root, deps, co, id1 } = await twoBoxes(t);
+  shell(co, id1, 's1', 'echo "// hi" >> util.ts');
+  put(root, 'util.ts', '// hi\n');
+  co.diskChanged('util.ts');
+  await co.settled();
+  assert.deepEqual({ ...co.owners }, { 'util.ts': 'box1' });
+  assert.equal(deps.of('crossing').length, 0);
+});
+
+test("a shell write to a teammate's file is put back and relayed", async t => {
+  const { root, deps, co, id1, id2 } = await twoBoxes(t);
+  put(root, 'util.ts', 'mine\n');
+  co.observe(id2, { t: 'file', path: 'util.ts', written: true });
+  await co.settled();
+  shell(co, id1, 's1', "sed -i 's/mine/hack/' src/../util.ts");
+  put(root, 'util.ts', 'hack\n');
+  co.diskChanged('util.ts');
+  shellEnd(co, id1, 's1');
+  await co.settled();
+  assert.equal(read(root, 'util.ts'), 'mine\n');
+  assert.equal(deps.of('crossing').length, 1);
+  assert.equal(deps.of('crossing')[0].runId, id1);
+  const relay = deps.of('relay');
+  assert.equal(relay.length, 1);
+  assert.equal(relay[0].ev.to, 'box2');
+  assert.match(relay[0].ev.diff, /\+hack/);
+});
+
+test('Breeze putting a file back is not blamed on a shell that names it', async t => {
+  const { root, deps, co, id1, id2 } = await twoBoxes(t);
+  put(root, 'util.ts', 'mine\n');
+  co.observe(id2, { t: 'file', path: 'util.ts', written: true });
+  await co.settled();
+  shell(co, id1, 's1', 'cat util.ts');
+  co.diskChanged('util.ts'); // the file is as its owner left it
+  await co.settled();
+  assert.equal(deps.of('crossing').length, 0);
+  assert.equal(deps.of('relay').length, 0);
+});
+
+test("a change no running shell names is nobody's", async t => {
+  const { root, co, id1 } = await twoBoxes(t);
+  put(root, 'util.ts', 'x');
+  co.diskChanged('util.ts'); // no shell at all
+  shell(co, id1, 's1', 'npm install');
+  put(root, 'package-lock.json', '{}');
+  co.diskChanged('package-lock.json'); // a shell runs, but doesn't name the file
+  await co.settled();
+  assert.deepEqual({ ...co.owners }, {});
+});
+
+test('two running shells that name the same file: neither is blamed', async t => {
+  const { root, deps, co, id1, id2 } = await twoBoxes(t);
+  shell(co, id1, 's1', 'echo a >> util.ts');
+  shell(co, id2, 's2', 'echo b >> util.ts');
+  put(root, 'util.ts', 'a\nb\n');
+  co.diskChanged('util.ts');
+  await co.settled();
+  assert.deepEqual({ ...co.owners }, {});
+  assert.equal(deps.of('crossing').length, 0);
+});
+
+test('a change just after the shell ends still counts; a later one does not', async t => {
+  const { root, deps, co, id1 } = await twoBoxes(t);
+  shell(co, id1, 's1', 'echo a > a.ts && echo b > b.ts');
+  shellEnd(co, id1, 's1');
+  deps.clock += 200;
+  put(root, 'a.ts', 'a');
+  co.diskChanged('a.ts');
+  deps.clock += 5000;
+  put(root, 'b.ts', 'b');
+  co.diskChanged('b.ts');
+  await co.settled();
+  assert.deepEqual({ ...co.owners }, { 'a.ts': 'box1' });
+});
+
+test('shell events stay in main', async t => {
+  const { co, id1 } = await twoBoxes(t);
+  assert.equal(co.observe(id1, { t: 'shell', id: 's1', command: 'ls' }), true);
+  assert.equal(co.observe(id1, { t: 'shell', id: 's1', end: true }), true);
+});
+
+test('commandNames matches a file name as a word of its own', () => {
+  const { commandNames } = require('../src/main/board');
+  assert.ok(commandNames('echo hi >> util.ts', 'util.ts'));
+  assert.ok(commandNames("sed -i 's/a/b/' src/util.ts", 'src/util.ts'));
+  assert.ok(commandNames(String.raw`cat > "lib\util.ts"`, 'lib/util.ts'));
+  assert.ok(!commandNames('echo hi >> myutil.ts', 'util.ts'));
+  assert.ok(!commandNames('echo hi >> util.tsx', 'util.ts'));
+  assert.ok(!commandNames('npm install', 'package-lock.json'));
+});
+
+test("a box's own model and effort go with its run", t => {
+  const { deps, co } = newBoard(t);
+  co.startBox('box1', { agent: 'claude', name: 'Claude · 1', prompt: 'a', pick: { model: 'opus', effort: 'high' } });
+  co.startBox('box2', { agent: 'claude', name: 'Claude · 2', prompt: 'b', pick: { model: 'sonnet' } });
+  co.startBox('box3', { agent: 'codex', name: 'Codex · 3', prompt: 'c' });
+  assert.deepEqual({ ...deps.runs[0].opts.pick }, { model: 'opus', effort: 'high' });
+  assert.deepEqual({ ...deps.runs[1].opts.pick }, { model: 'sonnet' });
+  assert.equal(deps.runs[2].opts.pick, null);
 });

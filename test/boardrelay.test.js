@@ -113,3 +113,23 @@ test('dropFor hands back what it dropped, so the askers can be told', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(dropped)), [toIt.id, fromIt.id].sort());
   assert.equal(q.next('box4').id, other.id, 'relays between other boxes stay');
 });
+
+test('a relay the person sends goes even with Auto-relay off', () => {
+  const q = new RelayQueue();
+  q.auto = false;
+  const r = ask('box1', 'box2');
+  assert.equal(q.push(r, idle), 'paused');
+  const sent = q.send(r.id);
+  assert.equal(q.push(sent, idle, true), 'start');
+  assert.equal(q.push(ask('box1', 'box2'), busy, true), 'queued');
+});
+
+test('stopAll hands back what it dropped, so the askers can be told', () => {
+  const q = new RelayQueue();
+  const a = ask('box1', 'box2');
+  const b = ask('box3', 'box4');
+  q.push(a, busy);
+  q.auto = false;
+  q.push(b, idle);
+  assert.deepEqual(JSON.parse(JSON.stringify(q.stopAll().map(r => r.id))).sort(), [a.id, b.id].sort());
+});

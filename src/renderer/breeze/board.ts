@@ -14,16 +14,21 @@ interface BoardBox {
   status: BoxStatus;
   runIds: Set<number>;    // every run this box started (the chat's own, and relay follow-ups)
   lastText: string;       // the latest text of its current run, for a relay reply
-  starting?: boolean;     // between Send (or a relay) and main handing back the run id: busy already
+  starting?: boolean;      // between Send (or a relay) and main handing back the run id: busy already
+  scrollPending?: boolean; // a restored chat: scroll to its latest message once it has a size
+  kit?: PromptKit;         // its prompt, run by the Agents tab's own code (mentions.ts)
+  model?: string;          // its own model and effort; unset: the agent's (Settings, or the Agents tab's chip)
+  effort?: EffortLevel;
 }
 const boxBusy = (b: BoardBox) => tabBusy(b.tab) || !!b.starting;
 const stoppedRuns = new Set<number>(); // runs the person stopped: their late relays and replies are dropped
-interface BoardSaved { boxes: Record<string, { agent: string; historyId?: string; sessions?: Record<string, string> }> }
+interface BoardSaved { boxes: Record<string, { agent: string; historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string }> }
 
 const BOARD_MAX = 8;
 const boardBoxes = new Map<string, BoardBox>();
 const boardGrid = $('#boardGrid');
-const boardPageShowing = () => { const p = $('#board'); return !p.classList.contains('hidden') && !p.classList.contains('screen-out'); };
+// swapScreen lights the board button the moment the page is chosen; #board's own classes lag behind the cross-fade.
+const boardPageShowing = () => $('#boardBtn').classList.contains('on');
 const boardStoreKey = () => `breeze.board.${rootInfo?.root ?? ''}`;
 const boxNumber = (key: string) => Number(key.slice(3));
 const boxName = (b: { key: string; agent: string }) => `${agentNameOf(b.agent)} · ${boxNumber(b.key)}`;
@@ -38,6 +43,7 @@ function openBoard(): void {
   renderRoster();
   renderBoard();
   placeBoardRailIndicator();
+  requestAnimationFrame(scrollRestoredChats);
   background(api.board.open().then(refreshOwners));
 }
 function leaveBoard(): void {
@@ -84,7 +90,7 @@ function renderRoster(): void {
     roster.querySelector<HTMLElement>('[data-board-pick]')!.onclick = openAgentPicker;
     return;
   }
-  roster.innerHTML = agents.map(a => `<span class="board-chip" role="listitem" draggable="true" tabindex="0" data-agent="${escAttr(a.id)}" title="Drag ${escAttr(agentShortName(a))} into a box">${brandMark('board-chip-logo', a.id, agentShortName(a)[0] ?? '?')}<b>${esc(agentShortName(a))}</b></span>`).join('');
+  roster.innerHTML = agents.map(a => `<span class="board-chip" role="listitem" draggable="true" tabindex="0" data-agent="${escAttr(a.id)}" title="Click to add ${escAttr(agentShortName(a))}, or drag it into a box">${brandMark('board-chip-logo', a.id, agentShortName(a)[0] ?? '?')}<b>${esc(agentShortName(a))}</b></span>`).join('');
 }
 $('#boardRoster').addEventListener('dragstart', e => {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.board-chip');
@@ -92,26 +98,41 @@ $('#boardRoster').addEventListener('dragstart', e => {
   e.dataTransfer.setData('text/breeze-agent', chip.dataset.agent!);
   e.dataTransfer.effectAllowed = 'copy';
   boardGrid.classList.add('dragging');
+  // The board opens a spot for it: the layout one more box makes (after the drag has started, or it is cancelled).
+  setTimeout(() => { if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
 });
-$('#boardRoster').addEventListener('dragend', () => boardGrid.classList.remove('dragging'));
-// Enter on a chip puts it in the first empty box (the keyboard's drag).
+$('#boardRoster').addEventListener('dragend', () => endBoardDrag());
+// A click on a chip adds that agent in a box of its own; Enter does the same from the keyboard.
+$('#boardRoster').addEventListener('click', e => {
+  const chip = (e.target as HTMLElement).closest<HTMLElement>('.board-chip');
+  if (chip) addAgent(chip.dataset.agent!);
+});
 $('#boardRoster').addEventListener('keydown', e => {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.board-chip');
   if (!chip || e.key !== 'Enter') return;
-  const key = boardKeys().find(k => !boardBoxes.has(k));
-  if (key) dropAgent(key, chip.dataset.agent!);
+  e.preventDefault(); // or Enter types a newline into the new box's prompt, which takes the focus
+  addAgent(chip.dataset.agent!);
 });
 
-/* ----- The grid: filled boxes, then empty ones, always a row more to scroll to ----- */
+/* ----- The grid: only the filled boxes, laid out for how many there are (boardlayout.ts) ----- */
+// No agent yet: one empty box fills the page. While a chip is dragged, an empty spot opens where it would land.
 const allBoxKeys = () => Array.from({ length: BOARD_MAX }, (_, i) => `box${i + 1}`);
-// Every box filled, the empty ones up to the last filled one, plus one more row (at least the first two rows).
-function boardKeys(): string[] {
-  const last = Math.max(0, ...[...boardBoxes.keys()].map(boxNumber));
-  const rows = Math.max(2, Math.ceil(last / 2) + 1);
-  return allBoxKeys().slice(0, Math.min(BOARD_MAX, rows * 2));
+const firstFreeKey = () => allBoxKeys().find(k => !boardBoxes.has(k));
+let boardDragging = false;
+function endBoardDrag(): void {
+  boardGrid.classList.remove('dragging');
+  if (!boardDragging) return;
+  boardDragging = false;
+  morphBoard(renderBoard);
+}
+// The boxes on the page, in box order: the filled ones, and the one empty spot (none filled, or a chip being dragged).
+function shownBoxKeys(): string[] {
+  const free = firstFreeKey();
+  const open = free && (!boardBoxes.size || boardDragging) ? [free] : [];
+  return [...boardBoxes.keys(), ...open].sort((a, b) => boxNumber(a) - boxNumber(b));
 }
 function renderBoard(): void {
-  const keys = boardKeys();
+  const keys = shownBoxKeys();
   for (const el of Array.from(boardGrid.children) as HTMLElement[]) {
     if (!keys.includes(el.dataset.box!)) el.remove();
   }
@@ -124,18 +145,66 @@ function renderBoard(): void {
       el?.remove();
       el = emptyBoxEl(key);
     }
+    paintEmptyBox(el, key);
     if (boardGrid.children[i] !== el) boardGrid.insertBefore(el, boardGrid.children[i] ?? null);
   });
+  layoutBoard();
+}
+// Grid lines for each box; on a page too narrow for them side by side, two to a row with rows to scroll to.
+function layoutBoard(): void {
+  const els = Array.from(boardGrid.children) as HTMLElement[];
+  const lay = boardLayout(els.length, boardGrid.clientWidth);
+  boardGrid.style.gridTemplateColumns = `repeat(${lay.cols}, minmax(0, 1fr))`;
+  boardGrid.style.gridTemplateRows = lay.scroll ? '' : `repeat(${lay.rows}, minmax(0, 1fr))`;
+  boardGrid.classList.toggle('scroll', lay.scroll);
+  boardGrid.dataset.count = String(els.length);
+  els.forEach((el, i) => {
+    const c = lay.cells[i];
+    el.style.gridArea = c ? `${c.row} / ${c.col} / span ${c.rowSpan} / span ${c.colSpan}` : '';
+  });
+  for (const b of boardBoxes.values()) $('.board-box-split', b.el).classList.toggle('hidden', boardBoxes.size >= BOARD_MAX);
+}
+new ResizeObserver(() => { if (boardGrid.children.length) layoutBoard(); }).observe(boardGrid);
+
+// Adding, emptying or moving boxes eases each one from where it was to where it lands (a view transition,
+// .board-morph in breeze.css): what's in a box keeps its size and is uncovered as the box grows, never stretched.
+function morphBoard(change: () => void): void {
+  const root = document.documentElement;
+  if (!document.startViewTransition || !boardPageShowing() || motionOff() || matchMedia('(prefers-reduced-motion: reduce)').matches
+    || root.classList.contains('term-morph') || root.classList.contains('scm-fade')) { change(); return; }
+  const name = () => { for (const el of Array.from(boardGrid.children) as HTMLElement[]) el.style.viewTransitionName = `board-${el.dataset.box}`; };
+  name();
+  root.classList.add('board-morph');
+  const done = () => {
+    root.classList.remove('board-morph');
+    for (const el of Array.from(boardGrid.children) as HTMLElement[]) el.style.viewTransitionName = '';
+  };
+  document.startViewTransition(() => { change(); name(); }).finished.then(done, done);
+}
+
+// Puts the agent in a box of its own (the first free one), splitting the page with the boxes already there.
+function addAgent(agent: string): void {
+  const key = firstFreeKey();
+  if (!key) { toast(`The board is full: empty a box first (${BOARD_MAX} at most)`); return; }
+  dropAgent(key, agent);
 }
 function emptyBoxEl(key: string): HTMLElement {
   const el = document.createElement('div');
   el.className = 'board-box empty-box';
   el.dataset.box = key;
   el.tabIndex = 0;
-  el.setAttribute('aria-label', `Box ${boxNumber(key)}, empty. Press Enter to pick an agent.`);
-  el.innerHTML = `<div class="board-drop"><svg data-i="plus" data-size="18"></svg><span>Drop an agent here</span><small>Box ${boxNumber(key)}</small></div>`;
+  el.innerHTML = `<div class="board-drop"><svg data-i="plus" data-size="18"></svg><span class="board-drop-title"></span><small class="board-drop-hint"></small></div>`;
   paintIcons(el);
   return el;
+}
+// The only box on an empty board asks for an agent; the spot a dragged chip opens says it lands there.
+function paintEmptyBox(el: HTMLElement, key: string): void {
+  if (!el.classList.contains('empty-box')) return;
+  const spot = boardBoxes.size > 0;
+  el.classList.toggle('spot-box', spot);
+  $('.board-drop-title', el).textContent = spot ? 'Drop here to add it' : 'Drop an agent here';
+  $('.board-drop-hint', el).textContent = spot ? 'The boxes make room for it' : 'or click to pick one';
+  el.setAttribute('aria-label', spot ? `Box ${boxNumber(key)}, a spot for the agent you are dragging.` : 'No agent yet. Click or press Enter to pick one.');
 }
 boardGrid.addEventListener('dragover', e => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('.board-box');
@@ -153,16 +222,27 @@ boardGrid.addEventListener('drop', e => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('.board-box');
   const agent = e.dataTransfer?.getData('text/breeze-agent');
   boardGrid.classList.remove('dragging');
+  boardDragging = false; // the open spot becomes the new box (or closes, dropped on a filled one) in the same morph
   el?.classList.remove('drop-on');
-  if (!el || !agent) return;
+  if (!el || !agent) { morphBoard(renderBoard); return; }
   e.preventDefault();
   dropAgent(el.dataset.box!, agent);
+});
+// Clicking an empty box (or Enter on it) lists the agents to put in it.
+function pickAgentFor(el: HTMLElement, x: number, y: number): void {
+  const agents = foundAgents();
+  if (!agents.length) { toast('No agents found. Install one from Settings.'); return; }
+  popupMenu(x, y, agents.map(a => ({ label: agentShortName(a), run: () => dropAgent(el.dataset.box!, a.id) })));
+}
+boardGrid.addEventListener('click', e => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>('.empty-box');
+  if (el) pickAgentFor(el, e.clientX, e.clientY);
 });
 boardGrid.addEventListener('keydown', e => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('.empty-box');
   if (!el || e.key !== 'Enter' || e.target !== el) return;
   const r = el.getBoundingClientRect();
-  popupMenu(r.left + 16, r.top + 16, foundAgents().map(a => ({ label: agentShortName(a), run: () => dropAgent(el.dataset.box!, a.id) })));
+  pickAgentFor(el, r.left + 16, r.top + 16);
 });
 
 // A box that is working refuses a drop (it shakes); an idle one takes the new agent and starts a new chat.
@@ -176,19 +256,21 @@ function dropAgent(key: string, agent: string): void {
     toast(`${boxName(box)} is still working`);
     return;
   }
-  if (box) {
-    dropRelaysFor(key);
-    removeBox(box);
-    background(api.board.clearBox(key));
-  }
-  fillBox(key, agent);
+  morphBoard(() => {
+    if (box) {
+      dropRelaysFor(key);
+      removeBox(box);
+      background(api.board.clearBox(key));
+    }
+    fillBox(key, agent);
+    saveBoard();
+    boardBoxes.get(key)?.surface.prompt.focus();
+  }); // runs once the old look is captured, a frame later when it morphs
   sfx.play('send');
-  saveBoard();
-  boardBoxes.get(key)?.surface.prompt.focus();
 }
 
 /* ----- A filled box: header, chat, prompt ----- */
-function fillBox(key: string, agent: string, saved?: { historyId?: string; sessions?: Record<string, string> }): BoardBox {
+function fillBox(key: string, agent: string, saved?: { historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string }): BoardBox {
   const el = document.createElement('section');
   el.className = 'board-box filled';
   el.dataset.box = key;
@@ -196,17 +278,19 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     <header class="board-box-head">
       ${brandMark('board-box-logo', agent, agentNameOf(agent)[0] ?? '?')}
       <b class="board-box-name"></b>
-      <button class="icon-btn board-box-model" type="button" title="Model and effort" aria-label="Model and effort"><svg data-i="chevronDown" data-size="13"></svg></button>
+      <button class="board-box-model" type="button" title="Model and effort" aria-haspopup="menu"><span class="bbm-label"></span><svg data-i="chevronDown" data-size="11"></svg></button>
       <span class="board-dot" role="status"></span>
       <span class="flex-1"></span>
       <button class="board-owns" type="button" title="Files this box owns"></button>
+      <button class="icon-btn board-box-split" type="button" title="Split: add an agent beside this one" aria-label="Split: add an agent beside this one" aria-haspopup="menu"><svg data-i="columns" data-size="14"></svg></button>
       <button class="icon-btn board-box-close" type="button" title="Empty this box" aria-label="Empty this box"><svg data-i="x" data-size="14"></svg></button>
     </header>
     <div class="board-chat chat"></div>
-    <div class="composer board-composer"><div class="composer-box compact">
+    <div class="composer board-composer"><div class="composer-box">
       <div class="composer-attachments hidden"></div>
-      <div class="prompt-field"><textarea rows="1" aria-label="Message to this box's agent" placeholder="Tell ${escAttr(agentNameOf(agent))} what to build"></textarea></div>
-      <div class="row"><select class="select hidden" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select><span class="flex-1"></span>
+      <div class="prompt-field"><div class="prompt-hl" aria-hidden="true"></div><textarea rows="1" data-no-grow aria-label="Message to ${escAttr(agentNameOf(agent))} in box ${boxNumber(key)}" placeholder=" "></textarea></div>
+      <div class="row"><select class="select hidden" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select><span class="prompt-models"></span><span class="flex-1"></span>
+        <span class="composer-access" title="Full access lets agents run any command and reach any file. Off keeps them in the project."><span class="ca-label">Full access</span><button class="switch switch-sm" data-full-access type="button" role="switch" aria-checked="false" aria-label="Full access"><span class="sw-knob"></span></button></span>
         <button class="btn btn-primary btn-sm board-send" title="Send (Enter)" aria-label="Send"><svg data-i="send" data-size="14"></svg></button></div>
     </div></div>`;
   paintIcons(el);
@@ -227,7 +311,10 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
   activeTabId[s.name] = tab.id;
   tab.panel.classList.add('active');
   if (!entry) tab.panel.innerHTML = `<div class="empty"><div>${brandMark('board-empty-logo', agent, agentNameOf(agent)[0] ?? '?')}<h4>${esc(agentNameOf(agent))} is ready</h4><div class="empty-line">Its files stay its own. It asks the other boxes for changes in theirs.</div></div></div>`;
-  const box: BoardBox = { key, agent, surface: s, tab, el, status: 'idle', runIds: new Set(), lastText: '' };
+  const box: BoardBox = { key, agent, surface: s, tab, el, status: 'idle', runIds: new Set(), lastText: '', scrollPending: !!entry };
+  if (typeof saved?.model === 'string') box.model = saved.model;
+  const eff = EFFORTS.find(e => e === saved?.effort);
+  if (eff) box.effort = eff;
   boardBoxes.set(key, box);
   wireBox(box);
   paintBox(box);
@@ -235,27 +322,52 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
   return box;
 }
 
+const boxAgent = (box: { agent: string }) => appState.detect?.agents.find(a => a.id === box.agent);
 function wireBox(box: BoardBox): void {
   const { el, surface: s } = box;
+  // The prompt works as the Agents tab's: its text drawn by a layer, the agent's model chip and Full access once
+  // something is typed, "/skill" suggestions, examples in the placeholder, and a height that eases as it grows.
+  const kit: PromptKit = { ta: s.prompt, hl: $('.prompt-hl', el), models: $('.prompt-models', el), picked: () => { const a = boxAgent(box); return a ? [a] : []; }, mentions: false, anim: null, target: () => boxModelTarget(box) };
+  box.kit = kit;
+  wirePromptKit(kit);
+  wireSlash(s); // before the send handler below, so Enter picks a skill instead of sending
+  rotatePlaceholder(s.prompt, ' ', IDE_PLACEHOLDERS);
+  $<HTMLButtonElement>('[data-full-access]', el).onclick = () => setFullAccess(!agentFullAccess);
+  renderAccessSwitches();
   s.send.onclick = () => (tabBusy(box.tab) ? stopBox(box) : void sendBox(box));
   s.prompt.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!boxBusy(box)) void sendBox(box); }
   });
-  s.prompt.addEventListener('input', () => { s.prompt.style.height = 'auto'; s.prompt.style.height = `${Math.min(160, s.prompt.scrollHeight)}px`; });
+  s.prompt.addEventListener('input', () => syncPromptHl(kit));
+  syncPromptHl(kit);
   $('.board-box-close', el).onclick = () => void emptyBox(box.key);
   $('.board-owns', el).onclick = e => ownsMenu(box, e.currentTarget as HTMLElement);
+  $('.board-box-split', el).onclick = e => {
+    const agents = foundAgents();
+    if (!agents.length) { toast('No agents found. Install one from Settings.'); return; }
+    openChipMenu(e.currentTarget as HTMLElement, agents.map(a => ({ label: agentShortName(a), run: () => addAgent(a.id) })));
+  };
   $('.board-box-model', el).onclick = e => {
-    const ag = appState.detect?.agents.find(a => a.id === box.agent);
-    if (ag) openChipMenu(e.currentTarget as HTMLElement, agentChipMenuItems(ag));
+    const ag = boxAgent(box);
+    if (ag) openChipMenu(e.currentTarget as HTMLElement, modelPickerItems(ag, false, boxModelTarget(box)));
   };
   $('.board-box-head', el).addEventListener('dblclick', e => {
     if ((e.target as HTMLElement).closest('button')) return;
     toggleMaxBox(box);
   });
 }
+function scrollRestoredChats(): void {
+  for (const b of boardBoxes.values()) {
+    if (!b.scrollPending || !b.surface.chat.clientHeight) continue;
+    b.scrollPending = false;
+    b.surface.chat.scrollTop = b.surface.chat.scrollHeight;
+  }
+}
 function toggleMaxBox(box: BoardBox | null): void {
-  for (const b of boardBoxes.values()) if (b !== box) b.el.classList.remove('box-max');
-  boardGrid.classList.toggle('has-max', !!box && box.el.classList.toggle('box-max'));
+  morphBoard(() => {
+    for (const b of boardBoxes.values()) if (b !== box) b.el.classList.remove('box-max');
+    boardGrid.classList.toggle('has-max', !!box && box.el.classList.toggle('box-max'));
+  });
 }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && boardPageShowing() && boardGrid.classList.contains('has-max') && !modalOpen()) toggleMaxBox(null);
@@ -263,8 +375,10 @@ document.addEventListener('keydown', e => {
 
 function paintBox(box: BoardBox): void {
   if (tabBusy(box.tab)) box.status = boardWaiting(box.key) ? 'waiting' : 'working';
-  else if (box.status === 'working' || box.status === 'waiting') box.status = boardWaiting(box.key) ? 'waiting' : 'idle';
+  else if (boardWaiting(box.key)) box.status = 'waiting';
+  else if (box.status === 'working' || box.status === 'waiting') box.status = 'idle';
   $('.board-box-name', box.el).textContent = boxName(box);
+  paintBoxModel(box);
   const dot = $('.board-dot', box.el);
   dot.dataset.status = box.status;
   dot.title = { idle: 'Idle', working: 'Working', waiting: 'Waiting on a teammate', done: 'Done', failed: 'Failed' }[box.status];
@@ -276,12 +390,62 @@ function paintBox(box: BoardBox): void {
   renderBoardStatus();
 }
 
+// Each box keeps its own model and effort (Claude · 1 on Opus, Claude · 2 on Sonnet). Until it picks, it shows and
+// uses the agent's own. A pick goes with the box's runs (board:run) and is saved with the board.
+function boxModelOf(box: BoardBox): string {
+  const ag = boxAgent(box);
+  const own = box.model && (!ag?.models?.length || ag.models.includes(box.model)) ? box.model : ''; // a model the agent dropped falls back
+  return own || ag?.version || ag?.models?.[0] || '';
+}
+function boxEffortOf(box: BoardBox): EffortLevel {
+  if (box.effort) return box.effort;
+  const ag = boxAgent(box);
+  return ag ? agentEffort(ag) : currentEffort();
+}
+function boxModelTarget(box: BoardBox): ModelTarget {
+  return {
+    model: () => boxModelOf(box),
+    effort: () => boxEffortOf(box),
+    set: (model, effort) => {
+      box.model = model || undefined;
+      box.effort = effort;
+      paintBoxModel(box);
+      if (box.kit) renderPromptModels(box.kit);
+      saveBoard();
+      toast(`${boxName(box)} will use ${versionLabel(model) || 'its default model'}${boxAgent(box)?.api ? '' : ` (${effort} effort)`}`);
+    },
+  };
+}
+// What board:run sends for a box: only what it picked itself, so an untouched box follows the agent's settings.
+function boardPickOf(key: string): { model?: string; effort?: string } {
+  const b = boardBoxes.get(key);
+  if (!b) return {};
+  const model = b.model ? boxModelOf(b) : '';
+  return { ...(model ? { model } : {}), ...(b.effort ? { effort: b.effort } : {}) };
+}
+// The header's model, as the Agents tab's chip shows it: "Opus 4.6 · High" (a local model has no effort).
+function paintBoxModel(box: BoardBox): void {
+  const ag = boxAgent(box);
+  const model = ag ? versionLabel(boxModelOf(box)) : '';
+  const btn = $('.board-box-model', box.el);
+  $('.bbm-label', btn).innerHTML = model ? `${esc(model)}${ag && !ag.api ? `<small> · ${esc(boxEffortOf(box))}</small>` : ''}` : '';
+  btn.classList.toggle('no-model', !model);
+  btn.setAttribute('aria-label', model ? `${agentShortName(ag!)} model: ${model}. Change model or effort` : 'Model and effort');
+}
+// A model or effort changed somewhere (renderAgentBar): every box's header and prompt chip show it.
+function renderBoardModels(): void {
+  for (const b of boardBoxes.values()) {
+    paintBoxModel(b);
+    if (b.kit) renderPromptModels(b.kit);
+  }
+}
+
 async function sendBox(box: BoardBox): Promise<void> {
   const text = box.surface.prompt.value.trim();
   if (!text || boxBusy(box)) return;
   if (!rootInfo) { toast('Open a folder first, so the agents know what to work on'); return; }
   box.surface.prompt.value = '';
-  box.surface.prompt.style.height = '';
+  if (box.kit) syncPromptHl(box.kit);
   personSpokeIn(box.key);
   if (box.tab.panel.querySelector('.empty')) box.tab.panel.innerHTML = '';
   sfx.play('send');
@@ -322,11 +486,9 @@ async function emptyBox(key: string): Promise<void> {
   if (!box) return;
   if (boxBusy(box)) stopBox(box);
   dropRelaysFor(key);
-  removeBox(box);
+  if (box.el.classList.contains('box-max')) toggleMaxBox(null);
   background(api.board.clearBox(key));
-  renderBoard();
-  saveBoard();
-  renderBoardStatus();
+  morphBoard(() => { removeBox(box); renderBoard(); saveBoard(); renderBoardStatus(); });
 }
 
 /* ----- Ownership: "owns N files", from main ----- */
@@ -376,7 +538,7 @@ function saveBoard(): void {
   const boxes: BoardSaved['boxes'] = {};
   for (const b of boardBoxes.values()) {
     archiveChatTab(b.surface, b.tab);
-    boxes[b.key] = { agent: b.agent, historyId: b.tab.historyId, sessions: b.tab.sessions };
+    boxes[b.key] = { agent: b.agent, historyId: b.tab.historyId, sessions: b.tab.sessions, model: b.model, effort: b.effort };
   }
   store.set(boardStoreKey(), { boxes } satisfies BoardSaved);
 }
@@ -466,10 +628,11 @@ function onRelay(from: BoardBox, ev: AgentEvent): void {
   deliver(r);
 }
 
-function deliver(r: Relay): void {
+// `sent`: the person pressed Send on it (it goes even with Auto-relay off).
+function deliver(r: Relay, sent = false): void {
   const target = boardBoxes.get(r.to);
   if (!target) { closeAsk(r); return; }
-  const outcome = relayQueue.push(r, boxIdle);
+  const outcome = relayQueue.push(r, boxIdle, sent);
   if (outcome === 'start') { void startRelay(r); return; }
   const card = incomingCard(r, target);
   const wait = card.querySelector<HTMLElement>('.relay-wait')!;
@@ -481,7 +644,7 @@ function deliver(r: Relay): void {
   wait.innerHTML = `${esc(why)} Send it?<span class="row" data-live><button class="btn btn-sm btn-primary" data-relay-send>Send</button><button class="btn btn-sm" data-relay-drop>Drop</button></span>`;
   wait.querySelector<HTMLElement>('[data-relay-send]')!.onclick = () => {
     const sent = relayQueue.send(r.id);
-    if (sent) deliver(sent);
+    if (sent) deliver(sent, true);
   };
   wait.querySelector<HTMLElement>('[data-relay-drop]')!.onclick = () => {
     relayQueue.drop(r.id);
@@ -573,7 +736,9 @@ function stopAllRelays(): void {
     const wait = card.querySelector('.relay-wait');
     if (wait && (wait.querySelector('button') || wait.textContent?.startsWith('Waiting'))) wait.textContent = 'Stopped.';
   }
-  resetRelays();
+  for (const r of relayQueue.stopAll()) closeAsk(r);
+  // Relays being answered right now stay in relayRuns: each stopped run's done (onBoxIdle) marks its card
+  // "Stopped." and tells the box that asked.
   for (const b of boardBoxes.values()) paintBox(b);
 }
 function resetRelays(): void {

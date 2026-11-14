@@ -109,8 +109,8 @@ function updateSlashMenu(s: Surface): void {
   kbIdx = -1;
   moveKbSelection(true);
 }
-for (const s of Object.values(SURFACES)) {
-  // Registered before the send handler below, so Enter picks a skill instead of sending.
+function wireSlash(s: Surface): void {
+  // Registered before the send handler, so Enter picks a skill instead of sending.
   s.prompt.addEventListener('keydown', e => {
     if (!slashOpen() || slashList?.s !== s || e.isComposing) return;
     const own = () => { e.preventDefault(); e.stopImmediatePropagation(); };
@@ -122,6 +122,7 @@ for (const s of Object.values(SURFACES)) {
   s.prompt.addEventListener('keyup', e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateSlashMenu(s); });
   s.prompt.addEventListener('blur', closeSlash);
 }
+for (const s of Object.values(SURFACES)) wireSlash(s);
 // Where each "/skill" Breeze knows sits in `text` (at the start or after a space), as [start, end) pairs.
 function slashRanges(text: string): [number, number][] {
   const known = new Set((slashSkills ?? []).map(k => k.cmd.toLowerCase()));
@@ -177,6 +178,9 @@ function mentionHtml(text: string, agents = true): string {
 }
 // The prompt's text is drawn by a layer behind it (the textarea's own text is transparent), so mentions can be blue.
 const promptHl = $('#promptHl');
+// One prompt box built like the Agents tab's: its textarea, the layer that draws its text, the row of model chips,
+// and the agents those chips show for `text`. `mentions`: @agent words turn blue (the Agents tab only).
+interface PromptKit { ta: HTMLTextAreaElement; hl: HTMLElement; models: HTMLElement; picked: (text: string) => DetectedAgent[]; mentions: boolean; anim: Animation | null; target?: (a: DetectedAgent) => ModelTarget | undefined }
 // The installed agents @mentioned in `text`, once each, in the order they appear.
 function mentionedAgents(text: string): DetectedAgent[] {
   const agents = (appState.detect?.agents ?? []).filter(a => a.found);
@@ -190,23 +194,25 @@ function mentionedAgents(text: string): DetectedAgent[] {
 }
 // Under the prompt: one chip per agent tagged in it, showing its model and effort; a click changes either.
 // Chips are kept between keystrokes so only a newly tagged agent slides in.
-function promptModelHtml(a: DetectedAgent): string {
-  const model = a.version || a.models?.[0] || '';
-  const eff = a.api ? '' : `<small class="dd-eff"> · ${esc(agentEffort(a))}</small>`;
+function promptModelHtml(a: DetectedAgent, target?: ModelTarget): string {
+  const model = target?.model() || a.version || a.models?.[0] || '';
+  const eff = a.api ? '' : `<small class="dd-eff"> · ${esc(target ? target.effort() : agentEffort(a))}</small>`;
   return `<b>${esc(agentShortName(a))}</b><span class="pm-model">${esc(versionLabel(model))}</span>${eff}${svgIcon('chevronDown', 10)}`;
 }
-function renderPromptModels(): void {
-  const box = $('#promptModels');
-  const text = SURFACES.ide.prompt.value;
+// The Agents tab's chips: the agents tagged in the prompt, or with none tagged the default agent (the one that answers).
+function idePickedAgents(text: string): DetectedAgent[] {
+  const picked = mentionedAgents(text);
+  if (picked.length) return picked;
+  const def = appState.detect?.agents.find(x => x.id === appState.agent);
+  return def ? [def] : [];
+}
+function renderPromptModels(kit: PromptKit = IDE_KIT): void {
+  const box = kit.models;
+  const text = kit.ta.value;
   const typed = !!text.trim();
-  // An empty prompt shows neither Full access nor a model chip; once something is typed both come in. With no agent
-  // tagged, the chip is the default agent's (the one that will answer), so its model and effort can be changed here.
+  // An empty prompt shows neither Full access nor a model chip; once something is typed both come in.
   box.closest('.composer-box')?.classList.toggle('has-text', typed);
-  let picked = typed ? mentionedAgents(text) : [];
-  if (typed && !picked.length) {
-    const def = appState.detect?.agents.find(x => x.id === appState.agent);
-    if (def) picked = [def];
-  }
+  const picked = typed ? kit.picked(text) : [];
   const tagged = picked.filter(a => a.models?.length || a.version);
   const ids = tagged.map(a => a.id);
   // An untagged agent's chip fades out where it is; the box keeps its row until then (see fitPrompt), so the chip
@@ -222,7 +228,7 @@ function renderPromptModels(): void {
       const composer = el.closest<HTMLElement>('.composer-box');
       const fromH = composer?.getBoundingClientRect().height ?? 0;
       el.remove();
-      syncPromptHl();
+      syncPromptHl(kit);
       if (!composer) return;
       const toH = composer.getBoundingClientRect().height;
       if (Math.abs(toH - fromH) < 1) return;
@@ -243,7 +249,7 @@ function renderPromptModels(): void {
       el.dataset.agent = a.id;
       el.setAttribute('aria-haspopup', 'menu');
     }
-    const html = promptModelHtml(a);
+    const html = promptModelHtml(a, kit.target?.(a));
     if (el.innerHTML !== html) el.innerHTML = html;
     el.setAttribute('aria-label', `${agentShortName(a)}: change model${a.api ? '' : ' or effort'}`); // no tooltip, just for screen readers
     if (prev ? prev.nextElementSibling !== el : box.firstElementChild !== el) {
@@ -252,11 +258,11 @@ function renderPromptModels(): void {
     prev = el;
   }
 }
-$('#promptModels').addEventListener('click', e => {
+function onPromptModelClick(e: MouseEvent, kit: PromptKit = IDE_KIT): void {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.prompt-model:not(.leaving)');
   const ag = chip && appState.detect?.agents.find(x => x.id === chip.dataset.agent);
   if (!chip || !ag) return;
-  openChipMenu(chip, modelPickerItems(ag));
+  openChipMenu(chip, modelPickerItems(ag, false, kit.target?.(ag)));
   // The composer sits at the bottom of the window, so the menu opens upwards.
   const m = chip.classList.contains('open') ? $('#menuRoot .menu') : null;
   if (m) {
@@ -265,14 +271,15 @@ $('#promptModels').addEventListener('click', e => {
     m.style.top = `${Math.max(8, r.top - m.offsetHeight - 4)}px`;
     m.classList.add('up');
   }
-});
+}
+$('#promptModels').addEventListener('click', e => onPromptModelClick(e));
 // The prompt grows with its text, up to a cap, then scrolls.
 const PROMPT_MAX_H = 200;
 // While no agent is tagged, the send button sits beside the prompt rather than on a row of its own.
-function fitPrompt(): void {
-  const ta = SURFACES.ide.prompt;
+function fitPrompt(kit: PromptKit = IDE_KIT): void {
+  const ta = kit.ta;
   const box = ta.closest('.composer-box') as HTMLElement;
-  box.classList.toggle('compact', !$('#promptModels').querySelector('.prompt-model'));
+  box.classList.toggle('compact', !kit.models.querySelector('.prompt-model'));
   ta.style.height = 'auto';
   const need = ta.scrollHeight;
   ta.style.height = `${Math.min(PROMPT_MAX_H, need)}px`;
@@ -284,12 +291,12 @@ function fitPrompt(): void {
 }
 // A new line eases the prompt to its new height. Only the text box animates: the box grows around it and the
 // send button, pinned to the bottom, never moves.
-let promptAnim: Animation | null = null;
-function animatePromptHeight(ta: HTMLTextAreaElement, fromH: number): void {
-  promptAnim?.cancel(); // read the end height without it (the start was read with it)
+function animatePromptHeight(kit: PromptKit, fromH: number): void {
+  const ta = kit.ta;
+  kit.anim?.cancel(); // read the end height without it (the start was read with it)
   const toH = ta.offsetHeight;
   if (Math.abs(toH - fromH) < 1) return;
-  promptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  kit.anim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
 }
 /* ----- Grow: when a panel is squeezed or widened and text rewraps, blocks ease to their new height instead of
    jumping (the commit box going from one line to two, a note gaining a line). Only height animates: widths keep
@@ -364,19 +371,26 @@ watchGrow(document);
 new MutationObserver(records => {
   for (const r of records) for (const n of r.addedNodes) watchGrow(n);
 }).observe(document.body, { childList: true, subtree: true });
-function syncPromptHl(): void {
-  const ta = SURFACES.ide.prompt;
+function syncPromptHl(kit: PromptKit = IDE_KIT): void {
+  const ta = kit.ta;
   const fromH = ta.getBoundingClientRect().height;
-  renderPromptModels();
-  fitPrompt();
-  animatePromptHeight(ta, fromH);
+  renderPromptModels(kit);
+  fitPrompt(kit);
+  animatePromptHeight(kit, fromH);
   // A trailing newline needs a character after it, or the layer is a line short.
-  promptHl.innerHTML = mentionHtml(ta.value) + (ta.value.endsWith('\n') ? ' ' : '');
-  promptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`; // clear of its scroll bar, if it shows one
-  promptHl.scrollTop = ta.scrollTop;
+  kit.hl.innerHTML = mentionHtml(ta.value, kit.mentions) + (ta.value.endsWith('\n') ? ' ' : '');
+  kit.hl.style.right = `${ta.offsetWidth - ta.clientWidth}px`; // clear of its scroll bar, if it shows one
+  kit.hl.scrollTop = ta.scrollTop;
 }
+// Keeps a kit's layer, chips and height in step with its textarea (the Agents tab's below; each board box's in board.ts).
+function wirePromptKit(kit: PromptKit): void {
+  kit.ta.addEventListener('scroll', () => { kit.hl.scrollTop = kit.ta.scrollTop; });
+  new ResizeObserver(() => syncPromptHl(kit)).observe(kit.ta);
+  kit.models.addEventListener('click', e => onPromptModelClick(e, kit));
+}
+const IDE_KIT: PromptKit = { ta: SURFACES.ide.prompt, hl: promptHl, models: $('#promptModels'), picked: idePickedAgents, mentions: true, anim: null };
 SURFACES.ide.prompt.addEventListener('scroll', () => { promptHl.scrollTop = SURFACES.ide.prompt.scrollTop; });
-new ResizeObserver(syncPromptHl).observe(SURFACES.ide.prompt);
+new ResizeObserver(() => syncPromptHl()).observe(SURFACES.ide.prompt);
 
 // Breeze Space's prompt has the same layer behind it, for its "/skill"s (Box doesn't @mention agents).
 const boxPromptHl = $('#boxPromptHl');

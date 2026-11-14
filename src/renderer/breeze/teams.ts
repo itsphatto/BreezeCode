@@ -335,7 +335,7 @@ function finishTeamMember(r: Run, ev: AgentEvent, tab: AgentTabState, team: Agen
   labelAgent = label;
   if (!hasAnyActiveRun()) vibeDone(allOk);
   const s = SURFACES[tab.surfaceName];
-  s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' ';
+  if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
   if (lastRunFiles.length && running) void reloadPreview();
 }
 
@@ -366,7 +366,7 @@ async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, u
     const session = tab.sessions[agentId] ?? null;
     // An Agent board box runs through the board, which keeps its files apart from the other boxes'.
     const id = isBoardSurface(tab.surfaceName)
-      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session })
+      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, ...boardPickOf(boxKeyOf(tab.surfaceName)) })
       : await api.agent.run({ agent: agentId, mode, prompt, session, box });
     const run: Run = {
       id,
@@ -739,7 +739,7 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
     background(fillEditCounts(edits, files, tab));
   }
   addMsg(`<div class="run-done"><span>✓ Done${summary}</span></div>`, tab);
-  s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' ';
+  if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
   if (r.files.size && running) void reloadPreview();
 }
 

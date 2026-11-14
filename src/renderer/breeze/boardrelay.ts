@@ -25,10 +25,11 @@ class RelayQueue {
 
   constructor(limit = 3) { this.limit = limit; }
 
-  push(r: Relay, isIdle: (box: string) => boolean): RelayOutcome {
+  // `sent`: the person pressed Send on it, so it goes whatever Auto-relay and the loop guard say.
+  push(r: Relay, isIdle: (box: string) => boolean, sent = false): RelayOutcome {
     const pair = pairOf(r.from, r.to);
     const hops = (this.hops.get(pair) ?? 0) + 1;
-    if (!this.auto || hops > this.limit) {
+    if (!sent && (!this.auto || hops > this.limit)) {
       this.paused.set(r.id, r);
       return 'paused';
     }
@@ -85,10 +86,13 @@ class RelayQueue {
     return dropped;
   }
 
-  stopAll(): void {
+  // Returns the relays it dropped.
+  stopAll(): Relay[] {
+    const dropped = [...this.paused.values(), ...[...this.queued.values()].flat()];
     this.queued.clear();
     this.paused.clear();
     this.hops.clear();
+    return dropped;
   }
 }
 

@@ -18204,6 +18204,19 @@ input.dbg-edit.bad:focus-visible {
   transition: background .15s, border-color .15s, transform .15s;
 }
 
+/* The global `-webkit-user-drag: none` rule would stop the chip from dragging at all. */
+.board-chip[draggable="true"] {
+  -webkit-user-drag: element;
+}
+
+.board-chip[draggable="true"] * {
+  pointer-events: none;
+}
+
+.empty-box {
+  cursor: pointer;
+}
+
 .board-chip:hover,
 .board-chip:focus-visible {
   border-color: rgba(var(--ink), .28);
@@ -18274,15 +18287,70 @@ input.dbg-edit.bad:focus-visible {
   padding: var(--gap) var(--gap) var(--gap) 0;
 }
 
+/* Columns and rows come from the number of boxes (layoutBoard, board.ts): 1 fills the page, 2 split it, 3 is one tall
+   box and two stacked, 4 is two by two, 5–8 are two rows. Too narrow for that: two to a row, half the page high. */
 .board-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: calc((100% - var(--gap)) / 2);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: var(--gap);
   min-height: 0;
+  overflow: hidden;
+}
+
+.board-grid.scroll {
+  grid-auto-rows: calc((100% - var(--gap)) / 2);
   overflow-y: auto;
   scroll-snap-type: y proximity;
-  scrollbar-gutter: stable;
+}
+
+/* The spot a dragged chip opens: lighter than the empty board's box, and lit while the chip is over it. */
+.board-box.spot-box {
+  border-color: rgba(var(--ink), .3);
+  background: rgba(var(--ink), .025);
+}
+
+/* Adding, emptying or maximizing a box (morphBoard, board.ts): each box glides and resizes to its new place. Its
+   picture keeps its own size, pinned top left, and is uncovered or cut off by the box rather than stretched. A new box
+   rises in, an emptied one sinks away. The page under it stays live and takes the pointer (a drag goes on). */
+:root.board-morph::view-transition {
+  pointer-events: none;
+}
+
+:root.board-morph::view-transition-old(root),
+:root.board-morph::view-transition-new(root) {
+  animation: none;
+}
+
+:root.board-morph::view-transition-group(*) {
+  overflow: clip;
+  border-radius: var(--r);
+  animation-duration: .36s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+:root.board-morph::view-transition-old(*),
+:root.board-morph::view-transition-new(*) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+  animation-duration: .22s;
+}
+
+:root.board-morph::view-transition-new(*):only-child {
+  animation: board-box-in .34s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+:root.board-morph::view-transition-old(*):only-child {
+  animation: board-box-out .2s ease-in both;
+}
+
+@keyframes board-box-in {
+  from { opacity: 0; transform: scale(.97); }
+}
+
+@keyframes board-box-out {
+  to { opacity: 0; transform: scale(.97); }
 }
 
 .board-box {
@@ -18362,10 +18430,46 @@ input.dbg-edit.bad:focus-visible {
   white-space: nowrap;
 }
 
+/* The box's model beside its name, as the Agents tab's model chip shows it; a click picks another. */
 .board-box-model {
-  width: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   height: 22px;
+  padding: 0 6px;
+  border: 0;
   border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.board-box-model:hover,
+.board-box-model.open {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.board-box-model .bbm-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-box-model small {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.board-box-model.no-model {
+  padding: 0;
+  width: 22px;
+  justify-content: center;
 }
 
 .board-dot {
@@ -18423,15 +18527,27 @@ input.dbg-edit.bad:focus-visible {
   min-height: 0;
 }
 
-.board-composer {
-  padding: 0 8px 8px;
+/* A box's prompt is the Agents tab's (.composer): sized to its text from one line, like #prompt. */
+.board-composer textarea {
+  min-height: 0;
+  overflow-y: hidden;
+}
+
+.board-composer textarea::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* A double-clicked box fills the page; the others step aside until Esc. */
 .board-grid.has-max {
-  grid-template-columns: minmax(0, 1fr);
-  grid-auto-rows: 100%;
+  grid-template-columns: minmax(0, 1fr) !important; /* over the layout's own lines, set on the element */
+  grid-template-rows: minmax(0, 1fr) !important;
   overflow: hidden;
+}
+
+.board-grid.has-max > .box-max {
+  grid-area: 1 / 1 / 2 / 2 !important;
 }
 
 .board-grid.has-max > .board-box:not(.box-max) {
