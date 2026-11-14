@@ -163,6 +163,9 @@ interface DocLine { text: string; len: number }
 interface DocOpen extends DocState { doc: number; bytes: number; eol: '\n' | '\r\n'; readOnly: boolean; recovered: boolean }
 type DocKind = 'type' | 'delete' | 'paste' | 'other';
 
+type PowerMode = 'auto' | 'on' | 'off';
+interface PowerInfo { mode: PowerMode; saver: boolean; onBattery: boolean; lowEnd: boolean; reason: 'forced' | 'battery' | 'lowend' | null }
+
 interface BreezeApi {
   version?: string;
   platform?: string;
@@ -411,6 +414,8 @@ interface BreezeApi {
     termPopup(action: 'minimize' | 'toggleMaximize'): Promise<void>; // the popped-out terminal's window (layout.ts)
     onTermMaximized(cb: (maximized: boolean) => void): () => void;
     launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
+  // Power saver (power.ts): main decides when it is on and tells the page of every change.
+  power: { get(): Promise<PowerInfo>; setMode(mode: PowerMode): Promise<PowerInfo>; onChange(cb: (info: PowerInfo) => void): () => void; };
 }
 interface Window { breeze?: BreezeApi; }
 

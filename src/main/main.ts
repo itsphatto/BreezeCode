@@ -1,5 +1,5 @@
 // Electron main process for Breeze IDE: window, file system, search, terminal, git, agents, sign-in and Vibe Mode.
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, ipcMain, nativeImage, nativeTheme, net, powerMonitor, protocol, safeStorage, screen, session, shell } from 'electron';
 import { spawn, execFile, exec } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
@@ -29,6 +29,7 @@ import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './prev
 import { expandAbbr } from './emmet';
 import { markdownBody } from './markdown';
 import { DebugManager, killTree } from './debug';
+import { PowerService } from './power';
 import type { AppUpdater } from 'electron-updater';
 import type { Member } from './team';
 import type { AgentMode } from './antigravityAgentService';
@@ -42,6 +43,7 @@ import type { Bp } from './debugTypes';
 import type { GdbBuild } from './debugGdb';
 import type { McpServer } from './mcp';
 import type { ServerSpec } from './lsp';
+import type { PowerState } from './power';
 
 // JSON read from other programs' logs and streams (Claude Code, Codex, Ollama, GitHub). Its shape changes between
 // versions, so it is read defensively and never trusted to have a field.
@@ -53,9 +55,6 @@ try {
 } catch {
   // Available when installed; only needed for packaged application updates.
 }
-
-// Windows "Animation effects" off makes Chromium report prefers-reduced-motion: reduce; play every animation anyway.
-app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', '.cache', '__pycache__', '.venv']);
@@ -251,6 +250,26 @@ function saveState(patch: Record<string, unknown>) {
   try { fs.writeFileSync(statePath(), JSON.stringify(s, null, 2)); } catch { /* best effort */ }
   return s;
 }
+
+/* ================= Power saver ================= */
+// On battery or on low-end hardware (power.ts) the page drops its blur, looping animations and idle timers
+// (data-power="saver": breeze.css, renderer power.ts). Settings → General → Performance picks Auto, Always on or Off.
+const power = new PowerService({ mode: loadState().powerMode, cpus: os.cpus().length, totalMem: os.totalmem() });
+// Windows "Animation effects" off makes Chromium report prefers-reduced-motion: reduce. Breeze plays every animation
+// anyway, except under the power saver, where the system's choice stands. The switch can only be set before the app
+// is ready and the battery can only be read after, so a battery run is known from how the last run ended.
+if (!power.state().saver && loadState().powerSaverLast !== true) app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
+function applyPower(s: PowerState): void {
+  if (loadState().powerSaverLast !== s.saver) saveState({ powerSaverLast: s.saver });
+  if (win && !win.isDestroyed()) win.webContents.send('power:changed', s);
+}
+power.onChange(applyPower);
+handle('power:get', () => power.state());
+handle('power:setMode', (_e, mode) => {
+  const s = power.setMode(mode);
+  saveState({ powerMode: s.mode });
+  return s;
+});
 
 /* ================= Window ================= */
 // The app icon on the taskbar, window and dock.
@@ -492,6 +511,8 @@ async function startApp() {
   if (process.platform === 'darwin') app.dock?.setIcon(APP_ICON);
   // Windows only shows notifications (Vibe Mode's "your code is ready") for an app with a user model id.
   if (isWin) app.setAppUserModelId(app.isPackaged ? 'com.breeze.ide' : process.execPath);
+  power.watch(powerMonitor); // on-battery / on-ac reach the page live
+  applyPower(power.state());
   createWindow();
   try { await getTools(); } catch (e) { logError('toolchains')(e); }
   app.on('activate', () => {

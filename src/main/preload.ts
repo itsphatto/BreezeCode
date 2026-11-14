@@ -283,4 +283,10 @@ contextBridge.exposeInMainWorld('breeze', {
     launchShow: () => invoke('win:launchShow'),
     launchFade: () => invoke('win:launchFade'),
   },
+  // Power saver (main power.ts): the state now, the Settings choice, and every change (battery, mains, the choice).
+  power: {
+    get: () => invoke('power:get'),
+    setMode: (mode: unknown) => invoke('power:setMode', mode),
+    onChange: (cb: Listener) => listen('power:changed', cb),
+  },
 });
