@@ -34,6 +34,7 @@ function setVar(el: HTMLElement, name: string, value: string): void {
 // save: false while a sash is being dragged, so the layout is written to storage once, when the drag ends.
 function applyLayout(save: unknown = true): void {
   const main = $('#main'), work = $('#work'), t = $('#terminal');
+  if (!layout.previewOpen && document.fullscreenElement) void document.exitFullscreen(); // a closed preview can't stay fullscreen
   const inSpace = layout.termOpen && t.parentElement === $('#box');
   $('#boxTerm').classList.toggle('on', inSpace);
   $('#boxTerm').setAttribute('aria-pressed', String(inSpace));

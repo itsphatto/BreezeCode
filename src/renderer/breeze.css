@@ -819,7 +819,8 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 }
 
 .onboard :is(.setup-card, .start-tile, .device-code),
-.onboard .ob-step .btn:not(.btn-primary, .btn-ghost) {
+/* Not .ob-start: it's opaque white, and a blur under a scaling button re-renders every frame (the hover stuttered). */
+.onboard .ob-step .btn:not(.btn-primary, .btn-ghost, .ob-start) {
   backdrop-filter: blur(36px) saturate(1.3);
 }
 
@@ -859,7 +860,9 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 }
 
 /* Get started: white on the sky (the blue primary button would sink into it). Blue text #1f4dff on white is 5.9:1. */
-.ob-start {
+/* .btn.ob-start so its transition beats the app-wide one in "Interaction feedback" (a .12s transform that made the
+   lift snap while the shadow lagged behind it). */
+.btn.ob-start {
   padding: 11px 30px;
   border: 0;
   border-radius: 12px;
@@ -868,7 +871,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
-  transition: box-shadow .2s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: box-shadow .3s cubic-bezier(.2, .8, .2, 1), transform .3s cubic-bezier(.2, .8, .2, 1);
 }
 
 /* Hover lifts it: a little bigger, a deeper shadow, the colours unchanged. */
@@ -3255,6 +3258,23 @@ svg.ico-svg:active {
 .pane.preview {
   position: relative;
   border-left: 1px solid var(--line);
+}
+
+/* Fullscreen preview (preview.ts): the pane covers the fullscreen window, under menus (70) and toasts (80). */
+.work > .pane.preview.full {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+}
+
+/* The window buttons float over everything, and a fullscreen window has no use for them. */
+.pane.preview.full .sash,
+body:has(.pane.preview.full) #winControls {
+  display: none;
 }
 
 .tabs {
