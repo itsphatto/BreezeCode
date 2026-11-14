@@ -284,8 +284,9 @@ function bindSyntaxSettings(pane: HTMLElement): void {
   showSlots(true);
   // The same picker as the editor's colour swatches, without its opacity bar. Dragging repaints the code as it goes
   // (no redraw of the pane, which would close the picker); the choice is kept as the custom colours.
-  buttons.forEach((btn, i) => btn.onclick = () => showColorPicker(current()[i], btn.getBoundingClientRect(), {
+  buttons.forEach((btn, i) => btn.onclick = () => !pickerWasOpen(btn) && showColorPicker(current()[i], btn.getBoundingClientRect(), {
     alpha: false,
+    from: btn,
     live(next) {
       const colors = [...current()] as SynTriple;
       colors[i] = next.toLowerCase();
@@ -332,22 +333,57 @@ function applyBackdropLook(): void {
     for (const v of ['--bd-img', '--bd-o', '--bd-blur']) root.removeProperty(v);
   }
 }
-function applyBackdrop(): void {
-  const root = document.documentElement;
-  if (backdrop === 'none') delete root.dataset.backdrop; else root.dataset.backdrop = backdrop;
-  applyBackdropLook();
+// Turning a backdrop on or off fades the window's background, not the panels or dialogs over it: a sheet in the theme's
+// own colour (breeze.css body.bd-fade::before) lies behind the see-through surfaces and fades away once the window
+// has gone see-through, or fades in before they go solid again.
+let bdSeq = 0;
+let bdSheet: Animation | null = null;
+function bdFade(to: 0 | 1, ms: number): Promise<boolean> {
+  const body = document.body;
+  const from = body.classList.contains('bd-fade') ? Number(getComputedStyle(body, '::before').opacity) : 1 - to;
+  bdSheet?.cancel();
+  body.classList.add('bd-fade');
+  const a = bdSheet = body.animate([{ opacity: from }, { opacity: to }], { duration: ms * Math.abs(to - from), easing: 'ease', pseudoElement: '::before', fill: 'forwards' });
+  return a.finished.then(() => true, () => false);
+}
+function bdFadeDone(): void {
+  bdSheet?.cancel();
+  bdSheet = null;
+  document.body.classList.remove('bd-fade');
+}
+function applyBackdrop(fade = false): void {
+  const root = document.documentElement, seq = ++bdSeq, on = backdrop !== 'none';
+  const show = () => {
+    if (on) root.dataset.backdrop = backdrop; else delete root.dataset.backdrop;
+    applyBackdropLook();
+  };
   // The window itself goes see-through for Glass only. If this system can't, Glass switches back off.
-  void api.win.glass(backdrop === 'glass').then(ok => {
+  const glass = () => api.win.glass(backdrop === 'glass').then(ok => {
     if (ok || backdrop !== 'glass') return;
     setBackdrop('none');
     toast('Glass isn’t available on this system');
     refreshSettings();
   }).catch(() => undefined);
+  if (!fade) { show(); void glass(); return; }
+  if (on) {
+    // The sheet goes up at once and stays until the window is see-through (on Windows 10 that takes a moment).
+    if (!document.body.classList.contains('bd-fade')) { bdSheet?.cancel(); document.body.classList.add('bd-fade'); }
+    show();
+    void glass().then(() => seq === bdSeq && bdFade(0, 450)).then(done => { if (done && seq === bdSeq) bdFadeDone(); });
+  } else {
+    void bdFade(1, 260).then(done => {
+      if (!done || seq !== bdSeq) return;
+      show();
+      void glass();
+      bdFadeDone();
+    });
+  }
 }
 function setBackdrop(next: Backdrop): void {
+  const fade = (backdrop === 'none') !== (next === 'none');
   backdrop = next;
   store.set('breeze.backdrop', next);
-  applyBackdrop();
+  applyBackdrop(fade);
 }
 if (backdrop !== 'none') applyBackdrop();
 const backdropCardHtml = ([id, name, sub]: [Exclude<Backdrop, 'none'>, string, string]) =>
@@ -537,6 +573,7 @@ function patchUsage(el: HTMLElement, html: string): void {
 }
 // Fetches fresh numbers (agents used outside Breeze count too) and updates only if something changed.
 let usageShown = '';
+let usageTick = 0;
 const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found).sort((a, b) => agentRank(a) - agentRank(b));
 function updateUsage(el: HTMLElement): void {
   background(api.agent.usage().then(u => {
@@ -960,7 +997,14 @@ function bindSettings(m: HTMLElement): void {
   // Each row's description, by its title, so one that a redraw changes (Full access's On/Off) blurs in.
   const rowText = () => new Map($$<HTMLElement>('.set-row', pane).map(r => [r.querySelector('.set-title')?.textContent ?? '', r.querySelector<HTMLElement>('.set-sub')]));
   const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, el]) => [k, el?.textContent ?? ''])) : null;
+  // The usage bars keep their place through a redraw of the same section (Full access flipped): rebuilt, they filled again.
+  const keptUsage = pane.dataset.tab === settingsTab ? pane.querySelector('#sUsage') : null;
   pane.innerHTML = settingsBody(settingsTab);
+  if (keptUsage) {
+    // Put back into the page, its entrance (staggerIn's class) would play again: it is already in.
+    for (const el of [keptUsage, ...keptUsage.querySelectorAll('.stagger-item, .usage-in')]) el.classList.remove('stagger-item', 'usage-in');
+    pane.querySelector('#sUsage')?.replaceWith(keptUsage);
+  }
   if (wasText) {
     for (const [k, el] of rowText()) {
       if (el && wasText.has(k) && wasText.get(k) !== el.textContent) {
@@ -1110,12 +1154,15 @@ function bindSettings(m: HTMLElement): void {
   on('sAgentPicker', () => openAgentPicker());
   on('sFullAccess', () => setFullAccess(!agentFullAccess));
   const usageEl = pane.querySelector<HTMLElement>('#sUsage');
-  if (usageEl) {
+  // A kept list (a redraw of this section, Full access flipped) is left exactly as it is, timer and all: no fetch, so
+  // nothing in it moves because of the redraw.
+  if (usageEl && !keptUsage) {
     fillUsageBars(usageEl);
     usageShown = usageHtml(usageAgents());
     updateUsage(usageEl);
     // Kept current while it's on screen; the timer ends once this pane is redrawn or closed.
-    const tick = setInterval(() => { if (usageEl.isConnected) updateUsage(usageEl); else clearInterval(tick); }, DASH_REFRESH_MS);
+    clearInterval(usageTick);
+    const tick = usageTick = window.setInterval(() => { if (usageEl.isConnected) updateUsage(usageEl); else clearInterval(tick); }, DASH_REFRESH_MS);
   }
   // Home's agent page sits under the Agents pane, outside it, so the pane's redraws leave it be.
   const dashSlot = m.querySelector<HTMLElement>('.set-dash');
