@@ -540,6 +540,26 @@ function questionCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
     if (e.key === 'Enter') { e.preventDefault(); send(); }
   });
 }
+// A picture the agent showed, in the lightbox the user's attachments use. Pictures in a row share one line, and
+// the reply that follows starts a new message. A picture in the project opens in the editor from its name.
+function agentImage(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  if (!ev.url) return;
+  r.lastMsg = undefined;
+  const name = ev.name || 'Picture';
+  const label = ev.caption || ev.path || name;
+  const cap = ev.path
+    ? `<button class="chat-img-cap" type="button" data-edit-file="${escAttr(ev.path)}" title="Open ${escAttr(ev.path)}">${esc(label)}</button>`
+    : `<span class="chat-img-cap">${esc(label)}</span>`;
+  const item = `<figure class="agent-img"><div class="chat-img-wrap" title="Click to view full size"><img src="${escAttr(ev.url)}" class="chat-img" alt="${escAttr(ev.caption || name)}" data-full="${escAttr(ev.url)}"></div>${cap}</figure>`;
+  const thinking = tab.panel.querySelector(':scope > .thinking');
+  const last = (thinking ? thinking.previousElementSibling : tab.panel.lastElementChild) as HTMLElement | null;
+  const row = last?.classList.contains('agent-imgs') && (last.dataset.agent ?? null) === labelAgent ? last.querySelector('.msg-attachments') : null;
+  if (!row) { addMsg(`<div class="msg agent-imgs"><div class="body"><div class="msg-attachments">${item}</div></div></div>`, tab); return; }
+  row.insertAdjacentHTML('beforeend', item);
+  if (tab.id === activeTabId[tab.surfaceName]) scrollChat(SURFACES[tab.surfaceName]);
+  saveChat(tab);
+}
+
 // The card stops taking answers and says how it ended.
 function endQuestion(card: Element | null | undefined, how: string): void {
   card?.querySelector('[data-live]')?.replaceWith(Object.assign(document.createElement('div'), { className: 'resolved', textContent: how }));
@@ -588,6 +608,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   plan: (r, ev) => { r.plan = ev.text ?? ''; },
   approve: (r, ev, tab) => approveCard(r, ev, tab),
   question: (r, ev, tab) => questionCard(r, ev, tab),
+  image: (r, ev, tab) => agentImage(r, ev, tab),
   // The run stopped (or the agent gave up waiting) before anyone answered.
   'question-end': (_r, ev, tab) => { if (ev.id) endQuestion(tab.panel.querySelector(`[data-question="${CSS.escape(ev.id)}"]`), '✕ Not answered'); saveChat(tab); },
   note: (_r, ev, tab) => { if (ev.text) toolLine('note', ev.text, tab); },

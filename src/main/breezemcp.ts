@@ -27,7 +27,20 @@ const ASK_USER: McpTool = {
   },
   annotations: { readOnlyHint: true },
 };
-const BREEZE_TOOLS: McpTool[] = [ASK_USER];
+const SHOW_IMAGE: McpTool = {
+  name: 'show_image',
+  description: 'Show the user a picture in the chat: a png, jpg, gif, webp or svg file in the project, such as one you made or a screenshot. Pictures you write or name in your reply show by themselves; use this for any other you want the user to see.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'The picture\'s path, relative to the project folder' },
+      caption: { type: 'string', description: 'One short line about it' },
+    },
+    required: ['path'],
+  },
+  annotations: { readOnlyHint: true },
+};
+const BREEZE_TOOLS: McpTool[] = [ASK_USER, SHOW_IMAGE];
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_BODY = 1024 * 1024;

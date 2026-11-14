@@ -8,7 +8,7 @@ const fsp = fs.promises;
 import * as nodeModule from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as vm from 'node:vm';
 import { LANG_KINDS, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } from './toolchains';
 import { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } from './guard';
@@ -29,6 +29,7 @@ import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './prev
 import { normalizeQuestion, QuestionDesk, NO_ANSWER } from './askuser';
 import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
 import type { ToolReply } from './breezemcp';
+import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal } from './agentimages';
 import { expandAbbr } from './emmet';
 import { markdownBody } from './markdown';
 import { DebugManager, killTree } from './debug';
@@ -2169,6 +2170,7 @@ function shellEvent(runId: number, id: string, command?: string): void {
   if (teamOf.get(runId)?.team instanceof BoardCoordinator) emit(runId, command === undefined ? { t: 'shell', id, end: true } : { t: 'shell', id, command });
 }
 function emit(runId: number, ev: Loose): void {
+  watchImages(runId, ev);
   if (ev?.t === 'done' && ev.tokens) addUsage(runs.get(runId)?.agent, ev.tokens);
   const entry = teamOf.get(runId);
   if (entry) {
@@ -2866,7 +2868,8 @@ function claudeToolResults(runId: number, d: Loose, ctx: StreamCtx): void {
   const content = d.message?.content;
   if (!Array.isArray(content)) return;
   for (const c of content) {
-    if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) shellEvent(runId, c.tool_use_id);
+    // A command's output may name a picture it made (a screenshot, a chart): it shows in the chat.
+    if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) { shellEvent(runId, c.tool_use_id); imagesIn(runId, toolResultText(c.content)); }
     if (c?.type !== 'tool_result' || !ctx.writes?.has(c.tool_use_id)) continue;
     const file = ctx.writes.get(c.tool_use_id)!;
     ctx.writes.delete(c.tool_use_id);
@@ -2918,6 +2921,7 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   if (session && !SAFE_ID.test(session)) session = null;
   const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null, pick: pick || null };
   runs.set(runId, run);
+  imageRuns.set(runId, { base, agent, pending: '', shown: new Set() });
   if (agent === 'local') return runLocal(runId, run, { mode, prompt, session, base });
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
   const bin = agentBins.get(agent);
@@ -3020,6 +3024,7 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
     if (it.id) shellEvent(runId, String(it.id));
     const exit = it.exit_code ? `  (exit ${it.exit_code})` : '';
     emit(runId, { t: 'tool', kind: 'run', label: `$ ${it.command}${exit}` });
+    imagesIn(runId, it.aggregated_output); // a picture the command made
   },
   file_change: (runId, it) => {
     for (const ch of it.changes || []) {
@@ -3093,6 +3098,7 @@ const LLM_TOOLS = [
   { name: 'move_file', description: 'Move or rename a file or folder. new_path must not exist yet.', parameters: { type: 'object', properties: { path: { type: 'string' }, new_path: { type: 'string' } }, required: ['path', 'new_path'] } },
   { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. The user may be asked to OK it first. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
   { name: 'ask_user', description: 'Ask the user one question and wait for the answer. Use it when the request is unclear and a wrong guess would waste work.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', description: '2 to 4 answers to pick from; the user can also type another', items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } }, multi_select: { type: 'boolean', description: 'Let the user pick more than one' } }, required: ['question'] } },
+  { name: 'show_image', description: 'Show the user a picture from the project (png, jpg, gif, webp or svg) in the chat, such as one you made or a screenshot.', parameters: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string', description: 'One short line about it' } }, required: ['path'] } },
 ].map(fn => ({ type: 'function', function: fn }));
 const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'delete_file', 'move_file', 'run_command']);
 const LIST_MAX = 200;
@@ -3160,7 +3166,64 @@ async function askUser(runId: number, input: unknown, signal?: AbortSignal): Pro
 handle('agent:reply', (_e, id, reply) => questions.answer(String(id), reply && typeof reply === 'object' ? reply : null));
 const BREEZE_TOOL_FNS: Record<string, (runId: number, args: Loose, signal: AbortSignal) => Promise<ToolReply>> = {
   ask_user: async (runId, args, signal) => ({ text: await askUser(runId, args, signal) }),
+  show_image: async (runId, args) => ({ text: showImage(runId, args.path, args.caption) }),
 };
+
+/* ----- Pictures the agent shows the user ----- */
+// A picture the agent wrote, named in its reply or a command's output, or asked to show (show_image) appears in the
+// chat ('image' event) and opens in the lightbox the user's attachments use. Only files inside the project, never
+// .env or .git, unless Full access is on. Screenshots Breeze takes for an agent live in the attachment stash.
+// Kept apart from `runs`: a local run leaves `runs` before its last reply is checked for pictures.
+interface ImageRun { base: string; agent: string; pending: string; shown: Set<string> }
+const imageRuns = new Map<number, ImageRun>();
+const MAX_RUN_IMAGES = 12;
+function showImage(runId: number, ref: unknown, caption?: unknown): string {
+  const ir = imageRuns.get(runId);
+  if (!ir) throw new Error('That run has ended.');
+  const raw = String(ref ?? '').trim();
+  if (!raw) throw new Error('path is empty. Give the path of a picture in the project.');
+  const abs = path.resolve(ir.base, raw.startsWith('file:') ? fileURLToPath(raw) : raw);
+  const why = imageRefusal(ir.base, abs, { full: fullAccess(), extra: [STASH_DIR()] });
+  if (why) throw new Error(why);
+  let st: fs.Stats;
+  try { st = fs.statSync(abs); } catch { throw new Error(`There is no file at ${raw}.`); }
+  if (!st.isFile()) throw new Error(`${raw} is a folder, not a picture.`);
+  if (st.size > IMAGE_MAX_BYTES) throw new Error(`${raw} is larger than 20 MB, too big to show.`);
+  // The time it was saved is in the address, so a picture drawn again shows again (and not from the cache).
+  const url = `${pathToFileURL(abs).href}?v=${Math.round(st.mtimeMs)}`;
+  const name = path.basename(abs);
+  if (ir.shown.has(url)) return `${name} is already showing in the chat.`;
+  if (ir.shown.size >= MAX_RUN_IMAGES) throw new Error(`Only ${MAX_RUN_IMAGES} pictures can show in one reply.`);
+  ir.shown.add(url);
+  // A picture in the open project can open in the editor from its name.
+  const rel = root && ir.base === root && !relTo(root, abs).startsWith('..') ? relTo(root, abs) : '';
+  emit(runId, { t: 'image', url, name, path: rel, caption: String(caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 200) });
+  return `The user can see ${rel || name} in the chat now.`;
+}
+// A path in some text that isn't a picture the agent may show is just text: nothing to say about it.
+function imagesIn(runId: number, text: unknown): void {
+  for (const p of imagePathsIn(text)) { try { showImage(runId, p); } catch { /* not one to show */ } }
+}
+// Every agent's events pass through here (emit). A reply is checked once it has finished streaming, that is when
+// the next event comes; an image file the agent wrote shows once it is on disk.
+function watchImages(runId: number, ev: Loose): void {
+  const ir = imageRuns.get(runId);
+  if (!ir || !ev || ev.t === 'image') return;
+  if (ev.t === 'text') {
+    const text = String(ev.text ?? '');
+    if (ir.pending && !text.startsWith(ir.pending)) imagesIn(runId, ir.pending); // a new message, not more of the last
+    ir.pending = text;
+    return;
+  }
+  if (ir.pending) { const text = ir.pending; ir.pending = ''; imagesIn(runId, text); }
+  // Claude reports a file before writing it ('written' follows); Codex and the local model once it is written.
+  const written = ev.t === 'written' || (ev.t === 'file' && (ev.written || ir.agent === 'local'));
+  if (written && IMAGE_EXT.test(String(ev.path ?? ''))) { try { showImage(runId, ev.path); } catch { /* deleted, or off limits */ } }
+  if (ev.t === 'done') imageRuns.delete(runId);
+}
+// The text of a Claude Code tool result, which is a string or a list of parts.
+const toolResultText = (content: unknown): string => typeof content === 'string' ? content
+  : Array.isArray(content) ? content.map(p => (p?.type === 'text' ? String(p.text ?? '') : '')).join('\n') : '';
 const breezeMcp = new BreezeMcpServer({
   call: (runId, name, args, signal) => {
     if (!runs.has(runId)) throw new Error('That run has ended.');
@@ -3199,6 +3262,8 @@ async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
 }
 const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> = {
   ask_user: (ctx, a) => askUser(ctx.runId, a, ctx.signal),
+  // agentPath keeps the file tools' rules (inside the project, no .env or .git) before showImage checks it again.
+  show_image: (ctx, a) => { agentPath(ctx, a.path); return Promise.resolve(showImage(ctx.runId, a.path, a.caption)); },
   async list_files(ctx, a) {
     const dir = agentPath(ctx, a.path || '.');
     emit(ctx.runId, { t: 'tool', kind: 'read', label: `Listed ${a.path && a.path !== '.' ? a.path : 'the project'}` });
@@ -3261,6 +3326,7 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
         clearTimeout(timer);
         ctx.signal?.removeEventListener('abort', stop);
         const body = out.length > COMMAND_OUT_MAX ? `…${out.slice(-COMMAND_OUT_MAX)}` : out;
+        imagesIn(ctx.runId, body); // a picture the command made
         resolve(`${head}\n${body.trim() || '(no output)'}`);
       };
       child.on('error', err => finish(`Couldn't start it: ${err.message}`));

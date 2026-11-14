@@ -27,10 +27,11 @@ interface Agent {
 }
 interface User { name: string; provider: string; login?: string; email?: string | null; avatar?: string | null; }
 type AgentMode = 'plan' | 'build' | 'ask';
+// 'image': a picture the agent shows (`url` a file address, `path` set when it is in the open project).
 // An agent's question for the user (the 'question' event) and what its card sends back; null means skipped.
 interface AskOption { label: string; description?: string; }
 interface AskReply { picked: string[]; other: string; }
-interface AgentEvent { t: 'session' | 'approve' | 'question' | 'question-end' | 'draft' | 'opening' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done' | 'relay' | 'written' | 'refused'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; written?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; from?: string; to?: string; diff?: string; note?: string; question?: string; options?: AskOption[]; multiSelect?: boolean; }
+interface AgentEvent { t: 'session' | 'approve' | 'question' | 'question-end' | 'image' | 'draft' | 'opening' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done' | 'relay' | 'written' | 'refused'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; written?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; from?: string; to?: string; diff?: string; note?: string; question?: string; options?: AskOption[]; multiSelect?: boolean; name?: string; caption?: string; }
 // Agent teams: one prompt, several agents building in parallel (main process: team.js).
 // Skills view (main/skills.js): a skill is a folder with a SKILL.md; `id` is that folder.
 interface AgentSkill { id: string; file: string; folder: string; name: string; description: string; agent: string; scope: 'user' | 'plugin' | 'synced' | 'builtin'; removable: boolean; plugin?: string; agents?: string[]; }

@@ -436,7 +436,7 @@ function demoApi(): BreezeApi {
     // MCP servers kept in the browser, so the preview can connect and remove them (nothing is started).
     mcp: {
       async list() {
-        return { builtIn: [{ name: 'Breeze (built in)', type: 'http', detail: 'ask_user · for Claude Code, Codex and local models. Antigravity can\'t use them.' }], breeze: store.get<McpServer[]>('breeze.demoMcp', []), claude: [{ name: 'github', type: 'stdio', detail: 'npx -y @modelcontextprotocol/server-github', scope: 'user' }] };
+        return { builtIn: [{ name: 'Breeze (built in)', type: 'http', detail: 'ask_user, show_image · for Claude Code, Codex and local models. Antigravity can\'t use them.' }], breeze: store.get<McpServer[]>('breeze.demoMcp', []), claude: [{ name: 'github', type: 'stdio', detail: 'npx -y @modelcontextprotocol/server-github', scope: 'user' }] };
       },
       async add(input) {
         const list = store.get<McpServer[]>('breeze.demoMcp', []);
