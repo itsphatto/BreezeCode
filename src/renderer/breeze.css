@@ -18152,3 +18152,318 @@ input.dbg-edit.bad:focus-visible {
   font: 12px var(--font-code, monospace);
   text-align: center;
 }
+
+/* ================= Agent board (board.ts) ================= */
+/* Title bar with the roster · activity bar · a 2-column grid of boxes, each half the page high, that scrolls. */
+.board {
+  display: grid;
+  grid-template-rows: 45px minmax(0, 1fr);
+  height: 100vh;
+  background: var(--bg);
+}
+
+.board-bar {
+  gap: 12px;
+}
+
+.board-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.board-title b {
+  font-weight: 600;
+}
+
+.board-roster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-app-region: no-drag;
+}
+
+.board-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-1);
+  font-size: 12.5px;
+  cursor: grab;
+  user-select: none;
+  transition: background .15s, border-color .15s, transform .15s;
+}
+
+.board-chip:hover,
+.board-chip:focus-visible {
+  border-color: rgba(var(--ink), .28);
+  background: var(--bg-2);
+}
+
+.board-chip:active {
+  cursor: grabbing;
+  transform: scale(.97);
+}
+
+.board-chip b {
+  font-weight: 500;
+}
+
+.board-chip-logo,
+.board-box-logo,
+.board-empty-logo {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.board-empty-logo {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 10px;
+  border-radius: 11px;
+}
+
+:is(.board-chip-logo, .board-box-logo, .board-empty-logo) .brand-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.board-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.board-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  -webkit-app-region: no-drag;
+}
+
+.board-stop svg {
+  color: var(--err);
+}
+
+.board-main {
+  --gap: 6px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  min-height: 0;
+  padding: var(--gap) var(--gap) var(--gap) 0;
+}
+
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: calc((100% - var(--gap)) / 2);
+  gap: var(--gap);
+  min-height: 0;
+  overflow-y: auto;
+  scroll-snap-type: y proximity;
+  scrollbar-gutter: stable;
+}
+
+.board-box {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg-1);
+  scroll-snap-align: start;
+  overflow: hidden;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+
+.empty-box {
+  border-style: dashed;
+  background: transparent;
+  cursor: default;
+}
+
+.empty-box:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.board-drop {
+  display: grid;
+  place-content: center;
+  place-items: center;
+  gap: 6px;
+  height: 100%;
+  color: var(--text-3);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.board-drop small {
+  font-size: 11px;
+  opacity: .7;
+}
+
+.board-grid.dragging .board-box {
+  border-color: rgba(var(--ink), .22);
+}
+
+.board-box.drop-on {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+.board-box.shake {
+  animation: board-shake .4s ease;
+}
+
+@keyframes board-shake {
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.board-box-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  user-select: none;
+}
+
+.board-box-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-box-model {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.board-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-3);
+  opacity: .6;
+}
+
+.board-dot[data-status="working"] {
+  background: var(--c-builder);
+  opacity: 1;
+  animation: board-pulse 1.2s ease-in-out infinite;
+}
+
+.board-dot[data-status="waiting"] {
+  background: var(--warn);
+  opacity: 1;
+  animation: board-pulse 1.6s ease-in-out infinite;
+}
+
+.board-dot[data-status="done"] {
+  background: var(--ok);
+  opacity: 1;
+}
+
+.board-dot[data-status="failed"] {
+  background: var(--err);
+  opacity: 1;
+}
+
+@keyframes board-pulse {
+  50% { opacity: .35; }
+}
+
+.board-owns {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.board-owns:hover {
+  color: var(--text);
+}
+
+.board-chat {
+  flex: 1;
+  min-height: 0;
+}
+
+.board-composer {
+  padding: 0 8px 8px;
+}
+
+/* A double-clicked box fills the page; the others step aside until Esc. */
+.board-grid.has-max {
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: 100%;
+  overflow: hidden;
+}
+
+.board-grid.has-max > .board-box:not(.box-max) {
+  display: none;
+}
+
+.board-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--blue-text);
+}
+
+/* Relay cards: one box asking another for a change, and the answer coming back. */
+.card.relay {
+  border-left: 3px solid var(--c-planner);
+}
+
+.card.relay h5 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card.relay pre {
+  max-height: 220px;
+  overflow: auto;
+  font: 11.5px/1.45 var(--font-code);
+  white-space: pre;
+}
+
+.card.relay .relay-wait {
+  color: var(--text-2);
+  font-size: 12px;
+}

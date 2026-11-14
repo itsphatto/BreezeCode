@@ -173,6 +173,15 @@ contextBridge.exposeInMainWorld('breeze', {
     stop: (id: unknown) => invoke('team:stop', id),
     undo: (o: unknown) => invoke('team:undo', o),
   },
+  board: {
+    open: () => invoke('board:open'),
+    run: (o: unknown) => invoke('board:run', o),
+    stop: (boxKey: unknown) => invoke('board:stop', boxKey),
+    stopAll: () => invoke('board:stopAll'),
+    release: (p: unknown) => invoke('board:release', p),
+    owners: () => invoke('board:owners'),
+    clearBox: (boxKey: unknown) => invoke('board:clearBox', boxKey),
+  },
   git: {
     status: () => invoke('git:status'),
     log: () => invoke('git:log'),

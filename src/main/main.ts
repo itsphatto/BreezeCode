@@ -19,6 +19,7 @@ import * as prconflict from './prconflict';
 import { looksBinary } from './sniff';
 import * as syncEngine from './sync';
 import { TeamCoordinator, claudeDenyArgs } from './team';
+import { BoardCoordinator } from './board';
 import { parseMentions, shortName } from './mentions';
 import { LspManager, SERVERS, lspInstalls, findOnPath } from './lsp';
 import { Kernels } from './kernel';
@@ -525,7 +526,7 @@ function boxDir() {
 async function setRoot(dir: string) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
-  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
+  if (root !== dir) { stopLiveServer(); stopTeams(); stopBoard(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
   termCwd = dir;
   const saved = loadState();
@@ -753,7 +754,7 @@ handle('fs:restore', async () => {
 handle('fs:openLaunch', () => openLaunch(root));
 
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
+  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); stopBoard(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {
@@ -2089,7 +2090,7 @@ let nextRun = 1;
 const sendEvent = (runId: number | string, ev: Loose) => win?.webContents.send('agent:event', runId, ev);
 // A team run's events go through its coordinator first, which hides the claim pass and enforces ownership.
 // A dropped team keeps the runs still going until their done, so a team stopped by a folder change hears them end.
-const teamOf = new Map<number, { team: TeamCoordinator; done: boolean }>(); // runId -> its team
+const teamOf = new Map<number, { team: TeamCoordinator | BoardCoordinator; done: boolean }>(); // runId -> its team or board
 function emit(runId: number, ev: Loose): void {
   if (ev?.t === 'done' && ev.tokens) addUsage(runs.get(runId)?.agent, ev.tokens);
   const entry = teamOf.get(runId);
@@ -2479,6 +2480,43 @@ function stopTeams() {
 }
 const isPlainObject = (o: unknown) => Object.prototype.toString.call(o) === '[object Object]';
 
+/* ----- Agent board: boxes of agents running side by side, one owner per file, blocked edits relayed ----- */
+let board: BoardCoordinator | null = null;
+const BOX_KEY = /^box[1-8]$/;
+function openBoard(): BoardCoordinator {
+  if (!root) throw new Error('Open a folder first');
+  if (!board || board.root !== root) {
+    board?.close();
+    board = new BoardCoordinator({ id: crypto.randomUUID(), root, deps: { startRun: launchRun, stopRun, emit: sendEvent, setTimeout, clearTimeout } });
+  }
+  return board;
+}
+function stopBoard(): void {
+  board?.close();
+  board = null;
+}
+const boxKeyOf = (k: unknown): string => {
+  if (typeof k !== 'string' || !BOX_KEY.test(k)) throw new Error('That box does not exist.');
+  return k;
+};
+handle('board:open', () => {
+  const b = openBoard();
+  return { boardId: b.id, owners: { ...b.owners } };
+});
+handle('board:run', async (_e, o) => {
+  const boxKey = boxKeyOf(o?.boxKey);
+  const agent = (await teamAgents()).find(a => a.id === o?.agent);
+  if (!agent?.found) throw new Error('That agent was not found on this computer.');
+  if (typeof o.prompt !== 'string' || !o.prompt.trim()) throw new Error('Tell the agent what to do first.');
+  const session = typeof o.session === 'string' && SAFE_ID.test(o.session) ? o.session : null;
+  return openBoard().startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session });
+});
+handle('board:stop', (_e, k) => { board?.stopBox(boxKeyOf(k)); });
+handle('board:stopAll', () => { board?.stopAll(); });
+handle('board:release', (_e, p) => { if (typeof p === 'string') board?.release(p); });
+handle('board:owners', () => ({ ...(board?.owners ?? {}) }));
+handle('board:clearBox', (_e, k) => { board?.clearBox(boxKeyOf(k)); });
+
 handle('team:parse', async (_e, text) => parseMentions(String(text ?? ''), await teamAgents()));
 handle('team:claim', async (_e, o) => {
   const agents = await teamAgents();
@@ -2619,7 +2657,7 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; retryModel?: (errText: string) => boolean; retry?: string }
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; retryModel?: (errText: string) => boolean; retry?: string }
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell);
   const build = mode === 'build';
@@ -2721,6 +2759,19 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
   const created = c.name === 'Write' && typeof c.input?.content === 'string' && !fs.existsSync(path.resolve(root || HOME, file));
   if (created) emit(runId, { t: 'draft', path: relOut(file), text: c.input.content });
   emit(runId, { t: 'file', path: relOut(file), created });
+  if (c.id) (ctx.writes ??= new Map()).set(c.id, relOut(file)); // its tool_result says whether the write landed
+}
+// The result of a call that names a file: `written` once the change is on disk, `refused` when it failed (on a
+// board, a deny list that kept Claude out of a teammate's file). The `file` event above came before the write.
+function claudeToolResults(runId: number, d: Loose, ctx: StreamCtx): void {
+  const content = d.message?.content;
+  if (!Array.isArray(content) || !ctx.writes) return;
+  for (const c of content) {
+    if (c?.type !== 'tool_result' || !ctx.writes.has(c.tool_use_id)) continue;
+    const file = ctx.writes.get(c.tool_use_id)!;
+    ctx.writes.delete(c.tool_use_id);
+    emit(runId, c.is_error ? { t: 'refused', path: file } : { t: 'written', path: file });
+  }
 }
 function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.is_error || d.subtype !== 'success') {
@@ -2737,6 +2788,7 @@ function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): vo
 function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
   else if (d.type === 'assistant') for (const c of d.message?.content || []) claudeContent(runId, c, ctx);
+  else if (d.type === 'user') claudeToolResults(runId, d, ctx);
   else if (d.type === 'result') claudeResult(runId, d, ctx, mode);
   else if (d.type === 'rate_limit_event' && d.rate_limit_info?.unifiedWindows) saveState({ claudeLimits: d.rate_limit_info.unifiedWindows });
 }
@@ -2959,6 +3011,7 @@ async function checkTeamWrite(ctx: LlmCtx, rel: string): Promise<void> {
   const owner = await coordinator.foreignOwner(agentId, rel);
   if (!owner) return;
   emit(ctx.runId, { t: 'crossing', path: rel, agent: agentId, owner, blocked: true });
+  coordinator.blocked?.(agentId, owner, rel);
   const name = coordinator.members.find((m: Member) => m.agentId === owner)?.name || owner;
   throw new Error(`That file belongs to ${name} on this team. Leave it and mention what you need in your final message.`);
 }

@@ -1289,8 +1289,9 @@ const SCREEN_KEY = 'breeze.screen'; // the screen showing, for a reload or the n
 function swapScreen(to: string): void {
   store.set(SCREEN_KEY, to);
   const next = $(to);
-  const screens = ['#onboard', '#ide', '#box', '#debug'].map(id => $(id));
+  const screens = ['#onboard', '#ide', '#box', '#debug', '#board'].map(id => $(id));
   $('#debugBtn').classList.toggle('on', to === '#debug'); // the activity bar's Debug stays lit while its page shows
+  $('#boardBtn').classList.toggle('on', to === '#board');
   // At launch the remembered screen just appears; the animation is for switching.
   if (!booted) {
     for (const el of screens) {
@@ -1300,7 +1301,7 @@ function swapScreen(to: string): void {
   }
 
   const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out') && !el.classList.contains('screen-prep'));
-  const debugSwap = !!prev && (prev.id === 'debug' || next.id === 'debug');
+  const debugSwap = !!prev && ['debug', 'board'].some(id => prev.id === id || next.id === id); // full pages cross-fade in place
   // Clicked away while a debugger swap is still playing: the next one plays faster.
   const quick = debugSwap && next.classList.contains('screen-out');
   clearTimeout(swapTimer);

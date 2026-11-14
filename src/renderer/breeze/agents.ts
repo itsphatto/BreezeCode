@@ -88,10 +88,14 @@ interface AgentAttachment {
   fileRel?: string;
 }
 type ImageAttachment = AgentAttachment;
-const attachmentsMap: Record<WorkMode, AgentAttachment[]> = { ide: [], box: [] };
+// A chat surface: the IDE panel, Breeze Space, or one box of the Agent board (`board:box1`…`board:box8`).
+type SurfaceName = WorkMode | `board:${string}`;
+const isBoardSurface = (name: SurfaceName): name is `board:${string}` => name.startsWith('board:');
+const boxKeyOf = (name: SurfaceName): string => name.slice('board:'.length);
+const attachmentsMap: Record<string, AgentAttachment[]> = { ide: [], box: [] };
 
-interface Surface { name: WorkMode; chat: HTMLElement; prompt: HTMLTextAreaElement; send: HTMLElement; mode: HTMLSelectElement; attachmentsEl: HTMLElement; }
-const SURFACES: Record<WorkMode, Surface> = {
+interface Surface { name: SurfaceName; chat: HTMLElement; prompt: HTMLTextAreaElement; send: HTMLElement; mode: HTMLSelectElement; attachmentsEl: HTMLElement; }
+const SURFACES: Record<string, Surface> & Record<WorkMode, Surface> = {
   ide: { name: 'ide', chat: $('#chat'), prompt: $<HTMLTextAreaElement>('#prompt'), send: $('#send'), mode: $<HTMLSelectElement>('#agentMode'), attachmentsEl: $('#promptAttachments') },
   box: { name: 'box', chat: $('#boxChat'), prompt: $<HTMLTextAreaElement>('#boxPrompt'), send: $('#boxSend'), mode: $<HTMLSelectElement>('#boxMode'), attachmentsEl: $('#boxPromptAttachments') },
 };
@@ -101,7 +105,7 @@ let msgSurface = surface;       // fallback surface
 interface Run {
   id: number;
   tabId: string;
-  surfaceName: WorkMode;
+  surfaceName: SurfaceName;
   agent: string;
   mode: AgentMode;
   uiMode: string;
@@ -123,7 +127,7 @@ let lastRunFiles: string[] = [];
 
 interface AgentTabState {
   id: string;
-  surfaceName: WorkMode;
+  surfaceName: SurfaceName;
   title: string;
   titleAuto?: boolean;        // the name came from the first request (or the agent): the agent may still rename it
   panel: HTMLElement;
@@ -169,8 +173,8 @@ interface AgentTeamState {
 
 // The tab (and run) a run id belongs to: a tab's own single run, or one member of its agent team.
 function findTabForRun(runId: number): { tab: AgentTabState; run: Run } | null {
-  for (const sName of (['ide', 'box'] as WorkMode[])) {
-    for (const tab of surfaceTabs[sName]) {
+  for (const list of Object.values(surfaceTabs)) {
+    for (const tab of list) {
       const run = tab.runId === runId ? tab.run : tab.agentTeam?.runs.get(runId);
       if (run) return { tab, run };
     }
@@ -178,8 +182,16 @@ function findTabForRun(runId: number): { tab: AgentTabState; run: Run } | null {
   return null;
 }
 
-const surfaceTabs: Record<WorkMode, AgentTabState[]> = { ide: [], box: [] };
-const activeTabId: Record<WorkMode, string> = { ide: '', box: '' };
+const surfaceTabs: Record<string, AgentTabState[]> & Record<WorkMode, AgentTabState[]> = { ide: [], box: [] };
+const activeTabId: Record<string, string> = { ide: '', box: '' };
+// An Agent board box: a surface of its own with one chat and no tab strip.
+function registerSurface(s: Surface): void {
+  SURFACES[s.name] = s;
+  surfaceTabs[s.name] ??= [];
+  activeTabId[s.name] ??= '';
+  attachmentsMap[s.name] ??= [];
+  agentInkAt[s.name] ??= null;
+}
 const createdTabIds = new Set<string>();
 
 // A tab is busy while a run, a team's claim pass (runId -1) or any member of its team is still going.
@@ -249,6 +261,7 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
 
 const agentInkAt: Record<string, { x: number; y: number; w: number } | null> = { ide: null, box: null };
 function placeAgentTabInk(s: Surface): void {
+  if (isBoardSurface(s.name)) return;
   const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
   if (!tabsList) return;
   const on = tabsList.querySelector<HTMLElement>('.agent-tab.active:not(.leaving)');
@@ -284,6 +297,7 @@ function placeAgentTabInk(s: Surface): void {
 
 const closingAgentTabs = new Set<string>();
 function renderAgentTabs(s: Surface): void {
+  if (isBoardSurface(s.name)) return; // a box has one chat and no tab strip
   const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
   if (!tabsList) return;
   const list = surfaceTabs[s.name];
@@ -573,7 +587,7 @@ function newAgentTabAction(s: Surface = surface): void {
   bar?.scrollTo({ left: bar.scrollWidth, behavior: 'smooth' });
 }
 
-function useSurface(name: WorkMode): void {
+function useSurface(name: SurfaceName): void {
   surface = SURFACES[name];
   msgSurface = surface;
 }

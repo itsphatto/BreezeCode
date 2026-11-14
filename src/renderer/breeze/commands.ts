@@ -28,7 +28,7 @@ function searchSelection(): void {
 }
 function backToOnboarding(n: number): void {
   appState.onboarded = false; saveApp();
-  for (const id of ['#ide', '#box', '#debug']) $(id).classList.add('hidden');
+  for (const id of ['#ide', '#box', '#debug', '#board']) $(id).classList.add('hidden');
   $('#onboard').classList.remove('hidden');
   goStep(n);
 }
@@ -382,6 +382,7 @@ const MENUS: Menu[] = [
       { label: 'Explorer', act: 'view.files', key: 'Ctrl+Shift+E' },
       { label: 'Search', act: 'view.search', key: 'Ctrl+Shift+F' },
       { label: 'Checkpoints', act: 'view.git', key: 'Ctrl+Shift+G' },
+      { label: 'Agent Board', act: 'view.board', key: 'Ctrl+Shift+B' },
       { sep: true },
       { label: 'Primary Side Bar', act: 'view.toggleSide', key: 'Ctrl+B', checked: () => layout.sideOpen },
       { label: 'Agents Panel', act: 'view.toggleAgents', key: 'Ctrl+Alt+B', checked: () => layout.agentsOpen },
