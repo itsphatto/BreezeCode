@@ -17883,6 +17883,79 @@ input.dbg-edit.bad:focus-visible {
 }
 
 /* ----- Pull requests: the conflict page ----- */
+/* Our side is red, their side green, everywhere on the page (the side panes, the result's blocks, the dots). */
+.cf-view {
+  --cf-o: 239, 68, 68;
+  --cf-t: 34, 197, 94;
+  --cf-lh: 18px;
+}
+
+:root[data-theme="light"] .cf-view {
+  --cf-o: 196, 43, 28;
+  --cf-t: 19, 112, 54;
+}
+
+/* Scrollbars are hidden app-wide (* { scrollbar-width: none }); code here needs them, sideways most of all. */
+.cf-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--ink), .25) transparent;
+}
+
+.cf-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.cf-dot.o { background: rgb(var(--cf-o)); }
+.cf-dot.t { background: rgb(var(--cf-t)); }
+
+.cf-br {
+  font-weight: 600;
+}
+
+.cf-br.o { color: rgb(var(--cf-o)); }
+.cf-br.t { color: rgb(var(--cf-t)); }
+
+.cf-prog {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.cf-prog-bar {
+  flex: 0 0 160px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+
+.cf-prog-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--blue);
+  transition: width .25s ease;
+}
+
+.cf-prog.all {
+  color: var(--ok);
+}
+
+.cf-prog.all .cf-prog-bar i {
+  background: var(--ok);
+}
+
+.btn.cf-ready {
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
 .cf-files {
   display: flex;
   flex-wrap: wrap;
@@ -17921,6 +17994,10 @@ input.dbg-edit.bad:focus-visible {
   color: var(--ok);
 }
 
+.cf-file:not(.done) .cf-ck {
+  display: none;
+}
+
 .cf-fname {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -17931,9 +18008,10 @@ input.dbg-edit.bad:focus-visible {
   min-width: 16px;
   padding: 0 5px;
   border-radius: 8px;
-  background: var(--bg-3);
-  color: var(--text-2);
+  background: rgba(var(--cf-o), .18);
+  color: rgb(var(--cf-o));
   font-size: 11px;
+  font-weight: 600;
   text-align: center;
 }
 
@@ -17961,9 +18039,28 @@ input.dbg-edit.bad:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.cf-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .cf-count {
   color: var(--text-3);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cf-nav .cf-count {
+  min-width: 92px;
+  text-align: center;
+}
+
+.cf-count.ok {
+  color: var(--ok);
 }
 
 .cf-acts {
@@ -17974,77 +18071,288 @@ input.dbg-edit.bad:focus-visible {
   margin-left: auto;
 }
 
+.cf-acts .btn,
+.cf-pane header .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .cf-acts .btn[aria-pressed="true"] {
   border-color: var(--blue);
   background: var(--blue-soft);
 }
 
+.cf-acts [hidden] {
+  display: none;
+}
+
+/* Ours and theirs side by side, the result under them across the full width. */
 .cf-panes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(150px, 2fr) minmax(260px, 3fr);
   gap: 8px;
   flex: 1;
+  min-height: 520px;
 }
 
 .cf-pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 200px;
+  min-height: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: var(--bg);
   overflow: hidden;
 }
 
+.cf-pane.cf-res {
+  grid-column: 1 / -1;
+}
+
+.cf-pane.cf-o { border-top: 2px solid rgba(var(--cf-o), .7); }
+.cf-pane.cf-t { border-top: 2px solid rgba(var(--cf-t), .7); }
+
 .cf-pane header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  min-height: 32px;
+  padding: 4px 6px 4px 10px;
   border-bottom: 1px solid var(--line);
   background: var(--bg-1);
   font-size: 12px;
+  box-sizing: border-box;
 }
 
 .cf-pane header small {
+  min-width: 0;
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.cf-code,
-.cf-text {
+.cf-pane header .cf-use,
+.cf-legend {
+  margin-left: auto;
+}
+
+.cf-pane.cf-o .cf-use:not(:disabled):hover { border-color: rgb(var(--cf-o)); background: rgba(var(--cf-o), .12); }
+.cf-pane.cf-t .cf-use:not(:disabled):hover { border-color: rgb(var(--cf-t)); background: rgba(var(--cf-t), .12); }
+
+.cf-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 4px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.cf-legend .cf-dot.t {
+  margin-left: 6px;
+}
+
+/* Code rows: number, sign, text. They grow as wide as their longest line, so the box scrolls sideways. */
+.cf-code {
   flex: 1;
   min-height: 0;
+  overflow: auto;
+  color: var(--code-text);
+  font: 12px/var(--cf-lh) var(--font-code);
+  tab-size: 4;
+}
+
+.cf-rows {
+  min-width: 100%;
+  width: max-content;
+  padding: 6px 0;
+}
+
+.cf-l {
+  display: flex;
+  min-height: var(--cf-lh);
+  white-space: pre;
+}
+
+.cf-n {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  width: 44px;
+  padding-right: 6px;
+  background: var(--bg);
+  color: var(--text-3);
+  text-align: right;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.cf-sg {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  user-select: none;
+}
+
+.cf-x {
+  padding-right: 14px;
+}
+
+.cf-l.ctx .cf-x {
+  opacity: .5;
+}
+
+.cf-l.del { background: rgba(var(--cf-o), .13); }
+.cf-l.del .cf-n { background: linear-gradient(rgba(var(--cf-o), .13), rgba(var(--cf-o), .13)), var(--bg); box-shadow: inset 2px 0 rgb(var(--cf-o)); }
+.cf-l.del .cf-sg { color: rgb(var(--cf-o)); }
+.cf-l.del .cf-w { background: rgba(var(--cf-o), .35); }
+.cf-l.add { background: rgba(var(--cf-t), .13); }
+.cf-l.add .cf-n { background: linear-gradient(rgba(var(--cf-t), .13), rgba(var(--cf-t), .13)), var(--bg); box-shadow: inset 2px 0 rgb(var(--cf-t)); }
+.cf-l.add .cf-sg { color: rgb(var(--cf-t)); }
+.cf-l.add .cf-w { background: rgba(var(--cf-t), .35); }
+
+.cf-w {
+  border-radius: 2px;
+  color: inherit;
+}
+
+.cf-l.none {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* The result: a transparent-text textarea over the highlighted lines in view, with line numbers to its left. */
+.cf-ed {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.cf-gut {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  color: var(--text-3);
+  font: 12px/var(--cf-lh) var(--font-code);
+  text-align: right;
+  user-select: none;
+}
+
+.cf-gut > div {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  will-change: transform;
+}
+
+.cf-gut > div > div {
+  height: var(--cf-lh);
+  padding-right: 8px;
+}
+
+.cf-gut .k-open,
+.cf-gut .k-ours { box-shadow: inset -2px 0 rgba(var(--cf-o), .8); }
+.cf-gut .k-theirs,
+.cf-gut .k-close { box-shadow: inset -2px 0 rgba(var(--cf-t), .8); }
+.cf-gut .cur { color: var(--text); }
+
+.cf-ed-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cf-hl {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cf-hl-in {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  color: var(--code-text);
+  font: 12px/var(--cf-lh) var(--font-code);
+  tab-size: 4;
+  will-change: transform;
+}
+
+.cf-rl {
+  height: var(--cf-lh);
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.cf-rl.k-ours { background: rgba(var(--cf-o), .1); }
+.cf-rl.k-theirs { background: rgba(var(--cf-t), .1); }
+.cf-rl.k-base { background: rgba(var(--ink), .04); opacity: .6; }
+.cf-rl.k-open,
+.cf-rl.k-sep,
+.cf-rl.k-base-mk,
+.cf-rl.k-close {
+  background: rgba(var(--ink), .06);
+  color: var(--text-3);
+}
+
+.cf-rl.k-open { box-shadow: inset 0 1px rgba(var(--cf-o), .5); }
+.cf-rl.k-close { box-shadow: inset 0 -1px rgba(var(--cf-t), .5); }
+.cf-rl.cur.k-ours { background: rgba(var(--cf-o), .2); }
+.cf-rl.cur.k-theirs { background: rgba(var(--cf-t), .2); }
+.cf-rl.cur.k-open,
+.cf-rl.cur.k-sep,
+.cf-rl.cur.k-close { color: var(--text-2); }
+
+.cf-rl.flash,
+.cf-gut .flash {
+  animation: cf-flash 1.6s ease-out;
+}
+
+@keyframes cf-flash {
+  from { background: rgba(var(--cf-t), .35); }
+  to { background: transparent; }
+}
+
+.cf-text {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 8px 10px;
   border: none;
   background: transparent;
-  color: var(--code-text);
-  font: 12px/18px var(--font-code);
-  overflow: auto;
+  color: transparent;
+  caret-color: var(--text);
+  font: 12px/var(--cf-lh) var(--font-code);
+  tab-size: 4;
   white-space: pre;
+  overflow: auto;
   resize: none;
   box-sizing: border-box;
 }
 
-.cf-text {
-  width: 100%;
-  color: var(--text);
+.cf-text::selection {
+  background: rgba(10, 108, 216, .35);
+  color: transparent;
 }
 
 .cf-text:focus {
   outline: none;
-  background: var(--bg-1);
 }
 
-.cf-text.bad {
-  box-shadow: inset 2px 0 0 var(--warn);
-}
-
-.cf-code.empty {
-  color: var(--text-3);
+.cf-res:focus-within {
+  border-color: rgba(10, 108, 216, .6);
 }
 
 .cf-gone {
@@ -18057,11 +18365,19 @@ input.dbg-edit.bad:focus-visible {
   text-align: center;
 }
 
+.cf-gone.cf-done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--ok);
+}
+
 .cf-clean {
   padding: 8px 0;
 }
 
-/* The Duel: the agent's two arguments and the judge's verdict, above the three panes. */
+/* The Duel: the agent's two arguments side by side, the judge's verdict and proposed merge under them. */
 .cf-duel:empty {
   display: none;
 }
@@ -18076,9 +18392,9 @@ input.dbg-edit.bad:focus-visible {
 
 .cf-duel-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   font-size: 12px;
 }
 
@@ -18086,13 +18402,13 @@ input.dbg-edit.bad:focus-visible {
   color: var(--text-3);
 }
 
-.cf-duel-head .btn {
+.cf-duel-head .icon-btn {
   margin-left: auto;
 }
 
 .cf-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -18106,6 +18422,18 @@ input.dbg-edit.bad:focus-visible {
   line-height: 1.5;
 }
 
+.cf-card.o { border-left: 2px solid rgba(var(--cf-o), .7); }
+.cf-card.t { border-left: 2px solid rgba(var(--cf-t), .7); }
+
+.cf-card.j {
+  grid-column: 1 / -1;
+}
+
+.cf-card.j.ready {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
 .cf-card header {
   display: flex;
   align-items: center;
@@ -18114,7 +18442,7 @@ input.dbg-edit.bad:focus-visible {
 }
 
 .cf-card-text {
-  max-height: 180px;
+  max-height: 160px;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -18122,6 +18450,18 @@ input.dbg-edit.bad:focus-visible {
 
 .cf-card-dim {
   color: var(--text-3);
+}
+
+.cf-thinking span {
+  animation: cf-dots 1.2s infinite;
+}
+
+.cf-thinking span:nth-child(2) { animation-delay: .2s; }
+.cf-thinking span:nth-child(3) { animation-delay: .4s; }
+
+@keyframes cf-dots {
+  0%, 60%, 100% { opacity: .2; }
+  30% { opacity: 1; }
 }
 
 .cf-card-err {
@@ -18133,38 +18473,79 @@ input.dbg-edit.bad:focus-visible {
   margin-top: 4px;
 }
 
-/* The judge's merge, waiting in Result for Accept, Edit or Reject. */
-.cf-proposal:not(.on) {
-  display: none;
+/* The judge's merge: shown here, put into the result only on Accept. */
+.cf-merge {
+  margin-top: 8px;
 }
 
-.cf-proposal {
+.cf-merge-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
-  background: var(--blue-soft);
-  font-size: 12px;
+  color: var(--text-3);
+}
+
+.cf-merge.done .cf-merge-head {
+  color: var(--ok);
 }
 
 .cf-prop-tag {
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: 8px;
   background: var(--blue);
   color: #fff;
   font-size: 11px;
 }
 
-.cf-prop-acts {
-  display: flex;
-  gap: 6px;
-  margin-left: auto;
+.cf-merge-code {
+  max-height: 220px;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: auto;
+  color: var(--code-text);
+  font: 12px/var(--cf-lh) var(--font-code);
+  tab-size: 4;
 }
 
-.cf-text.proposed {
-  box-shadow: inset 2px 0 0 var(--blue);
+.cf-merge-code .cf-n {
+  width: 8px;
+  padding: 0;
+}
+
+.cf-merge-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cf-merge-acts .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* A narrow detail pane (not the window) stacks the panes and the Duel's cards. */
+.cf-view {
+  container-type: inline-size;
+}
+
+@container (max-width: 760px) {
+  .cf-prog-bar {
+    flex-basis: 80px;
+  }
+
+  .cf-panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(140px, auto) minmax(140px, auto) minmax(300px, 1fr);
+  }
+
+  .cf-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Reduced motion (Windows: Settings → Accessibility → Visual effects → Animation effects off). Durations shrink to

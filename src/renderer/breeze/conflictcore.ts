@@ -118,3 +118,78 @@ function withoutCodeBlock(reply: string): string {
 function withEol(text: string, crlf: boolean): string {
   return crlf ? text.replace(/\r?\n/g, '\r\n') : text;
 }
+
+// Which lines of `a` and of `b` the other side doesn't have, by their longest common subsequence. Runs of changed lines
+// between two kept ones are paired up in order (`pairs`), so an edited line can show what changed inside it. Past
+// DIFF_MAX_CELLS (the table the subsequence needs) everything between the common start and end counts as changed.
+type LineDiff = { a: boolean[]; b: boolean[]; pairs: Array<[number, number]> };
+const DIFF_MAX_CELLS = 4_000_000;
+function lineDiff(a: string[], b: string[]): LineDiff {
+  const n = a.length, m = b.length;
+  const ca: boolean[] = new Array(n).fill(true), cb: boolean[] = new Array(m).fill(true);
+  let p = 0;
+  while (p < n && p < m && a[p] === b[p]) { ca[p] = cb[p] = false; p++; }
+  let s = 0;
+  while (s < n - p && s < m - p && a[n - 1 - s] === b[m - 1 - s]) { ca[n - 1 - s] = cb[m - 1 - s] = false; s++; }
+  const an = n - p - s, bm = m - p - s;
+  if (an > 0 && bm > 0 && an * bm <= DIFF_MAX_CELLS) {
+    const w = bm + 1, dp = new Uint32Array((an + 1) * w); // dp[i][j]: the subsequence's length from a[p+i] and b[p+j] on
+    for (let i = an - 1; i >= 0; i--) {
+      for (let j = bm - 1; j >= 0; j--) dp[i * w + j] = a[p + i] === b[p + j] ? dp[(i + 1) * w + j + 1] + 1 : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+    }
+    for (let i = 0, j = 0; i < an && j < bm;) {
+      if (a[p + i] === b[p + j]) { ca[p + i] = cb[p + j] = false; i++; j++; }
+      else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) i++;
+      else j++;
+    }
+  }
+  const pairs: Array<[number, number]> = [];
+  for (let i = 0, j = 0; i < n || j < m;) {
+    if (i < n && j < m && !ca[i] && !cb[j]) { i++; j++; continue; }
+    const ra: number[] = [], rb: number[] = [];
+    while (i < n && ca[i]) ra.push(i++);
+    while (j < m && cb[j]) rb.push(j++);
+    for (let k = 0; k < Math.min(ra.length, rb.length); k++) pairs.push([ra[k], rb[k]]);
+    if (!ra.length && !rb.length) { i++; j++; } // can't happen (both sides keep the same lines); never loops forever
+  }
+  return { a: ca, b: cb, pairs };
+}
+
+// The part of two lines that differs: [from, to) in each, between their common start and common end. Null when they
+// share nothing at either end, where marking the whole line again would add nothing.
+function changedSpan(a: string, b: string): { a: [number, number]; b: [number, number] } | null {
+  const min = Math.min(a.length, b.length);
+  let p = 0;
+  while (p < min && a[p] === b[p]) p++;
+  let s = 0;
+  while (s < min - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  if (p === 0 && s === 0) return null;
+  return { a: [p, a.length - s], b: [p, b.length - s] };
+}
+
+// What each line inside a conflict block is, for colouring the result: the marker lines, our side, the common ancestor
+// (diff3) and their side, with the block's index. Lines outside every block aren't in the map. Lines are 0-based.
+type ConflictLineKind = 'open' | 'ours' | 'base-mk' | 'base' | 'sep' | 'theirs' | 'close';
+function conflictLines(text: string): Map<number, { kind: ConflictLineKind; block: number }> {
+  const out = new Map<number, { kind: ConflictLineKind; block: number }>();
+  const blocks = parseConflicts(text);
+  if (!blocks.length) return out;
+  let line = 0, pos = 0;
+  blocks.forEach((b, block) => {
+    for (; pos < b.start; line++) { const nl = text.indexOf('\n', pos); pos = nl === -1 ? text.length : nl + 1; }
+    let state: ConflictLineKind = 'open';
+    while (pos < b.end) {
+      const nl = text.indexOf('\n', pos), next = nl === -1 ? text.length : nl + 1;
+      const bare = text.slice(pos, next).replace(/\r?\n$/, '');
+      let kind: ConflictLineKind;
+      if (state === 'open' && CONFLICT_OPEN.test(bare)) { kind = 'open'; state = 'ours'; }
+      else if (state === 'ours' && CONFLICT_BASE.test(bare)) { kind = 'base-mk'; state = 'base'; }
+      else if ((state === 'ours' || state === 'base') && bare === '=======') { kind = 'sep'; state = 'theirs'; }
+      else if (state === 'theirs' && CONFLICT_CLOSE.test(bare)) kind = 'close';
+      else kind = state;
+      out.set(line, { kind, block });
+      line++; pos = next;
+    }
+  });
+  return out;
+}
