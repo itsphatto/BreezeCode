@@ -964,7 +964,7 @@ Object.assign(commands, {
   'git.genCommitMsg': () => void generateCommitMsg(),
   'git.more': () => {
     const btn = $('[data-act="git.more"]');
-    if (btn && (btn.classList.contains('open') || (justClosedTrigger === btn && Date.now() - justClosedAt < 350))) {
+    if (btn && menuWasOpen(btn)) {
       closeMenu();
       return;
     }

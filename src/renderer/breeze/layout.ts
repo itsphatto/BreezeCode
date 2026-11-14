@@ -379,7 +379,7 @@ $('#termMore').onclick = e => {
   e.stopPropagation();
   const btn = e.currentTarget as HTMLElement;
   if (btn.ownerDocument !== document) { termWindowMenu(btn); return; }
-  if (btn.classList.contains('open') || (justClosedTrigger === btn && Date.now() - justClosedAt < 350)) { closeMenu(); return; }
+  if (menuWasOpen(btn)) { closeMenu(); return; }
   closeMenu();
   const r = btn.getBoundingClientRect();
   popupMenu(Math.max(8, r.right - 230), r.bottom + 4, termMoreItems(), undefined, btn);

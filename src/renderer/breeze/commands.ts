@@ -641,8 +641,15 @@ function openMenu(i: number, viaKeyboard = false, pinned = viaKeyboard): void {
 let popTrigger: { el: HTMLElement; at: number } | null = null;
 let menuOwner: HTMLElement | null = null; // the button whose menu is (or was just) open, for modals its items open
 let activeMenuTrigger: HTMLElement | null = null;
-let justClosedTrigger: HTMLElement | null = null;
-let justClosedAt = 0;
+// The dropdown button whose open menu this mouse press closed (the mousedown handler below), until the next press.
+let pressClosedTrigger: HTMLElement | null = null;
+// A dropdown button's click handler asks this first: true when its menu is open, or was open until this very press
+// closed it. Either way a second press means "close", so the click must not open it again (however slow the click).
+function menuWasOpen(btn: HTMLElement): boolean {
+  const pressed = pressClosedTrigger === btn;
+  pressClosedTrigger = null;
+  return pressed || btn.classList.contains('open');
+}
 const noteTrigger = (e: Event) => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('button, [role="button"]');
   if (el) popTrigger = { el, at: Date.now() };
@@ -879,8 +886,6 @@ function closeMenu(): void {
   cancelMenuClose();
   if (openMenuIdx === -1) return;
   if (activeMenuTrigger) {
-    justClosedTrigger = activeMenuTrigger;
-    justClosedAt = Date.now();
     activeMenuTrigger.classList.remove('open');
     activeMenuTrigger.setAttribute('aria-expanded', 'false');
     activeMenuTrigger = null;
@@ -901,11 +906,11 @@ function closeMenu(): void {
 }
 document.addEventListener('mousedown', e => {
   const target = e.target as HTMLElement;
+  pressClosedTrigger = null;
   if (openMenuIdx !== -1) {
     const trig = activeMenuTrigger;
     if (trig && (trig === target || trig.contains(target))) {
-      justClosedTrigger = trig;
-      justClosedAt = Date.now();
+      pressClosedTrigger = trig;
       closeMenu();
       return;
     }

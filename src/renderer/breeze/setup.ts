@@ -478,7 +478,7 @@ function agentChipMenuItems(ag: DetectedAgent): MenuItem[] {
 }
 // Opens (or, if it is already open, closes) a popup under a chip.
 function openChipMenu(chip: HTMLElement, items: MenuItem[]): void {
-  if (chip.classList.contains('open') || (justClosedTrigger === chip && Date.now() - justClosedAt < 350)) {
+  if (menuWasOpen(chip)) {
     closeMenu();
     return;
   }
@@ -753,11 +753,14 @@ function mountAgentDash(slot: HTMLElement | null): void {
   to.append(dash);
   if (dashOnScreen()) { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
 }
-// Main reads the agents' logs afresh on each ask (only changed logs are re-read), so a page left open asks again every
-// minute while it is on screen and the window is shown.
+// Main reads the agents' logs afresh on each ask (only changed logs are re-read, ~60–100ms with a session running), so
+// a page left open asks again every 5 seconds while it is on screen and the window is shown, and as soon as the window
+// comes back. Claude's plan limits are fetched at most once a minute however often it asks (claudeLiveLimits).
+const DASH_REFRESH_MS = 5_000;
 setInterval(() => {
   if (document.visibilityState === 'visible' && dashOnScreen()) refreshAgentDash();
-}, 60_000);
+}, DASH_REFRESH_MS);
+window.addEventListener('focus', () => { if (dashOnScreen()) refreshAgentDash(); });
 function refreshAgentDash(): void {
   const seq = ++dashSeq;
   background(Promise.all([api.agent.usage(), api.agent.history()]).then(([u, h]) => {

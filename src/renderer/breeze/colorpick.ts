@@ -115,8 +115,13 @@ function closeColorPicker(): void {
   pickerCommit = null;
   pickerLeave = null;
   commit?.();
-  pickerEl?.remove();
+  // It fades and lifts away (breeze.css .color-picker.closing) instead of vanishing; it can't be used meanwhile.
+  const el = pickerEl;
   pickerEl = null;
+  if (!el) return;
+  el.classList.add('closing');
+  el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });
+  setTimeout(() => el.remove(), 300); // in case the animation never runs (a hidden window)
 }
 function showColorPicker(orig: string, anchor: DOMRect, io: PickerIo): void {
   closeColorPicker();

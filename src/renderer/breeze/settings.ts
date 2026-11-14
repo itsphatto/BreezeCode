@@ -245,18 +245,43 @@ function paintSynDots(pane: HTMLElement): void {
     chip.querySelectorAll<HTMLElement>('i').forEach((dot, i) => c && dot.style.setProperty('--c', c[i]));
   });
 }
+// The colours the custom swatches last showed, so a redraw can morph from them to the new ones.
+let synShown: SynTriple | null = null;
+const SYN_SAMPLE_SLOT: Record<string, number> = { 'tk-kw': 0, 'tk-str': 1, 'tk-num': 2, 'tk-prop': 2 };
 function bindSyntaxSettings(pane: HTMLElement): void {
   if (!pane.querySelector('.set-syn')) return;
   paintSynDots(pane);
-  $$<HTMLElement>('[data-syn]', pane).forEach(b => b.onclick = () => { pickSynPreset(b.dataset.syn ?? 'default'); refreshSettings(); });
+  // A new preset: the selected chip's highlight glides over to it (like the theme cards), and the colours morph.
+  const pick = (id: string) => {
+    const from = pane.querySelector('[data-syn][aria-pressed="true"]')?.getBoundingClientRect();
+    pickSynPreset(id);
+    refreshSettings();
+    slideSelected(pane.querySelector<HTMLElement>(`[data-syn="${CSS.escape(id)}"]`), from);
+  };
+  $$<HTMLElement>('[data-syn]', pane).forEach(b => b.onclick = () => pick(b.dataset.syn ?? 'default'));
   const buttons = SYN_SLOTS.map(([id]) => $<HTMLButtonElement>(`#${id}`, pane));
   const current = (): SynTriple => synColors() ?? SYN_DEFAULTS[themeKey()];
-  const showSlots = () => buttons.forEach((b, i) => {
-    $('.set-syn-sw', b).style.setProperty('--c', current()[i]);
-    $('code', b).textContent = current()[i];
-    b.setAttribute('aria-label', `${SYN_SLOTS[i][1]} colour, ${current()[i]}`);
-  });
-  showSlots();
+  // morph: each swatch eases from its old colour, its code blurs in, and the sample's tokens fade over. Off while
+  // the picker is dragged (that repaints every move).
+  const showSlots = (morph: boolean) => {
+    const was = synShown, now = current();
+    const ease = { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' };
+    buttons.forEach((b, i) => {
+      const sw = $('.set-syn-sw', b), code = $('code', b);
+      sw.style.setProperty('--c', now[i]);
+      code.textContent = now[i];
+      b.setAttribute('aria-label', `${SYN_SLOTS[i][1]} colour, ${now[i]}`);
+      if (!morph || !was || was[i] === now[i]) return;
+      sw.animate([{ backgroundColor: was[i], transform: 'scale(.7)' }, { backgroundColor: now[i], transform: 'none' }], ease);
+      code.animate([{ opacity: 0, filter: 'blur(2px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], ease);
+    });
+    if (morph && was) $$<HTMLElement>('.set-syn-sample span', pane).forEach(s => {
+      const slot = SYN_SAMPLE_SLOT[s.className];
+      if (slot != null && was[slot] !== now[slot]) s.animate([{ color: was[slot] }, { color: now[slot] }], ease);
+    });
+    synShown = [...now];
+  };
+  showSlots(true);
   // The same picker as the editor's colour swatches, without its opacity bar. Dragging repaints the code as it goes
   // (no redraw of the pane, which would close the picker); the choice is kept as the custom colours.
   buttons.forEach((btn, i) => btn.onclick = () => showColorPicker(current()[i], btn.getBoundingClientRect(), {
@@ -268,14 +293,14 @@ function bindSyntaxSettings(pane: HTMLElement): void {
       synPreset = 'custom';
       saveSyntax();
       applySyntax();
-      showSlots();
+      showSlots(false);
       $$('[data-syn]', pane).forEach(chip => chip.setAttribute('aria-pressed', 'false'));
       $<HTMLButtonElement>('#sSynReset', pane).disabled = false;
       return true;
     },
     commit() { /* every change is already kept */ },
   }));
-  $('#sSynReset', pane).onclick = () => { pickSynPreset('default'); refreshSettings(); };
+  $('#sSynReset', pane).onclick = () => pick('default');
 }
 
 /* ----- Backdrops: Glass and a Custom background sit behind the chosen theme, beside and under its cards. -----
@@ -293,17 +318,24 @@ let bgImage: { url: string; name: string } | null = savedBgImage && typeof saved
   ? { url: savedBgImage.url, name: savedBgImage.name } : null;
 let backdrop: Backdrop = savedBackdrop === 'glass' || (savedBackdrop === 'image' && bgImage) ? savedBackdrop : 'none';
 let bgOpacity = clamp(Math.round(Number(store.get<number>('breeze.bgOpacity', BG_OPACITY_DEFAULT)) || BG_OPACITY_DEFAULT), BG_OPACITY_MIN, BG_OPACITY_MAX);
+const BG_BLUR_MAX = 40;
+let bgBlur = clamp(Math.round(Number(store.get<number>('breeze.bgBlur', 0)) || 0), 0, BG_BLUR_MAX);
 let bgSize = ''; // "1920 × 1080" once the picture has loaded
+// The picture, its opacity and its blur (px) as the CSS variables the backdrop layer reads; none without a picture on.
+function applyBackdropLook(): void {
+  const root = document.documentElement.style;
+  if (backdrop === 'image' && bgImage) {
+    root.setProperty('--bd-img', `url("${bgImage.url.replace(/"/g, '%22')}")`);
+    root.setProperty('--bd-o', String(bgOpacity / 100));
+    root.setProperty('--bd-blur', `${bgBlur}px`);
+  } else {
+    for (const v of ['--bd-img', '--bd-o', '--bd-blur']) root.removeProperty(v);
+  }
+}
 function applyBackdrop(): void {
   const root = document.documentElement;
   if (backdrop === 'none') delete root.dataset.backdrop; else root.dataset.backdrop = backdrop;
-  if (backdrop === 'image' && bgImage) {
-    root.style.setProperty('--bd-img', `url("${bgImage.url.replace(/"/g, '%22')}")`);
-    root.style.setProperty('--bd-o', String(bgOpacity / 100));
-  } else {
-    root.style.removeProperty('--bd-img');
-    root.style.removeProperty('--bd-o');
-  }
+  applyBackdropLook();
   // The window itself goes see-through for Glass only. If this system can't, Glass switches back off.
   void api.win.glass(backdrop === 'glass').then(ok => {
     if (ok || backdrop !== 'glass') return;
@@ -327,10 +359,15 @@ function themePickerHtml(): string {
   const cards = THEMES.map(themeCardHtml).join('') + BACKDROPS.map(backdropCardHtml).join('');
   // Glass is a switch under the themes, not a card. It and a picture are alternatives: turning one on turns the other off.
   const glass = settingRow('Glass', 'See-through, frosted window. Windows 10, 11 and macOS.', switchHtml('sGlass', backdrop === 'glass', 'Glass'));
+  // The picture's sliders go grey and still until Custom background is on (like Discord's options under its switch).
+  const pictureOn = backdrop === 'image' && !!bgImage;
   const options = `<div class="set-bd">${glass}
       ${settingRow('Background picture', bgImage ? `${esc(bgImage.name)}${bgSize ? ` · ${bgSize}` : ''}` : 'Best at 1920 × 1080. Any picture fills the window.',
         `<span class="set-btns"><button class="btn btn-sm" id="sBgPick">${bgImage ? 'Change' : 'Choose'}</button>${bgImage ? '<button class="btn btn-sm" id="sBgClear">Remove</button>' : ''}</span>`)}
-      ${settingRow('Picture opacity', 'How strongly the picture shows through.', `<div class="set-volume set-font-size"><input type="range" id="sBgOpacity" min="${BG_OPACITY_MIN}" max="${BG_OPACITY_MAX}" step="1" value="${bgOpacity}" aria-label="Picture opacity"${bgImage ? '' : ' disabled'}><span class="set-volume-val" id="sBgOpacityVal">${bgOpacity}%</span></div>`)}
+      <div class="set-dim ${pictureOn ? '' : 'off'}"${pictureOn ? '' : ' inert'}>
+      ${settingRow('Picture opacity', 'How strongly the picture shows through.', `<div class="set-volume set-font-size"><input type="range" id="sBgOpacity" min="${BG_OPACITY_MIN}" max="${BG_OPACITY_MAX}" step="1" value="${bgOpacity}" aria-label="Picture opacity"${pictureOn ? '' : ' disabled'}><span class="set-volume-val" id="sBgOpacityVal">${bgOpacity}%</span></div>`)}
+      ${settingRow('Picture blur', 'Softens the picture behind the panels.', `<div class="set-volume set-font-size"><input type="range" id="sBgBlur" min="0" max="${BG_BLUR_MAX}" step="1" value="${bgBlur}" aria-label="Picture blur"${pictureOn ? '' : ' disabled'}><span class="set-volume-val" id="sBgBlurVal">${bgBlur}px</span></div>`)}
+      </div>
     </div>`;
   return `<div class="set-themes">${cards}</div>${options}`;
 }
@@ -375,21 +412,23 @@ function bindBackdropSettings(pane: HTMLElement): void {
     if (backdrop === 'image') setBackdrop('none');
     refreshSettings();
   });
-  // The picture's opacity follows the knob live (no redraw of the pane, which would drop the drag).
-  const slider = $<HTMLInputElement>('#sBgOpacity', pane);
-  if (slider) {
+  // The picture's opacity and blur follow their knobs live (no redraw of the pane, which would drop the drag).
+  const bdSlider = (id: string, min: number, max: number, unit: string, get: () => number, set: (v: number) => void) => {
+    const slider = $<HTMLInputElement>(`#${id}`, pane);
+    if (!slider) return;
     const show = (v: number) => {
-      bgOpacity = clamp(Math.round(v), BG_OPACITY_MIN, BG_OPACITY_MAX);
-      slider.value = String(bgOpacity);
-      slider.style.setProperty('--fill', `${(bgOpacity - BG_OPACITY_MIN) / (BG_OPACITY_MAX - BG_OPACITY_MIN) * 100}%`);
-      $('#sBgOpacityVal', pane).textContent = `${bgOpacity}%`;
-      store.set('breeze.bgOpacity', bgOpacity);
-      if (backdrop === 'image') document.documentElement.style.setProperty('--bd-o', String(bgOpacity / 100));
+      set(clamp(Math.round(v), min, max));
+      slider.value = String(get());
+      slider.style.setProperty('--fill', `${(get() - min) / (max - min) * 100}%`);
+      swapText($(`#${id}Val`, pane), `${get()}${unit}`);
+      applyBackdropLook();
     };
-    show(bgOpacity);
+    show(get());
     slider.oninput = () => show(+slider.value);
-    slider.addEventListener('wheel', e => { e.preventDefault(); show(bgOpacity + (e.deltaY < 0 || e.deltaX > 0 ? 2 : -2)); }, { passive: false });
-  }
+    slider.addEventListener('wheel', e => { e.preventDefault(); show(get() + (e.deltaY < 0 || e.deltaX > 0 ? 2 : -2)); }, { passive: false });
+  };
+  bdSlider('sBgOpacity', BG_OPACITY_MIN, BG_OPACITY_MAX, '%', () => bgOpacity, v => { bgOpacity = v; store.set('breeze.bgOpacity', v); });
+  bdSlider('sBgBlur', 0, BG_BLUR_MAX, 'px', () => bgBlur, v => { bgBlur = v; store.set('breeze.bgBlur', v); });
   // The pictures on the Custom background card and the panel's swatch show the chosen picture.
   const sw = pane.querySelector<HTMLElement>('[data-swatch="image"]');
   if (sw) { if (bgImage) sw.style.setProperty('--sw-img', `url("${bgImage.url.replace(/"/g, '%22')}")`); else sw.style.removeProperty('--sw-img'); }
@@ -700,18 +739,131 @@ const SETTINGS_GROUPS: [string, SettingsTab[]][] = [
   ['Support', ['help', 'dev']],
 ];
 let settingsQuery = '';
-// What a section holds, for search: its part headings and its rows' titles, read from its markup (a template
-// doesn't load the images in it). A row belongs to the part above it (-1: before the first heading).
-function settingsIndex(tab: SettingsTab): { subs: string[]; rows: [string, number][] } {
-  const t = document.createElement('template');
-  t.innerHTML = settingsBody(tab);
-  const subs: string[] = [], rows: [string, number][] = [];
-  t.content.querySelectorAll('h5, .set-title, .set-theme .nm').forEach(el => {
-    const text = el.textContent?.trim() ?? '';
-    if (el.tagName === 'H5') subs.push(text);
-    else if (text) rows.push([text, subs.length - 1]);
-  });
-  return { subs, rows };
+/* ----- Smart search: what's typed finds settings anywhere (a row's title and description, its section and part, a
+   shortcut's command and keys), forgiving one typo per word and knowing a few other words for things. While there is a
+   query the pane lists the results instead of a section; picking one opens its section on that row. ----- */
+interface SettingsHit {
+  tab: SettingsTab; part: number; partName: string; title: string; sub: string; key: string;
+  sel: string; n: number; // the row in its section: the nth match of sel
+  score: number;
+}
+// What a row is found by, besides its own words.
+const SETTINGS_SYNONYMS: Record<string, string> = {
+  dark: 'theme', light: 'theme', colour: 'theme syntax', color: 'theme syntax colours', colors: 'theme syntax colours',
+  wallpaper: 'background picture', image: 'background picture', photo: 'background picture', transparent: 'glass opacity',
+  transparency: 'glass opacity', acrylic: 'glass', frosted: 'glass', mica: 'glass', blur: 'glass picture',
+  volume: 'sound', mute: 'sound', audio: 'sound', sfx: 'sound', noise: 'sound',
+  shortcut: 'keybinds', shortcuts: 'keybinds', hotkey: 'keybinds', hotkeys: 'keybinds', keyboard: 'keybinds', keys: 'keybinds',
+  zoom: 'font size', bigger: 'font size', smaller: 'font size', text: 'font size',
+  ai: 'agents', model: 'agents', models: 'agents', llm: 'agents', permission: 'full access', permissions: 'full access', sandbox: 'full access',
+  autosave: 'auto save', login: 'sign account', logout: 'sign out', profile: 'account', presence: 'discord rich',
+  version: 'about', compiler: 'tools', compilers: 'tools', lsp: 'language servers', sidebar: 'side bar', highlight: 'syntax',
+};
+const searchWords = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+// One typo apart: a letter wrong, missing or extra, or two side by side swapped.
+function oneTypo(a: string, b: string): boolean {
+  if (a === b || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && a[i] === b[i]) i++;
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1) || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
+  const [long, short] = a.length > b.length ? [a, b] : [b, a];
+  return long.slice(i + 1) === short.slice(i);
+}
+// How well one typed word fits a field's words: whole word, start of a word, inside one, or a typo off. strict (a
+// row's section and part, shared by every row there): whole words and starts only, so it can't flood the results.
+function wordFit(q: string, hay: string[], strict = false): number {
+  let best = 0;
+  for (const w of hay) {
+    if (w === q) return 3;
+    if (w.startsWith(q)) best = Math.max(best, 2.5);
+    else if (strict) continue;
+    else if (q.length >= 3 && w.includes(q)) best = Math.max(best, 1.5);
+    // A typo in a whole word, or (once five letters are typed) in the start of a longer one: "font" isn't "cont…".
+    else if (q.length >= 4 && w.length >= q.length && (oneTypo(q, w) || (q.length >= 5 && oneTypo(q, w.slice(0, q.length))))) best = Math.max(best, 1);
+  }
+  return best;
+}
+// Every row of every section, read from its markup (a template doesn't load the images in it). A row belongs to the
+// part (h5) above it (-1: before the first heading).
+function settingsRows(): Omit<SettingsHit, 'score'>[] {
+  const out: Omit<SettingsHit, 'score'>[] = [];
+  for (const [tab] of visibleSettingsTabs()) {
+    const t = document.createElement('template');
+    t.innerHTML = settingsBody(tab);
+    let part = -1, partName = '', group = '';
+    const seen = new Map<string, number>();
+    t.content.querySelectorAll<HTMLElement>('h5, .set-row, .set-theme, .set-agent, .kb-group, .kb-row').forEach(el => {
+      const text = (s: string) => el.querySelector(s)?.textContent?.trim() ?? '';
+      if (el.matches('.kb-group')) { group = el.textContent?.trim() ?? ''; return; }
+      const sel = el.matches('h5') ? 'h5' : el.matches('.set-row') ? '.set-row' : el.matches('.kb-row') ? '.kb-row' : el.matches('.set-agent') ? '.set-agent' : '.set-theme';
+      const n = seen.get(sel) ?? 0;
+      seen.set(sel, n + 1);
+      if (sel === 'h5') { part++; partName = el.textContent?.trim() ?? ''; }
+      const title = sel === 'h5' ? partName : sel === '.set-row' ? text('.set-title') : sel === '.kb-row' ? text('.kb-label') : text('.nm');
+      if (!title) return;
+      const sub = sel === '.kb-row' ? group : sel === '.set-row' || sel === '.set-theme' ? text('.set-sub') : '';
+      out.push({ tab, part, partName: sel === 'h5' ? '' : partName, title, sub, key: sel === '.kb-row' ? text('.kb-key') : '', sel, n });
+    });
+  }
+  return out;
+}
+// The rows that fit every typed word, best first: a title counts most, then the keys, the description, and where it is.
+// Words that say how, not what ("dark mode", "turn on sound"): skipped when something else was typed too.
+const SEARCH_FILLER = new Set(['mode', 'setting', 'settings', 'option', 'options', 'change', 'enable', 'disable', 'turn', 'on', 'off', 'the', 'a', 'an', 'to', 'how', 'my', 'set']);
+function searchSettings(query: string): SettingsHit[] {
+  const typed = searchWords(query), whole = query.trim().toLowerCase();
+  const qs = typed.some(w => !SEARCH_FILLER.has(w)) ? typed.filter(w => !SEARCH_FILLER.has(w)) : typed;
+  if (!qs.length) return [];
+  const labels = new Map(SETTINGS_TABS.map(([id, label]) => [id, label]));
+  const hits: SettingsHit[] = [];
+  for (const r of settingsRows()) {
+    const title = searchWords(r.title), sub = searchWords(r.sub), key = searchWords(r.key);
+    const where = searchWords(`${labels.get(r.tab) ?? ''} ${r.partName}`);
+    let score = 0;
+    for (const q of qs) {
+      let fit = Math.max(wordFit(q, title) * 4, wordFit(q, key) * 2, wordFit(q, sub) * 1.5, wordFit(q, where, true));
+      const alt = SETTINGS_SYNONYMS[q];
+      if (alt) for (const a of searchWords(alt)) fit = Math.max(fit, wordFit(a, title, true) * 2.4, wordFit(a, where, true) * 1.2);
+      if (!fit) { score = 0; break; }
+      score += fit;
+    }
+    if (!score) continue;
+    const t = r.title.toLowerCase();
+    if (t.startsWith(whole)) score += 8; else if (t.includes(whole)) score += 4;
+    hits.push({ ...r, score });
+  }
+  return hits.sort((a, b) => b.score - a.score).slice(0, 40);
+}
+// Text with the typed words lit up.
+function markHits(text: string, query: string): string {
+  const qs = searchWords(query).map(q => q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (!qs.length) return esc(text);
+  const re = new RegExp(`(${qs.join('|')})`, 'giu');
+  return text.split(re).map((part, i) => (i % 2 ? `<mark>${esc(part)}</mark>` : esc(part))).join('');
+}
+let settingsHits: SettingsHit[] = [];
+// The pane while searching: the results, each with where it lives, or a note that nothing fits.
+function renderSettingsSearch(m: HTMLElement): void {
+  const pane = $('.set-pane', m);
+  const fresh = pane.dataset.tab !== 'search';
+  settingsHits = searchSettings(settingsQuery);
+  const tabs = new Map(SETTINGS_TABS.map(([id, label, icon]) => [id, { label, icon }]));
+  const q = settingsQuery.trim();
+  const rows = settingsHits.map((h, i) => {
+    const t = tabs.get(h.tab)!;
+    const ico = t.icon === 'discord' ? '<span class="set-nav-img" aria-hidden="true"></span>' : svgIcon(t.icon, 16);
+    const path = [t.label, h.partName].filter(Boolean).map(esc).join(' › ');
+    return `<button class="set-hit" type="button" data-hit="${i}"><span class="set-hit-ico">${ico}</span>
+      <span class="set-hit-txt"><span class="set-hit-path">${path}</span><b>${markHits(h.title, q)}</b>${h.sub ? `<small>${markHits(h.sub, q)}</small>` : ''}</span>
+      ${h.key ? `<span class="set-hit-key">${esc(h.key)}</span>` : ''}</button>`;
+  }).join('');
+  pane.innerHTML = `<h4>Search</h4>
+    <p class="set-sub set-hit-count">${settingsHits.length ? `${settingsHits.length} result${settingsHits.length === 1 ? '' : 's'} for “${esc(q)}”` : `Nothing matches “${esc(q)}”. Try another word.`}</p>
+    <div class="set-results">${rows}</div>`;
+  pane.dataset.tab = 'search';
+  if (fresh) { $('.set-main', m).scrollTop = 0; staggerIn(pane.querySelectorAll('.set-hit'), 1); }
+  $('.set-dash', m)?.classList.add('hidden');
+  renderSettingsNav(m);
 }
 function settingsNavHeadHtml(): string {
   return `<div class="set-profile"></div>
@@ -733,17 +885,16 @@ function renderSettingsNav(m: HTMLElement): void {
 function settingsNavListHtml(): string {
   const q = settingsQuery.trim().toLowerCase();
   const labels = new Map(visibleSettingsTabs().map(([id, label, icon]) => [id, { label, icon }]));
+  const hits = q ? settingsHits : [];
   const groups = SETTINGS_GROUPS.map(([head, ids]) => {
     const items = ids.filter(id => labels.has(id)).map(id => {
       const { label, icon } = labels.get(id)!;
-      // Searching: a section shows when its name or anything in it matches; picking it goes to the first part that does.
+      // Searching: a section shows when its name or anything in it matches; picking it goes to its best hit's part.
       let at = -1;
       if (q) {
-        const idx = settingsIndex(id);
-        const subHit = idx.subs.findIndex(s => s.toLowerCase().includes(q));
-        const rowHit = idx.rows.find(([t]) => t.toLowerCase().includes(q));
-        if (!label.toLowerCase().includes(q) && subHit < 0 && !rowHit) return '';
-        at = rowHit && (subHit < 0 || rowHit[1] < subHit) ? rowHit[1] : subHit;
+        const best = hits.find(h => h.tab === id);
+        if (!best && !label.toLowerCase().includes(q)) return '';
+        at = best?.part ?? -1;
       }
       // Discord's logo is drawn by CSS (a mask over the text colour), so it follows the theme.
       const iconHtml = icon === 'discord' ? '<span class="set-nav-img" aria-hidden="true"></span>' : svgIcon(icon, 17);
@@ -788,6 +939,8 @@ function showSettingsPart(m: HTMLElement, i: number): void {
 
 function bindSettings(m: HTMLElement): void {
   if (settingsTab === 'dev' && !appState.devMode) settingsTab = 'general';
+  // Searching: the results stand in for the section, through redraws that come in meanwhile too.
+  if (settingsQuery.trim()) { renderSettingsSearch(m); return; }
   const pane = $('.set-pane', m);
   // Switches are rebuilt with the pane, so remember where each knob was (mid-drag or mid-slide too) and slide on from there.
   const prevSwitch = new Map<string, string>();
@@ -896,7 +1049,7 @@ function bindSettings(m: HTMLElement): void {
       setCodeSize(v);
       sizeEl.value = String(codeSize);
       sizeEl.style.setProperty('--fill', `${(codeSize - CODE_SIZE_MIN) / (CODE_SIZE_MAX - CODE_SIZE_MIN) * 100}%`);
-      $('#sCodeSizeVal', pane).textContent = `${codeSize}px`;
+      swapText($('#sCodeSizeVal', pane), `${codeSize}px`);
     };
     showSize(codeSize);
     sizeEl.oninput = () => showSize(+sizeEl.value);
@@ -962,7 +1115,7 @@ function bindSettings(m: HTMLElement): void {
     usageShown = usageHtml(usageAgents());
     updateUsage(usageEl);
     // Kept current while it's on screen; the timer ends once this pane is redrawn or closed.
-    const tick = setInterval(() => { if (usageEl.isConnected) updateUsage(usageEl); else clearInterval(tick); }, 15_000);
+    const tick = setInterval(() => { if (usageEl.isConnected) updateUsage(usageEl); else clearInterval(tick); }, DASH_REFRESH_MS);
   }
   // Home's agent page sits under the Agents pane, outside it, so the pane's redraws leave it be.
   const dashSlot = m.querySelector<HTMLElement>('.set-dash');
@@ -1161,19 +1314,50 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-set-tab], [data-go-tab]');
       if (b) switchTab((b.dataset.setTab ?? b.dataset.goTab) as SettingsTab, Number(b.dataset.at ?? 0));
     });
-    // Search narrows the side tab to the sections that hold what's typed; Enter opens the first.
+    // A search result opens its section on its row, which is brought into view and glows for a moment. A shortcut
+    // opens Controls already filtered to it.
+    const openHit = (h: SettingsHit) => {
+      switchTab(h.tab);
+      const pane = $('.set-pane', root);
+      const kb = $<HTMLInputElement>('#kbSearch', pane);
+      if (h.sel === '.kb-row' && kb) { kb.value = h.title; kb.dispatchEvent(new Event('input')); }
+      const el = h.sel === '.kb-row' ? pane.querySelector<HTMLElement>('.kb-row') : $$<HTMLElement>(h.sel, pane)[h.n];
+      if (!el) return;
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.classList.remove('set-found');
+      void el.offsetWidth; // restart the glow
+      el.classList.add('set-found');
+    };
+    $('.set-pane', root).addEventListener('click', e => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-hit]');
+      const h = b && settingsHits[Number(b.dataset.hit)];
+      if (h) openHit(h);
+    });
+    // Arrow keys walk the results; from the first one, up goes back to the box.
+    $('.set-pane', root).addEventListener('keydown', e => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-hit]');
+      if (!b || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+      e.preventDefault();
+      const next = (e.key === 'ArrowDown' ? b.nextElementSibling : b.previousElementSibling) as HTMLElement | null;
+      (next ?? (e.key === 'ArrowUp' ? search : b)).focus();
+    });
+    // Typing searches every section and lists what fits in place of the section; Enter opens the best result.
     const search = $<HTMLInputElement>('#setSearch', root);
-    search.addEventListener('input', () => { settingsQuery = search.value; renderSettingsNav(root); });
+    search.addEventListener('input', () => { settingsQuery = search.value; bindSettings(root); });
     search.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        root.querySelector<HTMLElement>('.set-nav-list [data-set-tab]')?.click();
+        if (settingsHits[0] && settingsQuery.trim()) openHit(settingsHits[0]);
+        else root.querySelector<HTMLElement>('.set-nav-list [data-set-tab]')?.click();
+      } else if (e.key === 'ArrowDown') {
+        const first = root.querySelector<HTMLElement>('.set-hit');
+        if (first) { e.preventDefault(); first.focus(); }
       } else if (e.key === 'Escape' && search.value) {
         e.preventDefault();
         e.stopPropagation();
         search.value = '';
         settingsQuery = '';
-        renderSettingsNav(root);
+        bindSettings(root);
       }
     });
     background(refreshAccounts().then(refreshSettings));

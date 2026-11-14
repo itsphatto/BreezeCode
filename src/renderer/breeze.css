@@ -237,10 +237,11 @@
 :root[data-backdrop="image"]::before {
   content: "";
   position: fixed;
-  inset: 0;
+  inset: calc(var(--bd-blur, 0px) * -2); /* past the window's edges, so the blur doesn't fade them out */
   z-index: -1;
   background: var(--bd-img) center / cover no-repeat;
   opacity: var(--bd-o, .4);
+  filter: blur(var(--bd-blur, 0px)); /* Settings → Appearance → Picture blur */
   pointer-events: none;
 }
 
@@ -12692,6 +12693,109 @@ body.layout-animating #previewPane {
   font-size: 13px;
 }
 
+/* Settings search: the results stand in for the section (renderSettingsSearch, settings.ts). */
+.set-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+}
+
+.set-hit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
+}
+
+.set-hit:hover,
+.set-hit:focus-visible {
+  background: var(--bg-2);
+  border-color: var(--line);
+  outline: none;
+}
+
+.set-hit:active {
+  transform: scale(.99);
+}
+
+.set-hit-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+
+.set-hit:is(:hover, :focus-visible) .set-hit-ico {
+  background: var(--bg-3);
+  color: var(--blue-text);
+}
+
+.set-hit-txt {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.set-hit-path {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.set-hit b {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.set-hit small {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.set-hit mark {
+  background: none;
+  color: var(--blue-text);
+  font-weight: 600;
+}
+
+.set-hit-key {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-3);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+/* The row a result opened glows for a moment, so the eye finds it. */
+.set-found {
+  border-radius: 10px;
+  animation: setFound 1.6s ease-out;
+}
+
+@keyframes setFound {
+  0%, 30% { background-color: rgba(0, 122, 255, .16); box-shadow: 0 0 0 6px rgba(0, 122, 255, .16); }
+  100% { background-color: transparent; box-shadow: 0 0 0 6px transparent; }
+}
+
 /* The pages get more room around them, and stop at a readable width on a wide window. */
 .set-pane {
   max-width: 920px;
@@ -17764,6 +17868,11 @@ input.dbg-edit.bad:focus-visible {
   box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
   backdrop-filter: var(--glass-blur);
   animation: dropIn .16s cubic-bezier(.2, .8, .2, 1);
+}
+
+.color-picker.closing {
+  pointer-events: none;
+  animation: menuOut .14s ease-in forwards;
 }
 
 .cp-sv {
