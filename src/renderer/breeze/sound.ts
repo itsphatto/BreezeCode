@@ -240,6 +240,103 @@ const sfx = (() => {
     SOUNDS[name]();
   }
 
+  // The effort slider's charge hum, held for as long as the pointer is on the slider. It spins up from a low growl
+  // to the current effort's level, then keeps whirring there: a filtered saw pair under a tremolo. More effort is
+  // higher, brighter, louder and pulses faster; Extra adds a crackle. set() glides to a new level (with a small
+  // "ready" ping), stop() powers it down. The menu owns the handle, so it never plays anywhere else.
+  interface ChargeHum { set(level: number, max: boolean): void; stop(): void }
+  function chargeHum(level: number, max = false): ChargeHum {
+    const none: ChargeHum = { set() {}, stop() {} };
+    if (!on || !volume || document.hidden || document.documentElement.hasAttribute('data-starting')) return none;
+    if (!ctx) unlock();
+    if (!ctx || !master) return none;
+    if (ctx.state !== 'running') void ctx.resume().catch(() => {});
+    const c = ctx;
+    const t0 = c.currentTime + 0.012;
+    const out = c.createGain();
+    out.gain.setValueAtTime(0.0001, t0);
+    const pan = c.createStereoPanner();
+    pan.pan.value = performance.now() - placeAt < 1500 ? place : 0;
+    out.connect(pan).connect(master);
+    if (verb) pan.connect(verb);
+    // Tremolo: the pulse of something spinning.
+    const trem = c.createGain();
+    trem.gain.value = 0.7;
+    const lfo = c.createOscillator();
+    const depth = c.createGain();
+    depth.gain.value = 0.3;
+    lfo.connect(depth).connect(trem.gain);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.connect(trem).connect(out);
+    const voices: [OscillatorNode, number][] = [];
+    for (const [type, mult, cents, lvl] of [['sawtooth', 1, 0, 0.55], ['sawtooth', 1, 11, 0.35], ['sine', 0.5, 0, 0.8]] as const) {
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.type = type;
+      o.detune.value = cents;
+      g.gain.value = lvl;
+      o.frequency.setValueAtTime(70 * mult, t0); // starts low: the spin-up
+      o.connect(g).connect(lp);
+      voices.push([o, mult]);
+    }
+    // A slow pitch wobble so the held whine breathes instead of droning flat.
+    const wob = c.createOscillator();
+    const wobDepth = c.createGain();
+    wob.frequency.value = 0.7;
+    wobDepth.gain.value = 12; // cents
+    wob.connect(wobDepth);
+    for (const [o] of voices) wobDepth.connect(o.detune);
+    // Extra's crackle: a looped buffer of sparse random clicks.
+    const crackLen = Math.floor(c.sampleRate * 0.5);
+    const crackBuf = c.createBuffer(1, crackLen, c.sampleRate);
+    const cd = crackBuf.getChannelData(0);
+    for (let i = 0; i < crackLen; i++) cd[i] = secureRandom() < 0.03 ? secureRandom() * 2 - 1 : 0;
+    const crack = c.createBufferSource();
+    crack.buffer = crackBuf;
+    crack.loop = true;
+    const cbp = c.createBiquadFilter();
+    cbp.type = 'bandpass';
+    cbp.frequency.value = 4500;
+    const cg = c.createGain();
+    cg.gain.setValueAtTime(0, t0);
+    crack.connect(cbp).connect(cg).connect(out);
+    for (const n of [...voices.map(v => v[0]), lfo, wob]) n.start(t0);
+    crack.start(t0);
+
+    let stopped = false;
+    const apply = (lv: number, mx: boolean, first: boolean) => {
+      const L = Math.max(0, Math.min(1, lv));
+      const now = c.currentTime + (first ? 0.012 : 0);
+      const glide = first ? 0.12 + L * 0.12 : 0.08; // spin-up is slower than a step change
+      const f = 120 + L * 260;
+      for (const [o, mult] of voices) o.frequency.setTargetAtTime(f * mult, now, glide);
+      lp.frequency.setTargetAtTime(500 + L * 2600, now, glide);
+      lp.Q.setTargetAtTime(3 + L * 7, now, glide);
+      lfo.frequency.setTargetAtTime(5 + L * 13 + (mx ? 8 : 0), now, glide);
+      out.gain.setTargetAtTime(0.022 + L * 0.026, now, first ? 0.06 : 0.05);
+      cg.gain.setTargetAtTime(mx ? 0.22 : 0, now, 0.08);
+      if (!first) tone(587 * Math.pow(2, L * 1.2), 0.14, { type: 'triangle', vol: 0.05 + L * 0.02 });
+      if (!first && mx) [1175, 1480, 1760].forEach((fr, i) => tone(fr, 0.12, { vol: 0.045, at: 0.05 + i * 0.055 }));
+    };
+    apply(level, max, true);
+    lastAt = anyAt = performance.now();
+    return {
+      set(lv, mx) { if (!stopped && on && volume) apply(lv, mx, false); },
+      stop() {
+        if (stopped) return;
+        stopped = true;
+        const now = c.currentTime;
+        // Powers down: the pitch sags as it fades.
+        for (const [o, mult] of voices) o.frequency.setTargetAtTime(60 * mult, now, 0.08);
+        out.gain.cancelScheduledValues(now);
+        out.gain.setValueAtTime(out.gain.value, now);
+        out.gain.setTargetAtTime(0.0001, now, 0.05);
+        for (const n of [...voices.map(v => v[0]), lfo, wob, crack]) { try { n.stop(now + 0.35); } catch { /* already stopped */ } }
+      },
+    };
+  }
+
   // The menu item mutes; the slider in Settings → General sets the level (0 is silent).
   function toggle(): void {
     unlock();
@@ -366,6 +463,6 @@ const sfx = (() => {
     if (row && !row.contains(e.relatedTarget as Node | null)) play('rowHover');
   });
 
-  return { play, toggle, setVolume, get on() { return on; }, get volume() { return on ? volume : 0; } };
+  return { play, chargeHum, toggle, setVolume, get on() { return on; }, get volume() { return on ? volume : 0; } };
 })();
 

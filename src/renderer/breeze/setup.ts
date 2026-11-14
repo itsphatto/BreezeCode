@@ -451,6 +451,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
     value: () => EFFORTS.indexOf(effortNow()),
     set: i => apply(current(), EFFORTS[i]),
     hint: i => EFFORT_HINTS[EFFORTS[i]],
+    charge: true,
   } }];
   return [{ label: 'Switch Model', enabled: () => false }, ...models, ...effort];
 }
