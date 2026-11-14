@@ -984,14 +984,17 @@ const focused = () => document.activeElement as HTMLElement | null;
 const debugKeyAct = (act: string | undefined) => (act === 'run.stop' && debugState !== 'stopped' ? 'debug.stop' : act);
 // The debug page answers only the debugger's keys and a few app-wide ones: the rest would act on the hidden editor.
 const DEBUG_PAGE_ACTS = new Set(['run.start', 'debug.start', 'debug.stop', 'debug.restart', 'debug.continue', 'debug.pause', 'debug.stepOver',
-  'debug.stepInto', 'debug.stepOut', 'debug.toggleBreakpoint', 'view.palette', 'view.paletteF1', 'settings.open', 'help.keys', 'win.reload', 'win.devtools']);
-function debugPageKey(e: KeyboardEvent): void {
+  'debug.stepInto', 'debug.stepOut', 'debug.toggleBreakpoint', 'view.palette', 'view.paletteF1', 'settings.open', 'help.keys', 'win.reload', 'win.devtools',
+  'view.board']);
+// The Agent board page takes only the shortcuts that switch to the debugger.
+const BOARD_PAGE_ACTS = new Set(['debug.start', 'debug.open']);
+function debugPageKey(e: KeyboardEvent, acts = DEBUG_PAGE_ACTS): void {
   // Typing in the page's own boxes (watch, console, program input) is theirs: only F-keys and Ctrl/Cmd chords
   // still reach the debugger from there.
   const el = focused();
   if (el?.matches('input:not([readonly]), textarea:not([readonly])') && !/^F\d+$/.test(e.key) && !e.ctrlKey && !e.metaKey) return;
   const act = debugKeyAct(keymap.get(comboOf(e)));
-  if (!act || !DEBUG_PAGE_ACTS.has(act)) return;
+  if (!act || !acts.has(act)) return;
   e.preventDefault();
   run(act);
 }
@@ -1005,7 +1008,11 @@ document.addEventListener('keydown', e => {
     if (findOpen) { closeFind(); activeText()?.ta.focus(); return; }
   }
   if (modalOpen() || vibeOn) return;
-  if ($('#ide').classList.contains('hidden')) { if (debugPageShowing()) debugPageKey(e); return; }
+  if ($('#ide').classList.contains('hidden')) {
+    if (debugPageShowing()) debugPageKey(e);
+    else if (boardPageShowing()) debugPageKey(e, BOARD_PAGE_ACTS);
+    return;
+  }
 
   const isCtrlZ = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z' && !e.shiftKey;
   const isCtrlY = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey));

@@ -41,6 +41,7 @@ dbgRail.addEventListener('click', e => {
   const b = (e.target as HTMLElement).closest<HTMLElement>('.act-btn');
   if (!b) return;
   if (b.dataset.railView) { leaveDebugView(); showView(b.dataset.railView, true); }
+  else if (b.dataset.rail === 'boardBtn') { hideDbgHover(); openBoard(); }
   else if (b.dataset.rail === 'settingsBtn') openSettings(b);
 });
 function placeRailIndicator(): void {
