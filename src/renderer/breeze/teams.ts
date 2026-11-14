@@ -560,6 +560,25 @@ function agentImage(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   saveChat(tab);
 }
 
+// Test results from a command the agent ran: the counts, and each failure with the first line of its error. A failure
+// in a project file opens that file at the line it failed on.
+function testsCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  const passed = ev.passed ?? 0, failed = ev.failed ?? 0, skipped = ev.skippedCount ?? 0;
+  const failures = ev.failures ?? [];
+  r.lastMsg = undefined;
+  const counts = [`<span class="t-pass">${passed} passed</span>`, failed ? `<span class="t-fail">${failed} failed</span>` : '', skipped ? `<span>${skipped} skipped</span>` : '']
+    .filter(Boolean).join('<span class="t-dot">·</span>');
+  const rows = failures.map(f => {
+    const where = f.file ? `${f.file}${f.line ? `:${f.line}` : ''}` : '';
+    const body = `<span class="t-name">${esc(f.name)}</span>${f.error ? `<span class="t-err">${esc(f.error)}</span>` : ''}${where ? `<span class="t-loc">${esc(where)}</span>` : ''}`;
+    return f.file
+      ? `<li><button class="t-row" type="button" data-test-file="${escAttr(f.file)}" data-test-line="${f.line ?? 0}" title="Open ${escAttr(where)}">${body}</button></li>`
+      : `<li><div class="t-row">${body}</div></li>`;
+  }).join('');
+  const more = failed > failures.length && failures.length ? `<p class="t-more">and ${failed - failures.length} more</p>` : '';
+  addMsg(`<div class="card tests ${failed ? 'fail' : 'ok'}"><h5>${svgIcon(failed ? 'circleX' : 'check', 14)} Tests <span class="t-runner">${esc(ev.runner ?? '')}</span></h5><p class="t-counts">${counts}</p>${rows ? `<ul class="t-fails">${rows}</ul>` : ''}${more}</div>`, tab);
+}
+
 // The card stops taking answers and says how it ended.
 function endQuestion(card: Element | null | undefined, how: string): void {
   card?.querySelector('[data-live]')?.replaceWith(Object.assign(document.createElement('div'), { className: 'resolved', textContent: how }));
@@ -609,6 +628,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   approve: (r, ev, tab) => approveCard(r, ev, tab),
   question: (r, ev, tab) => questionCard(r, ev, tab),
   image: (r, ev, tab) => agentImage(r, ev, tab),
+  tests: (r, ev, tab) => testsCard(r, ev, tab),
   // The run stopped (or the agent gave up waiting) before anyone answered.
   'question-end': (_r, ev, tab) => { if (ev.id) endQuestion(tab.panel.querySelector(`[data-question="${CSS.escape(ev.id)}"]`), '✕ Not answered'); saveChat(tab); },
   note: (_r, ev, tab) => { if (ev.text) toolLine('note', ev.text, tab); },
@@ -727,6 +747,13 @@ document.addEventListener('click', e => {
   if (view) {
     const open = view.closest('.run-edits')!.classList.toggle('open');
     view.setAttribute('aria-expanded', String(open));
+    return;
+  }
+  const failed = t.closest<HTMLElement>('[data-test-file]');
+  if (failed && rootInfo) {
+    if (surface.name === 'box') enterMode('ide');
+    const line = Math.max(0, Number(failed.dataset.testLine) - 1); // the card counts from 1, the editor from 0
+    openFile(failed.dataset.testFile as string, { line, col: 0 });
     return;
   }
   const file = t.closest<HTMLElement>('[data-edit-file]');

@@ -84,7 +84,7 @@ test('Enter on a roster chip does not type a newline into the new box', () => {
 
 test("the folder watcher and every agent's shell commands reach the board", () => {
   assert.match(main, /board\?\.diskChanged\(rel\)/);
-  assert.match(main, /c\.name === 'Bash' && c\.id\)[\s\S]{0,120}shellEvent\(runId, c\.id,/);
+  assert.match(main, /CLAUDE_SHELL_TOOLS\.includes\(c\.name\) && c\.id\)[\s\S]{0,120}shellEvent\(runId, c\.id,/);
   assert.match(main, /d\.type === 'item\.started' && d\.item\?\.type === 'command_execution'[\s\S]{0,80}shellEvent\(/);
   assert.match(main, /const shellId = `sh_\$\{\+\+shellSeq\}`;\s*shellEvent\(ctx\.runId, shellId, command\);/);
 });

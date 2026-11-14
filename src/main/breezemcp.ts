@@ -40,7 +40,20 @@ const SHOW_IMAGE: McpTool = {
   },
   annotations: { readOnlyHint: true },
 };
-const BREEZE_TOOLS: McpTool[] = [ASK_USER, SHOW_IMAGE];
+const CAPTURE_PREVIEW: McpTool = {
+  name: 'capture_preview',
+  description: 'Take a screenshot of a page of the project as Breeze\'s Preview pane shows it. The user sees it in the chat and you get the picture, so you can check a page you built or changed.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      page: { type: 'string', description: 'The .html or .md file, relative to the project folder; index.html when left out' },
+      width: { type: 'integer', description: 'Window width in pixels (1280 when left out)' },
+      height: { type: 'integer', description: 'Window height in pixels (800 when left out)' },
+    },
+  },
+  annotations: { readOnlyHint: true },
+};
+const BREEZE_TOOLS: McpTool[] = [ASK_USER, SHOW_IMAGE, CAPTURE_PREVIEW];
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_BODY = 1024 * 1024;

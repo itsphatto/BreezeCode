@@ -30,6 +30,7 @@ import { normalizeQuestion, QuestionDesk, NO_ANSWER } from './askuser';
 import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
 import type { ToolReply } from './breezemcp';
 import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal } from './agentimages';
+import { parseTestOutput } from './testresults';
 import { expandAbbr } from './emmet';
 import { markdownBody } from './markdown';
 import { DebugManager, killTree } from './debug';
@@ -2771,7 +2772,9 @@ function cliArgs(agent: string, mode: string, prompt: string, session: string | 
 // (with full access, every permission check is off); ask and plan modes can read and search but every tool that
 // changes files is switched off.
 const NO_SESSION = /No conversation found with session ID/i;
-const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'];
+// Claude Code on Windows runs commands with PowerShell as well as Bash.
+const CLAUDE_SHELL_TOOLS = ['Bash', 'PowerShell'];
+const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', ...CLAUDE_SHELL_TOOLS];
 // Also withheld from agent:ask, on top of the write tools: everything that reads local files or reaches the network.
 const CLAUDE_ASK_DENIED = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 // On a team, build mode also denies editing what a teammate owns (rule paths are relative to the project root).
@@ -2788,7 +2791,7 @@ function claudeArgs(mode: string, prompt: string, session: string | null | undef
   const ownTools = mcpFile && breezeUrl ? [`mcp__${BREEZE_MCP}`] : [];
   if (!build) args.push('--disallowedTools', ...CLAUDE_WRITE_TOOLS);
   if (!build && ownTools.length) args.push('--allowedTools', ...ownTools);
-  else if (build && !full) args.push('--allowedTools', 'Bash', ...ownTools, ...mcpTools); // print mode can't ask, so commands would otherwise be refused
+  else if (build && !full) args.push('--allowedTools', ...CLAUDE_SHELL_TOOLS, ...ownTools, ...mcpTools); // print mode can't ask, so commands would otherwise be refused
   const deny = build && team ? claudeDenyArgs(team.coordinator.owners, team.agentId) : [];
   if (deny.length && !shell) args.push('--disallowedTools', ...deny);
   const st = loadState();
@@ -2833,6 +2836,7 @@ const CLAUDE_TOOLS: Record<string, (i: Loose) => string[]> = {
   Write: i => ['edit', `Wrote ${relOut(i.file_path)}`, i.file_path],
   NotebookEdit: i => ['edit', `Edited ${relOut(i.notebook_path)}`, i.notebook_path],
   Bash: i => ['run', `$ ${i.command}`],
+  PowerShell: i => ['run', `PS> ${i.command}`],
   Grep: i => ['search', `Searched for ${i.pattern}`],
   Glob: i => ['search', `Listed ${i.pattern}`],
   WebSearch: i => ['web', `Searched the web for ${i.query}`],
@@ -2851,7 +2855,7 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
   if (String(c.name).startsWith(`mcp__${BREEZE_MCP}__`) || c.name === 'ToolSearch') return;
   const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
   emit(runId, { t: 'tool', kind, label });
-  if (c.name === 'Bash' && c.id) {
+  if (CLAUDE_SHELL_TOOLS.includes(c.name) && c.id) {
     (ctx.shells ??= new Set()).add(c.id);
     shellEvent(runId, c.id, String(c.input?.command ?? ''));
   }
@@ -2868,8 +2872,8 @@ function claudeToolResults(runId: number, d: Loose, ctx: StreamCtx): void {
   const content = d.message?.content;
   if (!Array.isArray(content)) return;
   for (const c of content) {
-    // A command's output may name a picture it made (a screenshot, a chart): it shows in the chat.
-    if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) { shellEvent(runId, c.tool_use_id); imagesIn(runId, toolResultText(c.content)); }
+    // A command's output may name a picture it made, or hold test results: both show in the chat.
+    if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) { shellEvent(runId, c.tool_use_id); commandOutput(runId, toolResultText(c.content)); }
     if (c?.type !== 'tool_result' || !ctx.writes?.has(c.tool_use_id)) continue;
     const file = ctx.writes.get(c.tool_use_id)!;
     ctx.writes.delete(c.tool_use_id);
@@ -3024,7 +3028,7 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
     if (it.id) shellEvent(runId, String(it.id));
     const exit = it.exit_code ? `  (exit ${it.exit_code})` : '';
     emit(runId, { t: 'tool', kind: 'run', label: `$ ${it.command}${exit}` });
-    imagesIn(runId, it.aggregated_output); // a picture the command made
+    commandOutput(runId, it.aggregated_output); // a picture it made, test results
   },
   file_change: (runId, it) => {
     for (const ch of it.changes || []) {
@@ -3098,6 +3102,7 @@ const LLM_TOOLS = [
   { name: 'move_file', description: 'Move or rename a file or folder. new_path must not exist yet.', parameters: { type: 'object', properties: { path: { type: 'string' }, new_path: { type: 'string' } }, required: ['path', 'new_path'] } },
   { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. The user may be asked to OK it first. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
   { name: 'ask_user', description: 'Ask the user one question and wait for the answer. Use it when the request is unclear and a wrong guess would waste work.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', description: '2 to 4 answers to pick from; the user can also type another', items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } }, multi_select: { type: 'boolean', description: 'Let the user pick more than one' } }, required: ['question'] } },
+  { name: 'capture_preview', description: 'Take a screenshot of a page of the project as the Preview pane shows it, and show it to the user. Use it to check a page you built or changed.', parameters: { type: 'object', properties: { page: { type: 'string', description: 'The .html or .md file; index.html when left out' }, width: { type: 'integer', description: 'Window width in pixels (1280 when left out)' }, height: { type: 'integer' } } } },
   { name: 'show_image', description: 'Show the user a picture from the project (png, jpg, gif, webp or svg) in the chat, such as one you made or a screenshot.', parameters: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string', description: 'One short line about it' } }, required: ['path'] } },
 ].map(fn => ({ type: 'function', function: fn }));
 const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'delete_file', 'move_file', 'run_command']);
@@ -3167,6 +3172,11 @@ handle('agent:reply', (_e, id, reply) => questions.answer(String(id), reply && t
 const BREEZE_TOOL_FNS: Record<string, (runId: number, args: Loose, signal: AbortSignal) => Promise<ToolReply>> = {
   ask_user: async (runId, args, signal) => ({ text: await askUser(runId, args, signal) }),
   show_image: async (runId, args) => ({ text: showImage(runId, args.path, args.caption) }),
+  // The agent sees the screenshot too, so it can check its own work.
+  capture_preview: async (runId, args, signal) => {
+    const shot = await capturePreview(runId, args, signal);
+    return { text: shot.text, image: { data: shot.png.toString('base64'), mimeType: 'image/png' } };
+  },
 };
 
 /* ----- Pictures the agent shows the user ----- */
@@ -3221,6 +3231,77 @@ function watchImages(runId: number, ev: Loose): void {
   if (written && IMAGE_EXT.test(String(ev.path ?? ''))) { try { showImage(runId, ev.path); } catch { /* deleted, or off limits */ } }
   if (ev.t === 'done') imageRuns.delete(runId);
 }
+// A command's output: a picture it names shows, and test results in it become a result card ('tests' event).
+// A failure's file is kept only when it is in the open project, so clicking it opens the file at that line.
+function commandOutput(runId: number, text: unknown): void {
+  imagesIn(runId, text);
+  const report = parseTestOutput(text);
+  if (!report) return;
+  const ir = imageRuns.get(runId);
+  for (const f of report.failures) {
+    const abs = f.file && ir && root && ir.base === root ? path.resolve(root, f.file) : null;
+    const rel = abs ? relTo(root!, abs) : '';
+    if (abs && rel && !rel.startsWith('..') && !path.isAbsolute(rel) && !agentBlocked(root!, abs) && fs.existsSync(abs)) f.file = rel;
+    else { delete f.file; delete f.line; }
+  }
+  const { skipped, ...counts } = report; // `skipped` on an event is a team's list of files
+  emit(runId, { t: 'tests', ...counts, skippedCount: skipped });
+}
+
+/* ----- Screenshots of the preview ----- */
+// capture_preview loads a page of the project the way the Preview pane does (breeze-preview://, previewServer.ts) in
+// a hidden window, and takes a picture of it. The picture is kept in the attachment stash, never in the project,
+// and shows in the chat (showImage). The window can't open others or navigate away, and closes right after.
+const CAPTURE_SIZE = { width: 1280, height: 800 };
+const CAPTURE_LOAD_MS = 15000;
+const CAPTURE_SETTLE_MS = 500; // fonts and first animations
+const PAGE_FILE = /\.(?:html?|md|markdown)$/i;
+function defaultPreviewPage(): string | null {
+  try { return fs.readdirSync(root!).find(n => /^index\.html?$/i.test(n)) ?? fs.readdirSync(root!).find(n => /\.html?$/i.test(n)) ?? null; } catch { return null; }
+}
+const clampSize = (v: unknown, lo: number, hi: number, dflt: number) => Number.isFinite(Number(v)) && Number(v) > 0 ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : dflt;
+async function capturePreview(runId: number, args: Loose, signal?: AbortSignal): Promise<{ text: string; png: Buffer }> {
+  const ir = imageRuns.get(runId);
+  if (!ir) throw new Error('That run has ended.');
+  if (!root || ir.base !== root) throw new Error('The preview shows pages of an open project, and no project is open.');
+  const page = String(args?.page ?? '').trim().replace(/^\.[\\/]/, '') || defaultPreviewPage();
+  if (!page) throw new Error('There is no index.html in the project. Give page: the HTML or Markdown file to show.');
+  if (!PAGE_FILE.test(page)) throw new Error('page must be an .html or .md file in the project.');
+  const abs = resolveIn(page); // throws when it leaves the project
+  if (!fullAccess()) { const why = agentBlocked(root, abs); if (why) throw new Error(why); }
+  if (!fs.existsSync(abs)) throw new Error(`There is no file at ${page}.`);
+  const rel = relTo(root, abs);
+  const width = clampSize(args?.width, 320, 2560, CAPTURE_SIZE.width), height = clampSize(args?.height, 240, 2000, CAPTURE_SIZE.height);
+  emit(runId, { t: 'tool', kind: 'read', label: `Took a screenshot of ${rel}` });
+  const w = new BrowserWindow({ show: false, width, height, useContentSize: true, paintWhenInitiallyHidden: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  const stop = () => { if (!w.isDestroyed()) w.destroy(); };
+  signal?.addEventListener('abort', stop, { once: true });
+  try {
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    w.webContents.on('will-navigate', e => e.preventDefault());
+    w.webContents.setAudioMuted(true);
+    const url = `${PREVIEW_SCHEME}://project/${rel.split('/').map(encodeURIComponent).join('/')}`;
+    await Promise.race([
+      w.loadURL(url).catch(() => { /* a page that fails to load part of itself still shows */ }),
+      new Promise(r => setTimeout(r, CAPTURE_LOAD_MS)),
+    ]);
+    await new Promise(r => setTimeout(r, CAPTURE_SETTLE_MS));
+    if (w.isDestroyed()) throw new Error('The run was stopped.');
+    const png = (await w.webContents.capturePage()).toPNG();
+    if (!png.length) throw new Error('The screenshot came out empty.');
+    void pruneStash();
+    const dir = path.join(STASH_DIR(), crypto.randomUUID());
+    await fsp.mkdir(dir, { recursive: true });
+    const file = path.join(dir, `preview-${path.basename(rel).replace(/\.[^.]+$/, '')}.png`);
+    await fsp.writeFile(file, png);
+    showImage(runId, file, `Preview of ${rel}`);
+    return { text: `Took a ${width}×${height} screenshot of ${rel}; the user can see it in the chat. It is saved at ${file} (outside the project).`, png };
+  } finally {
+    signal?.removeEventListener('abort', stop);
+    stop();
+  }
+}
+
 // The text of a Claude Code tool result, which is a string or a list of parts.
 const toolResultText = (content: unknown): string => typeof content === 'string' ? content
   : Array.isArray(content) ? content.map(p => (p?.type === 'text' ? String(p.text ?? '') : '')).join('\n') : '';
@@ -3263,6 +3344,7 @@ async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
 const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> = {
   ask_user: (ctx, a) => askUser(ctx.runId, a, ctx.signal),
   // agentPath keeps the file tools' rules (inside the project, no .env or .git) before showImage checks it again.
+  capture_preview: (ctx, a) => capturePreview(ctx.runId, a, ctx.signal).then(shot => shot.text),
   show_image: (ctx, a) => { agentPath(ctx, a.path); return Promise.resolve(showImage(ctx.runId, a.path, a.caption)); },
   async list_files(ctx, a) {
     const dir = agentPath(ctx, a.path || '.');
@@ -3326,7 +3408,7 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
         clearTimeout(timer);
         ctx.signal?.removeEventListener('abort', stop);
         const body = out.length > COMMAND_OUT_MAX ? `…${out.slice(-COMMAND_OUT_MAX)}` : out;
-        imagesIn(ctx.runId, body); // a picture the command made
+        commandOutput(ctx.runId, body); // a picture it made, test results
         resolve(`${head}\n${body.trim() || '(no output)'}`);
       };
       child.on('error', err => finish(`Couldn't start it: ${err.message}`));
