@@ -12749,18 +12749,24 @@ body.layout-animating #previewPane {
 .agent-tab.running .tab-status {
   display: inline-block;
   background: var(--blue);
-  animation: tabDotBreathe 1.6s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  animation: tabDotBreathe 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* A visible pulse with a ring that spreads out: scaling a 6px dot by 5% read as a frozen dot. */
 @keyframes tabDotBreathe {
   0% {
-    transform: scale(0.95);
+    transform: scale(.8);
+    opacity: .7;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--blue) 55%, transparent);
   }
-  70% {
-    transform: scale(1);
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
   }
   100% {
-    transform: scale(0.95);
+    transform: scale(.8);
+    opacity: .7;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--blue) 0%, transparent);
   }
 }
 
@@ -19168,7 +19174,7 @@ input.dbg-edit.bad:focus-visible {
 :root[data-power="saver"] .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) { background-color: rgba(60, 60, 64, .92); }
 :root[data-power="saver"][data-theme="light"] .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) { background-color: rgba(255, 255, 255, .94); }
 /* Kept turning: they say "working" or "type here", and cost a few pixels each. */
-:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg) {
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .composer-box.busy::after, .agent-tab.running .tab-status) {
   animation-iteration-count: infinite !important;
 }
 /* The welcome and launch sky's drifting light repaints the whole window behind everything. */
