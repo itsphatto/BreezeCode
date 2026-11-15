@@ -139,13 +139,12 @@ function configureAutoUpdater() {
 
   // No dialog on launch: the titlebar shows an Update button (update:state) and the user starts it from there.
   updater.on('update-available', info => setUpdateState({ state: 'available', version: info.version }));
-  // A download the user started from the Update button restarts straight into the new version when it finishes.
+  // A finished download waits for the user: the button turns into "Restart now?" and installs on click
+  // (or on the next quit, via autoInstallOnAppQuit).
   updater.on('update-downloaded', info => {
-    const restart = downloading;
     downloading = false;
     win?.setProgressBar(-1);
     setUpdateState({ state: 'ready', version: info.version });
-    if (restart) setTimeout(() => installUpdate(), 400); // let the renderer paint "ready" first
   });
 
   startUpdateDownload = () => {
@@ -2245,8 +2244,8 @@ handle('agent:run', (_e, opts) => launchRun({ ...opts, team: null }));
 
 /* ----- Agent usage: tokens each agent used this month, and how much of its plan is left ----- */
 // Tokens come from Claude's and Codex's own logs (below) and, for other agents, from each finished run in Breeze.
-// Plan limits are only what the agents report themselves: Claude in its
-// stream (rate_limit_event), Codex in its session logs. Antigravity reports neither, a local model has no limit.
+// Plan limits are only what the agents report themselves: asked live with each one's saved sign-in, else Claude's
+// last stream (rate_limit_event) and Codex's session logs. Antigravity reports neither, a local model has no limit.
 const usageMonth = () => new Date().toISOString().slice(0, 7);
 function addUsage(agent: string | undefined, tokens: number): void {
   if (!agent) return;
@@ -2338,6 +2337,32 @@ function codexLimits() {
       .map(w => limitWindow(windowLabel(w.window_minutes), w.used_percent, w.resets_at));
   } catch { return []; }
 }
+// Live numbers, the ones Codex's /status shows, asked for with the ChatGPT sign-in Codex saved on this computer (sent
+// only to OpenAI), so they show without running Codex. At most once a minute; null when it can't (signed in with an API
+// key, a token Codex hasn't refreshed, offline), and the last session log's numbers stand in.
+let codexLive: { next: number; windows: ReturnType<typeof limitWindow>[] | null; why: string | null } = { next: 0, windows: null, why: null };
+const codexLiveFailed = (why: string) => { codexLive.why = why; return (codexLive.windows = null); };
+async function codexLiveLimits() {
+  if (Date.now() < codexLive.next) return codexLive.windows;
+  codexLive.next = Date.now() + 60_000;
+  try {
+    const file = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'auth.json');
+    const t = JSON.parse(await fs.promises.readFile(file, 'utf8')).tokens;
+    if (!t?.access_token) return codexLiveFailed('Sign in to Codex with ChatGPT to see its plan limits');
+    const res = await net.fetch('https://chatgpt.com/backend-api/wham/usage', {
+      headers: { Authorization: `Bearer ${t.access_token}`, ...(t.account_id ? { 'ChatGPT-Account-Id': t.account_id } : {}) },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status === 401 || res.status === 403) return codexLiveFailed('Codex\'s sign-in has expired. Run Codex once to refresh it');
+    if (!res.ok) return codexLiveFailed('Codex couldn\'t send its plan limits. Trying again soon');
+    const r = (await res.json())?.rate_limit;
+    const shown = [r?.primary_window, r?.secondary_window].filter(w => typeof w?.used_percent === 'number')
+      .map(w => limitWindow(windowLabel(Math.round((w.limit_window_seconds || 0) / 60)), w.used_percent, w.reset_at));
+    if (!shown.length) return codexLiveFailed('Codex sent no plan limits for this account');
+    codexLive.why = null;
+    return (codexLive.windows = shown);
+  } catch { return codexLiveFailed('Couldn\'t reach Codex to read its plan limits. Trying again soon'); }
+}
 // Claude Code and Codex log every session on disk, whether it ran in Breeze or not, so their monthly tokens come from
 // those logs: input (cached or not) plus output, the same total Codex reports. Each log is re-read only when it changes.
 const logCache = new Map<string, { key: string; data: Loose }>(); // file -> its parsed data
@@ -2424,7 +2449,8 @@ async function agentUsage() {
   usage.claude = Math.max(usage.claude || 0, await claudeTokens());
   usage.codex = Math.max(usage.codex || 0, await codexTokens());
   const claude = (await claudeLiveLimits()) ?? claudeLimits();
-  return { usage, limits: { claude: await claudeUsedFable() ? claude : claude.filter(w => w.label !== FABLE_WEEK), codex: codexLimits() }, notes: { claude: claudeLive.why } };
+  const codex = (await codexLiveLimits()) ?? codexLimits();
+  return { usage, limits: { claude: await claudeUsedFable() ? claude : claude.filter(w => w.label !== FABLE_WEEK), codex }, notes: { claude: claudeLive.why, codex: codex.length ? null : codexLive.why } };
 }
 handle('agent:usage', () => (usageJob ??= agentUsage().finally(() => { usageJob = null; })));
 

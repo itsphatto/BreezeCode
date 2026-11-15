@@ -602,8 +602,10 @@ function showShortcuts(): void {
 let openMenuIdx = -1;      // bar menu index, -2 for a popup, -1 when closed
 let menuPinned = false;    // opened by a click or the keyboard: stays open when the pointer leaves
 let menuCloseTimer: TimeoutId | undefined;
-let kbIdx = -1;
+let kbIdx = -1;             // the keyboard row, in kbMenu
 let menuItems: MenuItem[] = [];
+const menuItemsOf = new WeakMap<HTMLElement, MenuItem[]>();
+let kbMenu: HTMLElement | null = null; // the menu (or submenu) the arrow keys move through
 let menuOnClose: (() => void) | null = null;
 function cancelMenuClose(): void { clearTimeout(menuCloseTimer); }
 // A menu opened by hovering closes shortly after the pointer leaves both the bar and the menu.
@@ -812,6 +814,8 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
   m.setAttribute('role', 'menu');
   m.innerHTML = items.map((it, i) => menuItemHtml(it, i)).join('');
   m.style.setProperty('--n', String(items.length)); // menus that open upwards stagger their rows from the bottom
+  menuItemsOf.set(m, items);
+  m.addEventListener('pointerenter', () => useKbMenu(m));
   applyDataStyles(m);
   $('#menuRoot').append(m);
   fitMenuHeight(m);
@@ -847,6 +851,7 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
       next.classList.remove('stagger');
       next.classList.toggle('up', m.classList.contains('up'));
       next.style.animation = 'none';
+      if (kbMenu === m) useKbMenu(next, -1);
       m.remove();
       const field = next.querySelector<HTMLInputElement>('[data-mse]')!;
       field.value = input.value;
@@ -907,6 +912,7 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
   const edge = menu ? { left: menu.offsetLeft, right: menu.offsetLeft + menu.offsetWidth } : btn.getBoundingClientRect(); // a gap from the menu itself, not the row inside it
   const cls = 'menu sub' + (it.subClass ? ` ${it.subClass}` : '');
   const sub = renderMenu(edge.right + 8, r.top - 5, it.sub?.() ?? [], cls, depth);
+  $$('.menu-item.kb', sub).forEach(b => b.classList.remove('kb')); // kbIdx is a row of the parent, not of this menu
   if (!btn.closest('.menu')?.classList.contains('stagger')) sub.classList.remove('stagger'); // like its parent menu
   if (btn.closest('.menu.up')) {
     sub.classList.add('up');
@@ -924,6 +930,7 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
 function closeSubmenu(depth = 1): void {
   for (const m of $$<HTMLElement>('#menuRoot .menu')) {
     const d = Number(m.dataset.depth ?? 0);
+    if (d >= depth && m === kbMenu) { kbMenu = null; kbIdx = -1; }
     if (d >= depth) m.remove();
     else if (d === depth - 1) $$('.sub-open', m).forEach(b => b.classList.remove('sub-open'));
   }
@@ -936,6 +943,7 @@ function showMenu(x: number, y: number, items: MenuItem[], viaKeyboard: boolean)
   $('#menuRoot').innerHTML = '';
   menuOwner = popOwner();
   const m = renderMenu(x, y, items);
+  kbMenu = m;
   // Callers may still restyle the menu (width, flip above its button), so the origin is set once they are done.
   const owner = menuOwner;
   if (owner) queueMicrotask(() => { if (m.isConnected) growFrom(m, owner, { left: Number.parseFloat(m.style.left), top: Number.parseFloat(m.style.top) }); });
@@ -953,7 +961,7 @@ function closeMenu(): void {
     activeMenuTrigger.setAttribute('aria-expanded', 'false');
     activeMenuTrigger = null;
   }
-  openMenuIdx = -1; kbIdx = -1; menuPinned = false;
+  openMenuIdx = -1; kbIdx = -1; kbMenu = null; menuPinned = false;
   // Menus fade out before they are removed; opening another menu clears the root straight away.
   const root = $('#menuRoot');
   const leaving = $$('.menu', root);
@@ -983,21 +991,61 @@ document.addEventListener('mousedown', e => {
   }
 });
 window.addEventListener('blur', closeMenu);
+// The menu the keys act on and its rows: the one the pointer was last in, else the top one.
+function kbTarget(): [HTMLElement | null, MenuItem[]] {
+  return kbMenu?.isConnected ? [kbMenu, menuItemsOf.get(kbMenu) ?? []] : [document.querySelector<HTMLElement>('#menuRoot .menu'), menuItems];
+}
+// Moves the keys to menu `m`, starting from `idx` (by default the row the pointer rests on).
+function useKbMenu(m: HTMLElement, idx?: number): void {
+  if (kbMenu === m && idx === undefined) return;
+  kbMenu?.classList.remove('kb-on', 'kb-slide');
+  $$('#menuRoot .menu-item.kb').forEach(b => b.classList.remove('kb'));
+  kbMenu = m;
+  kbIdx = idx ?? Number(m.querySelector<HTMLElement>('[data-mi]:hover')?.dataset.mi ?? -1);
+}
+function markKbRow(): void {
+  const [m] = kbTarget();
+  $$('[data-mi]', m ?? document).forEach(b => b.classList.toggle('kb', Number(b.dataset.mi) === kbIdx));
+  // The keys win over a pointer resting on the menu (breeze.css .kb-nav) until the pointer moves again.
+  $$('#menuRoot .menu').forEach(el => el.classList.add('kb-nav'));
+  slideKbHighlight();
+}
 function moveKbSelection(down: boolean): void {
-  const usable = menuItems.map((it, i) => (!it.sep && !it.header && !it.slider && (!it.enabled || it.enabled()) ? i : -1)).filter(i => i !== -1);
+  const usable = kbTarget()[1].map((it, i) => (!it.sep && !it.header && !it.slider && !it.search && (!it.enabled || it.enabled()) ? i : -1)).filter(i => i !== -1);
   const pos = usable.indexOf(kbIdx);
   kbIdx = usable[(pos + (down ? 1 : -1) + usable.length) % usable.length] ?? -1;
-  $$('[data-mi]').forEach(b => b.classList.toggle('kb', Number(b.dataset.mi) === kbIdx));
-  // The keys win over a pointer resting on the menu (breeze.css .kb-nav) until the pointer moves again.
-  $$('#menuRoot .menu').forEach(m => m.classList.add('kb-nav'));
-  slideKbHighlight();
+  markKbRow();
+}
+// Right (or Enter) on a row with "›" opens its submenu and moves the keys into it; Left goes back out.
+function enterKbSubmenu(): boolean {
+  const [m, items] = kbTarget();
+  const it = items[kbIdx];
+  const row = m?.querySelector<HTMLElement>(`[data-mi="${kbIdx}"]`);
+  if (!m || !row || !it?.sub || it.clickRuns) return false;
+  openSubmenu(row, it);
+  const sub = $$('#menuRoot .menu').find(s => Number(s.dataset.depth) === Number(m.dataset.depth) + 1);
+  if (!sub) return false;
+  useKbMenu(sub, -1);
+  moveKbSelection(true);
+  return true;
+}
+function leaveKbSubmenu(): boolean {
+  const [m] = kbTarget();
+  const depth = Number(m?.dataset.depth ?? 0);
+  const parent = $$('#menuRoot .menu').find(p => Number(p.dataset.depth) === depth - 1);
+  if (!depth || !parent) return false;
+  const idx = Number(parent.querySelector<HTMLElement>('.sub-open')?.dataset.mi ?? -1);
+  closeSubmenu(depth);
+  useKbMenu(parent, idx);
+  markKbRow();
+  return true;
 }
 document.addEventListener('pointermove', e => {
   if (e.movementX || e.movementY) $$('#menuRoot .menu.kb-nav').forEach(m => m.classList.remove('kb-nav'));
 }, { capture: true, passive: true });
 // The keyboard highlight is one block (the menu's ::before) that slides to the selected row.
 function slideKbHighlight(): void {
-  const b = document.querySelector<HTMLElement>('#menuRoot .menu-item.kb');
+  const b = kbTarget()[0]?.querySelector<HTMLElement>('.menu-item.kb');
   const m = b?.closest<HTMLElement>('.menu');
   if (!b || !m) return;
   // In a menu that scrolls (fitMenuHeight) the row is brought into view and measured where it shows.
@@ -1012,12 +1060,17 @@ function slideKbHighlight(): void {
 }
 function menuKeys(e: KeyboardEvent): boolean {
   if (openMenuIdx === -1 || mentionOpen() || slashOpen()) return false; // the "@" and "/" menus' keys are handled on their prompt
+  const typing = (e.target as HTMLElement).matches?.('input, textarea'); // Left and Right move the caret in a search field
   if (e.key === 'Escape') closeMenu();
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') moveKbSelection(e.key === 'ArrowDown');
-  else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && openMenuIdx >= 0) {
+  else if (e.key === 'ArrowRight' && !typing && enterKbSubmenu()) { /* moved into the submenu */ }
+  else if (e.key === 'ArrowLeft' && !typing && leaveKbSubmenu()) { /* back in the parent menu */ }
+  else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && openMenuIdx >= 0 && !typing) {
     openMenu((openMenuIdx + (e.key === 'ArrowRight' ? 1 : -1) + BAR_MENUS.length) % BAR_MENUS.length, true);
-  } else if (e.key === 'Enter' && kbIdx >= 0) activateMenuItem(menuItems[kbIdx]);
-  else return false;
+  } else if (e.key === 'Enter' && kbIdx >= 0) {
+    const it = kbTarget()[1][kbIdx];
+    if (it && !enterKbSubmenu()) activateMenuItem(it);
+  } else return false;
   e.preventDefault();
   return true;
 }

@@ -511,29 +511,76 @@ function questionCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   r.lastMsg = undefined;
   setAgent(r.phase, 'waiting', 'Waiting for your answer', r.tools);
   sfx.play('plan');
-  const opts = options.map(o => `<button class="q-opt" type="button" data-q-opt="${escAttr(o.label)}"${multi ? ' aria-pressed="false"' : ''}><b>${esc(o.label)}</b>${o.description ? `<small>${esc(o.description)}</small>` : ''}</button>`).join('');
-  const otherLabel = options.length ? 'Another answer' : 'Your answer';
-  const el = addMsg(`<div class="card ask question" data-question="${escAttr(id)}"><h5>${svgIcon('info', 14)} ${esc(speaker(r.phase, r.agent).name)} has a question</h5><p class="q-text">${inlineMd(ev.question)}</p><div class="q-live" data-live>${opts ? `<div class="q-opts" role="group" aria-label="Answers">${opts}</div>` : ''}${multi ? '<p class="q-hint">Pick any that apply, then Send.</p>' : ''}<div class="row q-other"><input class="input" type="text" maxlength="2000" placeholder="${options.length ? 'Other…' : 'Type your answer'}" aria-label="${otherLabel}" spellcheck="false"><button class="btn btn-primary btn-sm" type="button" data-q-send>Send</button><button class="btn btn-sm" type="button" data-q-skip title="Let the agent decide">Skip</button></div></div></div>`, tab);
-  const input = $<HTMLInputElement>('.q-other input', el);
+  const who = speaker(r.phase, r.agent);
+  // Options 1–9 get a number key; the rest are still clickable.
+  const opts = options.map((o, i) => `<button class="q-opt" type="button" role="${multi ? 'checkbox' : 'radio'}" aria-checked="false" tabindex="${i ? -1 : 0}" data-q-opt="${escAttr(o.label)}"><span class="q-key" aria-hidden="true">${i < 9 ? i + 1 : ''}</span><span class="q-label"><b>${esc(o.label)}</b>${o.description ? `<small>${esc(o.description)}</small>` : ''}</span><span class="q-radio" aria-hidden="true"></span></button>`).join('');
+  const keys = Math.min(options.length, 9);
+  const hint = keys > 1 ? `<span class="q-hint"><kbd>1</kbd>–<kbd>${keys}</kbd> to pick${multi ? ', any that apply' : ''}</span>` : '<span class="q-hint"></span>';
+  const own = options.length
+    ? `<label class="q-own"><span>Or answer in your own words</span><input class="input" type="text" maxlength="2000" placeholder="Type your answer" spellcheck="false"></label>`
+    : `<input class="input q-own-only" type="text" maxlength="2000" placeholder="Type your answer" aria-label="Your answer" spellcheck="false">`;
+  const el = addMsg(`<div class="card ask question" data-question="${escAttr(id)}"><div class="q-head">${brandMark('avatar mini', who.tint, who.letter)}<b>${esc(who.name)} has a question</b><span class="q-wait">Waiting for you</span></div><p class="q-text">${inlineMd(ev.question)}</p><div class="q-live" data-live>${opts ? `<div class="q-opts" role="${multi ? 'group' : 'radiogroup'}" aria-label="Answers"><i class="q-slide" aria-hidden="true"></i>${opts}</div>` : ''}${own}<div class="q-foot">${hint}<button class="btn btn-ghost btn-sm" type="button" data-q-skip title="Let the agent decide">Skip</button><button class="btn btn-primary btn-sm" type="button" data-q-send disabled>Send answer</button></div></div></div>`, tab);
+  const input = $<HTMLInputElement>('.q-live input', el);
+  const sendBtn = $<HTMLButtonElement>('[data-q-send]', el);
+  const rows = $$<HTMLButtonElement>('.q-opt', el);
+  const slide = el.querySelector<HTMLElement>('.q-slide');
+  const picked = () => rows.filter(b => b.getAttribute('aria-checked') === 'true');
+  const refresh = () => {
+    sendBtn.disabled = !picked().length && !input.value.trim();
+    if (multi || !slide) return;
+    // One highlight glides to the picked row instead of each row lighting up on its own.
+    const on = picked()[0];
+    if (on) {
+      const first = !slide.classList.contains('on');
+      if (first) slide.style.transition = 'opacity .15s ease'; // the first pick fades in place rather than sliding from the top
+      slide.style.transform = `translateY(${on.offsetTop}px)`;
+      slide.style.height = `${on.offsetHeight}px`;
+      if (first) { void slide.offsetWidth; slide.style.transition = ''; }
+    }
+    slide.classList.toggle('on', !!on);
+    // Roving focus: Tab lands on the picked row (or the first), as in any radio list.
+    rows.forEach(b => b.tabIndex = (on ? b === on : b === rows[0]) ? 0 : -1);
+  };
+  const pick = (b: HTMLButtonElement, focus: boolean) => {
+    if (multi) b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true'));
+    else {
+      rows.forEach(x => x.setAttribute('aria-checked', String(x === b)));
+      input.value = '';
+    }
+    if (focus) b.focus();
+    refresh();
+  };
   const answer = (reply: AskReply | null) => {
     const said = reply ? [...reply.picked, reply.other].filter(Boolean).join(', ') : '';
-    sendReply(r, el, id, reply, said ? `✓ ${said}` : '✕ Skipped', tab);
+    sendReply(r, el, id, reply, !reply ? `– You skipped this. ${who.name} will decide.` : reply.other && !reply.picked.length ? `✎ ${said}` : `✓ ${said}`, tab);
   };
-  $$<HTMLElement>('.q-opt', el).forEach(b => b.onclick = () => {
-    if (!multi) { answer({ picked: [b.dataset.qOpt as string], other: '' }); return; }
-    b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
-  });
+  rows.forEach(b => b.onclick = () => pick(b, false));
   const send = () => {
-    const picked = multi ? $$<HTMLElement>('.q-opt[aria-pressed="true"]', el).map(b => b.dataset.qOpt as string) : [];
+    const chosen = picked().map(b => b.dataset.qOpt as string);
     const other = input.value.trim();
-    if (picked.length || other) answer({ picked, other });
+    if (chosen.length || other) answer({ picked: chosen, other });
     else input.focus();
   };
-  $('[data-q-send]', el).onclick = send;
+  sendBtn.onclick = send;
   $('[data-q-skip]', el).onclick = () => answer(null);
+  input.addEventListener('input', () => {
+    // Writing your own answer replaces a single pick; with several allowed it is sent alongside them.
+    if (!multi && input.value) rows.forEach(x => x.setAttribute('aria-checked', 'false'));
+    refresh();
+  });
   input.addEventListener('keydown', e => {
     e.stopPropagation();
     if (e.key === 'Enter') { e.preventDefault(); send(); }
+  });
+  // Number keys pick from anywhere in the card (number row or numpad), except while typing.
+  el.addEventListener('keydown', e => {
+    if (e.target === input || e.ctrlKey || e.altKey || e.metaKey || !el.querySelector('[data-live]')) return;
+    const n = /^(?:Digit|Numpad)([1-9])$/.exec(e.code)?.[1];
+    const b = n ? rows[+n - 1] : undefined;
+    if (!b) return;
+    e.preventDefault();
+    e.stopPropagation();
+    pick(b, true);
   });
 }
 // A picture the agent showed, in the lightbox the user's attachments use. Pictures in a row share one line, and
@@ -610,7 +657,23 @@ function planApprovalCard(r: Run, id: string, plan: string, tab: AgentTabState):
 }
 
 function endQuestion(card: Element | null | undefined, how: string): void {
-  card?.querySelector('[data-live]')?.replaceWith(Object.assign(document.createElement('div'), { className: 'resolved', textContent: how }));
+  const live = card?.querySelector('[data-live]');
+  if (!card || !live) return;
+  const done = document.createElement('div');
+  done.className = 'resolved';
+  const m = /^([✓✕✎–]) ([\s\S]*)$/.exec(how);
+  if (m) done.append(Object.assign(document.createElement('span'), { className: m[1] === '✓' || m[1] === '✎' ? 'q-mark ok' : 'q-mark', textContent: m[1] }), m[2]);
+  else done.textContent = how;
+  // Morph: the card glides from its open height to the answered one while the answer fades in.
+  const box = card as HTMLElement;
+  const from = box.offsetHeight;
+  live.replaceWith(done);
+  card.classList.add('answered');
+  const to = box.offsetHeight;
+  if (!from || from === to || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  box.style.overflow = 'hidden';
+  box.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 350, easing: 'cubic-bezier(.32, .72, 0, 1)' }).onfinish = () => box.style.overflow = '';
+  done.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'cubic-bezier(.2, .8, .2, 1)' });
 }
 
 function onFirstReply(r: Run, tab: AgentTabState): void {

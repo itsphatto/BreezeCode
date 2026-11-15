@@ -5380,67 +5380,258 @@ body.resizing-h .term-body {
   color: var(--text-3);
 }
 
-/* ----- An agent's question (teams.ts questionCard): a button per option, and a box for another answer ----- */
+/* ----- An agent's question (teams.ts questionCard): a numbered list of answers, your own answer, Skip and Send ----- */
+.card.ask.question {
+  padding: 14px;
+  border-color: var(--line);
+  background: var(--bg-1);
+}
+
+.q-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.q-head b {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-wait {
+  margin-left: auto;
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid rgba(245, 158, 11, .35);
+  border-radius: 6px;
+  background: rgba(245, 158, 11, .1);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .card.question .q-text {
+  margin-bottom: 10px;
   color: var(--text);
-  line-height: 1.5;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
 .q-opts {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.q-opt {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 7px 10px;
+  margin-bottom: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--bg);
+  overflow: hidden;
+}
+
+/* The picked row's highlight: one shape that glides and resizes between rows. */
+.q-slide {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0;
+  background: var(--blue-soft);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .22s cubic-bezier(.16, 1, .3, 1), height .22s cubic-bezier(.16, 1, .3, 1), opacity .15s ease;
+}
+
+.q-slide.on {
+  opacity: 1;
+}
+
+.q-opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color .15s, background-color .15s;
+  outline: none;
+  transition: background-color .15s ease;
 }
 
-.q-opt b {
-  font-weight: 600;
+.q-opt:last-of-type {
+  border-bottom: 0;
+}
+
+/* Only keyboard focus marks a row that isn't picked; a click shows the selection alone. */
+.q-opt:focus-visible[aria-checked="false"] {
+  background: var(--bg-2);
+}
+
+.q-opts[role="group"] .q-opt[aria-checked="true"] {
+  background: var(--blue-soft);
+}
+
+.q-key {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line-hi);
+  border-radius: 4px;
+  color: var(--text-3);
+  font: 600 10px/1 var(--font-code);
+  transition: color .15s ease, border-color .15s ease;
+}
+
+.q-key:empty {
+  visibility: hidden;
+}
+
+.q-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.q-label b {
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
-.q-opt small {
-  color: var(--text-2);
+.q-label small {
+  color: var(--text-3);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-.q-opt:hover,
-.q-opt:focus-visible {
+.q-radio {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+
+.q-opts[role="group"] .q-radio {
+  border-radius: 4px;
+}
+
+.q-radio::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--on-blue);
+  transform: scale(0);
+  transition: transform .2s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.q-opts[role="group"] .q-radio::after {
+  border-radius: 1px;
+}
+
+.q-opt[aria-checked="true"] .q-key {
+  border-color: var(--blue-text);
+  color: var(--blue-text);
+}
+
+.q-opt[aria-checked="true"] .q-radio {
   border-color: var(--blue);
+  background: var(--blue);
 }
 
-.q-opt:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 1px;
+.q-opt[aria-checked="true"] .q-radio::after {
+  transform: scale(1);
 }
 
-.q-opt[aria-pressed="true"] {
-  border-color: var(--blue);
-  background: rgba(0, 122, 255, .14);
-}
-
-.card.question .q-hint {
-  margin: 0 0 8px;
+.q-own {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
   font-size: 12px;
   color: var(--text-3);
+}
+
+.q-own .input,
+.q-own-only {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0;
+}
+
+.q-own-only {
+  margin-bottom: 12px;
+}
+
+.q-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.q-hint {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.q-hint kbd {
+  padding: 0 5px;
+  border: 1px solid var(--line-hi);
+  border-radius: 4px;
+  color: var(--text-2);
+  font: 10px var(--font-code);
+}
+
+/* Answered: the card folds to the question in small type and the answer on one line. */
+.card.question.answered .q-wait {
+  display: none;
+}
+
+.card.question.answered .q-text {
+  margin-bottom: 4px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.card.ask.question .resolved {
+  display: flex;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.card.question .q-mark {
+  flex: none;
+  width: 14px;
+  color: var(--text-3);
+}
+
+.card.question .q-mark.ok {
+  color: var(--success-text);
 }
 
 .q-other {
@@ -13554,7 +13745,6 @@ body.layout-animating #previewPane {
 .set-nav .set-item[data-set-tab="discord"] .set-nav-img { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), color .22s ease, opacity .22s ease; }
 .set-nav .set-item[data-set-tab="help"]:hover svg,
 .set-nav .set-item[data-set-tab="discord"]:hover .set-nav-img { transform: scale(1.22); }
-/* Miscellaneous: its three dots hop one after another, left to right (the icon draws them middle, right, left). */
 .set-nav .set-item[data-set-tab="appearance"]:hover svg { animation: navPaletteTilt .5s ease-out both; }
 .set-nav .set-item[data-set-tab="appearance"]:hover svg circle { transform-box: fill-box; transform-origin: center; animation: navPaintPop .36s cubic-bezier(.34, 1.56, .64, 1) both; }
 .set-nav .set-item[data-set-tab="appearance"]:hover svg circle:nth-of-type(2) { animation-delay: 70ms; }
@@ -13562,9 +13752,11 @@ body.layout-animating #previewPane {
 .set-nav .set-item[data-set-tab="appearance"]:hover svg circle:nth-of-type(4) { animation-delay: 210ms; }
 .set-nav .set-item[data-set-tab="controls"]:hover svg { animation: navKeysGrow .5s ease-out both; }
 .set-nav .set-item[data-set-tab="controls"]:hover svg path { animation: navKeysTap .5s ease-in-out both; }
-.set-nav .set-item[data-set-tab="misc"]:hover svg circle { animation: navDotHop .42s ease-in-out both; }
-.set-nav .set-item[data-set-tab="misc"]:hover svg circle:nth-child(1) { animation-delay: 80ms; }
-.set-nav .set-item[data-set-tab="misc"]:hover svg circle:nth-child(2) { animation-delay: 160ms; }
+/* Miscellaneous: its three dots hop one after another, left to right (the icon draws them middle, right, left).
+   Keyed to .hop, not :hover, so the hop finishes after the pointer leaves; settings.ts adds it and takes it off. */
+.set-nav .set-item[data-set-tab="misc"].hop svg circle { animation: navDotHop .42s ease-in-out both; }
+.set-nav .set-item[data-set-tab="misc"].hop svg circle:nth-child(1) { animation-delay: 80ms; }
+.set-nav .set-item[data-set-tab="misc"].hop svg circle:nth-child(2) { animation-delay: 160ms; }
 
 @keyframes navPaletteTilt {
   0% { transform: rotate(0) scale(1); }
@@ -19096,13 +19288,6 @@ input.dbg-edit.bad:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-
-/* OpenCode's mark fills its whole square: shrink it to the others' size, keeping its square corners. */
-:is(.board-chip-logo, .board-box-logo, .board-empty-logo) .brand-img[src$="opencode.svg"] {
-  width: 70%;
-  height: 70%;
-  border-radius: 2px;
 }
 
 .board-auto {
