@@ -871,6 +871,22 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   transition: box-shadow .2s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
 }
 
+/* Every other button in setup (sign-in, Continue, Copy...) wears the same white look. Home keeps its own. */
+:root .onboard .ob-step:not(.home-step) .btn:not(.btn-ghost) {
+  background: #fff;
+  background-color: #fff;
+  border-color: transparent;
+  color: #1f4dff;
+  font-weight: 600;
+  box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
+}
+
+:root .onboard .ob-step:not(.home-step) .btn:not(.btn-ghost):hover:not(:disabled) {
+  background: #fff;
+  transform: scale(1.03);
+  box-shadow: 0 12px 34px rgba(10, 30, 120, .42);
+}
+
 /* Hover lifts it: a little bigger, a deeper shadow, the colours unchanged. */
 .ob-start:hover,
 .ob-step[data-step="0"] .ob-start:hover {
@@ -19374,8 +19390,6 @@ input.dbg-edit.bad:focus-visible {
 :root[data-power="saver"] .scrim::before { background: rgba(0, 0, 0, .56); }
 :root[data-power="saver"] .feed-connect { background: rgba(0, 0, 0, .7); }
 :root[data-power="saver"] .drag-file-ghost { background: var(--bg-3); }
-:root[data-power="saver"] .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) { background-color: rgba(60, 60, 64, .92); }
-:root[data-power="saver"][data-theme="light"] .onboard .ob-step .btn:not(.btn-primary, .btn-ghost) { background-color: rgba(255, 255, 255, .94); }
 /* Kept turning: they say "working" or "type here", and cost a few pixels each. */
 :root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .composer-box.busy::after, .agent-tab.running .tab-status) {
   animation-iteration-count: infinite !important;
