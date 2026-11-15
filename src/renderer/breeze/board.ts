@@ -591,7 +591,10 @@ const boxBadge = (key: string) => {
 const boxIdle = (key: string) => { const b = boardBoxes.get(key); return !!b && !boxBusy(b); };
 const relayId = () => `rl_${crypto.randomUUID().slice(0, 8)}`;
 
-function boardWaiting(key: string): boolean { return (openAsks.get(key)?.size ?? 0) > 0; }
+// Waiting on a teammate's answer to a relay, or on the person's answer to a question in this box.
+function boardWaiting(key: string): boolean {
+  return (openAsks.get(key)?.size ?? 0) > 0 || !!boardBoxes.get(key)?.tab.panel.querySelector('.card.question [data-live]');
+}
 function personSpokeIn(key: string): void { relayQueue.personSpoke(key); }
 
 // Main's crossing on a board run: "Claude · 1 tried to edit api.ts (Codex · 2's). Breeze put it back and asked Codex."

@@ -184,3 +184,37 @@ test('blockContext: short files, and a block at the very start or end', () => {
   const v = '\n<<<<<<< HEAD\no\n=======\nt\n>>>>>>> main\n';
   assert.equal(plain(blockContext(v, parseConflicts(v)[0])).before, '\n');
 });
+
+const { lineDiff, changedSpan, conflictLines } = vm.runInContext('({ lineDiff, changedSpan, conflictLines })', ctx);
+
+test('lineDiff marks the lines only one side has and pairs edited ones', () => {
+  const d = plain(lineDiff(['a', 'b', 'c', 'd'], ['a', 'B', 'c', 'x', 'd']));
+  assert.deepEqual(d.a, [false, true, false, false]);
+  assert.deepEqual(d.b, [false, true, false, true, false]);
+  assert.deepEqual(d.pairs, [[1, 1]]);
+});
+
+test('lineDiff with an empty side marks every line of the other', () => {
+  assert.deepEqual(plain(lineDiff([], ['x', 'y'])), { a: [], b: [true, true], pairs: [] });
+  assert.deepEqual(plain(lineDiff(['x'], ['x'])), { a: [false], b: [false], pairs: [] });
+});
+
+test('changedSpan finds the differing middle, or null when nothing is shared', () => {
+  assert.deepEqual(plain(changedSpan('const a = 1;', 'const a = 22;')), { a: [10, 11], b: [10, 12] });
+  assert.equal(changedSpan('abc', 'xyz'), null);
+});
+
+test('conflictLines labels markers and sides by block', () => {
+  const m = conflictLines(TWO);
+  assert.equal(m.has(0), false);
+  assert.deepEqual(plain(m.get(1)), { kind: 'open', block: 0 });
+  assert.deepEqual(plain(m.get(2)), { kind: 'ours', block: 0 });
+  assert.deepEqual(plain(m.get(4)), { kind: 'sep', block: 0 });
+  assert.deepEqual(plain(m.get(5)), { kind: 'theirs', block: 0 });
+  assert.deepEqual(plain(m.get(6)), { kind: 'close', block: 0 });
+  assert.equal(m.has(7), false);
+  assert.deepEqual(plain(m.get(8)), { kind: 'open', block: 1 });
+  assert.deepEqual(plain(m.get(13)), { kind: 'close', block: 1 });
+  const d3 = conflictLines('<<<<<<< a\no\n||||||| base\nb\n=======\nt\n>>>>>>> c\n');
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map(i => d3.get(i).kind), ['open', 'ours', 'base-mk', 'base', 'sep', 'theirs', 'close']);
+});

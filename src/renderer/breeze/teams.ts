@@ -500,6 +500,119 @@ function approveCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   });
 }
 
+// An agent's question: a button for each option and a box for another answer. With one choice allowed a click
+// answers; with several, options switch on and off and Send answers. The run waits meanwhile.
+function questionCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  const id = ev.id;
+  if (!id || !ev.question) return;
+  if (ev.plan) { planApprovalCard(r, id, ev.plan, tab); return; }
+  const options = ev.options ?? [];
+  const multi = !!ev.multiSelect && options.length > 1;
+  r.lastMsg = undefined;
+  setAgent(r.phase, 'waiting', 'Waiting for your answer', r.tools);
+  sfx.play('plan');
+  const opts = options.map(o => `<button class="q-opt" type="button" data-q-opt="${escAttr(o.label)}"${multi ? ' aria-pressed="false"' : ''}><b>${esc(o.label)}</b>${o.description ? `<small>${esc(o.description)}</small>` : ''}</button>`).join('');
+  const otherLabel = options.length ? 'Another answer' : 'Your answer';
+  const el = addMsg(`<div class="card ask question" data-question="${escAttr(id)}"><h5>${svgIcon('info', 14)} ${esc(speaker(r.phase, r.agent).name)} has a question</h5><p class="q-text">${inlineMd(ev.question)}</p><div class="q-live" data-live>${opts ? `<div class="q-opts" role="group" aria-label="Answers">${opts}</div>` : ''}${multi ? '<p class="q-hint">Pick any that apply, then Send.</p>' : ''}<div class="row q-other"><input class="input" type="text" maxlength="2000" placeholder="${options.length ? 'Other…' : 'Type your answer'}" aria-label="${otherLabel}" spellcheck="false"><button class="btn btn-primary btn-sm" type="button" data-q-send>Send</button><button class="btn btn-sm" type="button" data-q-skip title="Let the agent decide">Skip</button></div></div></div>`, tab);
+  const input = $<HTMLInputElement>('.q-other input', el);
+  const answer = (reply: AskReply | null) => {
+    const said = reply ? [...reply.picked, reply.other].filter(Boolean).join(', ') : '';
+    sendReply(r, el, id, reply, said ? `✓ ${said}` : '✕ Skipped', tab);
+  };
+  $$<HTMLElement>('.q-opt', el).forEach(b => b.onclick = () => {
+    if (!multi) { answer({ picked: [b.dataset.qOpt as string], other: '' }); return; }
+    b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
+  });
+  const send = () => {
+    const picked = multi ? $$<HTMLElement>('.q-opt[aria-pressed="true"]', el).map(b => b.dataset.qOpt as string) : [];
+    const other = input.value.trim();
+    if (picked.length || other) answer({ picked, other });
+    else input.focus();
+  };
+  $('[data-q-send]', el).onclick = send;
+  $('[data-q-skip]', el).onclick = () => answer(null);
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); send(); }
+  });
+}
+// A picture the agent showed, in the lightbox the user's attachments use. Pictures in a row share one line, and
+// the reply that follows starts a new message. A picture in the project opens in the editor from its name.
+function agentImage(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  if (!ev.url) return;
+  r.lastMsg = undefined;
+  const name = ev.name || 'Picture';
+  const label = ev.caption || ev.path || name;
+  const cap = ev.path
+    ? `<button class="chat-img-cap" type="button" data-edit-file="${escAttr(ev.path)}" title="Open ${escAttr(ev.path)}">${esc(label)}</button>`
+    : `<span class="chat-img-cap">${esc(label)}</span>`;
+  const item = `<figure class="agent-img"><div class="chat-img-wrap" title="Click to view full size"><img src="${escAttr(ev.url)}" class="chat-img" alt="${escAttr(ev.caption || name)}" data-full="${escAttr(ev.url)}"></div>${cap}</figure>`;
+  const thinking = tab.panel.querySelector(':scope > .thinking');
+  const last = (thinking ? thinking.previousElementSibling : tab.panel.lastElementChild) as HTMLElement | null;
+  const row = last?.classList.contains('agent-imgs') && (last.dataset.agent ?? null) === labelAgent ? last.querySelector('.msg-attachments') : null;
+  if (!row) { addMsg(`<div class="msg agent-imgs"><div class="body"><div class="msg-attachments">${item}</div></div></div>`, tab); return; }
+  row.insertAdjacentHTML('beforeend', item);
+  if (tab.id === activeTabId[tab.surfaceName]) scrollChat(SURFACES[tab.surfaceName]);
+  saveChat(tab);
+}
+
+// Test results from a command the agent ran: the counts, and each failure with the first line of its error. A failure
+// in a project file opens that file at the line it failed on.
+function testsCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  const passed = ev.passed ?? 0, failed = ev.failed ?? 0, skipped = ev.skippedCount ?? 0;
+  const failures = ev.failures ?? [];
+  r.lastMsg = undefined;
+  const counts = [`<span class="t-pass">${passed} passed</span>`, failed ? `<span class="t-fail">${failed} failed</span>` : '', skipped ? `<span>${skipped} skipped</span>` : '']
+    .filter(Boolean).join('<span class="t-dot">·</span>');
+  const rows = failures.map(f => {
+    const where = f.file ? `${f.file}${f.line ? `:${f.line}` : ''}` : '';
+    const body = `<span class="t-name">${esc(f.name)}</span>${f.error ? `<span class="t-err">${esc(f.error)}</span>` : ''}${where ? `<span class="t-loc">${esc(where)}</span>` : ''}`;
+    return f.file
+      ? `<li><button class="t-row" type="button" data-test-file="${escAttr(f.file)}" data-test-line="${f.line ?? 0}" title="Open ${escAttr(where)}">${body}</button></li>`
+      : `<li><div class="t-row">${body}</div></li>`;
+  }).join('');
+  const more = failed > failures.length && failures.length ? `<p class="t-more">and ${failed - failures.length} more</p>` : '';
+  addMsg(`<div class="card tests ${failed ? 'fail' : 'ok'}"><h5>${svgIcon(failed ? 'circleX' : 'check', 14)} Tests <span class="t-runner">${esc(ev.runner ?? '')}</span></h5><p class="t-counts">${counts}</p>${rows ? `<ul class="t-fails">${rows}</ul>` : ''}${more}</div>`, tab);
+}
+
+// The card stops taking answers and says how it ended.
+// The card's answer goes back to the waiting agent, and the card stops taking clicks.
+function sendReply(r: Run, el: HTMLElement, id: string, reply: AskReply | null, how: string, tab: AgentTabState): void {
+  endQuestion(el, how);
+  setAgent(r.phase, 'working', 'Working on your request', r.tools);
+  saveChat(tab);
+  const box = isBoardSurface(tab.surfaceName) ? boardBoxes.get(boxKeyOf(tab.surfaceName)) : undefined;
+  if (box) paintBox(box); // its box stops showing "waiting"
+  background(api.agent.reply(id, reply));
+}
+
+// An agent's plan (propose_plan), shown in the chat while the run waits: Approve lets it go ahead in the same run;
+// a note sends the plan back to be changed.
+function planApprovalCard(r: Run, id: string, plan: string, tab: AgentTabState): void {
+  r.lastMsg = undefined;
+  r.plan = plan;
+  setAgent(r.phase, 'waiting', 'Waiting for plan approval', r.tools);
+  sfx.play('plan');
+  const el = addMsg(`<div class="card plan question" data-question="${escAttr(id)}"><h5>${svgIcon('todo', 14)} ${esc(speaker(r.phase, r.agent).name)}’s plan</h5><div class="plan-body">${md(plan)}</div><div class="q-live" data-live><div class="row"><button class="btn btn-primary btn-sm" type="button" data-plan-ok>Approve &amp; build</button><button class="btn btn-sm" type="button" data-plan-no title="The agent stops without changing files">Not now</button></div><div class="row q-other"><input class="input" type="text" maxlength="2000" placeholder="Or say what should change…" aria-label="What should change in the plan" spellcheck="false"><button class="btn btn-sm" type="button" data-plan-edit>Send</button></div></div></div>`, tab);
+  const input = $<HTMLInputElement>('.q-other input', el);
+  $('[data-plan-ok]', el).onclick = () => { sfx.play('approve'); sendReply(r, el, id, { picked: ['Approve'], other: '' }, '✓ Approved', tab); };
+  $('[data-plan-no]', el).onclick = () => sendReply(r, el, id, null, '✕ Not approved', tab);
+  const edit = () => {
+    const other = input.value.trim();
+    if (other) sendReply(r, el, id, { picked: [], other }, `✎ ${other}`, tab);
+    else input.focus();
+  };
+  $('[data-plan-edit]', el).onclick = edit;
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); edit(); }
+  });
+}
+
+function endQuestion(card: Element | null | undefined, how: string): void {
+  card?.querySelector('[data-live]')?.replaceWith(Object.assign(document.createElement('div'), { className: 'resolved', textContent: how }));
+}
+
 function onFirstReply(r: Run, tab: AgentTabState): void {
   r.replied = true;
   if (r.announce) teamNeed = TEAM_SIZE[r.uiMode] ?? 1;
@@ -542,6 +655,11 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   draft: (r, ev) => { if (ev.path) onAgentDraft(r, ev.path, ev.text ?? ''); },
   plan: (r, ev) => { r.plan = ev.text ?? ''; },
   approve: (r, ev, tab) => approveCard(r, ev, tab),
+  question: (r, ev, tab) => questionCard(r, ev, tab),
+  image: (r, ev, tab) => agentImage(r, ev, tab),
+  tests: (r, ev, tab) => testsCard(r, ev, tab),
+  // The run stopped (or the agent gave up waiting) before anyone answered.
+  'question-end': (_r, ev, tab) => { if (ev.id) endQuestion(tab.panel.querySelector(`[data-question="${CSS.escape(ev.id)}"]`), '✕ Not answered'); saveChat(tab); },
   note: (_r, ev, tab) => { if (ev.text) toolLine('note', ev.text, tab); },
   auth: (_r, ev, tab) => {
     const url = ev.url;
@@ -658,6 +776,13 @@ document.addEventListener('click', e => {
   if (view) {
     const open = view.closest('.run-edits')!.classList.toggle('open');
     view.setAttribute('aria-expanded', String(open));
+    return;
+  }
+  const failed = t.closest<HTMLElement>('[data-test-file]');
+  if (failed && rootInfo) {
+    if (surface.name === 'box') enterMode('ide');
+    const line = Math.max(0, Number(failed.dataset.testLine) - 1); // the card counts from 1, the editor from 0
+    openFile(failed.dataset.testFile as string, { line, col: 0 });
     return;
   }
   const file = t.closest<HTMLElement>('[data-edit-file]');

@@ -8,7 +8,7 @@ const fsp = fs.promises;
 import * as nodeModule from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as vm from 'node:vm';
 import { LANG_KINDS, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } from './toolchains';
 import { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } from './guard';
@@ -26,6 +26,11 @@ import { Kernels } from './kernel';
 import * as skillsLib from './skills';
 import * as mcpLib from './mcp';
 import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './previewServer';
+import { normalizeQuestion, normalizePlan, QuestionDesk, NO_ANSWER, NO_APPROVAL } from './askuser';
+import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
+import type { ToolReply } from './breezemcp';
+import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal } from './agentimages';
+import { parseTestOutput } from './testresults';
 import { expandAbbr } from './emmet';
 import { markdownBody } from './markdown';
 import { DebugManager, killTree } from './debug';
@@ -1893,6 +1898,7 @@ handle('skills:remove', async (_e, dir) => {
 // MCP servers connected in Breeze (handed to Claude Code runs), and the ones Claude Code has set up itself.
 const claudeJsonPath = () => (process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(os.homedir(), '.claude.json'));
 handle('mcp:list', () => ({
+  builtIn: mcpLib.builtInServers(BREEZE_TOOLS),
   breeze: ((loadState().mcpServers ?? []) as McpServer[]).map(s => ({ name: s.name, type: s.type, detail: mcpLib.serverDetail(s) })),
   claude: mcpLib.claudeConfigured({ claudeJson: claudeJsonPath(), root: root ?? undefined }),
 }));
@@ -2194,6 +2200,7 @@ function shellEvent(runId: number, id: string, command?: string): void {
   if (teamOf.get(runId)?.team instanceof BoardCoordinator) emit(runId, command === undefined ? { t: 'shell', id, end: true } : { t: 'shell', id, command });
 }
 function emit(runId: number, ev: Loose): void {
+  watchImages(runId, ev);
   if (ev?.t === 'done' && ev.tokens) addUsage(runs.get(runId)?.agent, ev.tokens);
   const entry = teamOf.get(runId);
   if (entry) {
@@ -2229,6 +2236,7 @@ function stopRun(runId: number | string): void {
   const r = runs.get(runId);
   if (!r) return;
   r.stopped = true;
+  questions.cancelRun(runId); // a question it was waiting on is closed, unanswered
   if (r.service) r.service.stop().then(r.onStopped, r.onStopped); // the service drops its exit event once stopped
   if (r.child) killTree(r.child);
   r.abort?.abort();
@@ -2769,8 +2777,9 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
 interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number }
-function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null): CliSpec {
-  if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick);
+// `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
+function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
+  if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
   if (agent === 'opencode') return opencodeArgs(mode, prompt, session, team, pick);
   const build = mode === 'build';
   const sandbox = !build ? 'read-only' : fullAccess() ? 'danger-full-access' : 'workspace-write';
@@ -2781,6 +2790,8 @@ function cliArgs(agent: string, mode: string, prompt: string, session: string | 
   const effort = effortArg(pick?.effort ?? st.codexEffort);
   // Unquoted: Codex reads a -c value that is not valid TOML as a plain string, and quotes can't pass the npm shim's shell.
   if (effort) args.push('-c', `model_reasoning_effort=${effort}`);
+  // Breeze's own tools. A question waits for the user, so its time limit is a day, not Codex's usual minute.
+  if (breezeUrl) args.push('-c', `mcp_servers.${BREEZE_MCP}.url=${breezeUrl}`, '-c', `mcp_servers.${BREEZE_MCP}.tool_timeout_sec=86400`);
   if (session) args.push('resume', session);
   args.push('-');
   if (build) return { args, prompt };
@@ -2791,21 +2802,26 @@ function cliArgs(agent: string, mode: string, prompt: string, session: string | 
 // (with full access, every permission check is off); ask and plan modes can read and search but every tool that
 // changes files is switched off.
 const NO_SESSION = /No conversation found with session ID/i;
-const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'];
+// Claude Code on Windows runs commands with PowerShell as well as Bash.
+const CLAUDE_SHELL_TOOLS = ['Bash', 'PowerShell'];
+const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', ...CLAUDE_SHELL_TOOLS];
 // Also withheld from agent:ask, on top of the write tools: everything that reads local files or reaches the network.
 const CLAUDE_ASK_DENIED = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 // On a team, build mode also denies editing what a teammate owns (rule paths are relative to the project root).
 // Those rules can't pass through a shell (`shell`: an npm .cmd shim), so they come back as `deny` for a settings file.
-function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null): CliSpec {
+function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   const build = mode === 'build';
   const full = build && fullAccess();
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
-  // MCP servers connected in Breeze. Print mode can't ask, so in build mode their tools are allowed up front.
-  const mcpFile = mcpConfigFile(shell);
+  // MCP servers connected in Breeze, and Breeze's own. Print mode can't ask, so in build mode their tools are allowed
+  // up front. Breeze's own only ask, show and look, so every mode gets them.
+  const mcpFile = mcpConfigFile(shell, breezeUrl);
   if (mcpFile) args.push('--mcp-config', mcpFile);
   const mcpTools = mcpFile ? ((loadState().mcpServers ?? []) as McpServer[]).map(s => `mcp__${s.name}`) : [];
+  const ownTools = mcpFile && breezeUrl ? [`mcp__${BREEZE_MCP}`] : [];
   if (!build) args.push('--disallowedTools', ...CLAUDE_WRITE_TOOLS);
-  else if (!full) args.push('--allowedTools', 'Bash', ...mcpTools); // print mode can't ask, so commands would otherwise be refused
+  if (!build && ownTools.length) args.push('--allowedTools', ...ownTools);
+  else if (build && !full) args.push('--allowedTools', ...CLAUDE_SHELL_TOOLS, ...ownTools, ...mcpTools); // print mode can't ask, so commands would otherwise be refused
   const deny = build && team ? claudeDenyArgs(team.coordinator.owners, team.agentId) : [];
   if (deny.length && !shell) args.push('--disallowedTools', ...deny);
   const st = loadState();
@@ -2852,12 +2868,12 @@ function dropSettingsFile(run: Run): void {
 }
 // The MCP servers connected in Breeze, for one Claude Code run, in a file only this user can read (env values and
 // headers may hold keys). Through an npm shim's shell the path must be a plain argument, as with the settings file.
-function mcpConfigFile(shell: boolean): string | null {
+function mcpConfigFile(shell: boolean, breezeUrl?: string | null): string | null {
   const servers: McpServer[] = loadState().mcpServers ?? [];
-  if (!servers.length) return null;
+  if (!servers.length && !breezeUrl) return null;
   const file = path.join(os.tmpdir(), `breeze-mcp-${crypto.randomBytes(6).toString('hex')}.json`).replaceAll('\\', '/');
   if (shell) { try { shellCommand('', [file]); } catch { return null; } }
-  try { fs.writeFileSync(file, JSON.stringify(mcpLib.claudeMcpConfig(servers)), { flag: 'wx', mode: 0o600 }); } catch { return null; }
+  try { fs.writeFileSync(file, JSON.stringify(mcpLib.claudeMcpConfig(servers, breezeUrl)), { flag: 'wx', mode: 0o600 }); } catch { return null; }
   return file;
 }
 const NO_BLOCK_NOTE = 'Claude can\'t be blocked from teammates\' files on this computer, so Breeze will undo any edit it makes to them instead.';
@@ -2869,6 +2885,7 @@ const CLAUDE_TOOLS: Record<string, (i: Loose) => string[]> = {
   Write: i => ['edit', `Wrote ${relOut(i.file_path)}`, i.file_path],
   NotebookEdit: i => ['edit', `Edited ${relOut(i.notebook_path)}`, i.notebook_path],
   Bash: i => ['run', `$ ${i.command}`],
+  PowerShell: i => ['run', `PS> ${i.command}`],
   Grep: i => ['search', `Searched for ${i.pattern}`],
   Glob: i => ['search', `Listed ${i.pattern}`],
   WebSearch: i => ['web', `Searched the web for ${i.query}`],
@@ -2883,9 +2900,11 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
     return;
   }
   if (c.type !== 'tool_use') return;
+  // Breeze's own tool: what it does shows in the chat itself. ToolSearch is Claude Code looking that tool up.
+  if (String(c.name).startsWith(`mcp__${BREEZE_MCP}__`) || c.name === 'ToolSearch') return;
   const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
   emit(runId, { t: 'tool', kind, label });
-  if (c.name === 'Bash' && c.id) {
+  if (CLAUDE_SHELL_TOOLS.includes(c.name) && c.id) {
     (ctx.shells ??= new Set()).add(c.id);
     shellEvent(runId, c.id, String(c.input?.command ?? ''));
   }
@@ -2902,7 +2921,8 @@ function claudeToolResults(runId: number, d: Loose, ctx: StreamCtx): void {
   const content = d.message?.content;
   if (!Array.isArray(content)) return;
   for (const c of content) {
-    if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) shellEvent(runId, c.tool_use_id);
+    // A command's output may name a picture it made, or hold test results: both show in the chat.
+    if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) { shellEvent(runId, c.tool_use_id); commandOutput(runId, toolResultText(c.content)); }
     if (c?.type !== 'tool_result' || !ctx.writes?.has(c.tool_use_id)) continue;
     const file = ctx.writes.get(c.tool_use_id)!;
     ctx.writes.delete(c.tool_use_id);
@@ -2954,14 +2974,18 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   if (session && !SAFE_ID.test(session)) session = null;
   const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null, pick: pick || null };
   runs.set(runId, run);
+  imageRuns.set(runId, { base, agent, pending: '', shown: new Set() });
   if (agent === 'local') return runLocal(runId, run, { mode, prompt, session, base });
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
   const bin = agentBins.get(agent);
   if (!bin) throw new Error('That agent was not found on this computer. Rescan from Settings → Run Setup Again.');
   const shell = /\.(?:cmd|bat)$/i.test(bin);
+  // Breeze's own MCP server. A run still starts without it; the agent then has no way to ask or show.
+  const hasMcp = await breezeMcp.listen().then(() => true, () => false);
+  if (run.stopped) { runs.delete(runId); emit(runId, { t: 'done', ok: false, stopped: true }); return; }
   const launch = () => {
     dropSettingsFile(run);
-    const cli = cliArgs(agent, mode, prompt, session, run.team, shell, run.pick);
+    const cli = cliArgs(agent, mode, prompt, session, run.team, shell, run.pick, hasMcp ? breezeMcp.open(runId) : null);
     run.mcpFile = cli.mcpFile ?? null;
     if (cli.deny) {
       run.settingsFile = teamSettingsFile(runId, cli.deny);
@@ -2970,11 +2994,12 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     }
     // The prompt goes through stdin, so it never reaches a shell command line. Only fixed flags,
     // a validated model name and a validated session id do (npm .cmd shims need a shell on Windows).
-    const opts = { cwd: base, windowsHide: true, env: cli.env ? { ...process.env, ...cli.env } : process.env };
+    // Claude Code's MCP time limit is raised to a day: a question waits for the user.
+    const opts = { cwd: base, windowsHide: true, env: { MCP_TOOL_TIMEOUT: '86400000', ...process.env, ...(cli.env || {}) } };
     let child: ChildProcess;
     try {
       child = shell ? spawn(shellCommand(bin, cli.args), { ...opts, shell: true }) : spawn(bin, cli.args, opts);
-    } catch (err) { dropSettingsFile(run); throw err; }
+    } catch (err) { dropSettingsFile(run); breezeMcp.close(runId); throw err; }
     run.child = child;
     child.stdin!.on('error', () => { /* the agent exited before reading its prompt; its output says why */ });
     child.stdin!.end(cli.prompt ?? undefined);
@@ -3031,6 +3056,8 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
   child.on('close', code => {
     runs.delete(runId);
     dropSettingsFile(run);
+    breezeMcp.close(runId);
+    questions.cancelRun(runId);
     if (!ctx.done && !ctx.retry && NO_SESSION.test(ctx.lastError + ctx.stderr)) ctx.retry = ctx.lastError + ctx.stderr;
     if (ctx.retry && !run.stopped && ctx.retryModel?.(ctx.retry)) return;
     if (ctx.done) return;
@@ -3050,6 +3077,7 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
     if (it.id) shellEvent(runId, String(it.id));
     const exit = it.exit_code ? `  (exit ${it.exit_code})` : '';
     emit(runId, { t: 'tool', kind: 'run', label: `$ ${it.command}${exit}` });
+    commandOutput(runId, it.aggregated_output); // a picture it made, test results
   },
   file_change: (runId, it) => {
     for (const ch of it.changes || []) {
@@ -3058,7 +3086,7 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
       emit(runId, { t: 'file', path: relOut(ch.path), created: ch.kind === 'add', written: true });
     }
   },
-  mcp_tool_call: (runId, it) => emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }),
+  mcp_tool_call: (runId, it) => { if (it.server !== BREEZE_MCP) emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }); },
   web_search: (runId, it) => emit(runId, { t: 'tool', kind: 'web', label: `Searched the web for ${it.query}` }),
   todo_list: runId => emit(runId, { t: 'tool', kind: 'todo', label: 'Updated its to-do list' }),
   // Codex's warning about a model it has no metadata for is noise to the user.
@@ -3150,6 +3178,10 @@ const LLM_TOOLS = [
   { name: 'delete_file', description: 'Delete one file (it goes to the Recycle Bin, so the user can get it back).', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
   { name: 'move_file', description: 'Move or rename a file or folder. new_path must not exist yet.', parameters: { type: 'object', properties: { path: { type: 'string' }, new_path: { type: 'string' } }, required: ['path', 'new_path'] } },
   { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. The user may be asked to OK it first. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
+  { name: 'ask_user', description: 'Ask the user one question and wait for the answer. Use it when the request is unclear and a wrong guess would waste work.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', description: '2 to 4 answers to pick from; the user can also type another', items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } }, multi_select: { type: 'boolean', description: 'Let the user pick more than one' } }, required: ['question'] } },
+  { name: 'propose_plan', description: 'Show the user your plan and wait for their OK before you change files. Use it before a change that touches several files or is hard to undo; skip it for small, clear requests.', parameters: { type: 'object', properties: { plan: { type: 'string', description: 'A short numbered list of what you will change, file by file' } }, required: ['plan'] } },
+  { name: 'capture_preview', description: 'Take a screenshot of a page of the project as the Preview pane shows it, and show it to the user. Use it to check a page you built or changed.', parameters: { type: 'object', properties: { page: { type: 'string', description: 'The .html or .md file; index.html when left out' }, width: { type: 'integer', description: 'Window width in pixels (1280 when left out)' }, height: { type: 'integer' } } } },
+  { name: 'show_image', description: 'Show the user a picture from the project (png, jpg, gif, webp or svg) in the chat, such as one you made or a screenshot.', parameters: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string', description: 'One short line about it' } }, required: ['path'] } },
 ].map(fn => ({ type: 'function', function: fn }));
 const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'delete_file', 'move_file', 'run_command']);
 const LIST_MAX = 200;
@@ -3200,6 +3232,165 @@ async function mayRun(ctx: LlmCtx, command: string): Promise<boolean> {
   return answer !== 'deny';
 }
 handle('agent:answer', (_e, id, answer) => pendingAsks.get(String(id))?.(['once', 'all'].includes(answer) ? answer : 'deny'));
+
+/* ----- Questions for the user, and Breeze's own MCP server ----- */
+// Any agent can ask the user a question: a card with a button per option and a box for another answer ('question'
+// event, answered through agent:reply). The local model calls ask_user as one of its tools; Claude Code and Codex
+// run as command lines that can't prompt, so they reach the same card through the MCP server Breeze hosts (breezemcp.ts).
+const questions = new QuestionDesk();
+// propose_plan is the same card with the plan in it: Approve, or a box to ask for changes.
+async function askUser(runId: number, input: unknown, signal?: AbortSignal, plan = false): Promise<string> {
+  const q = plan ? normalizePlan(input) : normalizeQuestion(input);
+  if (!runs.has(runId)) return plan ? NO_APPROVAL : NO_ANSWER;
+  // A team's claim pass shows nothing in the chat, so nobody would see the question.
+  const entry = teamOf.get(runId);
+  if (entry && (entry.team as Loose).runs?.get(runId)?.phase === 'claim') return 'Nobody can answer right now. Use your best judgment.';
+  return questions.ask(runId, q, ev => emit(runId, ev), signal);
+}
+handle('agent:reply', (_e, id, reply) => questions.answer(String(id), reply && typeof reply === 'object' ? reply : null));
+const BREEZE_TOOL_FNS: Record<string, (runId: number, args: Loose, signal: AbortSignal) => Promise<ToolReply>> = {
+  ask_user: async (runId, args, signal) => ({ text: await askUser(runId, args, signal) }),
+  propose_plan: async (runId, args, signal) => ({ text: await askUser(runId, args, signal, true) }),
+  show_image: async (runId, args) => ({ text: showImage(runId, args.path, args.caption) }),
+  // The agent sees the screenshot too, so it can check its own work.
+  capture_preview: async (runId, args, signal) => {
+    const shot = await capturePreview(runId, args, signal);
+    return { text: shot.text, image: { data: shot.png.toString('base64'), mimeType: 'image/png' } };
+  },
+};
+
+/* ----- Pictures the agent shows the user ----- */
+// A picture the agent wrote, named in its reply or a command's output, or asked to show (show_image) appears in the
+// chat ('image' event) and opens in the lightbox the user's attachments use. Only files inside the project, never
+// .env or .git, unless Full access is on. Screenshots Breeze takes for an agent live in the attachment stash.
+// Kept apart from `runs`: a local run leaves `runs` before its last reply is checked for pictures.
+interface ImageRun { base: string; agent: string; pending: string; shown: Set<string> }
+const imageRuns = new Map<number, ImageRun>();
+const MAX_RUN_IMAGES = 12;
+function showImage(runId: number, ref: unknown, caption?: unknown): string {
+  const ir = imageRuns.get(runId);
+  if (!ir) throw new Error('That run has ended.');
+  const raw = String(ref ?? '').trim();
+  if (!raw) throw new Error('path is empty. Give the path of a picture in the project.');
+  const abs = path.resolve(ir.base, raw.startsWith('file:') ? fileURLToPath(raw) : raw);
+  const why = imageRefusal(ir.base, abs, { full: fullAccess(), extra: [STASH_DIR()] });
+  if (why) throw new Error(why);
+  let st: fs.Stats;
+  try { st = fs.statSync(abs); } catch { throw new Error(`There is no file at ${raw}.`); }
+  if (!st.isFile()) throw new Error(`${raw} is a folder, not a picture.`);
+  if (st.size > IMAGE_MAX_BYTES) throw new Error(`${raw} is larger than 20 MB, too big to show.`);
+  // The time it was saved is in the address, so a picture drawn again shows again (and not from the cache).
+  const url = `${pathToFileURL(abs).href}?v=${Math.round(st.mtimeMs)}`;
+  const name = path.basename(abs);
+  if (ir.shown.has(url)) return `${name} is already showing in the chat.`;
+  if (ir.shown.size >= MAX_RUN_IMAGES) throw new Error(`Only ${MAX_RUN_IMAGES} pictures can show in one reply.`);
+  ir.shown.add(url);
+  // A picture in the open project can open in the editor from its name.
+  const rel = root && ir.base === root && !relTo(root, abs).startsWith('..') ? relTo(root, abs) : '';
+  emit(runId, { t: 'image', url, name, path: rel, caption: String(caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 200) });
+  return `The user can see ${rel || name} in the chat now.`;
+}
+// A path in some text that isn't a picture the agent may show is just text: nothing to say about it.
+function imagesIn(runId: number, text: unknown): void {
+  for (const p of imagePathsIn(text)) { try { showImage(runId, p); } catch { /* not one to show */ } }
+}
+// Every agent's events pass through here (emit). A reply is checked once it has finished streaming, that is when
+// the next event comes; an image file the agent wrote shows once it is on disk.
+function watchImages(runId: number, ev: Loose): void {
+  const ir = imageRuns.get(runId);
+  if (!ir || !ev || ev.t === 'image') return;
+  if (ev.t === 'text') {
+    const text = String(ev.text ?? '');
+    if (ir.pending && !text.startsWith(ir.pending)) imagesIn(runId, ir.pending); // a new message, not more of the last
+    ir.pending = text;
+    return;
+  }
+  if (ir.pending) { const text = ir.pending; ir.pending = ''; imagesIn(runId, text); }
+  // Claude reports a file before writing it ('written' follows); Codex and the local model once it is written.
+  const written = ev.t === 'written' || (ev.t === 'file' && (ev.written || ir.agent === 'local'));
+  if (written && IMAGE_EXT.test(String(ev.path ?? ''))) { try { showImage(runId, ev.path); } catch { /* deleted, or off limits */ } }
+  if (ev.t === 'done') imageRuns.delete(runId);
+}
+// A command's output: a picture it names shows, and test results in it become a result card ('tests' event).
+// A failure's file is kept only when it is in the open project, so clicking it opens the file at that line.
+function commandOutput(runId: number, text: unknown): void {
+  imagesIn(runId, text);
+  const report = parseTestOutput(text);
+  if (!report) return;
+  const ir = imageRuns.get(runId);
+  for (const f of report.failures) {
+    const abs = f.file && ir && root && ir.base === root ? path.resolve(root, f.file) : null;
+    const rel = abs ? relTo(root!, abs) : '';
+    if (abs && rel && !rel.startsWith('..') && !path.isAbsolute(rel) && !agentBlocked(root!, abs) && fs.existsSync(abs)) f.file = rel;
+    else { delete f.file; delete f.line; }
+  }
+  const { skipped, ...counts } = report; // `skipped` on an event is a team's list of files
+  emit(runId, { t: 'tests', ...counts, skippedCount: skipped });
+}
+
+/* ----- Screenshots of the preview ----- */
+// capture_preview loads a page of the project the way the Preview pane does (breeze-preview://, previewServer.ts) in
+// a hidden window, and takes a picture of it. The picture is kept in the attachment stash, never in the project,
+// and shows in the chat (showImage). The window can't open others or navigate away, and closes right after.
+const CAPTURE_SIZE = { width: 1280, height: 800 };
+const CAPTURE_LOAD_MS = 15000;
+const CAPTURE_SETTLE_MS = 500; // fonts and first animations
+const PAGE_FILE = /\.(?:html?|md|markdown)$/i;
+function defaultPreviewPage(): string | null {
+  try { return fs.readdirSync(root!).find(n => /^index\.html?$/i.test(n)) ?? fs.readdirSync(root!).find(n => /\.html?$/i.test(n)) ?? null; } catch { return null; }
+}
+const clampSize = (v: unknown, lo: number, hi: number, dflt: number) => Number.isFinite(Number(v)) && Number(v) > 0 ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : dflt;
+async function capturePreview(runId: number, args: Loose, signal?: AbortSignal): Promise<{ text: string; png: Buffer }> {
+  const ir = imageRuns.get(runId);
+  if (!ir) throw new Error('That run has ended.');
+  if (!root || ir.base !== root) throw new Error('The preview shows pages of an open project, and no project is open.');
+  const page = String(args?.page ?? '').trim().replace(/^\.[\\/]/, '') || defaultPreviewPage();
+  if (!page) throw new Error('There is no index.html in the project. Give page: the HTML or Markdown file to show.');
+  if (!PAGE_FILE.test(page)) throw new Error('page must be an .html or .md file in the project.');
+  const abs = resolveIn(page); // throws when it leaves the project
+  if (!fullAccess()) { const why = agentBlocked(root, abs); if (why) throw new Error(why); }
+  if (!fs.existsSync(abs)) throw new Error(`There is no file at ${page}.`);
+  const rel = relTo(root, abs);
+  const width = clampSize(args?.width, 320, 2560, CAPTURE_SIZE.width), height = clampSize(args?.height, 240, 2000, CAPTURE_SIZE.height);
+  emit(runId, { t: 'tool', kind: 'read', label: `Took a screenshot of ${rel}` });
+  const w = new BrowserWindow({ show: false, width, height, useContentSize: true, paintWhenInitiallyHidden: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  const stop = () => { if (!w.isDestroyed()) w.destroy(); };
+  signal?.addEventListener('abort', stop, { once: true });
+  try {
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    w.webContents.on('will-navigate', e => e.preventDefault());
+    w.webContents.setAudioMuted(true);
+    const url = `${PREVIEW_SCHEME}://project/${rel.split('/').map(encodeURIComponent).join('/')}`;
+    await Promise.race([
+      w.loadURL(url).catch(() => { /* a page that fails to load part of itself still shows */ }),
+      new Promise(r => setTimeout(r, CAPTURE_LOAD_MS)),
+    ]);
+    await new Promise(r => setTimeout(r, CAPTURE_SETTLE_MS));
+    if (w.isDestroyed()) throw new Error('The run was stopped.');
+    const png = (await w.webContents.capturePage()).toPNG();
+    if (!png.length) throw new Error('The screenshot came out empty.');
+    void pruneStash();
+    const dir = path.join(STASH_DIR(), crypto.randomUUID());
+    await fsp.mkdir(dir, { recursive: true });
+    const file = path.join(dir, `preview-${path.basename(rel).replace(/\.[^.]+$/, '')}.png`);
+    await fsp.writeFile(file, png);
+    showImage(runId, file, `Preview of ${rel}`);
+    return { text: `Took a ${width}×${height} screenshot of ${rel}; the user can see it in the chat. It is saved at ${file} (outside the project).`, png };
+  } finally {
+    signal?.removeEventListener('abort', stop);
+    stop();
+  }
+}
+
+// The text of a Claude Code tool result, which is a string or a list of parts.
+const toolResultText = (content: unknown): string => typeof content === 'string' ? content
+  : Array.isArray(content) ? content.map(p => (p?.type === 'text' ? String(p.text ?? '') : '')).join('\n') : '';
+const breezeMcp = new BreezeMcpServer({
+  call: (runId, name, args, signal) => {
+    if (!runs.has(runId)) throw new Error('That run has ended.');
+    return BREEZE_TOOL_FNS[name](runId, args, signal);
+  },
+});
 // While a write_file call is still arriving, a file that doesn't exist yet opens in the editor and its text types
 // in as the model writes it ('draft' events). Only new files: rewriting a whole file would flicker.
 const DRAFT_MS = 80;
@@ -3231,6 +3422,11 @@ async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
   } catch { return null; }
 }
 const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> = {
+  ask_user: (ctx, a) => askUser(ctx.runId, a, ctx.signal),
+  propose_plan: (ctx, a) => askUser(ctx.runId, a, ctx.signal, true),
+  // agentPath keeps the file tools' rules (inside the project, no .env or .git) before showImage checks it again.
+  capture_preview: (ctx, a) => capturePreview(ctx.runId, a, ctx.signal).then(shot => shot.text),
+  show_image: (ctx, a) => { agentPath(ctx, a.path); return Promise.resolve(showImage(ctx.runId, a.path, a.caption)); },
   async list_files(ctx, a) {
     const dir = agentPath(ctx, a.path || '.');
     emit(ctx.runId, { t: 'tool', kind: 'read', label: `Listed ${a.path && a.path !== '.' ? a.path : 'the project'}` });
@@ -3293,6 +3489,7 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
         clearTimeout(timer);
         ctx.signal?.removeEventListener('abort', stop);
         const body = out.length > COMMAND_OUT_MAX ? `…${out.slice(-COMMAND_OUT_MAX)}` : out;
+        commandOutput(ctx.runId, body); // a picture it made, test results
         resolve(`${head}\n${body.trim() || '(no output)'}`);
       };
       child.on('error', err => finish(`Couldn't start it: ${err.message}`));
@@ -3408,6 +3605,8 @@ Work efficiently:
 - Never repeat a tool call with the same arguments. Stop calling tools as soon as you can answer.
 - Only say something works or is fixed if a tool result showed it. Say what you could not check.
 - Stay inside the project and do only what was asked.
+- If the request is unclear and a wrong guess would waste work, call ask_user with 2 to 4 short options instead of guessing.
+- Before a change that touches several files or is hard to undo, call propose_plan and wait for the user's OK.
 Reply short and plain. After changing files, list the files, what you checked, and why.
 When the user asks for code or a file to keep (and you are not writing it into the project), give it as one fenced block with the language and a file name, like \`\`\`html index.html, so it shows as a card they can copy or download.`;
 async function llmPost(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefined): Promise<Loose> {

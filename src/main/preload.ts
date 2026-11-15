@@ -147,6 +147,7 @@ contextBridge.exposeInMainWorld('breeze', {
     run: (opts: unknown) => invoke('agent:run', opts),
     stop: (runId: unknown) => invoke('agent:stop', runId),
     answer: (id: unknown, answer: unknown) => invoke('agent:answer', id, answer),
+    reply: (id: unknown, reply: unknown) => invoke('agent:reply', id, reply),
     setModel: (agent: unknown, model: unknown, effort: unknown) => invoke('agent:setModel', { agent, model, effort }),
     fullAccess: () => invoke('agent:fullAccess'),
     setFullAccess: (on: unknown) => invoke('agent:setFullAccess', on),

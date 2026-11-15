@@ -27,7 +27,13 @@ interface Agent {
 }
 interface User { name: string; provider: string; login?: string; email?: string | null; avatar?: string | null; }
 type AgentMode = 'plan' | 'build' | 'ask';
-interface AgentEvent { t: 'session' | 'approve' | 'draft' | 'opening' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done' | 'relay' | 'written' | 'refused'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; written?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; from?: string; to?: string; diff?: string; note?: string; }
+// 'tests': test results from a command's output (main/testresults.ts); a failure's file is in the project.
+interface TestFailure { name: string; error: string; file?: string; line?: number; }
+// 'image': a picture the agent shows (`url` a file address, `path` set when it is in the open project).
+// An agent's question for the user (the 'question' event) and what its card sends back; null means skipped.
+interface AskOption { label: string; description?: string; }
+interface AskReply { picked: string[]; other: string; }
+interface AgentEvent { t: 'session' | 'approve' | 'question' | 'question-end' | 'image' | 'tests' | 'draft' | 'opening' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done' | 'relay' | 'written' | 'refused'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; written?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; from?: string; to?: string; diff?: string; note?: string; question?: string; options?: AskOption[]; multiSelect?: boolean; plan?: string; name?: string; caption?: string; runner?: string; passed?: number; failed?: number; skippedCount?: number; failures?: TestFailure[]; }
 // Agent teams: one prompt, several agents building in parallel (main process: team.js).
 // Skills view (main/skills.js): a skill is a folder with a SKILL.md; `id` is that folder.
 interface AgentSkill { id: string; file: string; folder: string; name: string; description: string; agent: string; scope: 'user' | 'plugin' | 'synced' | 'builtin'; removable: boolean; plugin?: string; agents?: string[]; }
@@ -36,7 +42,8 @@ interface AgentPlugin { id: string; name: string; marketplace: string; version: 
 // MCP servers (main/mcp.js): `breeze` ones are connected here and handed to Claude Code runs; `claude` ones are
 // set up in Claude Code itself (scope user, local or project) and only shown.
 interface McpServer { name: string; type: 'stdio' | 'http'; detail: string; scope?: 'user' | 'local' | 'project'; }
-interface McpList { breeze: McpServer[]; claude: McpServer[]; }
+// `builtIn`: Breeze's own server, which every run gets and nobody can disconnect.
+interface McpList { breeze: McpServer[]; claude: McpServer[]; builtIn?: McpServer[]; }
 interface McpInput { name: string; type: 'stdio' | 'http'; command?: string; env?: string; url?: string; headers?: string; }
 // A skill's `agents`: every agent that has it (Breeze links each skill into every agent's folder).
 interface SkillList { skills: AgentSkill[]; plugins: AgentPlugin[]; }
@@ -285,6 +292,8 @@ interface BreezeApi {
 
     stop(runId: number): Promise<void>;
     answer(id: string, answer: 'once' | 'all' | 'deny'): Promise<void>;
+    // The answer to an agent's question; false when it had already stopped waiting.
+    reply(id: string, reply: AskReply | null): Promise<boolean>;
     setModel(agent: string, model: string, effort?: string): Promise<boolean>;
     fullAccess(): Promise<boolean>;
     setFullAccess(on: boolean): Promise<boolean>;

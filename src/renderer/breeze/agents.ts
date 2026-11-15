@@ -31,25 +31,9 @@ function teamLineHtml(mode: string, agentId?: string | null): string {
   }
   return TEAM_LINE[mode] ?? '';
 }
+// The per-agent status cards ("Claude · claude · Answered") are gone: the chat already shows who is working
+// and the send button stops a run. Only the agent count stays.
 function renderAgents(): void {
-  const cards = $('#agentCards');
-  const shown = new Set($$('[data-agent-card]', cards).map(el => el.dataset.agentCard));
-  cards.classList.toggle('hidden', !team.length);
-  cards.innerHTML = team.map(k => {
-    const a = agentsDef[k];
-    const m = roleMark(k, a.agentId);
-    const who = a.agentId ? responder(a.agentId) : null;
-    return `<div class="agent ${a.status}${shown.has(k) ? '' : ' enter'}" data-agent-card="${k}">
-      ${brandMark('ava', m.tint, m.letter)}
-      <div><span class="name">${esc(who?.name ?? a.name)}</span> <span class="fs-11 text-3">${esc(who ? modelLabel(who) : a.model)}</span></div>
-      <div class="row gap-4"><span class="status ${a.status}">${statusLabel[a.status]}</span>
-        ${a.status === 'working' ? `<button class="icon-btn" title="Stop" data-act="agent.stop">${svgIcon('stop')}</button>` : ''}</div>
-      <div class="task">${esc(a.task)}</div>
-      <div class="meter" title="${a.used} tool calls"><i class="tint-${a.tint}" data-used="${a.used}"></i></div>
-    </div>`;
-  }).join('');
-  // The meter's fill is set through the DOM: the CSP allows no inline style attributes.
-  for (const i of $$('[data-used]', cards)) i.style.width = `${Math.min(100, Number(i.dataset.used) * 4)}%`;
   const count = $('#agentCount');
   const n = Math.max(teamNeed, team.length);
   count.textContent = String(n);
