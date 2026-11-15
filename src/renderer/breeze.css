@@ -2135,6 +2135,9 @@ textarea:focus-visible {
 .menu.kb-slide::before {
   transition: top .16s cubic-bezier(.2, .8, .2, 1), height .16s cubic-bezier(.2, .8, .2, 1), opacity .12s ease;
 }
+.menu.kb-out::before {
+  opacity: 0;
+}
 .menu.kb-on .menu-item.kb:not(:hover) {
   background: none;
 }
@@ -8803,18 +8806,15 @@ body.vibing .ide {
   min-height: 100%;
 }
 
-/* The welcome fills the page's height so the prompt box can sit at its foot, a little above the edge. */
+/* The welcome, prompt box included, sits as one block in the middle of the page, both ways. */
 .home-layout > .home-welcome {
   flex: 0 1 auto;
   margin: 0 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding-bottom: 0;
-}
-
-.home-layout > .home-welcome > .home-ask {
-  margin-top: auto;
+  justify-content: center;
+  padding-block: clamp(20px, 5vh, 60px);
 }
 
 /* At the bottom, a big window doesn't stretch the year across it: the squares stop at 15px and the graph sits
@@ -9330,6 +9330,7 @@ body.vibing .ide {
   grid-template-columns: 3em 1fr;
   gap: .5em;
   flex: 1 0 13em;
+  padding-right: 3.5em; /* as wide as the scale and its gap, so the bars sit centred in the card */
 }
 
 .ad-y {
@@ -9426,7 +9427,7 @@ body.vibing .ide {
 .ad-x {
   display: flex;
   gap: calc(.4em / .75); /* the bars' gap and left edge, in this smaller size */
-  margin: .55em 0 0 calc(3.5em / .75);
+  margin: .55em calc(3.5em / .75) 0;
   color: var(--text-3);
   font-size: .75em;
 }
