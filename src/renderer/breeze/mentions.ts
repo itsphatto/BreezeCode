@@ -445,7 +445,39 @@ function mentionWarning(s: Surface): void {
   el.classList.toggle('hidden', !warn);
 }
 
+// Improve prompt: the composer's agent rewrites the draft in place (one-shot agent:ask, as Explain uses). Ctrl+Z brings the original back.
+const improvePromptText = (text: string): string =>
+  'Rewrite the prompt below so a coding agent can act on it well. Keep the intent, the language it is written in, and every '
+  + '@mention, file path, name and code snippet exactly. Make the goal, the constraints and what done looks like clear, and fix '
+  + 'spelling. Do not invent requirements or answer it. Keep it concise. Reply with the rewritten prompt only: no preamble, '
+  + `no quotes, no code fence around it. Do not use any tools.\n\nPrompt:\n${text.slice(0, 8000)}`;
+const tidyImproved = (reply: string): string =>
+  reply.trim().replace(/^```[\w-]*\n([\s\S]*?)\n```$/, '$1').replace(/^(rewritten prompt|prompt):\s*/i, '').replace(/^"([\s\S]*)"$/, '$1').trim();
+
+async function improvePrompt(s: Surface, btn: HTMLButtonElement): Promise<void> {
+  const ta = s.prompt, text = ta.value.trim();
+  if (!text) { ta.focus(); return; }
+  const agent = selectedAgent();
+  if (!agent) { openAgentPicker(); return; }
+  const tab = getActiveTab(s), before = ta.value;
+  btn.disabled = true;
+  btn.classList.add('busy');
+  let reply = '';
+  try { reply = tidyImproved(String(await api.agent.ask({ agent: agent.id, prompt: improvePromptText(text), model: chosenModelFor(agent) }) ?? '')); }
+  catch (err) { toast(`Couldn’t improve the prompt: ${errMsg(err) || 'the agent didn’t answer'}`); }
+  finally { btn.disabled = false; btn.classList.remove('busy'); }
+  if (!reply) return;
+  if (getActiveTab(s) !== tab || ta.value !== before) { toast('The prompt changed while it was being improved, so your edits were kept'); return; }
+  ta.focus();
+  ta.select();
+  // insertText keeps the browser's undo stack and fires input, so the box grows and the draft saves as with typing.
+  // Without focus (window in the background, box hidden) insertText "succeeds" but writes nothing.
+  if (document.activeElement !== ta || !document.execCommand('insertText', false, reply)) { ta.value = reply; ta.dispatchEvent(new Event('input', { bubbles: true })); }
+}
+
 for (const s of Object.values(SURFACES)) {
+  const improveBtn = s.prompt.closest('.composer-box')?.querySelector<HTMLButtonElement>('[data-improve-prompt]');
+  if (improveBtn) improveBtn.onclick = () => void improvePrompt(s, improveBtn);
   s.send.onclick = () => {
     const tab = getActiveTab(s);
     if (tabBusy(tab)) stopAgent(tab);

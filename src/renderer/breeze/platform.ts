@@ -778,6 +778,7 @@ const BRAND_ICONS: Record<string, string> = {
   codex: 'codex.png',
   claude: 'claude.svg',
   antigravity: 'antigravity.png',
+  opencode: 'opencode.svg',
   instagram: 'instagram.png', facebook: 'facebook.png',
   local: 'ollama.svg',
   ollama: 'ollama.svg',
@@ -863,6 +864,8 @@ const LINE_ICONS: Record<string, IconNode> = {
   filePlus: [['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }], ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }], ['path', { d: 'M12 12v6' }], ['path', { d: 'M9 15h6' }]],
   mouse: [['rect', { x: 5, y: 2, width: 14, height: 20, rx: 7 }], ['path', { d: 'M12 6v4' }]],
   layoutGrid: [['rect', { x: 3, y: 3, width: 7, height: 7, rx: 1 }], ['rect', { x: 14, y: 3, width: 7, height: 7, rx: 1 }], ['rect', { x: 14, y: 14, width: 7, height: 7, rx: 1 }], ['rect', { x: 3, y: 14, width: 7, height: 7, rx: 1 }]],
+  maximize: [['path', { d: 'M8 3H5a2 2 0 0 0-2 2v3' }], ['path', { d: 'M21 8V5a2 2 0 0 0-2-2h-3' }], ['path', { d: 'M3 16v3a2 2 0 0 0 2 2h3' }], ['path', { d: 'M16 21h3a2 2 0 0 0 2-2v-3' }]],
+  minimize: [['path', { d: 'M8 3v3a2 2 0 0 1-2 2H3' }], ['path', { d: 'M21 8h-3a2 2 0 0 1-2-2V3' }], ['path', { d: 'M3 16h3a2 2 0 0 1 2 2v3' }], ['path', { d: 'M16 21v-3a2 2 0 0 1 2-2h3' }]],
   home: [['path', { d: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8' }], ['path', { d: 'M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }]],
 };
 const formatAttr = ([k, v]: [string, string | number]): string => `${k}="${v}"`;

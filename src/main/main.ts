@@ -18,7 +18,7 @@ import { costOf } from './pricing';
 import * as prconflict from './prconflict';
 import { looksBinary } from './sniff';
 import * as syncEngine from './sync';
-import { TeamCoordinator, claudeDenyArgs } from './team';
+import { TeamCoordinator, claudeDenyArgs, opencodeDenyRules } from './team';
 import { BoardCoordinator } from './board';
 import { parseMentions, shortName } from './mentions';
 import { LspManager, SERVERS, lspInstalls, findOnPath } from './lsp';
@@ -1679,7 +1679,25 @@ const AGENTS: AgentDef[] = [
       path.join(APPDATA, 'npm', 'claude.cmd'),
     ] : [path.join(HOME, '.local', 'bin', 'claude'), path.join(HOME, '.claude', 'local', 'claude'), '/usr/local/bin/claude', '/opt/homebrew/bin/claude'],
   },
+  {
+    id: 'opencode', name: 'OpenCode', vendor: 'SST', commands: ['opencode'],
+    url: 'https://opencode.ai/',
+    paths: () => isWin ? [path.join(APPDATA, 'npm', 'opencode.cmd')] : [path.join(HOME, '.opencode', 'bin', 'opencode'), '/usr/local/bin/opencode', '/opt/homebrew/bin/opencode'],
+  },
 ];
+// OpenCode names models provider/model (openrouter/~anthropic/claude-opus-latest), so they need more than SAFE_MODEL allows.
+const OPENCODE_MODEL = /^[\w.:~-]+\/[\w.:~/-]{1,120}$/;
+// Asked once and shared, like Antigravity's: `opencode models` lists every provider's models and takes a moment.
+let cachedOpencodeModels: Promise<string[]> | null = null;
+function opencodeModels(bin: string): Promise<string[]> {
+  cachedOpencodeModels ??= new Promise(res => {
+    const opts = { windowsHide: true, timeout: 20000, maxBuffer: 4 << 20 };
+    const done = (err: Error | null, stdout: string) => res(err ? [] : stdout.split(/\r?\n/).map(s => s.trim()).filter(m => OPENCODE_MODEL.test(m)));
+    if (/\.(?:cmd|bat)$/i.test(bin)) exec(shellCommand(bin, ['models']), opts, done);
+    else execFile(bin, ['models'], opts, done);
+  });
+  return cachedOpencodeModels;
+}
 // Claude Code takes these aliases for --model; "default" leaves the choice to its own settings.
 const CLAUDE_MODELS = ['default', 'fable', 'opus', 'sonnet', 'haiku'];
 // An older Claude Code has no fable alias, so it's offered only when this one's --help names it.
@@ -1730,6 +1748,7 @@ function versionOf(bin: string): Promise<string | null> {
 function agentInstallCmd(id: string, platform: string): string | null {
   if (id === 'claude') return 'npm install -g @anthropic-ai/claude-code';
   if (id === 'codex') return 'npm install -g @openai/codex';
+  if (id === 'opencode') return 'npm install -g opencode-ai';
   if (id !== 'local') return null;
   if (platform === 'win32') return 'winget install Ollama.Ollama';
   if (platform === 'darwin') return 'brew install ollama';
@@ -1760,6 +1779,10 @@ async function detectAgent(a: AgentDef) {
     models = bin && await claudeOffersFable(bin) ? CLAUDE_MODELS : CLAUDE_MODELS.filter(m => m !== 'fable');
     const saved = loadState().claudeModel;
     version = models.includes(saved) ? saved : 'default';
+  } else if (a.id === 'opencode') {
+    models = bin ? await opencodeModels(bin) : [];
+    const saved = loadState().opencodeModel;
+    version = models.includes(saved) ? saved : models[0] ?? null;
   } else if (bin) {
     version = await versionOf(bin);
   }
@@ -1832,7 +1855,7 @@ handle('sys:runCommand', async (_e, cmd) => {
   const command = cmd.trim();
   const allowed = [
     ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
-    ...['claude', 'codex', 'local'].map(id => agentInstallCmd(id, process.platform)),
+    ...['claude', 'codex', 'opencode', 'local'].map(id => agentInstallCmd(id, process.platform)),
     ...lspInstalls(process.platform).map(i => i.cmd),
   ].filter(Boolean) as string[];
   if (!allowed.includes(command)) return false;
@@ -1910,6 +1933,12 @@ handle('agent:setModel', async (_e, { agent, model, effort }) => {
   if (agent === 'claude') {
     const nextState: Record<string, unknown> = { claudeModel: CLAUDE_MODELS.includes(model) ? model : null };
     if (effort !== undefined) nextState.claudeEffort = effort || null;
+    saveState(nextState);
+    return true;
+  }
+  if (agent === 'opencode') {
+    const nextState: Record<string, unknown> = { opencodeModel: typeof model === 'string' && OPENCODE_MODEL.test(model) ? model : null };
+    if (effort !== undefined) nextState.opencodeEffort = effort || null;
     saveState(nextState);
     return true;
   }
@@ -2597,7 +2626,7 @@ handle('board:run', async (_e, o) => {
 function boardPick(o: Loose, agent: string): { model?: string; effort?: string } | null {
   const pick: { model?: string; effort?: string } = {};
   const m = o?.model;
-  if (typeof m === 'string' && (agent === 'local' ? m.length > 0 && m.length <= 200 : SAFE_MODEL.test(m))) pick.model = m;
+  if (typeof m === 'string' && (agent === 'local' ? m.length > 0 && m.length <= 200 : (agent === 'opencode' ? OPENCODE_MODEL : SAFE_MODEL).test(m))) pick.model = m;
   if (typeof o?.effort === 'string' && effortArg(o.effort)) pick.effort = o.effort;
   return pick.model || pick.effort ? pick : null;
 }
@@ -2746,11 +2775,12 @@ const EFFORT_ARGS: Record<string, string> = { low: 'low', medium: 'medium', high
 const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerCase()] || null;
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
-interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string }
+interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number }
 // `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
+  if (agent === 'opencode') return opencodeArgs(mode, prompt, session, team, pick);
   const build = mode === 'build';
   const sandbox = !build ? 'read-only' : fullAccess() ? 'danger-full-access' : 'workspace-write';
   const args = ['exec', '--json', '-s', sandbox, '--skip-git-repo-check'];
@@ -2803,6 +2833,25 @@ function claudeArgs(mode: string, prompt: string, session: string | null | undef
   if (build) return deny.length && shell ? { args, prompt, deny, mcpFile } : { args, prompt, mcpFile };
   const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
   return { args, prompt: `${ask}\n\n${prompt}`, mcpFile };
+}
+// OpenCode's `run`: one JSON event per line. Ask and plan modes use its read-only "plan" agent; with full access, build
+// mode also approves what OpenCode would otherwise ask about. An unknown --variant is ignored, so the effort passes as is.
+// On a team or board, build mode is denied editing teammates' files through OpenCode's inline config (an env var, so no shell).
+function opencodeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, pick?: { model?: string; effort?: string } | null): CliSpec {
+  const build = mode === 'build';
+  const deny = build && team ? opencodeDenyRules(team.coordinator.owners, team.agentId) : {};
+  const env = Object.keys(deny).length ? { OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { edit: deny } }) } : undefined;
+  const args = ['run', '--format', 'json', '--agent', build ? 'build' : 'plan'];
+  if (build && fullAccess()) args.push('--auto');
+  const st = loadState();
+  const model = pick?.model ?? st.opencodeModel;
+  if (model && OPENCODE_MODEL.test(model)) args.push('-m', model);
+  const effort = effortArg(pick?.effort ?? st.opencodeEffort);
+  if (effort) args.push('--variant', effort === 'xhigh' ? 'max' : effort);
+  if (session) args.push('-s', session);
+  if (build) return { args, prompt, env };
+  const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
+  return { args, prompt: `${ask}\n\n${prompt}` };
 }
 // A Claude Code settings file holding a team member's deny rules, for `--settings`. Null when its path can't
 // pass through the shell (a user name with a space, say) or it can't be written.
@@ -2946,7 +2995,7 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     // The prompt goes through stdin, so it never reaches a shell command line. Only fixed flags,
     // a validated model name and a validated session id do (npm .cmd shims need a shell on Windows).
     // Claude Code's MCP time limit is raised to a day: a question waits for the user.
-    const opts = { cwd: base, windowsHide: true, env: { MCP_TOOL_TIMEOUT: '86400000', ...process.env } };
+    const opts = { cwd: base, windowsHide: true, env: { MCP_TOOL_TIMEOUT: '86400000', ...process.env, ...(cli.env || {}) } };
     let child: ChildProcess;
     try {
       child = shell ? spawn(shellCommand(bin, cli.args), { ...opts, shell: true }) : spawn(bin, cli.args, opts);
@@ -2954,7 +3003,7 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     run.child = child;
     child.stdin!.on('error', () => { /* the agent exited before reading its prompt; its output says why */ });
     child.stdin!.end(cli.prompt ?? undefined);
-    streamCli(runId, run, child, agent === 'claude' ? claudeEvent : codexEvent, mode, retryModel);
+    streamCli(runId, run, child, agent === 'claude' ? claudeEvent : agent === 'opencode' ? opencodeEvent : codexEvent, mode, retryModel);
   };
   // A retry starts from the close listener, so a failed launch there ends the run instead of throwing.
   const relaunch = () => {
@@ -3059,6 +3108,34 @@ function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void
     ctx.done = true;
     if (mode === 'plan' && ctx.lastText) emit(runId, { t: 'plan', text: ctx.lastText });
     emit(runId, { t: 'done', ok: true, tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0) });
+  }
+}
+
+// OpenCode reports each tool once it has finished, and each step's tokens; its last step ends with a reason other than tool-calls.
+const OPENCODE_EDITS = new Set(['write', 'edit', 'patch', 'multiedit']);
+function opencodeTool(runId: number, p: Loose): void {
+  const input = p.state?.input || {};
+  if (p.tool === 'bash') emit(runId, { t: 'tool', kind: 'run', label: `$ ${input.command ?? ''}` });
+  else if (OPENCODE_EDITS.has(p.tool) && input.filePath) {
+    const created = p.tool === 'write' && p.state?.metadata?.exists === false;
+    emit(runId, { t: 'tool', kind: 'edit', label: `${created ? 'Created' : 'Edited'} ${relOut(input.filePath)}` });
+    if (p.state?.status === 'completed') emit(runId, { t: 'file', path: relOut(input.filePath), created, written: true });
+  } else if (p.tool === 'webfetch' || p.tool === 'websearch') emit(runId, { t: 'tool', kind: 'web', label: p.state?.title || 'Searched the web' });
+  else if (p.tool === 'todowrite') emit(runId, { t: 'tool', kind: 'todo', label: 'Updated its to-do list' });
+  else emit(runId, { t: 'tool', kind: 'tool', label: p.state?.title || String(p.tool ?? 'tool') });
+}
+function opencodeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
+  if (d.sessionID && !ctx.session) { ctx.session = d.sessionID; emit(runId, { t: 'session', id: d.sessionID }); }
+  const p = d.part || {};
+  if (d.type === 'text' && p.text) { ctx.lastText = p.text; emit(runId, { t: 'text', text: p.text }); }
+  else if (d.type === 'tool_use') opencodeTool(runId, p);
+  else if (d.type === 'error') ctx.lastError = d.error?.data?.message || d.error?.message || d.error?.name || 'OpenCode ran into an error';
+  else if (d.type === 'step_finish') {
+    ctx.tokens = (ctx.tokens || 0) + (p.tokens?.input || 0) + (p.tokens?.output || 0);
+    if (p.reason === 'tool-calls' || ctx.done) return;
+    ctx.done = true;
+    if (mode === 'plan' && ctx.lastText) emit(runId, { t: 'plan', text: ctx.lastText });
+    emit(runId, { t: 'done', ok: true, tokens: ctx.tokens });
   }
 }
 
@@ -4306,7 +4383,22 @@ function claudeCommitMsg(base: string, prompt: string, model?: string, effort?: 
   };
   return runCommitCli(bin, args, base, prompt, finish);
 }
-const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: localCommitMsg, codex: codexCommitMsg, claude: claudeCommitMsg };
+function opencodeCommitMsg(base: string, prompt: string, model?: string, _effort?: string, ask?: boolean): Promise<string> {
+  const bin = agentBins.get('opencode');
+  if (!bin) throw new Error('OpenCode was not found');
+  // The read-only "plan" agent: it can look at the project but not change it.
+  const args = ['run', '--format', 'json', '--agent', 'plan', ...(model && OPENCODE_MODEL.test(model) ? ['-m', model] : [])];
+  const finish = (out: string) => {
+    const text = out.split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(ev => ev?.type === 'text' && ev.part?.text).map(ev => ev.part.text).at(-1) ?? '';
+    if (!ask) return cleanCommitText(text, 'chore: update project');
+    const reply = rawReply(text, '');
+    if (!reply) throw new Error('OpenCode wrote no reply');
+    return reply;
+  };
+  return runCommitCli(bin, args, base, prompt, finish);
+}
+const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: localCommitMsg, codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
 handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
   const base = root;
   if (!base) throw new Error('Open a folder first');

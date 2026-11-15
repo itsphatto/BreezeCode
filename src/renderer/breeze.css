@@ -520,7 +520,8 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   --tint: #d97757;
 }
 
-.tint-codex {
+.tint-codex,
+.tint-opencode {
   --tint: #e4e4e7;
 }
 
@@ -819,7 +820,8 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 }
 
 .onboard :is(.setup-card, .start-tile, .device-code),
-.onboard .ob-step .btn:not(.btn-primary, .btn-ghost) {
+/* Not .ob-start: it's opaque white, and a blur under a scaling button re-renders every frame (the hover stuttered). */
+.onboard .ob-step .btn:not(.btn-primary, .btn-ghost, .ob-start) {
   backdrop-filter: blur(36px) saturate(1.3);
 }
 
@@ -859,7 +861,9 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 }
 
 /* Get started: white on the sky (the blue primary button would sink into it). Blue text #1f4dff on white is 5.9:1. */
-.ob-start {
+/* .btn.ob-start so its transition beats the app-wide one in "Interaction feedback" (a .12s transform that made the
+   lift snap while the shadow lagged behind it). */
+.btn.ob-start {
   padding: 11px 30px;
   border: 0;
   border-radius: 12px;
@@ -868,7 +872,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
-  transition: box-shadow .2s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: box-shadow .3s cubic-bezier(.2, .8, .2, 1), transform .3s cubic-bezier(.2, .8, .2, 1), opacity .25s ease;
 }
 
 /* Every other button in setup (sign-in, Continue, Copy...) wears the same white look. Home keeps its own. */
@@ -903,6 +907,8 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 .ob-start:active,
 .ob-step[data-step="0"] .ob-start:active {
   transform: scale(.97);
+  transition-duration: .12s;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .ob-start:focus-visible {
@@ -1040,12 +1046,13 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 }
 
 .ob-field {
-  --line: rgba(255, 255, 255, .7); /* what a focused text box's edge stays at */
+  --line: rgba(0, 0, 0, .12); /* what a focused text box's edge stays at */
   position: relative;
   width: 100%;
   text-align: left;
 }
 
+/* The alt-text glass (.breeze-tooltip) at text-box size. */
 .ob-field input {
   box-sizing: border-box;
   width: 100%;
@@ -1053,18 +1060,26 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   padding: 22px 18px 8px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(255, 255, 255, .86);
+  background: #fff;
+  backdrop-filter: blur(14px) saturate(180%);
+  box-shadow: none;
+  transition: box-shadow .25s ease;
   color: #14161c;
-  caret-color: #1f4dff;
+  caret-color: #14161c;
   font-family: var(--font-ui);
   font-size: 16px;
+}
+
+/* Lifts when clicked into. Beats the app-wide "text boxes stay flat" focus rule on specificity. */
+.ob-field:focus-within input:focus {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .2);
 }
 
 .ob-field label {
   position: absolute;
   left: 19px;
   top: 20px;
-  color: #4a4f5c;
+  color: rgba(20, 22, 28, .55);
   font-size: 15px;
   pointer-events: none;
   transform-origin: left top;
@@ -1191,7 +1206,6 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 
 .ob-form .signin-btns .btn:hover {
   background: #fff;
-  border-color: rgba(31, 77, 255, .45);
 }
 
 .ob-form .signin-btns .btn:focus-visible {
@@ -2056,8 +2070,15 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   max-width: min(480px, calc(100vw - 16px));
-  max-height: min(360px, calc(100vh - 16px));
+  max-height: min(420px, calc(100vh - 16px));
   overflow: hidden;
+}
+
+.menu-scroll-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .menu-scroll {
@@ -3271,6 +3292,23 @@ svg.ico-svg:active {
 .pane.preview {
   position: relative;
   border-left: 1px solid var(--line);
+}
+
+/* Fullscreen preview (preview.ts): the pane covers the fullscreen window, under menus (70) and toasts (80). */
+.work > .pane.preview.full {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+}
+
+/* The window buttons float over everything, and a fullscreen window has no use for them. */
+.pane.preview.full .sash,
+body.preview-full #winControls {
+  display: none;
 }
 
 .tabs {
@@ -7045,21 +7083,21 @@ body.vibing .ide {
 
 /* Generating: the sparkles twist and shrink away while the spinner grows out of the same spot, and back when it's done.
    Both sit in the one cell; the spinner shrinks on `scale`, since its turning owns `transform`. */
-#scmGenMsg > * {
+:is(#scmGenMsg, .improve-prompt) > * {
   grid-area: 1 / 1;
 }
 
-#scmGenMsg svg {
+:is(#scmGenMsg, .improve-prompt) svg {
   color: #a78bfa;
   transition: color .15s ease, transform .3s cubic-bezier(.3, .7, .2, 1), opacity .2s ease, filter .3s ease;
 }
 
-#scmGenMsg:hover svg {
+:is(#scmGenMsg, .improve-prompt):hover svg {
   color: #c4b5fd;
   transform: scale(1.12);
 }
 
-#scmGenMsg .spinner {
+:is(#scmGenMsg, .improve-prompt) .spinner {
   width: 13px;
   height: 13px;
   border-width: 2px;
@@ -7072,13 +7110,13 @@ body.vibing .ide {
   transition: scale .3s cubic-bezier(.3, .7, .2, 1), opacity .2s ease, filter .3s ease;
 }
 
-#scmGenMsg.busy svg {
+:is(#scmGenMsg, .improve-prompt).busy svg {
   opacity: 0;
   transform: rotate(120deg) scale(.3);
   filter: blur(2px);
 }
 
-#scmGenMsg.busy .spinner {
+:is(#scmGenMsg, .improve-prompt).busy .spinner {
   opacity: 1;
   scale: 1;
   filter: none;
@@ -10312,16 +10350,40 @@ body.layout-animating .box > .terminal.open {
 }
 
 .menu-item.has-sub::after {
-  content: "›";
+  /* the line-icon chevronRight (platform.ts), as a mask so it takes the text colour */
+  content: "";
   margin-left: auto;
-  color: var(--text-3);
-  font-size: 15px;
-  line-height: 1;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background: var(--text-3);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.menu-item.has-sub:hover:not(:disabled)::after,
+.menu-item.has-sub.kb::after {
+  background: currentColor; /* white on the lit row, like its label */
+}
+
+.menu:is(.go-left, .subs-left) .menu-item.has-sub::after {
+  transform: scaleX(-1);
 }
 
 .menu-item.has-sub.sub-open {
   background: rgba(var(--ink), .08);
   color: var(--text);
+}
+
+/* A submenu's search field (MenuItem.search, commands.ts), above its rows. */
+.menu-search {
+  padding: 2px 2px 6px;
+}
+
+.menu-search .input {
+  width: 100%;
+  height: 26px;
+  font-size: 12.5px;
 }
 
 .menu-item .avatar {
@@ -14218,6 +14280,11 @@ body.layout-animating #previewPane {
   display: none;
 }
 
+/* Improve prompt, beside Send: in the Agents tab it comes in with Full access, once something is typed. */
+.composer .composer-box:not(.has-text) .improve-prompt {
+  display: none;
+}
+
 .composer .composer-box.has-text .composer-access {
   animation: composer-access-in .2s ease both;
 }
@@ -14565,7 +14632,8 @@ body.layout-animating #previewPane {
 
 .set-agents {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: column; /* every agent on one row, the cards shrinking to fit */
+  grid-auto-columns: minmax(0, 1fr);
   gap: 8px;
   width: 100%;
   margin-bottom: 18px;
@@ -14642,7 +14710,7 @@ body.layout-animating #previewPane {
   cursor: default;
 }
 
-/* Four to a row: logo on top, name centred under it. */
+/* Logo on top, name centred under it. */
 .set-agent {
   grid-template-columns: minmax(0, 1fr);
   justify-items: center;
@@ -15719,7 +15787,7 @@ body.layout-animating #previewPane {
 :root[data-theme="light"] .tree-item.git-ignored .ico { opacity: .62; }
 :root[data-theme="light"] .tree-item.git-ignored:is(:hover, .on) .ico { opacity: 1; }
 :root[data-theme="light"] :is(.tree-item .gst.gst-in, .tree-item.has-incoming:not(.has-changes)::after, .scm-row.git-in .st) { color: var(--blue-text); }
-:root[data-theme="light"] :is(#scmGenMsg svg, #scmGenMsg:hover svg) { color: #7c3aed; }
+:root[data-theme="light"] :is(#scmGenMsg, .improve-prompt) svg { color: #7c3aed; }
 :root[data-theme="light"] .ref.branch { color: #137036; }
 :root[data-theme="light"] .ref.remote { color: #6d28d9; }
 :root[data-theme="light"] .ref.tag { color: #a8380a; }
@@ -15754,9 +15822,9 @@ body.layout-animating #previewPane {
   box-shadow: var(--paper-shadow);
 }
 
-/* The wordmarks and the swirl are white images: drawn dark here, except over the onboarding sky. */
+/* The wordmarks and the swirl are white images: drawn dark here, except over the sky (onboarding and the launch). */
 /* Home is off the sky (its own title bar), so its wordmark goes dark too. */
-:root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *),
+:root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *, .launch *),
 :root[data-theme="light"] .idle-logo,
 :root[data-theme="light"] .home-bar .logo img {
   filter: invert(.88);
@@ -18967,7 +19035,7 @@ input.dbg-edit.bad:focus-visible {
   height: 28px;
   padding: 0 10px 0 4px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--r);
   background: var(--bg-1);
   font-size: 12.5px;
   cursor: grab;
@@ -19028,6 +19096,13 @@ input.dbg-edit.bad:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+/* OpenCode's mark fills its whole square: shrink it to the others' size, keeping its square corners. */
+:is(.board-chip-logo, .board-box-logo, .board-empty-logo) .brand-img[src$="opencode.svg"] {
+  width: 70%;
+  height: 70%;
+  border-radius: 2px;
 }
 
 .board-auto {

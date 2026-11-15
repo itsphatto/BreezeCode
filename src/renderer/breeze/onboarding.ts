@@ -34,6 +34,7 @@ function goStep(n: number): void {
   // Hidden sections can't be measured, so the logo's old spot is read before they swap (mid-flight: where it is on screen).
   const prev = step, oldLogo = stepLogo(prev);
   const from = oldLogo?.getClientRects().length ? oldLogo.getBoundingClientRect() : null;
+  const fromSurface = surfaceBox(prev);
   stopObMotion();
   step = n; appState.step = n; saveApp();
   $$('.ob-step').forEach(s => s.classList.toggle('hidden', Number(s.dataset.step) !== n));
@@ -50,7 +51,7 @@ function goStep(n: number): void {
   // Once set up, Home is a screen of its own rather than a setup step, so the progress dots go.
   $('#onboard').classList.toggle('settled', appState.onboarded);
   syncTitleBar(); // Home's title bar is the theme's, setup's is the sky
-  playStep(prev, n, oldLogo, from);
+  playStep(prev, n, oldLogo, from, fromSurface);
 }
 $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
 
@@ -58,9 +59,11 @@ $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
    its spots on any change, going back everything else just fades. ----- */
 const OB_SOFT = 'cubic-bezier(.16, 1, .3, 1)';
 const OB_CURVE = 'cubic-bezier(.22, .72, .2, 1)'; // softer off the mark than OB_SOFT, or the curve is over before it's seen
+const OB_MOVE = 'cubic-bezier(0.77, 0, 0.175, 1)'; // moving or reshaping on screen: eases in and out, like the launch morph
 const stepEl = (n: number) => $(`.ob-step[data-step="${n}"]`);
 const stepLogo = (n: number) => stepEl(n).querySelector<HTMLImageElement>('.ob-logo, .ob-icon');
 const motionOff = () => document.documentElement.classList.contains('win-jump');
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 let obAnims: Animation[] = [], obGhost: HTMLElement | null = null;
 function stopObMotion(): void {
   obAnims.forEach(a => a.cancel());
@@ -97,7 +100,7 @@ function letterBoxes(h: HTMLElement): HTMLElement[] {
   return [...h.querySelectorAll<HTMLElement>('.ob-ch')];
 }
 // Each letter in turn hops in from the left along a downward parabola: rising, over the top, and down into place.
-function lettersIn(h: HTMLElement): void {
+function lettersIn(h: HTMLElement, delay = 0): void {
   const n = 24, dx = 70, lift = 34;
   letterBoxes(h).forEach((s, i) => {
     const frames: Keyframe[] = [];
@@ -105,7 +108,31 @@ function lettersIn(h: HTMLElement): void {
       const t = k / n;
       frames.push({ transform: `translate(${-dx * (1 - t)}px, ${-lift * 4 * t * (1 - t)}px)`, opacity: Math.min(1, t * 2.5) });
     }
-    obAnim(s, frames, { duration: 620, delay: i * 24, easing: OB_CURVE });
+    obAnim(s, frames, { duration: 620, delay: delay + i * 24, easing: OB_CURVE });
+  });
+}
+// The surface each screen is built on. Between screens the new one's grows out of the old one's shape (a morph).
+const SURFACE = ['.ob-start', '#obName', '.ob-form', '.setup-card'];
+const surfaces = (n: number) => SURFACE[n] ? [...stepEl(n).querySelectorAll<HTMLElement>(SURFACE[n])] : [];
+interface SurfaceBox { rect: DOMRect; radius: string }
+function surfaceBox(n: number): SurfaceBox | null {
+  const els = surfaces(n).filter(e => e.getClientRects().length);
+  if (!els.length) return null;
+  const rs = els.map(e => e.getBoundingClientRect());
+  const l = Math.min(...rs.map(r => r.left)), t = Math.min(...rs.map(r => r.top));
+  const rect = new DOMRect(l, t, Math.max(...rs.map(r => r.right)) - l, Math.max(...rs.map(r => r.bottom)) - t);
+  return { rect, radius: getComputedStyle(els[0]).borderTopLeftRadius };
+}
+// A clip, not a scale: the corners don't stretch and the glass keeps its blurred backdrop. A surface the old shape
+// doesn't cover starts as an empty clip where the old shape was.
+function morphIn(n: number, from: SurfaceBox | null): void {
+  surfaces(n).forEach(el => {
+    if (!from) { riseIn(el); return; }
+    const to = el.getBoundingClientRect(), a = from.rect, radius = getComputedStyle(el).borderTopLeftRadius;
+    obAnim(el, [
+      { clipPath: `inset(${a.top - to.top}px ${to.right - a.right}px ${to.bottom - a.bottom}px ${a.left - to.left}px round ${from.radius})` },
+      { clipPath: `inset(-40px round calc(${radius} + 40px))` }, // ends outside the box so its shadow is already showing when the clip comes off
+    ], { duration: 700, easing: OB_MOVE });
   });
 }
 // The logo travels from its old spot to its new one. When the picture differs, or there's no new spot, a copy of the old
@@ -113,7 +140,7 @@ function lettersIn(h: HTMLElement): void {
 function glideLogo(logo: HTMLImageElement | null, old: HTMLImageElement, from: DOMRect): void {
   const to = logo?.getBoundingClientRect() ?? from, same = logo?.src === old.src;
   const dx = from.left + from.width / 2 - to.left - to.width / 2, dy = from.top + from.height / 2 - to.top - to.height / 2, scale = from.width / to.width;
-  const timing = { duration: 760, easing: OB_SOFT };
+  const timing = { duration: 700, easing: OB_MOVE };
   if (logo) obAnim(logo, [{ transform: `translate(${dx}px, ${dy}px) scale(${scale})`, opacity: same ? 1 : 0 }, { transform: 'none', opacity: 1 }], timing);
   if (same) return;
   const ghost = obGhost = old.cloneNode() as HTMLImageElement;
@@ -124,35 +151,44 @@ function glideLogo(logo: HTMLImageElement | null, old: HTMLImageElement, from: D
   ghost.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${-dx}px, ${-dy}px) scale(${1 / scale})`, opacity: 0 }], { ...timing, fill: 'forwards' })
     .onfinish = () => ghost.remove();
 }
-function playStep(prev: number, n: number, oldLogo: HTMLImageElement | null, from: DOMRect | null): void {
+function playStep(prev: number, n: number, oldLogo: HTMLImageElement | null, from: DOMRect | null, fromSurface: SurfaceBox | null): void {
   const el = stepEl(n), logo = stepLogo(n);
   const settled = () => {
     $('#onboard').classList.remove('ob-flying');
     syncDots();
-    if (n === STEP.name) { nameInput.focus({ preventScroll: true }); nameInput.setSelectionRange(nameInput.value.length, nameInput.value.length); }
     // What had focus just went away with the old screen; a keyboard or screen reader user lands on the new one.
-    else if (!el.contains(document.activeElement)) el.querySelector<HTMLElement>('h1, h2')?.focus({ preventScroll: true });
+    if (n !== STEP.name && !el.contains(document.activeElement)) el.querySelector<HTMLElement>('h1, h2')?.focus({ preventScroll: true });
   };
+  // Focus the name box now, not when the animations end: the heading's stagger would otherwise eat the first keystrokes.
+  if (n === STEP.name) { nameInput.focus({ preventScroll: true }); nameInput.setSelectionRange(nameInput.value.length, nameInput.value.length); }
   if (prev !== n && !appState.onboarded && !motionOff()) {
     $('#onboard').classList.add('ob-flying');
     if (n !== STEP.home) el.getAnimations({ subtree: true }).forEach(a => a.cancel()); // coming back to the welcome replays its intro otherwise
-    if (oldLogo && from) glideLogo(logo, oldLogo, from);
-    else if (logo) obAnim(logo, [{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' }); // no logo on the screen it came from
-    if (n !== STEP.home) {
-      if (n < prev) {
-        // Each card fades itself: one fading inside a parent loses its blurred backdrop until the fade ends.
-        el.querySelectorAll(':scope > :not(.ob-logo, .ob-icon, .setup-grid), .setup-card').forEach(c => obAnim(c, [{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' }));
-      } else if (n === STEP.name) {
-        lettersIn($('h2', el));
-        riseIn($('.ob-field', el), 300);
-        riseIn(nameNext, 380);
-      } else if (n === STEP.signIn) {
-        // The title's letters hop in like the name screen's, then the rest rises in under it.
-        const form = $('.ob-form', el);
-        lettersIn($('h2', form));
-        form.querySelectorAll(':scope > :not(h2)').forEach((c, i) => riseIn(c, 300 + i * 60));
-      } else {
-        el.querySelectorAll(':scope > :not(.setup-grid), .setup-card').forEach((c, i) => riseIn(c, i * 50));
+    if (reducedMotion()) {
+      // Reduced motion: the new screen fades in, nothing travels.
+      if (n !== STEP.home) el.querySelectorAll(':scope > :not(.setup-grid), .setup-card').forEach(c => obAnim(c, [{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease' }));
+    } else {
+      if (oldLogo && from) glideLogo(logo, oldLogo, from);
+      else if (logo) obAnim(logo, [{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: OB_SOFT }); // no logo on the screen it came from
+      if (n !== STEP.home) {
+        const own = surfaces(n);
+        morphIn(n, fromSurface);
+        if (n < prev) {
+          // Each card fades itself: one fading inside a parent loses its blurred backdrop until the fade ends.
+          el.querySelectorAll(':scope > :not(.ob-logo, .ob-icon, .setup-grid), .setup-card').forEach(c => { if (!own.includes(c as HTMLElement)) obAnim(c, [{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: OB_SOFT }); });
+        } else if (n === STEP.name) {
+          lettersIn($('h2', el));
+          obAnim($('.ob-field label', el), [{ opacity: 0 }, { opacity: 1 }], { duration: 560, delay: 350, easing: OB_SOFT });
+          riseIn(nameNext, 420);
+        } else if (n === STEP.signIn) {
+          // The white card grows in first, then the title's letters hop in and the rest rises in under it.
+          const form = $('.ob-form', el);
+          lettersIn($('h2', form), 350);
+          form.querySelectorAll(':scope > :not(h2)').forEach((c, i) => riseIn(c, 450 + i * 60));
+        } else {
+          el.querySelectorAll(':scope > :not(.setup-grid, .setup-card)').forEach((c, i) => riseIn(c, i * 50));
+          el.querySelectorAll('.setup-card > *').forEach((c, i) => riseIn(c, 300 + i * 30));
+        }
       }
     }
   }
@@ -431,7 +467,7 @@ $$<HTMLAnchorElement>('.ob-terms a').forEach(a => a.onclick = e => { e.preventDe
 function leaveAccount(): void {
   if (!termsBox.checked) {
     termsBox.focus();
-    if (!motionOff()) $('.ob-terms .check').animate([{ transform: 'none' }, { transform: 'scale(1.4)' }, { transform: 'none' }], { duration: 360, easing: 'ease-out' });
+    if (!motionOff()) $('.ob-terms .check').animate([{ transform: 'none' }, { transform: 'scale(1.4)' }, { transform: 'none' }], { duration: 360, easing: OB_SOFT });
     return;
   }
   if (!si('wait').classList.contains('hidden')) { background(api.auth.cancel()); signinView(false); }

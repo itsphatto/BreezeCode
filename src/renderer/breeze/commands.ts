@@ -7,6 +7,7 @@ interface MenuItem {
   subClass?: string;          // custom css class for submenu
   clickRuns?: boolean;        // with `sub`: a click runs the item, hovering still opens the submenu
   slider?: MenuSlider;        // a row with a stepped slider in place of a label
+  search?: (q: string) => MenuItem[]; // a filter field (label: its placeholder); typing swaps the rows under it for these
 }
 // Steps picked by dragging or clicking along a track; the menu stays open while it changes.
 interface MenuSlider {
@@ -793,7 +794,8 @@ function menuItemHtml(it: MenuItem, i: number): string {
   if (it.sep) return `<div class="menu-sep" data-style="--i:${i}"></div>`;
   if (it.header) return menuHeaderHtml(it.header);
   if (it.slider) return menuSliderHtml(it.slider, i);
-  const cls = ['menu-item', it.checked?.() ? 'checked' : '', it.sub ? 'has-sub' : '', i === kbIdx ? 'kb' : ''].filter(Boolean).join(' ');
+  if (it.search) return `<div class="menu-search" data-style="--i:${i}"><input class="input" data-mse="${i}" aria-label="${escAttr(it.label ?? 'Search')}" placeholder="${escAttr(it.label ?? 'Search')}" spellcheck="false" autocomplete="off"></div>`;
+  const cls =['menu-item', it.checked?.() ? 'checked' : '', it.sub ? 'has-sub' : '', i === kbIdx ? 'kb' : ''].filter(Boolean).join(' ');
   const disabled = it.enabled && !it.enabled() ? ' disabled' : '';
   const key = it.key ? `<span class="key">${esc(it.key)}</span>` : '';
   const popup = it.sub ? ' aria-haspopup="menu"' : '';
@@ -831,21 +833,54 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
     if (cls === 'menu' || it.sub) b.onmouseenter = () => (it.sub ? openSubmenu(b, it) : closeSubmenu(depth + 1));
     else if (depth) b.onmouseenter = () => closeSubmenu(depth + 1);
   });
+  // A search row redraws the menu in place with its matches, keeping the field focused; Enter picks the first match.
+  $$<HTMLInputElement>('[data-mse]', m).forEach(input => {
+    const at = Number(input.dataset.mse);
+    input.onmouseenter = () => closeSubmenu(depth + 1);
+    input.oninput = () => {
+      closeSubmenu(depth + 1);
+      keepSearch = true;
+      let next: HTMLElement;
+      try { next = renderMenu(m.offsetLeft, m.offsetTop, [...items.slice(0, at + 1), ...items[at].search!(input.value.trim())], cls, depth); }
+      finally { keepSearch = false; }
+      next.classList.toggle('go-left', m.classList.contains('go-left'));
+      next.classList.remove('stagger');
+      next.classList.toggle('up', m.classList.contains('up'));
+      next.style.animation = 'none';
+      m.remove();
+      const field = next.querySelector<HTMLInputElement>('[data-mse]')!;
+      field.value = input.value;
+      field.focus();
+    };
+    input.onkeydown = e => {
+      const first = items.slice(at + 1).find(it => it.run && (!it.enabled || it.enabled()));
+      if (e.key === 'Enter' && first) activateMenuItem(first);
+    };
+  });
   hoverGlide(m, '.menu-item');
   return m;
 }
 // A menu with more rows than fit (every page in a project, say) keeps a fixed size: its rows scroll in a box inside it,
 // with the editor's slider (scrollSlider, editor.ts) for the hidden scrollbar. The menu itself doesn't scroll, so the
 // slider and the keyboard highlight (its ::before) stay put. Long labels end in "…" and show whole on hover.
-const MENU_MAX_H = 360;
+const MENU_MAX_H = 420;
+let keepSearch = false;
 function fitMenuHeight(m: HTMLElement): void {
-  if (m.scrollHeight <= Math.min(MENU_MAX_H, innerHeight - 16)) return;
+  if (m.scrollHeight <= Math.min(MENU_MAX_H, innerHeight - 16)) {
+    // Every row already shows, so a filter field is just clutter (unless it's being typed in: see the search redraw).
+    if (!keepSearch) m.querySelector('.menu-search')?.remove();
+    return;
+  }
   const box = document.createElement('div');
   box.className = 'menu-scroll';
-  box.append(...Array.from(m.childNodes));
-  m.append(box);
+  box.append(...Array.from(m.childNodes).filter(n => !(n instanceof HTMLElement && n.classList.contains('menu-search')))); // the search field stays on top
+  // The slider lives in a wrap around the rows only, so its track ends below the search field instead of under it.
+  const wrap = document.createElement('div');
+  wrap.className = 'menu-scroll-wrap';
+  wrap.append(box);
+  m.append(wrap);
   m.classList.add('scrolls');
-  const update = scrollSlider(m, () => box as unknown as CodeSurface, 'v');
+  const update = scrollSlider(wrap, () => box as unknown as CodeSurface, 'v');
   box.addEventListener('scroll', () => { update(); if (m.classList.contains('kb-on')) slideKbHighlight(); }, { passive: true });
   for (const label of $$<HTMLElement>('.menu-item > span:not(.key):not(.menu-check)', box)) {
     if (label.scrollWidth > label.clientWidth) label.closest<HTMLElement>('.menu-item')!.title = label.textContent ?? '';
@@ -864,7 +899,10 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
   // Measured by layout: hovered while the menu is still growing in, its bounding box is the shrunken one mid-animation,
   // which put the submenu on top of it. (A menu is position: fixed, so its offsets are from the window.)
   const menu = btn.closest<HTMLElement>('.menu');
-  const top = (menu ? menu.offsetTop + menu.clientTop : 0) + btn.offsetTop;
+  // A row in a scrolling menu sits in .menu-scroll-wrap, offset by the search field and moved by the scroll.
+  const wrap = btn.closest<HTMLElement>('.menu-scroll-wrap');
+  const inner = wrap ? wrap.offsetTop - wrap.firstElementChild!.scrollTop : 0;
+  const top = (menu ? menu.offsetTop + menu.clientTop : 0) + inner + btn.offsetTop;
   const r = { top, bottom: top + btn.offsetHeight };
   const edge = menu ? { left: menu.offsetLeft, right: menu.offsetLeft + menu.offsetWidth } : btn.getBoundingClientRect(); // a gap from the menu itself, not the row inside it
   const cls = 'menu sub' + (it.subClass ? ` ${it.subClass}` : '');
@@ -874,7 +912,13 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
     sub.classList.add('up');
     sub.style.top = `${Math.max(8, r.bottom - sub.offsetHeight + 5)}px`;
   }
-  if (sub.offsetLeft < edge.right) sub.style.left = `${Math.max(8, edge.left - sub.offsetWidth - 8)}px`; // no room on the right
+  // Once a submenu has opened leftwards, deeper ones keep going left (zig-zagging back would cover the parent).
+  const leftRoom = edge.left - sub.offsetWidth - 8;
+  if (sub.offsetLeft < edge.right || (menu?.classList.contains('go-left') && leftRoom >= 8)) {
+    sub.style.left = `${Math.max(8, leftRoom)}px`;
+    sub.classList.add('go-left');
+    menu?.classList.add('subs-left'); // its arrows point the way its submenus open
+  }
 }
 // Closes the submenus at `depth` and deeper (1, the default, is all of them).
 function closeSubmenu(depth = 1): void {
