@@ -1,5 +1,5 @@
 // The MCP server Breeze hosts itself, so agents that run as a command line (Claude Code, Codex) can reach the same
-// tools the local model has: asking the user a question, showing a picture, capturing the preview.
+// tools the local model has: asking the user a question, getting a plan approved, showing a picture, capturing the preview.
 // It listens on this computer only. Each run gets its own address with a random token in it, which stops working
 // when the run ends. No Electron here: main.ts passes `call`, which does the work of a tool.
 import * as http from 'node:http';
@@ -53,7 +53,19 @@ const CAPTURE_PREVIEW: McpTool = {
   },
   annotations: { readOnlyHint: true },
 };
-const BREEZE_TOOLS: McpTool[] = [ASK_USER, SHOW_IMAGE, CAPTURE_PREVIEW];
+const PROPOSE_PLAN: McpTool = {
+  name: 'propose_plan',
+  description: 'Show the user your plan and wait for their OK before you change files. It shows as a card with Approve and a box to ask for changes, and the answer tells you whether to go ahead. Use it before a change that touches several files or is hard to undo; skip it for small, clear requests.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      plan: { type: 'string', description: 'The plan as a short numbered list in Markdown: what you will change, file by file' },
+    },
+    required: ['plan'],
+  },
+  annotations: { readOnlyHint: true },
+};
+const BREEZE_TOOLS: McpTool[] = [ASK_USER, PROPOSE_PLAN, SHOW_IMAGE, CAPTURE_PREVIEW];
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_BODY = 1024 * 1024;

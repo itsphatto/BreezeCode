@@ -505,6 +505,7 @@ function approveCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 function questionCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const id = ev.id;
   if (!id || !ev.question) return;
+  if (ev.plan) { planApprovalCard(r, id, ev.plan, tab); return; }
   const options = ev.options ?? [];
   const multi = !!ev.multiSelect && options.length > 1;
   r.lastMsg = undefined;
@@ -516,12 +517,7 @@ function questionCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const input = $<HTMLInputElement>('.q-other input', el);
   const answer = (reply: AskReply | null) => {
     const said = reply ? [...reply.picked, reply.other].filter(Boolean).join(', ') : '';
-    endQuestion(el, said ? `✓ ${said}` : '✕ Skipped');
-    setAgent(r.phase, 'working', 'Working on your request', r.tools);
-    saveChat(tab);
-    const box = isBoardSurface(tab.surfaceName) ? boardBoxes.get(boxKeyOf(tab.surfaceName)) : undefined;
-    if (box) paintBox(box); // its box stops showing "waiting"
-    background(api.agent.reply(id, reply));
+    sendReply(r, el, id, reply, said ? `✓ ${said}` : '✕ Skipped', tab);
   };
   $$<HTMLElement>('.q-opt', el).forEach(b => b.onclick = () => {
     if (!multi) { answer({ picked: [b.dataset.qOpt as string], other: '' }); return; }
@@ -580,6 +576,39 @@ function testsCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 }
 
 // The card stops taking answers and says how it ended.
+// The card's answer goes back to the waiting agent, and the card stops taking clicks.
+function sendReply(r: Run, el: HTMLElement, id: string, reply: AskReply | null, how: string, tab: AgentTabState): void {
+  endQuestion(el, how);
+  setAgent(r.phase, 'working', 'Working on your request', r.tools);
+  saveChat(tab);
+  const box = isBoardSurface(tab.surfaceName) ? boardBoxes.get(boxKeyOf(tab.surfaceName)) : undefined;
+  if (box) paintBox(box); // its box stops showing "waiting"
+  background(api.agent.reply(id, reply));
+}
+
+// An agent's plan (propose_plan), shown in the chat while the run waits: Approve lets it go ahead in the same run;
+// a note sends the plan back to be changed.
+function planApprovalCard(r: Run, id: string, plan: string, tab: AgentTabState): void {
+  r.lastMsg = undefined;
+  r.plan = plan;
+  setAgent(r.phase, 'waiting', 'Waiting for plan approval', r.tools);
+  sfx.play('plan');
+  const el = addMsg(`<div class="card plan question" data-question="${escAttr(id)}"><h5>${svgIcon('todo', 14)} ${esc(speaker(r.phase, r.agent).name)}’s plan</h5><div class="plan-body">${md(plan)}</div><div class="q-live" data-live><div class="row"><button class="btn btn-primary btn-sm" type="button" data-plan-ok>Approve &amp; build</button><button class="btn btn-sm" type="button" data-plan-no title="The agent stops without changing files">Not now</button></div><div class="row q-other"><input class="input" type="text" maxlength="2000" placeholder="Or say what should change…" aria-label="What should change in the plan" spellcheck="false"><button class="btn btn-sm" type="button" data-plan-edit>Send</button></div></div></div>`, tab);
+  const input = $<HTMLInputElement>('.q-other input', el);
+  $('[data-plan-ok]', el).onclick = () => { sfx.play('approve'); sendReply(r, el, id, { picked: ['Approve'], other: '' }, '✓ Approved', tab); };
+  $('[data-plan-no]', el).onclick = () => sendReply(r, el, id, null, '✕ Not approved', tab);
+  const edit = () => {
+    const other = input.value.trim();
+    if (other) sendReply(r, el, id, { picked: [], other }, `✎ ${other}`, tab);
+    else input.focus();
+  };
+  $('[data-plan-edit]', el).onclick = edit;
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); edit(); }
+  });
+}
+
 function endQuestion(card: Element | null | undefined, how: string): void {
   card?.querySelector('[data-live]')?.replaceWith(Object.assign(document.createElement('div'), { className: 'resolved', textContent: how }));
 }

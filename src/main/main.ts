@@ -26,7 +26,7 @@ import { Kernels } from './kernel';
 import * as skillsLib from './skills';
 import * as mcpLib from './mcp';
 import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './previewServer';
-import { normalizeQuestion, QuestionDesk, NO_ANSWER } from './askuser';
+import { normalizeQuestion, normalizePlan, QuestionDesk, NO_ANSWER, NO_APPROVAL } from './askuser';
 import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
 import type { ToolReply } from './breezemcp';
 import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal } from './agentimages';
@@ -3102,6 +3102,7 @@ const LLM_TOOLS = [
   { name: 'move_file', description: 'Move or rename a file or folder. new_path must not exist yet.', parameters: { type: 'object', properties: { path: { type: 'string' }, new_path: { type: 'string' } }, required: ['path', 'new_path'] } },
   { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. The user may be asked to OK it first. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
   { name: 'ask_user', description: 'Ask the user one question and wait for the answer. Use it when the request is unclear and a wrong guess would waste work.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', description: '2 to 4 answers to pick from; the user can also type another', items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } }, multi_select: { type: 'boolean', description: 'Let the user pick more than one' } }, required: ['question'] } },
+  { name: 'propose_plan', description: 'Show the user your plan and wait for their OK before you change files. Use it before a change that touches several files or is hard to undo; skip it for small, clear requests.', parameters: { type: 'object', properties: { plan: { type: 'string', description: 'A short numbered list of what you will change, file by file' } }, required: ['plan'] } },
   { name: 'capture_preview', description: 'Take a screenshot of a page of the project as the Preview pane shows it, and show it to the user. Use it to check a page you built or changed.', parameters: { type: 'object', properties: { page: { type: 'string', description: 'The .html or .md file; index.html when left out' }, width: { type: 'integer', description: 'Window width in pixels (1280 when left out)' }, height: { type: 'integer' } } } },
   { name: 'show_image', description: 'Show the user a picture from the project (png, jpg, gif, webp or svg) in the chat, such as one you made or a screenshot.', parameters: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string', description: 'One short line about it' } }, required: ['path'] } },
 ].map(fn => ({ type: 'function', function: fn }));
@@ -3160,9 +3161,10 @@ handle('agent:answer', (_e, id, answer) => pendingAsks.get(String(id))?.(['once'
 // event, answered through agent:reply). The local model calls ask_user as one of its tools; Claude Code and Codex
 // run as command lines that can't prompt, so they reach the same card through the MCP server Breeze hosts (breezemcp.ts).
 const questions = new QuestionDesk();
-async function askUser(runId: number, input: unknown, signal?: AbortSignal): Promise<string> {
-  const q = normalizeQuestion(input);
-  if (!runs.has(runId)) return NO_ANSWER;
+// propose_plan is the same card with the plan in it: Approve, or a box to ask for changes.
+async function askUser(runId: number, input: unknown, signal?: AbortSignal, plan = false): Promise<string> {
+  const q = plan ? normalizePlan(input) : normalizeQuestion(input);
+  if (!runs.has(runId)) return plan ? NO_APPROVAL : NO_ANSWER;
   // A team's claim pass shows nothing in the chat, so nobody would see the question.
   const entry = teamOf.get(runId);
   if (entry && (entry.team as Loose).runs?.get(runId)?.phase === 'claim') return 'Nobody can answer right now. Use your best judgment.';
@@ -3171,6 +3173,7 @@ async function askUser(runId: number, input: unknown, signal?: AbortSignal): Pro
 handle('agent:reply', (_e, id, reply) => questions.answer(String(id), reply && typeof reply === 'object' ? reply : null));
 const BREEZE_TOOL_FNS: Record<string, (runId: number, args: Loose, signal: AbortSignal) => Promise<ToolReply>> = {
   ask_user: async (runId, args, signal) => ({ text: await askUser(runId, args, signal) }),
+  propose_plan: async (runId, args, signal) => ({ text: await askUser(runId, args, signal, true) }),
   show_image: async (runId, args) => ({ text: showImage(runId, args.path, args.caption) }),
   // The agent sees the screenshot too, so it can check its own work.
   capture_preview: async (runId, args, signal) => {
@@ -3343,6 +3346,7 @@ async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
 }
 const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> = {
   ask_user: (ctx, a) => askUser(ctx.runId, a, ctx.signal),
+  propose_plan: (ctx, a) => askUser(ctx.runId, a, ctx.signal, true),
   // agentPath keeps the file tools' rules (inside the project, no .env or .git) before showImage checks it again.
   capture_preview: (ctx, a) => capturePreview(ctx.runId, a, ctx.signal).then(shot => shot.text),
   show_image: (ctx, a) => { agentPath(ctx, a.path); return Promise.resolve(showImage(ctx.runId, a.path, a.caption)); },
@@ -3525,6 +3529,7 @@ Work efficiently:
 - Only say something works or is fixed if a tool result showed it. Say what you could not check.
 - Stay inside the project and do only what was asked.
 - If the request is unclear and a wrong guess would waste work, call ask_user with 2 to 4 short options instead of guessing.
+- Before a change that touches several files or is hard to undo, call propose_plan and wait for the user's OK.
 Reply short and plain. After changing files, list the files, what you checked, and why.
 When the user asks for code or a file to keep (and you are not writing it into the project), give it as one fenced block with the language and a file name, like \`\`\`html index.html, so it shows as a card they can copy or download.`;
 async function llmPost(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefined): Promise<Loose> {

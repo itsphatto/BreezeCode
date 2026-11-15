@@ -3,11 +3,12 @@
 import * as crypto from 'node:crypto';
 
 export interface AskOption { label: string; description: string }
-export interface Question { question: string; options: AskOption[]; multiSelect: boolean }
+// `plan`: a plan for the user to approve (propose_plan). Its card has Approve and a box to ask for changes.
+export interface Question { question: string; options: AskOption[]; multiSelect: boolean; plan?: string }
 // What the card sends back: the options clicked and what was typed in "Other". Null: closed without an answer.
 export interface Reply { picked?: unknown; other?: unknown }
 export type QuestionEvent =
-  | { t: 'question'; id: string; question: string; options: AskOption[]; multiSelect: boolean }
+  | { t: 'question'; id: string; question: string; options: AskOption[]; multiSelect: boolean; plan?: string }
   | { t: 'question-end'; id: string };
 
 const MAX_OPTIONS = 6;
@@ -15,7 +16,10 @@ const MAX_QUESTION = 600;
 const MAX_LABEL = 80;
 const MAX_DESCRIPTION = 200;
 const MAX_OTHER = 2000;
+const MAX_PLAN = 12000;
+const APPROVE = 'Approve';
 const NO_ANSWER = 'The user closed the question without answering. Don\'t ask it again: use your best judgment, or say in your final message what you needed to know.';
+const NO_APPROVAL = 'The user did not approve the plan. Don\'t make the changes: stop here and say in one line that the plan is waiting for their OK.';
 
 const oneLine = (v: unknown, max: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
@@ -38,8 +42,25 @@ function normalizeQuestion(input: unknown): Question {
   return { question, options, multiSelect: (o.multiSelect === true || o.multi_select === true) && options.length > 1 };
 }
 
+// A plan an agent wants approved before it changes files: a question whose one option is Approve.
+function normalizePlan(input: unknown): Question {
+  const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const plan = String(o.plan ?? '').trim();
+  if (!plan) throw new Error('plan is empty. Write the plan as a short numbered list.');
+  if (plan.length > MAX_PLAN) throw new Error(`The plan is too long. Keep it under ${MAX_PLAN} characters.`);
+  return { question: 'Approve this plan?', options: [{ label: APPROVE, description: '' }], multiSelect: false, plan };
+}
+function planReplyText(reply: Reply | null | undefined): string {
+  if (!reply || typeof reply !== 'object') return NO_APPROVAL;
+  const other = typeof reply.other === 'string' ? reply.other.trim().slice(0, MAX_OTHER) : '';
+  if (other) return `The user wants changes to the plan: ${JSON.stringify(other)}. Change the plan and call propose_plan again. Don't change files until they approve.`;
+  const ok = Array.isArray(reply.picked) && reply.picked.map(String).includes(APPROVE);
+  return ok ? 'The user approved the plan. Make the changes now, then say what you changed.' : NO_APPROVAL;
+}
+
 // The answer as the agent reads it. Only labels the question offered count; anything else the card sent is dropped.
 function replyText(q: Question, reply: Reply | null | undefined): string {
+  if (q.plan != null) return planReplyText(reply);
   if (!reply || typeof reply !== 'object') return NO_ANSWER;
   const sent = Array.isArray(reply.picked) ? reply.picked.map(String) : [];
   let picked = q.options.map(o => o.label).filter(l => sent.includes(l));
@@ -96,4 +117,4 @@ class QuestionDesk {
   }
 }
 
-export { normalizeQuestion, replyText, QuestionDesk, NO_ANSWER, MAX_OPTIONS };
+export { normalizeQuestion, normalizePlan, replyText, QuestionDesk, NO_ANSWER, NO_APPROVAL, MAX_OPTIONS };
