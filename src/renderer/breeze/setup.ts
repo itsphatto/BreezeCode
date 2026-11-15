@@ -99,6 +99,7 @@ const AGENT_STYLE: Record<string, { letter: string; tint: string }> = {
   codex: { letter: 'Cx', tint: 'codex' },
   claude: { letter: 'Cc', tint: 'claude' },
   antigravity: { letter: 'Ag', tint: 'antigravity' },
+  opencode: { letter: 'Oc', tint: 'opencode' },
   local: { letter: 'Ol', tint: 'local' },
   ollama: { letter: 'Ol', tint: 'local' },
 };
@@ -185,7 +186,7 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
   // A found agent shows just its name; the model and path stay in the tooltip.
   const attrs = a.found ? `role="button" tabindex="0" data-agent="${a.id}" title="${escAttr(sub)}"` : '';
   let modelOptions = '';
-  if (a.found && a.models?.length && a.id !== 'codex' && a.id !== 'antigravity' && a.id !== 'claude') {
+  if (a.found && a.models?.length && !['codex', 'antigravity', 'claude', 'opencode'].includes(a.id)) {
     const opts = a.models.map(m => {
       const sel = m === a.version ? ' selected' : '';
       return `<option value="${escAttr(m)}"${sel}>${esc(m)}</option>`;
@@ -270,7 +271,7 @@ function bindAgentOptions(root: HTMLElement, onChange: () => void): void {
         saveApp();
         renderAgentBar();
         toast(`Codex model · ${modelVal}`);
-      } else if (agId === 'antigravity' || agId === 'claude') {
+      } else if (agId === 'antigravity' || agId === 'claude' || agId === 'opencode') {
         await api.agent.setModel(agId, modelVal);
         if (targetAgent) targetAgent.version = modelVal;
         saveApp();
@@ -411,7 +412,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
     saveApp();
     renderAgentBar();
     toast(`Codex model set to ${versionLabel(model)} (${effort} effort)`);
-  } else if (a.id === 'antigravity' || a.id === 'claude') {
+  } else if (a.id === 'antigravity' || a.id === 'claude' || a.id === 'opencode') {
     await api.agent.setModel(a.id, model, effort.toLowerCase());
     a.version = model;
     saveApp();
@@ -431,6 +432,51 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
 // makeDefault (an agent's own chip): setting its model or effort also makes it the default agent.
 // `target`: where the pick goes instead of the agent's own settings (an Agent board box keeps its own model and effort).
 interface ModelTarget { model(): string; effort(): EffortLevel; set(model: string, effort: EffortLevel): void }
+const MODEL_MENU_FLAT = 20;
+// Models by their path segment at `depth` (OpenRouter's "~" alias marker dropped), in the order the agent listed them.
+// A model with no deeper segment goes under "": it is listed as is, not as a group.
+function modelGroups(models: string[], depth: number): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
+  for (const m of models) {
+    const parts = m.split('/');
+    const key = parts.length > depth + 1 ? parts[depth].replace(/^~/, '') : '';
+    groups.set(key, [...groups.get(key) ?? [], m]);
+  }
+  return groups;
+}
+// The text typed found in the name ranks above a scattered fuzzy match: every OpenRouter name starts "openrouter/",
+// so on fuzzy score alone "opus" ranked remm-slerp above claude-opus.
+function modelMatch(m: string, q: string): { score: number; hits: number[] } | null {
+  const at = m.toLowerCase().indexOf(q.toLowerCase());
+  if (at >= 0) return { score: 1e6 - at, hits: Array.from({ length: q.length }, (_, i) => at + i) };
+  return fuzzyScore(m, q);
+}
+// Type to filter a long model list, the same way the Command Palette filters commands; Enter or a click picks one.
+function searchModels(models: string[], current: string, pick: (m: string) => void): void {
+  let sel = 0;
+  let shown: { m: string; hits: number[] }[] = [];
+  openModal(`<input class="input w-full" id="qoIn" aria-label="Search models" placeholder="Search models" spellcheck="false"><div class="qo-list" id="qoList"></div>`, el => {
+    const input = $<HTMLInputElement>('#qoIn', el);
+    input.focus();
+    const choose = (i: number) => { const s = shown[i]; if (!s) return; closeModal(); pick(s.m); };
+    const render = () => {
+      const q = input.value.trim();
+      shown = q
+        ? models.flatMap(m => { const f = modelMatch(m, q); return f ? [{ m, ...f }] : []; }).sort((x, y) => y.score - x.score).slice(0, 80)
+        : models.slice(0, 80).map(m => ({ m, hits: [] }));
+      sel = clamp(sel, 0, Math.max(0, shown.length - 1));
+      $('#qoList', el).innerHTML = shown.map((s, i) => `<div class="qo-item ${i === sel ? 'on' : ''}" data-i="${i}"><span>${s.m === current ? '✓&nbsp; ' : ''}${paletteLabelHtml(s.m, s.hits)}</span></div>`).join('')
+        || '<div class="side-note">No matching models.</div>';
+      $$('[data-i]', el).forEach(r => r.onclick = () => choose(Number(r.dataset.i)));
+    };
+    input.oninput = () => { sel = 0; render(); };
+    input.onkeydown = e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sel += e.key === 'ArrowDown' ? 1 : -1; render(); $('.qo-item.on', el)?.scrollIntoView({ block: 'nearest' }); }
+      if (e.key === 'Enter') choose(sel);
+    };
+    render();
+  }, undefined, 'top');
+}
 function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelTarget): MenuItem[] {
   const current = () => target?.model() || a.version || a.models?.[0] || '';
   const effortNow = () => (target ? target.effort() : agentEffort(a));
@@ -440,25 +486,41 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
       if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
     }));
   };
-  const models: MenuItem[] = (a.models ?? []).map(m => ({
-    label: versionLabel(m),
-    checked: () => current() === m,
-    run: () => apply(m, effortNow()),
-  }));
+  const all = a.models ?? [];
+  const row = (m: string, label = versionLabel(m)): MenuItem => ({ label, checked: () => current() === m, run: () => apply(m, effortNow()) });
+  // A long list (OpenCode lists every provider's models) gets nested submenus: provider, then vendor
+  // (openrouter/~anthropic/…), each split only while it is still too long to scan, each with a search field on top.
+  const rest = (m: string, depth: number) => m.split('/').slice(depth).join('/');
+  const grouped = (list: string[], depth: number): MenuItem[] => {
+    if (list.length <= MODEL_MENU_FLAT) return list.map(m => row(m, rest(m, depth)));
+    return [...modelGroups(list, depth)].flatMap(([key, ms]): MenuItem[] => key
+      ? [{ label: key, checked: () => ms.includes(current()), sub: () => [{ label: 'Search models', search: q => found(ms, q, depth + 1) }, ...grouped(ms, depth + 1)] }]
+      : ms.map(m => row(m, rest(m, depth))));
+  };
+  const found = (ms: string[], q: string, depth: number): MenuItem[] => {
+    if (!q) return grouped(ms, depth);
+    const hits = ms.flatMap(m => { const f = modelMatch(rest(m, depth), q); return f ? [{ m, score: f.score }] : []; }).sort((x, y) => y.score - x.score);
+    return hits.length ? hits.slice(0, 80).map(h => row(h.m, rest(h.m, depth))) : [{ label: 'No matching models', enabled: () => false }];
+  };
+  const top = grouped(all, 0);
+  // A long list with no providers to split it by keeps the search box at the top level.
+  const models: MenuItem[] = all.length <= MODEL_MENU_FLAT ? all.map(m => row(m)) : top.some(it => it.sub) ? top : [
+    { label: 'Search models…', run: () => searchModels(all, current(), m => apply(m, effortNow())) },
+    ...top,
+  ];
   const effort: MenuItem[] = a.api ? [] : [{ slider: {
     label: `${agentShortName(a)} effort`,
     steps: EFFORTS,
     value: () => EFFORTS.indexOf(effortNow()),
     set: i => apply(current(), EFFORTS[i]),
     hint: i => EFFORT_HINTS[EFFORTS[i]],
-    charge: true,
   } }];
   return [{ label: 'Switch Model', enabled: () => false }, ...models, ...effort];
 }
 
 /* ----- Agent bar: one chip per installed agent; a chip inserts its @mention ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
-const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['local', 'Local']]);
+const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local']]);
 function agentShortName(a: DetectedAgent): string {
   return AGENT_SHORT_NAMES.get(a.id) || a.name;
 }

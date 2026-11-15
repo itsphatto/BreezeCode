@@ -81,7 +81,7 @@ function safeGitArgs(args: string[]): string[] {
 /* ----- Programs that need cmd.exe ----- */
 // npm's .cmd shims only run through a shell on Windows. The program is quoted, so a path with spaces works,
 // and only plain arguments are allowed, so nothing in them can act as shell syntax.
-const PLAIN_ARG = /^[\w.:=@/-]+$/;
+const PLAIN_ARG = /^[\w.:=@/~-]+$/; // `~` for OpenCode's openrouter/~vendor/model names; cmd.exe gives it no meaning
 function shellCommand(bin: string, args: string[]): string {
   if (bin.includes('"')) throw new Error(`Can't run ${bin} through a shell`);
   const bad = args.find(a => !PLAIN_ARG.test(a));

@@ -71,8 +71,6 @@ boardRail.addEventListener('click', e => {
   else if (b.dataset.rail === 'debugBtn') openDebugView();
   else if (b.dataset.rail === 'settingsBtn') openSettings(b);
 });
-// The debugger page's rail is copied before this file runs: its board button opens the board too.
-$('#dbgRail').querySelector<HTMLElement>('[data-rail="boardBtn"]')?.addEventListener('click', e => { e.stopPropagation(); openBoard(); });
 function placeBoardRailIndicator(): void {
   const ind = boardRail.querySelector<HTMLElement>('.act-indicator');
   const btn = boardRail.querySelector<HTMLElement>('[data-board-btn]');

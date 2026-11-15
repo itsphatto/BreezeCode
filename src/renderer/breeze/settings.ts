@@ -25,7 +25,7 @@ function applyDevMode(): void {
   queueDiscord();
 }
 // Agents the user has come first, then this order; anything else keeps its place after.
-const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'ollama'];
+const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'opencode', 'ollama'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
 let settingsTab: SettingsTab = 'general';
 let agentFullAccess = false; // the main process keeps the real value; read each time Settings opens
@@ -748,9 +748,7 @@ function usageHtml(agents: DetectedAgent[]): string {
       return `<div class="usage-win"><span class="usage-lbl">${esc(w.label)}</span><span class="usage-bar ${left <= 10 ? 'low' : ''}" data-k="${escAttr(k)}:bar" data-left="${left}"><i></i></span><span class="usage-left"><span data-k="${escAttr(k)}:left" data-n="${left}">${left}</span>% left${w.resetsAt ? ` · <span data-k="${escAttr(k)}:reset">resets ${resetText(w.resetsAt)}</span>` : ''}</span></div>`;
     }).join('') : `<div class="set-sub" data-k="${a.id}:none">${esc(none)}</div>`;
     const tokens = u.usage[a.id] ?? 0;
-    // Antigravity never reports its tokens, so a count would only ever say 0.
-    const count = a.id === 'antigravity' ? ''
-      : `<span class="usage-tokens" title="${tokens.toLocaleString()} tokens"><span data-k="${a.id}:tokens" data-n="${tokens}" data-fmt="tokens">${tokenCount.format(tokens)}</span> tokens this month</span>`;
+    const count = `<span class="usage-tokens" title="${tokens.toLocaleString()} tokens"><span data-k="${a.id}:tokens" data-n="${tokens}" data-fmt="tokens">${tokenCount.format(tokens)}</span> tokens this month</span>`;
     return `<div class="usage-agent"><div class="usage-head">${brandMark('usage-mark', a.id, a.name[0])}<span class="set-title">${esc(a.name)}</span>${count}</div>${plan}</div>`;
   }).join('');
 }
@@ -813,7 +811,8 @@ function patchUsage(el: HTMLElement, html: string): void {
 // Fetches fresh numbers (agents used outside Breeze count too) and updates only if something changed.
 let usageShown = '';
 let usageTick = 0;
-const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found).sort((a, b) => agentRank(a) - agentRank(b));
+// Antigravity and OpenCode report neither limits nor tokens, so they're left out of Usage.
+const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found && a.id !== 'antigravity' && a.id !== 'opencode').sort((a, b) => agentRank(a) - agentRank(b));
 function updateUsage(el: HTMLElement): void {
   background(api.agent.usage().then(u => {
     agentUsage = u;

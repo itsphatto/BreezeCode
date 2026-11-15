@@ -106,6 +106,13 @@ function claudeDenyArgs(owners: Owners, agentId: string): string[] {
   return args;
 }
 
+// The same for OpenCode: its `permission.edit` rules, matched against project-relative paths, where `*` also crosses folders.
+function opencodeDenyRules(owners: Owners, agentId: string): Record<string, 'deny'> {
+  const rules: Record<string, 'deny'> = {};
+  for (const [p, owner] of Object.entries(owners)) if (owner !== agentId) rules[p.endsWith('/') ? `${p}*` : p] = 'deny';
+  return rules;
+}
+
 // What an agent asked of teammates: the text after a "For <name>:" line, up to the next one.
 function notesFor(text: unknown, names: string[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -551,4 +558,4 @@ class TeamCoordinator {
   }
 }
 
-export { absOf, throughLink, readEntry, cleanRel, parseClaim, covers, findClashes, ownerOf, claimFirstTouch, claudeDenyArgs, notesFor, claimPrompt, buildBrief, snapshot, addToSnapshot, restore, changedSince, TeamCoordinator };
+export { absOf, throughLink, readEntry, cleanRel, parseClaim, covers, findClashes, ownerOf, claimFirstTouch, claudeDenyArgs, opencodeDenyRules, notesFor, claimPrompt, buildBrief, snapshot, addToSnapshot, restore, changedSince, TeamCoordinator };
