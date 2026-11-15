@@ -338,6 +338,7 @@ const fullBtn = $<HTMLButtonElement>('#previewFull');
 function syncPreviewFull(): void {
   const on = !!document.fullscreenElement;
   $('#previewPane').classList.toggle('full', on);
+  document.body.classList.toggle('preview-full', on);
   fullBtn.classList.toggle('on', on);
   fullBtn.setAttribute('aria-pressed', String(on));
   fullBtn.title = on ? 'Exit Fullscreen' : 'Fullscreen';

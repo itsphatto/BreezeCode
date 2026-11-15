@@ -3276,7 +3276,7 @@ svg.ico-svg:active {
 
 /* The window buttons float over everything, and a fullscreen window has no use for them. */
 .pane.preview.full .sash,
-body:has(.pane.preview.full) #winControls {
+body.preview-full #winControls {
   display: none;
 }
 
