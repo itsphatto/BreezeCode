@@ -204,12 +204,12 @@ $('#tglTerm').onclick = () => run('term.toggle');
 $('#tglAgents').onclick = () => run('view.toggleAgents');
 
 // Titlebar Update buttons (IDE, Home and Breeze Space bars): hidden until main.js finds an update, then
-// Update → Updating… n% → Restarting… (main.js restarts into the new version as soon as the download it started finishes).
+// Update → Updating… n% → Restart now? (a click on that installs and restarts into the new version).
 function renderUpdate(u: UpdateState): void {
   for (const btn of $$<HTMLButtonElement>('[data-update]')) {
     btn.hidden = u.state === 'idle';
     btn.disabled = u.state === 'downloading';
-    btn.textContent = u.state === 'ready' ? 'Restart to update' : u.state === 'downloading' ? `Updating… ${Math.round(u.percent ?? 0)}%` : 'Update';
+    btn.textContent = u.state === 'ready' ? 'Restart now?' : u.state === 'downloading' ? `Updating… ${Math.round(u.percent ?? 0)}%` : 'Update';
     btn.title = u.version ? `Breeze Code ${u.version}` + (u.state === 'ready' ? ' is ready to install' : ' is available') : '';
     btn.onclick = () => background(u.state === 'ready' ? api.update.install() : api.update.download());
   }

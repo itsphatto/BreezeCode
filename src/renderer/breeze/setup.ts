@@ -781,7 +781,7 @@ function showHomeView(view: string): void {
   $$('.home-view').forEach(v => v.classList.toggle('hidden', v.dataset.view !== view));
   $('.home-main').scrollTop = 0;
   // Coming to the page, the bars rise in afresh rather than morph from the last visit's.
-  if (view === 'agent') { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
+  if (view === 'agent') { dashDrawn = dashSized = ''; $('#adBars').textContent = ''; loadAgentDash(); }
   if (view === 'friends') openFriends(); else closeFriends();
 }
 
@@ -794,6 +794,7 @@ let dashHistory: AgentHistory | null = null;
 let dashSeq = 0;
 // What the chart last drew; the bars rise again only when that changes.
 let dashDrawn = '';
+let dashSized = ''; // what the cards' row was last measured for (renderAgentDash)
 // How many of the history's days the chart shows; kept between visits.
 const DASH_RANGES = [7, 14, 30];
 let dashRange = DASH_RANGES.includes(store.get('breeze.dashRange', 14)) ? store.get('breeze.dashRange', 14) : 14;
@@ -802,6 +803,26 @@ const usd2 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD'
 const usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const money = (n: number) => (n > 0 && n < 0.01 ? '< $0.01' : n >= 100 ? usd0.format(n) : usd2.format(n));
 const COST_NOTE = 'Estimated at API list prices. On a Claude or ChatGPT plan you pay for the plan, not per token.';
+// The same elements as on screen keep their nodes and only take the new texts and attributes, so a refresh updates
+// the numbers without rebuilding what is shown; anything else (an element came or went) is redrawn.
+function swapHtml(el: HTMLElement, html: string): void {
+  const fresh = document.createElement('div');
+  fresh.innerHTML = html;
+  const shape = (r: Element) => Array.from(r.querySelectorAll('*'), n => `${n.tagName}${n.childNodes.length}`).join();
+  if (shape(fresh) !== shape(el)) { el.innerHTML = html; return; }
+  const was = [el, ...el.querySelectorAll('*')];
+  [fresh, ...fresh.querySelectorAll('*')].forEach((n, i) => {
+    const o = was[i];
+    if (i) {
+      for (const at of Array.from(o.attributes)) if (!n.hasAttribute(at.name)) o.removeAttribute(at.name);
+      for (const at of Array.from(n.attributes)) if (o.getAttribute(at.name) !== at.value) o.setAttribute(at.name, at.value);
+    }
+    n.childNodes.forEach((c, j) => {
+      const oc = o.childNodes[j];
+      if (c.nodeType === Node.TEXT_NODE && oc.nodeType === Node.TEXT_NODE && oc.textContent !== c.textContent) oc.textContent = c.textContent;
+    });
+  });
+}
 // Restarts a CSS animation on these elements (class removed, a reflow, class back).
 function replayAnim(els: Element[]): void {
   els.forEach(el => el.classList.remove('anim'));
@@ -815,8 +836,8 @@ const dayTotal = (d?: TokenDay) => (d ? d.input + d.output + d.cacheWrite + d.ca
 function dashAgents(): DetectedAgent[] {
   const all = appState.detect?.agents ?? [];
   const used = new Set(Object.keys(dashHistory?.agents ?? {}));
-  // Antigravity is left off this page, even as the default agent.
-  const list = all.filter(a => a.id !== 'antigravity' && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
+  // Antigravity and OpenCode are left off this page, even as the default agent (as on Settings → Usage).
+  const list = all.filter(a => a.id !== 'antigravity' && a.id !== 'opencode' && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
   const def = list.findIndex(a => a.id === appState.agent);
   if (def > 0) list.unshift(...list.splice(def, 1));
   return list;
@@ -834,7 +855,7 @@ function mountAgentDash(slot: HTMLElement | null): void {
   const dash = $('.agent-dash'), to = slot ?? $('.home-view[data-view="agent"]');
   if (dash.parentElement === to) return;
   to.append(dash);
-  if (dashOnScreen()) { dashDrawn = ''; $('#adBars').textContent = ''; loadAgentDash(); }
+  if (dashOnScreen()) { dashDrawn = dashSized = ''; $('#adBars').textContent = ''; loadAgentDash(); }
 }
 // Main reads the agents' logs afresh on each ask (only changed logs are re-read, ~60–100ms with a session running), so
 // a page left open asks again every 5 seconds while it is on screen and the window is shown, and as soon as the window
@@ -951,7 +972,15 @@ function renderAgentDash(): void {
   // is picked. In em: it grows with the page's font size.
   // shortcut: measures the usage card only; a chart legend that wraps for one agent can still move the row.
   const row = $('.ad-cards');
-  if (row.offsetParent) {
+  // Measured again only when something that sets the card's height changed, so a refresh doesn't redraw every
+  // agent's card behind the shown one.
+  // shortcut: a trend line that wraps for one agent's numbers but not another's isn't in the key; add it if rows jump.
+  const sized = `${row.offsetWidth}|${getComputedStyle(row).fontSize}|${!!dashUsage}|${!!dashHistory}|${agents.map(x => {
+    const h = dashHistory?.agents[x.id];
+    return `${x.id}:${dashUsage?.limits[x.id]?.length ?? 0}:${!!h}:${!!h?.tools}:${!!h?.last}`;
+  }).join()}`;
+  if (row.offsetParent && sized !== dashSized) {
+    dashSized = sized;
     row.style.minHeight = '';
     // Measured with a stand-in for the limits: the bars on screen stay untouched (moved or redrawn, they play their
     // fill from empty again), out of the flow meanwhile, and the shown agent's are updated below.
@@ -967,9 +996,9 @@ function renderAgentDash(): void {
     row.style.minHeight = `${tall / parseFloat(getComputedStyle(row).fontSize)}em`;
   }
   // Tabs: one per agent.
-  $('#adTabs').innerHTML = agents.length
+  swapHtml($('#adTabs'), agents.length
     ? agents.map(a => `<button class="ad-tab${a.id === dashAgent ? ' on' : ''}" role="tab" aria-selected="${a.id === dashAgent}" data-dash-agent="${escAttr(a.id)}">${brandMark('ad-mark', a.id, a.name[0])}<span>${esc(a.name)}</span>${a.id === appState.agent ? '<small>Default</small>' : ''}</button>`).join('')
-    : '<p class="ad-empty">No agents on this computer yet. Install one in Settings → Agents.</p>';
+    : '<p class="ad-empty">No agents on this computer yet. Install one in Settings → Agents.</p>');
   renderDashUsage(cur);
   renderDashChart(cur);
   playDash(shot);
@@ -994,7 +1023,7 @@ function renderDashUsage(a: DetectedAgent | null, limitsEl = $('#adLimits')): vo
     if (h.tools) facts.push(['Tool calls', h.tools.toLocaleString()]);
     if (h.last) facts.push(['Last used', timeAgo(h.last)]);
   }
-  $('#adFacts').innerHTML = facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+  swapHtml($('#adFacts'), facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join(''));
   renderDashLimits(a ? dashUsage?.limits[a.id] ?? [] : [], limitsEl);
 }
 // When a limit lifts, from its reset time (epoch seconds): "in 42m" today, "in 5h 12m" within a day, else the day and time.
@@ -1072,7 +1101,7 @@ function renderDashChart(a: DetectedAgent | null): void {
   else total.textContent = h ? `${compact(all)}${priced && all ? ` · ≈ ${money(cost)}` : ''} over ${days.length} days` : '';
   total.title = priced ? costNote : '';
   $$<HTMLElement>('#adRange [data-range]').forEach(b => { const on = Number(b.dataset.range) === dashRange; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
-  $('#adY').innerHTML = [top, top / 2, 0].map(v => `<span>${max ? compact(v) : ''}</span>`).join('');
+  swapHtml($('#adY'), [top, top / 2, 0].map(v => `<span>${max ? compact(v) : ''}</span>`).join(''));
   const bars = $('#adBars');
   bars.dataset.n = String(days.length);
   $('#adX').dataset.n = String(days.length);
@@ -1103,14 +1132,14 @@ function renderDashChart(a: DetectedAgent | null): void {
   // Days named under the bars counting back from the last, which is always named: each one for a week, every other
   // one for two weeks, every fifth for a month.
   const every = days.length <= 7 ? 1 : days.length <= 14 ? 2 : 5;
-  $('#adX').innerHTML = days.map((d, i) => `<span>${(days.length - 1 - i) % every === 0 ? esc(dashDayLabel(d)) : ''}</span>`).join('');
+  swapHtml($('#adX'), days.map((d, i) => `<span>${(days.length - 1 - i) % every === 0 ? esc(dashDayLabel(d)) : ''}</span>`).join(''));
   // The legend shows only kinds this agent has, with their totals; an agent whose tokens aren't split by kind has
   // just the total (a "Tokens" entry would only repeat it).
   let sums = DASH_KINDS.map(([k, label]) => [k, label, days.reduce((n, d) => n + (h?.days[d]?.[k] ?? 0), 0)] as const).filter(([, , n]) => n > 0);
   if (sums.length === 1 && sums[0][0] === 'other') sums = [];
-  $('#adLegend').innerHTML = a && !dashHistory ? DASH_SKEL : h && all
+  swapHtml($('#adLegend'), a && !dashHistory ? DASH_SKEL : h && all
     ? `<span class="ad-leg-total">Total <b>${compact(all)}</b></span>${priced ? `<span class="ad-leg-cost" title="${escAttr(costNote)}">Est. cost <b>≈ ${money(cost)}</b></span>` : ''}${sums.map(([k, label, n]) => `<span><i data-k="${k}"></i>${esc(label)} <b>${compact(n)}</b></span>`).join('')}`
-    : `<span class="ad-leg-none">${a ? `${esc(a.name)} hasn't used any tokens in the last ${days.length} days.` : ''}</span>`;
+    : `<span class="ad-leg-none">${a ? `${esc(a.name)} hasn't used any tokens in the last ${days.length} days.` : ''}</span>`);
   const drawn = `${a?.id ?? ''}|${dashRange}|${totals.join(',')}`;
   if (drawn !== dashDrawn && dashOnScreen()) {
     dashDrawn = drawn;

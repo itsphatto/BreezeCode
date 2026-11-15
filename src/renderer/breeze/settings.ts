@@ -738,8 +738,8 @@ function usageHtml(agents: DetectedAgent[]): string {
   const u = agentUsage;
   return agents.map(a => {
     const wins = u.limits[a.id] ?? [];
-    // Only Claude and Codex report their plan: Claude when asked (notes says why it couldn't be), Codex once it has
-    // run since the last reset.
+    // Only Claude and Codex report their plan, when asked (notes says why it couldn't be); Codex signed in with an
+    // API key only once it has run since the last reset.
     const none = a.api ? 'No limit · runs on this computer'
       : u.notes[a.id] ?? (a.id in u.limits ? 'Plan limits show up after its next run' : `${a.name} doesn't share its limits`);
     // data-k names each part that can change, so a refresh updates it in place (see patchUsage).
@@ -1615,6 +1615,15 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
     $('.set-nav', root).addEventListener('click', e => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-set-tab], [data-go-tab]');
       if (b) switchTab((b.dataset.setTab ?? b.dataset.goTab) as SettingsTab, Number(b.dataset.at ?? 0));
+    });
+    // Miscellaneous's dots hop once each time the pointer comes on, and finish the hop if it leaves early (breeze.css).
+    $('.set-nav', root).addEventListener('pointerover', e => {
+      const b = (e.target as HTMLElement).closest('[data-set-tab="misc"]');
+      if (b && !b.contains(e.relatedTarget as Node | null)) b.classList.add('hop');
+    });
+    $('.set-nav', root).addEventListener('animationend', e => {
+      const t = e.target as Element;
+      if (t.matches('[data-set-tab="misc"] circle:nth-child(2)')) t.closest('.set-item')?.classList.remove('hop'); // the last dot to land
     });
     // A search result opens its section on its row, which is brought into view and glows for a moment. A shortcut
     // opens Controls already filtered to it.
