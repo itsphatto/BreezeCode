@@ -309,8 +309,8 @@ flowchart TB
 | --- | --- |
 | [@itsphatto](https://github.com/itsphatto) | Founder and Lead Software Engineer |
 | [@sapfire151](https://github.com/sapfire151) | Co-Founder, Lead Frontend Developer and UI/UX Designer |
-| [@LangZab](https://github.com/LangZab) | Contributor, Emotional Support |
-| [@esrazti](https://github.com/esrazti) | The Origin |
+| [@LangZab](https://github.com/LangZab) | Contributor |
+| [@esrazti](https://github.com/esrazti) | Contributor |
 
 ## License
 
