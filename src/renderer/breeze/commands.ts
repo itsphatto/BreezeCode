@@ -391,6 +391,7 @@ const MENUS: Menu[] = [
       { label: 'Terminal', act: 'term.toggle', key: 'Ctrl+`', checked: () => layout.termOpen },
       { label: 'Preview', act: 'view.togglePreview', checked: () => layout.previewOpen },
       { label: 'Notebook View', act: 'nb.toggleView', checked: () => nbShown(activeBuf()), enabled: () => isNotebook(activeBuf()) },
+      { label: 'Document View', act: 'df.toggleView', checked: () => dfShown(activeBuf()), enabled: () => isDocFile(activeBuf()) },
       { label: 'Minimap', act: 'view.toggleMinimap', checked: () => minimapOn },
       { label: 'Split Editor Right', act: 'view.splitEditor', key: 'Ctrl+\\', checked: () => !!splitPath },
       { label: 'Reset Layout', act: 'view.resetLayout' },

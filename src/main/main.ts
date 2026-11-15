@@ -17,6 +17,7 @@ import { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_
 import { costOf } from './pricing';
 import * as prconflict from './prconflict';
 import { looksBinary } from './sniff';
+import { isDocFile, docFileToText, textToDocFile, blankDocFile, officeMedia } from './officefile';
 import * as syncEngine from './sync';
 import { TeamCoordinator, claudeDenyArgs, opencodeDenyRules } from './team';
 import { BoardCoordinator } from './board';
@@ -765,7 +766,9 @@ handle('fs:newFile', async (_e, name, text) => {
     properties: ['createDirectory', 'showOverwriteConfirmation'],
   });
   if (r.canceled || !r.filePath) return null;
-  await fsp.writeFile(r.filePath, String(text ?? ''), 'utf8');
+  const body = String(text ?? '');
+  if (isDocFile(r.filePath)) await fsp.writeFile(r.filePath, body.trim() ? textToDocFile(r.filePath, body, null) : blankDocFile(r.filePath));
+  else await fsp.writeFile(r.filePath, body, 'utf8');
   const { dir, file } = placeLaunch({ abs: r.filePath, isDir: false }, root);
   return { ...(await setRoot(dir)), open: file, launched: true };
 });
@@ -852,6 +855,11 @@ handle('fs:readFile', async (_e, rel) => {
   // Images are shown from their file URL, so only their size is needed here.
   if (IMAGE_FILE.test(abs)) return { image: true, size: st.size };
   if (VIDEO_FILE.test(abs)) return { video: true, size: st.size };
+  // Word, PowerPoint, Excel and PDF files open as their source (officefile.ts); a PDF it can't read opens in the viewer.
+  if (isDocFile(abs) && st.size <= MAX_FILE_BYTES) {
+    const text = docFileToText(abs, await fsp.readFile(abs));
+    if (text != null) return { text, size: st.size, docFile: true };
+  }
   if (PDF_FILE.test(abs)) return { pdf: true, size: st.size };
   // Over the limit: a text file opens in the engine, but a binary one (an archive, a disk image) gets the binary note.
   // Only the first few KB are read to tell which.
@@ -862,13 +870,18 @@ handle('fs:readFile', async (_e, rel) => {
 });
 
 handle('fs:writeFile', async (_e, rel, text) => {
-  await fsp.writeFile(resolveIn(rel), text, 'utf8');
+  const abs = resolveIn(rel);
+  // An Office file keeps its pictures and other binary parts from the file as it is on disk.
+  if (isDocFile(abs)) return fsp.writeFile(abs, textToDocFile(abs, String(text), await fsp.readFile(abs).catch(() => null)));
+  await fsp.writeFile(abs, text, 'utf8');
 });
+handle('fs:docMedia', async (_e, rel) => officeMedia(await fsp.readFile(resolveIn(rel))));
 
 handle('fs:createFile', async (_e, rel) => {
   const abs = resolveIn(rel);
   await fsp.mkdir(path.dirname(abs), { recursive: true });
-  await fsp.writeFile(abs, '', { flag: 'wx' });
+  // A new Word, Excel, PowerPoint or PDF file starts as a blank document its app opens, not as nothing.
+  await fsp.writeFile(abs, isDocFile(abs) ? blankDocFile(abs) : '', { flag: 'wx' });
 });
 
 handle('fs:createDir', async (_e, rel) => {

@@ -134,8 +134,11 @@ async function readBuffer(path: string): Promise<EditorBuffer | null> {
   };
   b.saved = b.text;
   if (raw.length !== read.length) b.bom = true;
+  // A Word/PowerPoint/Excel/PDF file's text is made from the file (main/officefile.ts), so the engine, which edits the
+  // file's own bytes, can't hold it: it saves through fs:writeFile, which turns the text back into the file.
+  if (r.docFile) b.docSkip = true;
   // Opens in the engine while the rest of the buffer is built; its own eol replaces the guess above.
-  const opening = kind === 'text' ? docOpenFirst(b, r.size) : null;
+  const opening = kind === 'text' && !r.docFile ? docOpenFirst(b, r.size) : null;
   if (b.kind === 'image' || b.kind === 'video') b.url = await api.fs.fileUrl(path).catch(() => '');
   if (b.kind === 'pdf') b.url = await api.fs.previewUrl(path).catch(() => ''); // file: frames are blocked by the CSP
   if (b.kind === 'large') await openBig(b);

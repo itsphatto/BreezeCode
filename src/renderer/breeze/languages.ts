@@ -1,7 +1,7 @@
 /* ================= Languages & highlighting ================= */
 type Tok = [cls: string | null, text: string];
 const LANGS: Record<string, [lexer: string, name: string]> = {
-  html: ['html', 'HTML'], htm: ['html', 'HTML'], xml: ['html', 'XML'], svg: ['html', 'SVG'], vue: ['html', 'Vue'],
+  html: ['html', 'HTML'], htm: ['html', 'HTML'], xml: ['html', 'XML'], docx: ['html', 'Word Document'], pptx: ['html', 'PowerPoint Presentation'], xlsx: ['html', 'Excel Workbook'], pdf: ['', 'PDF'], svg: ['html', 'SVG'], vue: ['html', 'Vue'],
   css: ['css', 'CSS'], scss: ['css', 'SCSS'], less: ['css', 'Less'],
   js: ['js', 'JavaScript'], mjs: ['js', 'JavaScript'], cjs: ['js', 'JavaScript'], jsx: ['js', 'JavaScript JSX'],
   ts: ['js', 'TypeScript'], tsx: ['js', 'TypeScript JSX'], mts: ['js', 'TypeScript'], cts: ['js', 'TypeScript'],

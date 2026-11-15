@@ -92,7 +92,7 @@ type ConflictResult = { path: string; text: string | null } | { path: string; ch
 type ConflictFinish = { ok: true } | { ok: false; stage: 'commit' | 'push'; message: string };
 
 interface DirEntry { name: string; dir: boolean; }
-interface FileRead { text?: string; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; pdf?: boolean; size: number; }
+interface FileRead { text?: string; docFile?: boolean; binary?: boolean; tooLarge?: boolean; image?: boolean; video?: boolean; pdf?: boolean; size: number; }
 type NbMessage = { id: string } & (
   | { type: 'stream'; name: string; text: string }
   | { type: 'display' | 'result'; data: Record<string, string> }
@@ -204,6 +204,8 @@ interface BreezeApi {
     search(query: string, matchCase: boolean): Promise<SearchHit[]>;
     fileUrl(rel: string): Promise<string>;
     previewUrl(rel: string): Promise<string>;
+    // An Office file's pictures, for its document view: part name → data URL.
+    docMedia(rel: string): Promise<Record<string, string>>;
     onChange(cb: (paths: string[]) => void): () => void;
     onWatchLost(cb: (reason: string) => void): () => void;
     importFile(dir: string, name: string, data: Uint8Array): Promise<string>;
