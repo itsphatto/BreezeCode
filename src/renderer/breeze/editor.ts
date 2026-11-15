@@ -161,8 +161,9 @@ function renderEditor(): void {
   const big = showBig(b);
   for (const x of buffers.values()) x.ta?.classList.toggle('hidden', x !== b);
   const empty = $('#editorEmpty');
-  // A notebook shows as cells (notebook.ts), over the editor, which keeps its JSON.
-  if (renderNotebook(b)) {
+  // A notebook shows as cells (notebook.ts), and a Word/PowerPoint/Excel/PDF file as a document (docview.ts), over the
+  // editor, which keeps their source. Both are asked, so the one not showing hides.
+  if ([renderNotebook(b), renderDocFile(b)].some(Boolean)) {
     b?.ta?.classList.add('hidden');
     empty.classList.add('hidden');
     hlLines.replaceChildren(); hlBoxes.replaceChildren(); gutLines.replaceChildren();
@@ -233,7 +234,10 @@ function showPdf(el: HTMLElement, b: EditorBuffer): void {
   el.classList.add('img-mode');
   if (el.dataset.img === b.url) return; // already showing it: keep its page
   el.dataset.img = b.url;
-  el.innerHTML = `<iframe class="pdf-frame" src="${escAttr(b.url ?? '')}" title="${escAttr(baseName(b.path))}"></iframe>`;
+  // Only a PDF Breeze can't open as text gets here (docview.ts shows the rest): one too big for the editor, or locked.
+  const why = b.size > 25 * 1048576 ? `Too large to edit as code (${fmtSize(b.size)})` : 'Encrypted or damaged, so it can\'t be edited as code';
+  el.innerHTML = `<div class="df-bar"><span class="df-kind">PDF</span><span class="df-end"></span><span class="df-note">${esc(why)}</span></div>
+    <iframe class="pdf-frame" src="${escAttr(b.url ?? '')}" title="${escAttr(baseName(b.path))}"></iframe>`;
 }
 // Images open in a viewer: fitted to the editor, click to see them at actual size.
 function showImage(el: HTMLElement, b: EditorBuffer): void {
@@ -642,6 +646,7 @@ function renderCode(): void {
   const b = activeText();
   if (!b) return;
   if (nbShown(b)) { renderNotebook(b); return; }
+  if (dfShown(b)) { renderDocFile(b); return; }
   applyPendingScroll(b);
   const doc = highlighted(b);
   const count = doc.lines.length;
@@ -817,7 +822,7 @@ function mmGeometry(ta: CodeSurface, lines: number) {
 function drawMinimap(): void {
   if (!booted) { queueMinimap(); return; } // notebook.ts (nbShown) and the first file aren't in yet
   const b = activeText();
-  const show = minimapOn && !!b && !nbShown(b) && b.ta.scrollHeight > b.ta.clientHeight;
+  const show = minimapOn && !!b && !nbShown(b) && !dfShown(b) && b.ta.scrollHeight > b.ta.clientHeight;
   const editor = $('#editor'), code = b?.ta.root.parentElement;
   editor.classList.toggle('minimap-on', show);
   if (!show || !b || !code) return;

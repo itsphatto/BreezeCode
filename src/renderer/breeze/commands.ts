@@ -391,6 +391,7 @@ const MENUS: Menu[] = [
       { label: 'Terminal', act: 'term.toggle', key: 'Ctrl+`', checked: () => layout.termOpen },
       { label: 'Preview', act: 'view.togglePreview', checked: () => layout.previewOpen },
       { label: 'Notebook View', act: 'nb.toggleView', checked: () => nbShown(activeBuf()), enabled: () => isNotebook(activeBuf()) },
+      { label: 'Document View', act: 'df.toggleView', checked: () => dfShown(activeBuf()), enabled: () => isDocFile(activeBuf()) },
       { label: 'Minimap', act: 'view.toggleMinimap', checked: () => minimapOn },
       { label: 'Split Editor Right', act: 'view.splitEditor', key: 'Ctrl+\\', checked: () => !!splitPath },
       { label: 'Reset Layout', act: 'view.resetLayout' },
@@ -886,7 +887,8 @@ function fitMenuHeight(m: HTMLElement): void {
   m.append(wrap);
   m.classList.add('scrolls');
   const update = scrollSlider(wrap, () => box as unknown as CodeSurface, 'v');
-  box.addEventListener('scroll', () => { update(); if (m.classList.contains('kb-on')) slideKbHighlight(); }, { passive: true });
+  // Scrolling only moves the highlight with its row: pulling the row back into view would fight the wheel.
+  box.addEventListener('scroll', () => { update(); if (m.classList.contains('kb-on')) slideKbHighlight(false); }, { passive: true });
   for (const label of $$<HTMLElement>('.menu-item > span:not(.key):not(.menu-check)', box)) {
     if (label.scrollWidth > label.clientWidth) label.closest<HTMLElement>('.menu-item')!.title = label.textContent ?? '';
   }
@@ -1044,14 +1046,16 @@ document.addEventListener('pointermove', e => {
   if (e.movementX || e.movementY) $$('#menuRoot .menu.kb-nav').forEach(m => m.classList.remove('kb-nav'));
 }, { capture: true, passive: true });
 // The keyboard highlight is one block (the menu's ::before) that slides to the selected row.
-function slideKbHighlight(): void {
+function slideKbHighlight(reveal = true): void {
   const b = kbTarget()[0]?.querySelector<HTMLElement>('.menu-item.kb');
   const m = b?.closest<HTMLElement>('.menu');
   if (!b || !m) return;
-  // In a menu that scrolls (fitMenuHeight) the row is brought into view and measured where it shows.
+  // In a menu that scrolls (fitMenuHeight) the row is brought into view (on a key press) and measured where it shows.
   const box = b.closest<HTMLElement>('.menu-scroll');
-  if (box && (b.offsetTop < box.scrollTop || b.offsetTop + b.offsetHeight > box.scrollTop + box.clientHeight)) b.scrollIntoView({ block: 'nearest' });
-  const y = b.offsetTop - (box?.scrollTop ?? 0);
+  const out = !!box && (b.offsetTop < box.scrollTop || b.offsetTop + b.offsetHeight > box.scrollTop + box.clientHeight);
+  if (out && reveal) b.scrollIntoView({ block: 'nearest' });
+  m.classList.toggle('kb-out', out && !reveal); // scrolled out of view: hide it rather than draw it over the search field
+  const y = b.offsetTop - (box?.scrollTop ?? 0) + (box ? box.parentElement!.offsetTop : 0);
   for (const [k, v] of [['x', b.offsetLeft], ['y', y], ['w', b.offsetWidth], ['h', b.offsetHeight]] as const) m.style.setProperty(`--kb-${k}`, `${v}px`);
   if (m.classList.contains('kb-on')) return;
   m.classList.add('kb-on'); // first placement jumps; later moves slide

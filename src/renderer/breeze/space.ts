@@ -60,12 +60,32 @@ function paintSpace(ctx: CanvasRenderingContext2D, w: number, h: number, stars: 
   ctx.globalAlpha = 1;
 }
 
+// A star shining: a soft glow and a little cross that swell and fade over ms. Returns the ones still shining.
+interface SpaceShine { star: SpaceSpeck; at: number; }
+const shineGlow = dustSprite('#ffffff');
+function paintShines(ctx: CanvasRenderingContext2D, w: number, h: number, shines: SpaceShine[], t: number, ms: number, dim = 1): SpaceShine[] {
+  shines = shines.filter(s => t - s.at < ms);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = .6;
+  for (const { star, at } of shines) {
+    const a = Math.sin((t - at) / ms * Math.PI), x = star.x * w, y = star.y * h, reach = 2 + a * 5, glow = 4 + a * 10;
+    ctx.globalAlpha = a * dim;
+    ctx.drawImage(shineGlow, x - glow / 2, y - glow / 2, glow, glow);
+    ctx.beginPath(); ctx.moveTo(x - reach, y); ctx.lineTo(x + reach, y); ctx.moveTo(x, y - reach); ctx.lineTo(x, y + reach); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  return shines;
+}
+
+// In the sky, about one star in ten is shining at any moment, each for SKY_SHINE_MS, picked at random.
+const SKY_SHINE_MS = 1800, SKY_SHINING = .1;
+
 function startSpace(): void {
   const canvas = $<HTMLCanvasElement>('#spaceSky');
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const stars = scatterSpecks(SPACE_STARS), dust = scatterSpecks(SPACE_DUST);
-  let w = 0, h = 0, last = 0, frame = 0;
+  let w = 0, h = 0, last = 0, frame = 0, shines: SpaceShine[] = [];
   let still = ''; // under the power saver the sky is one still picture: the size it was painted at
   // Not under a dialog either: its blur hides the drift, and every frame drawn behind one costs the dialog a frame.
   const showing = () => !document.hidden && !$('#box').classList.contains('hidden') && !document.body.matches('.vibing:not(.vibe-side)') // beside Vibe Mode the sky still shows
@@ -90,6 +110,13 @@ function startSpace(): void {
     last = t;
     spaceSpeed += (target - spaceSpeed) * (1 - Math.exp(-dt / 450)); // eases into the new speed over about a second
     paintSpace(ctx, w, h, stars, dust, t, spaceSpeed, k, warp);
+    // Not on the light theme's paper, nor in power saver's still picture; streaking, they fade out with the warp.
+    if (!powerSaver() && document.documentElement.dataset.theme !== 'light') {
+      // Start as many as finish, so the count holds near one in ten: on average n * share / ms new ones per ms.
+      let born = stars.length * SKY_SHINING / SKY_SHINE_MS * Math.min(dt, 100);
+      for (; born > 0; born--) if (born >= 1 || Math.random() < born) shines.push({ star: stars[Math.floor(Math.random() * stars.length)], at: t });
+      shines = paintShines(ctx, w, h, shines, t, SKY_SHINE_MS, (1 - warp) * .85);
+    }
     // Power saver (power.ts): this one frame is the sky. It is painted again only if the window changes size.
     if (powerSaver()) { still = `${w}x${h}`; last = 0; spaceSpeed = SPACE_IDLE; return; }
     still = '';
@@ -109,7 +136,6 @@ startSpace();
 // The Breeze Space buttons: while hovered, a little of that sky rises behind the label, faster than the real one moves
 // (which would hardly show at this size), and now and then a star shines.
 const SPACE_BTN_SPEED = -.004, SHINE_MS = 700, SHINE_CHANCE = .04;
-const shineGlow = dustSprite('#ffffff');
 for (const btn of $$<HTMLElement>('.space-btn')) {
   const canvas = document.createElement('canvas');
   canvas.className = 'space-btn-sky';
@@ -118,7 +144,7 @@ for (const btn of $$<HTMLElement>('.space-btn')) {
   const ctx = canvas.getContext('2d');
   const stars = scatterSpecks(26), dust = scatterSpecks(8);
   let frame = 0, last = 0;
-  let shines: { star: SpaceSpeck; at: number }[] = []; // per frame, about one star in 25 frames starts to shine
+  let shines: SpaceShine[] = []; // per frame, about one star in 25 frames starts to shine
   const draw = (t: number) => {
     frame = 0;
     if (!ctx) return;
@@ -128,16 +154,7 @@ for (const btn of $$<HTMLElement>('.space-btn')) {
     paintSpace(ctx, w, h, stars, dust, t, SPACE_BTN_SPEED, last ? Math.min(3, (t - last) / 16.7) : 1, 0);
     last = t;
     if (Math.random() < SHINE_CHANCE) shines.push({ star: stars[Math.floor(Math.random() * stars.length)], at: t });
-    shines = shines.filter(s => t - s.at < SHINE_MS);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = .6;
-    for (const { star, at } of shines) {
-      const a = Math.sin((t - at) / SHINE_MS * Math.PI), x = star.x * w, y = star.y * h, reach = 2 + a * 5, glow = 4 + a * 10;
-      ctx.globalAlpha = a;
-      ctx.drawImage(shineGlow, x - glow / 2, y - glow / 2, glow, glow);
-      ctx.beginPath(); ctx.moveTo(x - reach, y); ctx.lineTo(x + reach, y); ctx.moveTo(x, y - reach); ctx.lineTo(x, y + reach); ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
+    shines = paintShines(ctx, w, h, shines, t, SHINE_MS);
     frame = requestAnimationFrame(draw);
   };
   // The light theme has no sky on the button (breeze.css): it just fades its hover in like any other button.

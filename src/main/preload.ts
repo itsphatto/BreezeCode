@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('breeze', {
     search: (query: unknown, matchCase: unknown) => invoke('fs:search', query, matchCase),
     fileUrl: (rel: unknown) => invoke('fs:fileUrl', rel),
     previewUrl: (rel: unknown) => invoke('fs:previewUrl', rel),
+    docMedia: (rel: unknown) => invoke('fs:docMedia', rel),
     onChange: (cb: Listener) => listen('fs:changed', cb),
     onWatchLost: (cb: Listener) => listen('fs:watchLost', cb),
     importFile: (dir: unknown, name: unknown, bytes: unknown) => invoke('fs:import', dir, name, bytes),

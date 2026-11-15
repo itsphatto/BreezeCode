@@ -302,6 +302,7 @@ function demoApi(): BreezeApi {
       // No file URLs in the browser: images get a drawn stand-in, everything else ''.
       async fileUrl(rel) { return binary.has(rel) && IMAGE_FILE.test(rel) ? DEMO_IMAGE : ''; },
       async previewUrl() { return ''; },
+      async docMedia() { return {}; },
       onChange() { return () => { }; },
       onWatchLost() { return () => { }; },
     },

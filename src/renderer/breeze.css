@@ -2135,6 +2135,9 @@ textarea:focus-visible {
 .menu.kb-slide::before {
   transition: top .16s cubic-bezier(.2, .8, .2, 1), height .16s cubic-bezier(.2, .8, .2, 1), opacity .12s ease;
 }
+.menu.kb-out::before {
+  opacity: 0;
+}
 .menu.kb-on .menu-item.kb:not(:hover) {
   background: none;
 }
@@ -8480,7 +8483,8 @@ body.vibing .ide {
   width: min(64em, 100%);
   margin: 0 auto;
   padding: clamp(28px, 9vh, 110px) 3em 3em;
-  font-size: clamp(14px, .55vw + 7px, 19px);
+  /* Also capped by height, so a short window shrinks the page instead of scrolling it. */
+  font-size: clamp(13px, min(.55vw + 7px, 1.55vh + 1px), 19px);
 }
 
 /* Clone Repository's address bar, centered over the greeting like a quick-input box. */
@@ -8570,12 +8574,12 @@ body.vibing .ide {
 .home-cols {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(18em, 1fr));
-  gap: 2.3em 4.5em;
-  margin-top: 2.4em;
+  gap: 1.6em 4.5em;
+  margin-top: 1.5em;
 }
 
 .home-cols h3 {
-  margin: 0 0 .65em;
+  margin: 0 0 .4em;
   color: var(--text);
   font-size: 1.14em;
   font-weight: 600;
@@ -8593,7 +8597,7 @@ body.vibing .ide {
   display: inline-flex;
   align-items: center;
   gap: .65em;
-  padding: .3em .15em;
+  padding: .18em .15em;
   border: 0;
   border-radius: 4px;
   background: none;
@@ -8633,7 +8637,7 @@ body.vibing .ide {
   align-items: baseline;
   gap: .85em;
   min-width: 0;
-  padding: .22em .15em;
+  padding: .14em .15em;
   border: 0;
   border-radius: 4px;
   background: none;
@@ -8698,7 +8702,7 @@ body.vibing .ide {
   --cg-2: #006d32;
   --cg-3: #26a641;
   --cg-4: #39d353;
-  margin-top: 2.8em;
+  margin-top: 1.7em;
 }
 
 :root[data-theme="light"] .home-contrib {
@@ -8710,14 +8714,14 @@ body.vibing .ide {
 }
 
 .home-contrib h3 {
-  margin: 0 0 .65em;
+  margin: 0 0 .45em;
   color: var(--text);
   font-size: 1.14em;
   font-weight: 600;
 }
 
 .contrib-box {
-  padding: 1em 1.15em .7em;
+  padding: .75em 1.15em .55em;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
@@ -8768,7 +8772,7 @@ body.vibing .ide {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: .6em;
+  margin-top: .4em;
   font-size: .82em;
   color: var(--text-2);
 }
@@ -8803,24 +8807,21 @@ body.vibing .ide {
   min-height: 100%;
 }
 
-/* The welcome fills the page's height so the prompt box can sit at its foot, a little above the edge. */
+/* The welcome, prompt box included, sits as one block in the middle of the page, both ways. */
 .home-layout > .home-welcome {
   flex: 0 1 auto;
   margin: 0 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding-bottom: 0;
-}
-
-.home-layout > .home-welcome > .home-ask {
-  margin-top: auto;
+  justify-content: center;
+  padding-block: clamp(12px, 3vh, 40px);
 }
 
 /* At the bottom, a big window doesn't stretch the year across it: the squares stop at 15px and the graph sits
    at its natural width. */
 .home-welcome > .home-contrib .contrib-graph {
-  grid-template-columns: 2.7em repeat(var(--weeks, 53), minmax(10px, 15px));
+  grid-template-columns: 2.7em repeat(var(--weeks, 53), minmax(10px, 13px));
   justify-content: start;
   min-width: calc(30px + var(--weeks, 53) * 13px);
 }
@@ -8963,8 +8964,8 @@ body.vibing .ide {
   position: sticky;
   bottom: 0;
   z-index: 5;
-  padding: 2em 0 12px;
-  background: linear-gradient(transparent, var(--bg-1) 1.2em);
+  padding: 1.1em 0 12px;
+  background: linear-gradient(transparent, var(--bg-1) .8em);
 }
 
 .home-ask-box {
@@ -8983,7 +8984,7 @@ body.vibing .ide {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  min-height: 3em;
+  min-height: 2.2em;
   max-height: 14em;
   padding: 2px;
   border: none;
@@ -9330,6 +9331,7 @@ body.vibing .ide {
   grid-template-columns: 3em 1fr;
   gap: .5em;
   flex: 1 0 13em;
+  padding-right: 3.5em; /* as wide as the scale and its gap, so the bars sit centred in the card */
 }
 
 .ad-y {
@@ -9426,7 +9428,7 @@ body.vibing .ide {
 .ad-x {
   display: flex;
   gap: calc(.4em / .75); /* the bars' gap and left edge, in this smaller size */
-  margin: .55em 0 0 calc(3.5em / .75);
+  margin: .55em calc(3.5em / .75) 0;
   color: var(--text-3);
   font-size: .75em;
 }
@@ -17807,6 +17809,8 @@ input.dbg-edit.bad:focus-visible {
   min-height: 0;
   padding: 14px 16px;
   box-sizing: border-box;
+  /* showDiff rebuilds this for each file picked under Changes, so it fades in on every switch. */
+  animation: fade .16s ease-out;
 }
 
 .scm-diff-view .diff {
@@ -19613,6 +19617,289 @@ input.dbg-edit.bad:focus-visible {
 .card.relay .relay-wait {
   color: var(--text-2);
   font-size: 12px;
+}
+
+/* ================= Word, PowerPoint, Excel and PDF files (docview.ts) ================= */
+.df-view {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  font: 13px/1.5 var(--font-ui);
+}
+
+.df-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.df-bar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.df-kind {
+  margin-right: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.df-extra {
+  display: contents;
+}
+
+.df-end {
+  margin-left: auto;
+}
+
+.df-sheet.on {
+  border-color: var(--blue-text);
+  color: var(--blue-text);
+}
+
+.df-note {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.df-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 16px 48px;
+}
+
+.df-body > .df-note {
+  align-self: flex-start;
+}
+
+.df-broken {
+  align-self: stretch;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 24px;
+}
+
+/* A page, a slide and a sheet keep the paper colors of the app that made them, in either theme. */
+.df-page {
+  box-sizing: border-box;
+  width: min(816px, 100%);
+  min-height: 1056px;
+  padding: 72px 80px;
+  border-radius: 4px;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+  font: 11pt/1.4 Calibri, Carlito, "Segoe UI", Arial, sans-serif;
+}
+
+.df-p {
+  min-height: 1.4em;
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+.df-p:focus {
+  background: rgba(89, 129, 202, .08);
+  box-shadow: -6px 0 0 rgba(89, 129, 202, .5);
+}
+
+.df-page h1.df-p { font-size: 20pt; font-weight: 600; color: #1f3763; margin-top: 12px; }
+.df-page h2.df-p { font-size: 16pt; font-weight: 600; color: #2f5496; margin-top: 10px; }
+.df-page h3.df-p { font-size: 13pt; font-weight: 600; color: #1f3763; }
+.df-page h4.df-p, .df-page h5.df-p, .df-page h6.df-p { font-size: 11pt; font-weight: 600; color: #2f5496; }
+.df-page h1.df-title { font-size: 28pt; font-weight: 400; color: #111; margin-top: 0; }
+.df-page .df-subtitle { font-size: 14pt; color: #5a5a5a; }
+
+.df-li::before {
+  content: "•";
+  display: inline-block;
+  width: 1.2em;
+  margin-left: -1.2em;
+  text-align: center;
+}
+
+.df-li {
+  margin-left: 1.6em;
+}
+
+.df-tab {
+  display: inline-block;
+  width: 3em;
+}
+
+.df-img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: bottom;
+}
+
+.df-table {
+  width: 100%;
+  margin: 0 0 8px;
+  border-collapse: collapse;
+}
+
+.df-table td {
+  padding: 4px 6px;
+  border: 1px solid #bfbfbf;
+  vertical-align: top;
+}
+
+.df-table td .df-p {
+  margin: 0;
+}
+
+.df-slide-no {
+  align-self: center;
+  width: min(1000px, 100%);
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.df-slide {
+  position: relative;
+  flex-shrink: 0;
+  margin-bottom: 16px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+  font-family: Calibri, Carlito, "Segoe UI", Arial, sans-serif;
+}
+
+.df-shape {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  line-height: 1.15;
+}
+
+.df-shape .df-p {
+  margin: 0;
+}
+
+.df-shape .df-li {
+  margin-left: 1.2em;
+}
+
+.df-shape-table {
+  height: 100%;
+}
+
+.df-pic {
+  position: absolute;
+  object-fit: fill;
+}
+
+.df-grid {
+  align-self: flex-start;
+  border-collapse: collapse;
+  background: #fff;
+  color: #111;
+  font: 12px/1.3 Calibri, Carlito, "Segoe UI", Arial, sans-serif;
+}
+
+.df-grid th {
+  position: sticky;
+  z-index: 1;
+  padding: 2px 6px;
+  border: 1px solid #d4d4d4;
+  background: #f3f3f3;
+  color: #555;
+  font-weight: 400;
+}
+
+.df-grid thead th {
+  top: 0;
+}
+
+.df-grid tbody th {
+  left: 0;
+  text-align: right;
+}
+
+.df-cell {
+  min-width: 80px;
+  max-width: 320px;
+  height: 20px;
+  padding: 1px 4px;
+  border: 1px solid #e1e1e1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  outline: none;
+}
+
+.df-cell.num {
+  text-align: right;
+}
+
+.df-cell:focus {
+  box-shadow: inset 0 0 0 2px #217346;
+  white-space: pre-wrap;
+  text-overflow: clip;
+}
+
+/* An SVG sits on a checkerboard, so its see-through parts show as such. */
+.df-svg {
+  display: grid;
+  place-items: center;
+  max-width: 100%;
+  padding: 16px;
+  border-radius: 6px;
+  background: repeating-conic-gradient(#d9d9d9 0% 25%, #fff 0% 50%) 0 0 / 16px 16px;
+}
+
+.df-svg img {
+  display: block;
+  max-width: min(100%, 960px);
+  max-height: 70vh;
+  min-width: 48px;
+}
+
+.df-body > .df-pdf {
+  flex: 1;
+  align-self: stretch;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--bg-1);
+}
+
+.df-view:has(.df-pdf) .df-body {
+  padding: 0;
+}
+
+.df-pill {
+  position: absolute;
+  right: 22px;
+  bottom: 14px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+  font-family: var(--font-ui);
 }
 
 /* ================= Power saver =================

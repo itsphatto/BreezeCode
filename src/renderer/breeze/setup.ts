@@ -727,8 +727,8 @@ $('#agentBar').addEventListener('keydown', e => {
   // Once its menu is open the arrows walk the menu (menuKeys); here ArrowDown toggled it shut again.
   if (chip && ag && e.key === 'ArrowDown' && !chip.classList.contains('open')) { e.preventDefault(); openChipMenu(chip, agentChipMenuItems(ag)); }
 });
-new ResizeObserver(() => { if (!sashDragging()) fitAgentBar(); }).observe($('#agentBar'));
-addEventListener('sashdragend', fitAgentBar);
+// Refits live, while a sash is still being dragged (the observer fires at most once a frame).
+new ResizeObserver(() => fitAgentBar()).observe($('#agentBar'));
 
 // Inserts "@<Short> " where the caret is in the agents panel's prompt (a space before it if the text there needs one).
 function insertMention(a: DetectedAgent): void {
