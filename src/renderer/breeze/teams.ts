@@ -336,7 +336,7 @@ function finishTeamMember(r: Run, ev: AgentEvent, tab: AgentTabState, team: Agen
   if (!hasAnyActiveRun()) vibeDone(allOk);
   const s = SURFACES[tab.surfaceName];
   if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
-  if (lastRunFiles.length && running) void reloadPreview();
+  if (lastRunFiles.length && running) autoReloadPreview();
 }
 
 // team-done comes once on every member's run: the first one shows the summary and ends the team.
@@ -740,6 +740,6 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   }
   addMsg(`<div class="run-done"><span>✓ Done${summary}</span></div>`, tab);
   if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
-  if (r.files.size && running) void reloadPreview();
+  if (r.files.size && running) autoReloadPreview();
 }
 

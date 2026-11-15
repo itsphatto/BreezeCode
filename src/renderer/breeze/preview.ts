@@ -49,17 +49,37 @@ async function startPreview(path?: string): Promise<void> {
   renderPreview();
   await reloadPreview();
 }
+// Reloads after a save or an agent's edit. Not while inspecting: a refresh would drop what's hovered, pinned or being
+// edited, so the page catches up when inspect mode is turned off (or with the Reload button).
+let previewStale = false;
+function autoReloadPreview(): void {
+  if (previewInspecting) previewStale = true;
+  else void reloadPreview();
+}
 async function reloadPreview(): Promise<void> {
   if (!running || !previewPath) return;
+  previewStale = false;
   const url = await api.fs.previewUrl(previewPath).catch(() => '');
   if (url) {
     $('#urlText').textContent = previewPath;
     await fadePreview(() => { frame.removeAttribute('srcdoc'); frame.src = `${url}?t=${Date.now()}`; });
   } else {
-    // Browser demo: no file URLs, so inline the saved HTML.
-    const r = await api.fs.readFile(previewPath).catch(() => null);
+    // Browser demo: no file URLs, so inline the saved HTML. The page inherits Breeze's CSP, which refuses inline <style>
+    // and can't load the project's files, so its own stylesheets are read from the project and attached as constructed
+    // sheets (CSP allows those) before it fades in. Its scripts don't run here.
+    const html = (await api.fs.readFile(previewPath).catch(() => null))?.text ?? '';
+    const page = `http://page/${previewPath}`;
+    const links = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('link[rel~="stylesheet"][href]')]
+      .map(l => new URL(l.getAttribute('href') ?? '', page)).filter(u => u.host === 'page'); // not other sites' sheets
+    const css = await Promise.all(links.map(u => api.fs.readFile(decodeURIComponent(u.pathname.slice(1))).then(f => f.text ?? '', () => '')));
+    css.push('html,body{scrollbar-width:none}::-webkit-scrollbar{display:none}');
+    frame.addEventListener('load', () => {
+      const win = frame.contentWindow as (Window & typeof globalThis) | null;
+      if (!win) return;
+      win.document.adoptedStyleSheets = css.map(text => { const s = new win.CSSStyleSheet(); s.replaceSync(text); return s; });
+    }, { once: true });
     $('#urlText').textContent = previewPath;
-    await fadePreview(() => { frame.srcdoc = (r?.text ?? '') + '<style>html,body{scrollbar-width:none}::-webkit-scrollbar{display:none}</style>'; });
+    await fadePreview(() => { frame.srcdoc = html; });
   }
 }
 // Another page, or the same one refreshed, fades: the old one out, then the new one in once it has loaded (or after
@@ -113,6 +133,7 @@ function setPreviewInspect(on: boolean): void {
   inspectBtn.classList.toggle('on', on);
   inspectBtn.setAttribute('aria-pressed', String(on));
   sendPreviewInspect();
+  if (!on && previewStale) void reloadPreview();
 }
 inspectBtn.onclick = () => setPreviewInspect(!previewInspecting);
 frame.addEventListener('load', sendPreviewInspect);
@@ -239,8 +260,8 @@ async function readPreviewSource(path: string): Promise<{ text: string; crlf: bo
   return raw == null ? null : { text: raw.replaceAll('\r\n', '\n'), crlf: raw.includes('\r\n') };
 }
 // Saves `text` as the page's source. Open in the editor, it goes in as one undoable step there and the file is saved
-// (anything else unsaved in it too, as Ctrl+S would); not open, it's written straight to the file. Saving through the
-// editor reloads the page; a straight write reloads it only when asked (a new edit is already showing in the page).
+// (anything else unsaved in it too, as Ctrl+S would); not open, it's written straight to the file. The page reloads
+// only when asked (undo/redo); a new edit is already showing in it.
 async function writePreviewSource(path: string, src: { text: string; crlf: boolean }, text: string, reload: boolean): Promise<boolean> {
   const open = buffers.get(path);
   if (!(open?.kind === 'text' && open.ta)) {
@@ -254,7 +275,9 @@ async function writePreviewSource(path: string, src: { text: string; crlf: boole
   while (e < old.length - s && e < text.length - s && old[old.length - 1 - e] === text[text.length - 1 - e]) e++;
   replaceRange(open.ta, s, old.length - e, text.slice(s, text.length - e));
   frame.focus(); // replaceRange focuses the editor; the next Ctrl+Z belongs to the preview
-  return saveFile(path);
+  if (!(await saveFile(path))) return false;
+  if (reload && previewStale) void reloadPreview(); // the save's own reload waited for inspect mode to end
+  return true;
 }
 // Ctrl+Z / Ctrl+Y in the preview step back and forth through its edits. A step only applies while the file still
 // holds what that edit left (or, redoing, what it replaced); a file changed since in some other way drops the history.

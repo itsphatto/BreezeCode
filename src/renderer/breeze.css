@@ -1027,12 +1027,13 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 }
 
 .ob-field {
-  --line: rgba(255, 255, 255, .7); /* what a focused text box's edge stays at */
+  --line: rgba(255, 255, 255, .16); /* what a focused text box's edge stays at */
   position: relative;
   width: 100%;
   text-align: left;
 }
 
+/* The alt-text glass (.breeze-tooltip) at text-box size. */
 .ob-field input {
   box-sizing: border-box;
   width: 100%;
@@ -1040,9 +1041,11 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   padding: 22px 18px 8px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(255, 255, 255, .86);
-  color: #14161c;
-  caret-color: #1f4dff;
+  background: rgba(29, 29, 31, 0.94);
+  backdrop-filter: blur(14px) saturate(180%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.2);
+  color: #f5f5f7;
+  caret-color: #f5f5f7;
   font-family: var(--font-ui);
   font-size: 16px;
 }
@@ -1051,7 +1054,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   position: absolute;
   left: 19px;
   top: 20px;
-  color: #4a4f5c;
+  color: rgba(245, 245, 247, .6);
   font-size: 15px;
   pointer-events: none;
   transform-origin: left top;
@@ -15549,9 +15552,9 @@ body.layout-animating #previewPane {
   box-shadow: var(--paper-shadow);
 }
 
-/* The wordmarks and the swirl are white images: drawn dark here, except over the onboarding sky. */
+/* The wordmarks and the swirl are white images: drawn dark here, except over the sky (onboarding and the launch). */
 /* Home is off the sky (its own title bar), so its wordmark goes dark too. */
-:root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *),
+:root[data-theme="light"] img:is([src$="brand/BreezeCode.png"], [src$="brand/BreezeSpace.png"], [src$="brand/Agent.png"]):not(.onboard *, .launch *),
 :root[data-theme="light"] .idle-logo,
 :root[data-theme="light"] .home-bar .logo img {
   filter: invert(.88);

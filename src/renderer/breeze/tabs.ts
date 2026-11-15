@@ -546,7 +546,7 @@ async function saveFile(path: string | null = active): Promise<boolean> {
   b.saved = text;
   b.disk = undefined;
   renderTabs(); renderTree(); flushSession();
-  if (running) void reloadPreview();
+  if (running) autoReloadPreview();
   return true;
 }
 // An untitled file has nowhere to go yet, so saving it (or running it) asks where first, in the Windows Save dialog
