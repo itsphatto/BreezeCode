@@ -19386,6 +19386,7 @@ input.dbg-edit.bad:focus-visible {
 
 .board-main {
   --gap: 6px;
+  position: relative; /* the handles between boxes (.board-sashes) are placed over the grid */
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
   min-height: 0;
@@ -19637,6 +19638,7 @@ input.dbg-edit.bad:focus-visible {
   flex: 1;
   min-height: 0;
   display: flex;
+  container-type: inline-size; /* the panel at its left is sized by the box (cqw) */
 }
 
 .board-box-main {
@@ -19647,11 +19649,10 @@ input.dbg-edit.bad:focus-visible {
   flex-direction: column;
 }
 
-/* At the left of a box alone on the board; with two or more boxes it stays closed. */
+/* At the right of every box while the bar's Code switch is on: up to half the box, so its chat keeps room. Its handle
+   (board.ts wireLiveSash) sets --live-w as a share of the box. */
 .board-live {
-  --live-w: clamp(320px, 42vw, 820px);
-  border-left: 0;
-  border-right: 1px solid var(--line);
+  --live-w: clamp(200px, 50cqw, 820px);
   background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
@@ -19659,7 +19660,105 @@ input.dbg-edit.bad:focus-visible {
   width: 0;
   opacity: 0;
   visibility: hidden;
-  border-right-color: transparent;
+  border-left-color: transparent;
+}
+
+.board-box.live-resizing .board-live {
+  transition: none;
+}
+
+/* Over the panel's left edge: 6px to grab, lit blue like the IDE's sashes. */
+.board-live-sash {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  width: 6px;
+  margin-right: -6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.board-live-sash::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  transition: background .15s .1s;
+}
+
+.board-live-sash:hover::after,
+.board-live-sash.active::after {
+  background: var(--blue);
+}
+
+.board-box:not(.live-on) .board-live-sash {
+  display: none;
+}
+
+/* With room for them, the boxes are tiles placed in px (layoutBoard), with a handle in each gap between them. */
+.board-grid.tiles {
+  display: block;
+  position: relative;
+}
+
+.board-grid.tiles > .board-box {
+  position: absolute;
+}
+
+.board-sashes {
+  position: absolute;
+  pointer-events: none;
+}
+
+.board-sash {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.board-sash.sash-across { cursor: col-resize; }
+.board-sash.sash-down { cursor: row-resize; }
+
+.board-sash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  transition: background .15s .1s;
+}
+
+.board-sash.sash-across::after { inset: 8px 2px; }
+.board-sash.sash-down::after { inset: 2px 8px; }
+
+.board-sash:hover::after,
+.board-sash.active::after {
+  background: var(--blue);
+}
+
+/* While a handle is dragged the cursor stays its own over the boxes, and no text gets selected. */
+:root.board-resizing-x, :root.board-resizing-x * { cursor: col-resize !important; user-select: none; }
+:root.board-resizing-y, :root.board-resizing-y * { cursor: row-resize !important; user-select: none; }
+
+/* A narrow window hides Breeze Space's panel; a box sizes its own, so it stays. */
+@media (max-width: 980px) {
+  .board-live {
+    display: flex;
+  }
+}
+
+/* The box agent's plan limit, beside its model: amber when it is nearly used up. */
+.board-box-limit {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.board-box-limit.low {
+  color: var(--warn);
 }
 
 .board-box-code[aria-pressed="true"] {
