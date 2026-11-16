@@ -364,12 +364,16 @@
               <!-- Signed in with GitHub: that account's last year of contributions (renderHomeContrib, onboarding.ts). -->
               <section class="home-contrib hidden" id="homeContrib" aria-labelledby="homeContribTitle">
                 <h3 id="homeContribTitle"></h3>
-                <div class="contrib-box">
-                  <div class="contrib-scroll"><div class="contrib-graph" id="homeContribGraph" role="img"></div></div>
-                  <div class="contrib-foot">
-                    <button class="home-link contrib-open" id="homeContribOpen" type="button"><span class="get-label">View on GitHub</span></button>
-                    <span class="contrib-legend" aria-hidden="true">Less<i data-l="0"></i><i data-l="1"></i><i data-l="2"></i><i data-l="3"></i><i data-l="4"></i>More</span>
+                <div class="contrib-body">
+                  <div class="contrib-box">
+                    <div class="contrib-scroll"><div class="contrib-graph" id="homeContribGraph" role="img"></div></div>
+                    <div class="contrib-foot">
+                      <button class="home-link contrib-open" id="homeContribOpen" type="button"><span class="get-label">View on GitHub</span></button>
+                      <span class="contrib-legend" aria-hidden="true">Less<i data-l="0"></i><i data-l="1"></i><i data-l="2"></i><i data-l="3"></i><i data-l="4"></i>More</span>
+                    </div>
                   </div>
+                  <!-- One button per year the account has contributions in, as on a GitHub profile (drawContribYears). -->
+                  <div class="contrib-years" id="homeContribYears" role="group" aria-label="Contribution year"></div>
                 </div>
               </section>
               <!-- Ask an agent from Home: opens the folder shown in the chip in the IDE and sends there (homedock.ts). -->
@@ -380,7 +384,7 @@
                     <button type="button" class="pill pill-btn box-folder home-ask-dir" id="homeAskDir" title="The folder the agent works in" aria-haspopup="menu"><svg data-i="folder" data-size="14"></svg><span id="homeAskDirName">Choose a folder</span><svg data-i="chevronDown" data-size="12"></svg></button>
                     <span class="prompt-models home-ask-models" id="homeAskModels"></span>
                     <span class="flex-1"></span>
-                    <button type="submit" class="btn btn-primary btn-sm" id="homeAskSend" title="Send (Enter)" aria-label="Send"><svg data-i="send" data-size="14"></svg></button>
+                    <button type="submit" class="icon-btn" id="homeAskSend" title="Send (Enter)" aria-label="Send"><svg data-i="send" data-size="14"></svg></button>
                   </div>
                 </div>
               </form>

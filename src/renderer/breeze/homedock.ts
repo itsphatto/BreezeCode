@@ -12,9 +12,9 @@ function homeGraphDock(): HomeDock {
 function drawContribUpright(c: GhContributions): void {
   const box = $('#homeContrib');
   box.classList.add('upright');
-  $('#homeContribTitle').textContent = `${c.total.toLocaleString()} contribution${c.total === 1 ? '' : 's'}`;
+  setContribTitle(c, '');
   const graph = $('#homeContribGraph');
-  graph.setAttribute('aria-label', `${c.total} GitHub contributions in the last year`);
+  graph.setAttribute('aria-label', `${c.total} GitHub contributions ${contribSpan(c)}`);
   graph.textContent = '';
   const put = (el: HTMLElement, col: number, row: number) => { el.style.gridColumn = String(col); el.style.gridRow = String(row); graph.append(el); };
   graph.style.setProperty('--weeks', String(c.weeks.length));

@@ -70,7 +70,8 @@ interface GhComment { id: number; author: string; avatar: string | null; body: s
 interface GhFile { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null; }
 type GhResult<T> = { ok: true; data: T } | { ok: false; error: string; message?: string; resetAt?: number | null };
 // A year of GitHub contributions: weeks run Sunday to Saturday (the first and last can be short); level is 0–4.
-interface GhContributions { login: string; total: number; weeks: { date: string; count: number; level: number }[][]; }
+// year: the calendar year shown, or null for the last twelve months; years: every year the account has contributions in, newest first.
+interface GhContributions { login: string; total: number; year: number | null; years: number[]; weeks: { date: string; count: number; level: number }[][]; }
 // partial: asking GitHub for each pull request's details stopped early (a rate limit or an expired sign-in), so some
 // rows may still read "checking".
 interface GhPullList { owner: string; repo: string; pulls: GhPull[]; partial?: 'rate-limit' | 'reauth' | null; }
@@ -370,7 +371,7 @@ interface BreezeApi {
     close(n: number): Promise<GhResult<{ closed: boolean }>>;
     approve(n: number, sha?: string): Promise<GhResult<{ approved: boolean }>>;
     // The active account's last year of contributions; error 'not-github' when the active account isn't GitHub.
-    contributions(): Promise<GhResult<GhContributions>>;
+    contributions(year?: number | null): Promise<GhResult<GhContributions>>;
   };
   auth: {
     user(): Promise<User | null>;

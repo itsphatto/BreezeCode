@@ -348,12 +348,13 @@ Instructions:
 }
 
 /* ----- Redraws morph: the panel is drawn from HTML each time, so it is noted just before (shootScm) and compared just
-   after, before any paint (playScm). A block that stays slides from where it was, a new one (a file that just changed)
-   grows in, one that's gone (the last change committed) shrinks away where it was, and the commit button's new label
-   comes into focus. A file moving between Changes and Staged slides across, being the same block. */
+   after, before any paint (playScm). Only what changed animates: a new block (a file that just changed) grows in, one
+   that's gone (the last change committed) shrinks away where it was, a file moving between Changes and Staged (or
+   changing status) slides from where it was, and the commit button's new label comes into focus. Blocks that are the
+   same but merely pushed along by those changes take their new place at once. */
 const SCM_BLOCKS = '.commit-box, .scm-sec:not(.graph):not(.prs) > .scm-head, .scm-sec:not(.graph):not(.prs) .scm-row, .scm-sec.graph, .scm-sec.prs, #scm > .side-note';
 type ScmSync = { el: HTMLElement; w: number };
-type ScmShot = { blocks: Map<string, { el: HTMLElement; r: DOMRect }>; label: string; sync: ScmSync | null };
+type ScmShot = { blocks: Map<string, { el: HTMLElement; r: DOMRect; sig: string }>; label: string; sync: ScmSync | null };
 function scmBlockKey(el: HTMLElement): string {
   const sec = el.closest<HTMLElement>('.scm-sec')?.dataset.sec;
   if (el.matches('.scm-row')) return `row:${el.dataset.file ?? `${sec}:${el.title}`}`;
@@ -364,13 +365,15 @@ function scmBlockKey(el: HTMLElement): string {
 function scmBlocks(): Map<string, HTMLElement> {
   return new Map($$<HTMLElement>(SCM_BLOCKS, $('#scm')).filter(b => b.getClientRects().length).map(b => [scmBlockKey(b), b]));
 }
+// What makes a block count as changed: only a file row can be (moved between sections, or a new status); '' never is.
+const scmSig = (el: HTMLElement) => el.matches('.scm-row') ? `${el.dataset.staged}|${el.querySelector('.st')?.textContent}` : '';
 const scmLabel = () => document.querySelector('#scm [data-act="git.commit"]')?.textContent ?? '';
 function shootScm(): ScmShot | null {
   const el = $('#scm');
   if (!el.querySelector('.commit-box') || !el.offsetParent || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
   const sync = el.querySelector<HTMLElement>('[data-act="git.sync"]');
   const beside = sync && sync.offsetTop === el.querySelector<HTMLElement>('[data-act="git.commit"]')?.offsetTop;
-  return { blocks: new Map(Array.from(scmBlocks(), ([k, b]) => [k, { el: b, r: b.getBoundingClientRect() }])), label: scmLabel(), sync: beside ? { el: sync, w: sync.getBoundingClientRect().width } : null };
+  return { blocks: new Map(Array.from(scmBlocks(), ([k, b]) => [k, { el: b, r: b.getBoundingClientRect(), sig: scmSig(b) }])), label: scmLabel(), sync: beside ? { el: sync, w: sync.getBoundingClientRect().width } : null };
 }
 // Push (or Sync) comes and goes by growing out of Commit's right edge and folding back into it; Commit, which fills the
 // row, follows on its own. It starts from the width just measured, so a redraw in the middle carries on instead of snapping.
@@ -399,6 +402,7 @@ function playScm(shot: ScmShot | null): void {
   for (const [k, b] of now) {
     const was = shot.blocks.get(k);
     if (!was) { b.animate(grow, { duration: 300, easing: ease }); continue; }
+    if (!was.sig || was.sig === scmSig(b)) continue; // unchanged: no animation, even if it moved
     const r = b.getBoundingClientRect(), dx = was.r.left - r.left, dy = was.r.top - r.top;
     if (Math.abs(dx) > .5 || Math.abs(dy) > .5) b.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }], { duration: 340, easing: ease });
   }
@@ -616,6 +620,16 @@ function diffLineClass(l: string): string {
   if (l.startsWith('+')) return 'add';
   return l.startsWith('-') ? 'del' : '';
 }
+// The pieces of a diff view compared between files, matched by place within each group (header, lines, buttons), so a
+// longer or shorter diff doesn't shift the buttons out of line.
+const diffParts = (view: Element) => ['.diff-head > *', '.diff > .dl', '.row.end > .btn'].map(q => $$<HTMLElement>(q, view));
+function fadeChangedParts(now: HTMLElement[][], was: string[][]): void {
+  const changed = now.flatMap((group, g) => group.filter((e, i) => e.outerHTML !== was[g][i]));
+  const lines = changed.filter(e => e.matches('.dl'));
+  // shortcut: past a few hundred changed lines the diff fades as one box (unchanged lines in it too), as one animation per line would stall.
+  const targets = lines.length > 300 ? [...changed.filter(e => !e.matches('.dl')), lines[0].parentElement!] : changed;
+  for (const e of targets) e.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: 'ease-out' });
+}
 async function showDiff(f: GitFile, staged: boolean): Promise<void> {
   let text = '';
   try {
@@ -632,7 +646,11 @@ async function showDiff(f: GitFile, staged: boolean): Promise<void> {
   const toggleStage = () => void gitOp(() => (staged ? api.git.unstage([f.path], !!gitState.hasCommits) : api.git.stage([f.path])));
   // On the Source Control page the diff sits beside the changes; anywhere else it's a modal.
   if (scmPageOpen) {
-    showScmDetail(`<div class="scm-diff-view">${html}</div>`, el => {
+    // Switching from another file's diff: only the parts that differ fade in (the rest stays still); a first diff fades whole.
+    const before = document.querySelector<HTMLElement>('#scmDetail .scm-diff-view');
+    const was = before && diffParts(before).map(g => g.map(e => e.outerHTML));
+    showScmDetail(`<div class="scm-diff-view${was ? ' diff-swap' : ''}">${html}</div>`, el => {
+      if (was) fadeChangedParts(diffParts(el), was);
       $('#diffOpen', el).onclick = () => openFile(f.path); // beside the changes, which stay open
       // The file moves to the other list once staged or unstaged, so what's shown no longer matches it.
       $('#diffStage', el).onclick = () => { scmEmptyDetail(); toggleStage(); };

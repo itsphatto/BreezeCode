@@ -4031,33 +4031,40 @@ const prCache = new Map<string, { at: number; data: Loose }>(); // `owner/repo/b
 // and forth to Home doesn't ask GitHub each time.
 const CONTRIB_LEVELS = { NONE: 0, FIRST_QUARTILE: 1, SECOND_QUARTILE: 2, THIRD_QUARTILE: 3, FOURTH_QUARTILE: 4 };
 const contribCache = new Map(); // account id -> { at, data }
-handle('gh:contributions', async () => {
+// year: a calendar year to show instead of the last twelve months (null).
+handle('gh:contributions', async (_e, year) => {
+  if (year != null && !(Number.isInteger(year) && year >= 2008 && year <= 9999)) return GH_INVALID;
   const { accounts, active } = accountsState();
   const acct = accounts.find(a => accountId(a) === active);
   if (acct?.provider !== 'GitHub') return { ok: false, error: 'not-github' };
   const id = accountId(acct);
-  const hit = contribCache.get(id);
+  const key = `${id}:${year ?? ''}`;
+  const hit = contribCache.get(key);
   if (hit && Date.now() - hit.at < 10 * 60 * 1000) return { ok: true, data: hit.data };
   const token = await githubToken(id);
   if (!token) return { ok: false, error: 'signed-out' };
-  const query = 'query { viewer { login contributionsCollection { contributionCalendar { totalContributions weeks { contributionDays { date contributionCount contributionLevel } } } } } }';
+  const query = 'query($from: DateTime, $to: DateTime) { viewer { login contributionsCollection(from: $from, to: $to) { contributionYears contributionCalendar { totalContributions weeks { contributionDays { date contributionCount contributionLevel } } } } } }';
+  const variables = year == null ? {} : { from: `${year}-01-01T00:00:00Z`, to: `${year}-12-31T23:59:59Z` };
   try {
     const r = await fetch('https://api.github.com/graphql', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'Breeze-IDE' },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, variables }),
       signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) return { ok: false, error: r.status === 401 ? 'signed-out' : 'http', message: `GitHub answered ${r.status}` };
     const j = await r.json();
-    const cal = j.data?.viewer?.contributionsCollection?.contributionCalendar;
+    const coll = j.data?.viewer?.contributionsCollection;
+    const cal = coll?.contributionCalendar;
     if (!cal) return { ok: false, error: 'http', message: j.errors?.[0]?.message || 'No contribution data' };
     const data = {
       login: j.data.viewer.login,
       total: cal.totalContributions,
+      year: year ?? null,
+      years: coll.contributionYears ?? [],
       weeks: cal.weeks.map((w: Loose) => w.contributionDays.map((d: Loose) => ({ date: d.date, count: d.contributionCount, level: (CONTRIB_LEVELS as Record<string, number>)[d.contributionLevel] ?? 0 }))),
     };
-    contribCache.set(id, { at: Date.now(), data });
+    contribCache.set(key, { at: Date.now(), data });
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: 'network', message: (e as Error).message };
