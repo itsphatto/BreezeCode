@@ -250,6 +250,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
     // Suggest words while typing one; any other edit closes the list.
     if (b.lastEdit?.kind === 'type' && Date.now() - b.lastEdit.at < 100) editorSuggest(b); else hideSuggest();
   });
+  ta.addEventListener('input', e => linkTagAfter(ta, e)); // after the handler above has taken the text
   ta.addEventListener('blur', hideSuggest);
   ta.addEventListener('mousedown', hideSuggest);
   ta.addEventListener('scroll', () => { if (suggest?.owner === ta.input) editorSuggest(b); }); // follow the caret
@@ -309,6 +310,7 @@ function beforeEdit(b: EditorBuffer, e: InputEvent, ta: CodeSurface | null = b.t
   }
   const word = e.inputType === 'insertText' && !!e.data && !/\s/.test(e.data);
   remember(b, word ? 'type' : e.inputType, ta);
+  linkTagBefore(b, ta, e);
 }
 function stepHistory(b: EditorBuffer, back: boolean, ta: CodeSurface | null = b.ta): void {
   const [from, to] = back ? [b.undo, b.redo] : [b.redo, b.undo];

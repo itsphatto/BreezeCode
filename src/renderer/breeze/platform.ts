@@ -395,7 +395,7 @@ function demoApi(): BreezeApi {
         const merged = [...ours, ...fenced('theirs').filter(l => !ours.includes(l))];
         return `Both sides have a point: the merge keeps our lines and adds what only their side has.\n\n\`\`\`css\n${merged.join('\n')}\n\`\`\``;
       },
-      async fullAccess() { return store.get<boolean>('breeze.demoFullAccess', false); },
+      async fullAccess() { return store.get<boolean>('breeze.demoFullAccess', true); },
       async setFullAccess(on) { store.set('breeze.demoFullAccess', on); return on; },
       // Made-up numbers, so the browser preview shows what Settings → Agents looks like.
       async usage() {

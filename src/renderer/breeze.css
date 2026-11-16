@@ -11825,7 +11825,6 @@ body.layout-animating .box > .terminal.open {
     scale: 1.015;
   }
 
-  .composer-access .ca-label,
   .box-chat .msg .meta,
   .box-chat .tool-line .tl,
   .box-side-empty,
@@ -11837,7 +11836,6 @@ body.layout-animating .box > .terminal.open {
     transition: color .15s ease;
   }
 
-  .composer-access:not(.on):hover .ca-label,
   .box-chat .msg:hover .meta,
   .box-chat .tool-line:hover .tl,
   .box-side-empty:hover,
@@ -14550,40 +14548,9 @@ body.layout-animating #previewPane {
   border-radius: 4px;
 }
 
-/* Full access, beside Send: its label turns amber while it's on, as a reminder agents can reach anything. */
-.composer-access {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  margin-right: 4px;
-  font-size: 11.5px;
-  color: var(--text-3);
-  white-space: nowrap;
-  transition: color .2s ease;
-}
-
-.composer-access.on {
-  color: var(--warn);
-}
-
-/* The Agents tab's prompt: Full access only shows once something is typed (mentions.ts sets .has-text), next to the
-   model chip that comes in at the same time. */
-.composer .composer-box:not(.has-text) .composer-access {
-  display: none;
-}
-
-/* Improve prompt, beside Send: in the Agents tab it comes in with Full access, once something is typed. */
+/* Improve prompt, beside Send: in the Agents tab it comes in once something is typed (mentions.ts sets .has-text). */
 .composer .composer-box:not(.has-text) .improve-prompt {
   display: none;
-}
-
-.composer .composer-box.has-text .composer-access {
-  animation: composer-access-in .2s ease both;
-}
-
-@keyframes composer-access-in {
-  from { opacity: 0; transform: translateX(4px); }
 }
 
 /* Liquid switch: Jhey Tompkins' liquid toggle (codepen), in Breeze blue. settings.ts adds the parts below into
@@ -19663,6 +19630,40 @@ input.dbg-edit.bad:focus-visible {
 .board-chat {
   flex: 1;
   min-height: 0;
+}
+
+/* Under the header: the file the agent is editing (board.ts paintBoardLive), then the chat and its prompt. */
+.board-box-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.board-box-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* At the left of a box alone on the board; with two or more boxes it stays closed. */
+.board-live {
+  --live-w: clamp(320px, 42vw, 820px);
+  border-left: 0;
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.board-box:not(.live-on) .board-live {
+  width: 0;
+  opacity: 0;
+  visibility: hidden;
+  border-right-color: transparent;
+}
+
+.board-box-code[aria-pressed="true"] {
+  color: var(--blue-text);
 }
 
 /* A box's prompt is the Agents tab's (.composer): sized to its text from one line, like #prompt. */

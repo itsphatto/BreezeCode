@@ -417,7 +417,8 @@ function onAgentFile(r: Run, path: string, created = false, written = false): vo
   renderTree(); renderTabs();
   queueGitRefresh();
   if (r.surfaceName === 'ide') background(openAgentFile(path, created, written));
-  else if (r.surfaceName === 'box') liveFile(path); // a board box leaves the editor alone: several agents would fight over it
+  else if (r.surfaceName === 'box') liveFile(path);
+  else if (isBoardSurface(r.surfaceName)) boardLiveFile(boxKeyOf(r.surfaceName), path); // a board box leaves the editor alone: several agents would fight over it
 }
 // The agent is about to change `path` (`before`: the file as it is now). Its tab opens with that text and is shown
 // first; the write then types out in it (fs.onChange → reloadText → typeAgentEdit).
@@ -463,6 +464,7 @@ async function openAgentFile(path: string, created = false, written = false): Pr
 // The agent's text for a file it is creating, as it writes it.
 function onAgentDraft(r: Run, path: string, text: string): void {
   if (r.surfaceName === 'box') { liveDraft(path, text, r.phase); return; }
+  if (isBoardSurface(r.surfaceName)) boardLiveDraft(boxKeyOf(r.surfaceName), path, text, r.phase);
   if (!typeAgentDraft(path, text)) return;
   (r.drafts ??= new Set()).add(path);
 }

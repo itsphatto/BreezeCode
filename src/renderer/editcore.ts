@@ -193,6 +193,48 @@ function openTagAt(text: string, pos: number, xml: boolean): string | null {
   }
   return stack.at(-1)?.written ?? null;
 }
+// The element whose opening tag `>` would finish at the end of `before`, or null: <div class="a" + '>' closes div.
+// `jsx`: in code a '<' after a name or bracket is a comparison or a generic (a<b>, Array<T>), and <T,> is a generic.
+function tagToAutoClose(before: string, xml: boolean, jsx = false): string | null {
+  const lt = before.lastIndexOf('<');
+  if (lt === -1 || before.lastIndexOf('<!--') > before.lastIndexOf('-->')) return null;
+  if (jsx && /[\w$)\].]/.test(before[lt - 1] ?? '')) return null;
+  const m = /^<([A-Za-z][\w:.-]*)((?:\s(?:"[^"]*"|'[^']*'|\{[^{}]*\}|[^>"'{}])*)?)$/.exec(before.slice(lt));
+  if (!m || m[2].trimEnd().endsWith('/')) return null;
+  if (!xml && VOID_HTML.has(m[1].toLowerCase())) return null;
+  return m[1];
+}
+// When [start, end] lies in the name of a tag that has a partner (<a>…</a>), both name ranges: the edited tag's
+// (`self`) and its partner's (`other`). An empty name pairs too, so a renamed <>…</> keeps following.
+function tagPairAt(text: string, start: number, end: number, xml: boolean): { self: [number, number]; other: [number, number] } | null {
+  const re = /<!--[\s\S]*?(?:-->|$)|<(\/?)([A-Za-z][\w:.-]*)?((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  const stack: { key: string; at: [number, number] }[] = [];
+  const inside = (r: [number, number]) => start >= r[0] && end <= r[1];
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m[0].startsWith('<!--')) continue;
+    const name = m[2] ?? '';
+    if (!name && m[3].trim()) { re.lastIndex = m.index + 1; continue; } // a < b > c: no tag
+    const ns = m.index + 1 + m[1].length, at: [number, number] = [ns, ns + name.length];
+    const key = xml ? name : name.toLowerCase();
+    if (m[1]) {
+      const i = stack.map(s => s.key).lastIndexOf(key);
+      if (i === -1) { if (inside(at)) return null; continue; }
+      const open = stack[i];
+      for (const s of stack.slice(i + 1)) if (inside(s.at)) return null; // left open: no partner
+      stack.length = i;
+      if (inside(open.at)) return { self: open.at, other: at };
+      if (inside(at)) return { self: at, other: open.at };
+    } else if (!m[3].trimEnd().endsWith('/') && (xml || !VOID_HTML.has(key))) {
+      stack.push({ key, at });
+      if (!xml && (key === 'script' || key === 'style')) {
+        const close = text.slice(re.lastIndex).search(new RegExp(String.raw`</${key}\b`, 'i'));
+        if (close !== -1) re.lastIndex += close;
+      }
+    } else if (inside(at)) return null;
+    if (m.index > end && !stack.some(s => inside(s.at))) return null; // past the caret, with nothing left to match
+  }
+  return null;
+}
 
 /* ----- Fuzzy matching ----- */
 // Case-insensitive subsequence match of `query` in `label`, or null. `hits` are the matched indices.

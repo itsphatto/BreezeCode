@@ -19,6 +19,8 @@ interface BoardBox {
   kit?: PromptKit;         // its prompt, run by the Agents tab's own code (mentions.ts)
   model?: string;          // its own model and effort; unset: the agent's (Settings, or the Agents tab's chip)
   effort?: EffortLevel;
+  live: LivePane;          // the file its agent is editing, at its left while it is the only box (paintBoardLive)
+  liveHidden?: boolean;    // the person closed that panel; the header's code button opens it again
 }
 const boxBusy = (b: BoardBox) => tabBusy(b.tab) || !!b.starting;
 const stoppedRuns = new Set<number>(); // runs the person stopped: their late relays and replies are dropped
@@ -147,7 +149,29 @@ function renderBoard(): void {
     if (boardGrid.children[i] !== el) boardGrid.insertBefore(el, boardGrid.children[i] ?? null);
   });
   layoutBoard();
+  paintBoardLive();
 }
+/* ----- The file a box's agent is editing: beside its chat while it is the only box on the board ----- */
+// With two or more boxes there is no room beside each chat, so the panel stays off (each still follows its files,
+// and shows the latest again once its box is alone). The header's code button hides and shows it.
+function paintBoardLive(): void {
+  const alone = boardBoxes.size === 1;
+  for (const b of boardBoxes.values()) {
+    const has = !!b.live.path;
+    const was = b.el.classList.contains('live-on');
+    const on = alone && has && !b.liveHidden;
+    b.el.classList.toggle('live-on', on);
+    const btn = $('.board-box-code', b.el);
+    btn.classList.toggle('hidden', !alone || !has);
+    btn.setAttribute('aria-pressed', String(on));
+    const label = on ? 'Hide the file the agent is editing' : 'Show the file the agent is editing';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    if (on && !was) requestAnimationFrame(() => b.live.reveal());
+  }
+}
+function boardLiveFile(key: string, path: string): void { boardBoxes.get(key)?.live.file(path); }
+function boardLiveDraft(key: string, path: string, text: string, phase?: string): void { boardBoxes.get(key)?.live.draft(path, text, phase); }
 // Grid lines for each box; on a page too narrow for them side by side, two to a row with rows to scroll to.
 function layoutBoard(): void {
   const els = Array.from(boardGrid.children) as HTMLElement[];
@@ -217,6 +241,7 @@ boardGrid.addEventListener('dragleave', e => {
   if (el && !el.contains(e.relatedTarget as Node)) el.classList.remove('drop-on');
 });
 boardGrid.addEventListener('drop', e => {
+  if (!boardDragging && !e.dataTransfer?.types.includes('text/breeze-agent')) return; // files: drop.ts attaches them to the box
   const el = (e.target as HTMLElement).closest<HTMLElement>('.board-box');
   const agent = e.dataTransfer?.getData('text/breeze-agent');
   boardGrid.classList.remove('dragging');
@@ -280,17 +305,23 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
       <span class="board-dot" role="status"></span>
       <span class="flex-1"></span>
       <button class="board-owns" type="button" title="Files this box owns"></button>
+      <button class="icon-btn toggle board-box-code hidden" type="button" title="Hide the file the agent is editing" aria-label="Hide the file the agent is editing" aria-pressed="true"><svg data-i="code" data-size="14"></svg></button>
       <button class="icon-btn board-box-split" type="button" title="Split: add an agent beside this one" aria-label="Split: add an agent beside this one" aria-haspopup="menu"><svg data-i="columns" data-size="14"></svg></button>
       <button class="icon-btn board-box-close" type="button" title="Empty this box" aria-label="Empty this box"><svg data-i="x" data-size="14"></svg></button>
     </header>
+    <div class="board-box-body">
+    <aside class="box-live board-live closed" aria-label="File the agent is editing"><div class="box-live-head"></div><div class="box-live-body"></div></aside>
+    <div class="board-box-main">
     <div class="board-chat chat"></div>
     <div class="composer board-composer"><div class="composer-box">
       <div class="composer-attachments hidden"></div>
       <div class="prompt-field"><div class="prompt-hl" aria-hidden="true"></div><textarea rows="1" data-no-grow aria-label="Message to ${escAttr(agentNameOf(agent))} in box ${boxNumber(key)}" placeholder=" "></textarea></div>
       <div class="row"><select class="select hidden" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select><span class="prompt-models"></span><span class="flex-1"></span>
-        <span class="composer-access" title="Full access lets agents run any command and reach any file. Off keeps them in the project."><span class="ca-label">Full access</span><button class="switch switch-sm" data-full-access type="button" role="switch" aria-checked="false" aria-label="Full access"><span class="sw-knob"></span></button></span>
+        <button class="icon-btn board-attach" type="button" title="Attach photos or files" aria-label="Attach photos or files"><svg data-i="paperclip" data-size="14"></svg></button><input class="board-attach-pick" type="file" multiple hidden>
         <button class="btn btn-primary btn-sm board-send" title="Send (Enter)" aria-label="Send"><svg data-i="send" data-size="14"></svg></button></div>
-    </div></div>`;
+    </div></div>
+    </div>
+    </div>`;
   paintIcons(el);
   const s: Surface = {
     name: `board:${key}`,
@@ -309,7 +340,10 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
   activeTabId[s.name] = tab.id;
   tab.panel.classList.add('active');
   if (!entry) tab.panel.innerHTML = `<div class="empty"><div>${brandMark('board-empty-logo', agent, agentNameOf(agent)[0] ?? '?')}<h4>${esc(agentNameOf(agent))} is ready</h4><div class="empty-line">Its files stay its own. It asks the other boxes for changes in theirs.</div></div></div>`;
-  const box: BoardBox = { key, agent, surface: s, tab, el, status: 'idle', runIds: new Set(), lastText: '', scrollPending: !!entry };
+  const liveEl = $('.board-live', el);
+  const live = new LivePane(liveEl, $('.box-live-head', liveEl), $('.box-live-body', liveEl),
+    path => { leaveBoard(); openFile(path); }, () => paintBoardLive());
+  const box: BoardBox = { key, agent, surface: s, tab, el, status: 'idle', runIds: new Set(), lastText: '', scrollPending: !!entry, live };
   if (typeof saved?.model === 'string') box.model = saved.model;
   const eff = EFFORTS.find(e => e === saved?.effort);
   if (eff) box.effort = eff;
@@ -330,15 +364,22 @@ function wireBox(box: BoardBox): void {
   wirePromptKit(kit);
   wireSlash(s); // before the send handler below, so Enter picks a skill instead of sending
   rotatePlaceholder(s.prompt, ' ', IDE_PLACEHOLDERS);
-  $<HTMLButtonElement>('[data-full-access]', el).onclick = () => setFullAccess(!agentFullAccess);
-  renderAccessSwitches();
   s.send.onclick = () => (tabBusy(box.tab) ? stopBox(box) : void sendBox(box));
+  // Photos and files: the paperclip's picker here, a drop anywhere on the box (drop.ts), a pasted image (mentions.ts).
+  const pick = $<HTMLInputElement>('.board-attach-pick', el);
+  $('.board-attach', el).onclick = () => pick.click();
+  pick.onchange = () => {
+    const files = [...(pick.files ?? [])];
+    pick.value = ''; // picking the same file again still fires
+    background(attachFilesToAgent(files, s, box.tab));
+  };
   s.prompt.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!boxBusy(box)) void sendBox(box); }
   });
   s.prompt.addEventListener('input', () => syncPromptHl(kit));
   syncPromptHl(kit);
   $('.board-box-close', el).onclick = () => void emptyBox(box.key);
+  $('.board-box-code', el).onclick = () => { box.liveHidden = !box.liveHidden; paintBoardLive(); };
   $('.board-owns', el).onclick = e => ownsMenu(box, e.currentTarget as HTMLElement);
   $('.board-box-split', el).onclick = e => {
     const agents = foundAgents();
@@ -439,16 +480,20 @@ function renderBoardModels(): void {
 }
 
 async function sendBox(box: BoardBox): Promise<void> {
-  const text = box.surface.prompt.value.trim();
-  if (!text || boxBusy(box)) return;
+  const s = box.surface, text = s.prompt.value.trim();
+  const attachments = [...(attachmentsMap[s.name] || [])];
+  if ((!text && !attachments.length) || boxBusy(box)) return;
   if (!rootInfo) { toast('Open a folder first, so the agents know what to work on'); return; }
-  box.surface.prompt.value = '';
+  s.prompt.value = '';
+  attachmentsMap[s.name] = [];
+  box.tab.attachments = [];
+  renderAttachments(s);
   if (box.kit) syncPromptHl(box.kit);
   personSpokeIn(box.key);
   if (box.tab.panel.querySelector('.empty')) box.tab.panel.innerHTML = '';
   sfx.play('send');
-  userMsg(text, [], box.tab);
-  await runBox(box, text);
+  userMsg(text, attachments, box.tab);
+  await runBox(box, withAttachments(attachmentHeaders(attachments), text)); // the agent reads them from where they are
 }
 // Starts a build run on this box (a person's message or a relay) and remembers its run id.
 async function runBox(box: BoardBox, prompt: string): Promise<void> {

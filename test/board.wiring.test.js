@@ -50,11 +50,11 @@ test('clicking an empty box opens the agent picker', () => {
   assert.match(board, /boardGrid\.addEventListener\('click'[\s\S]{0,160}pickAgentFor\(/);
 });
 
-test("a board box's prompt is the Agents tab's: its text layer, model chips, Full access, and the same code", () => {
+test("a board box's prompt is the Agents tab's: its text layer, model chips, and the same code", () => {
   const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
   const html = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze.html'), 'utf8');
   // The textarea's own text is transparent (breeze.css): without the layer, what you type can't be seen.
-  for (const part of ['<div class="prompt-hl"', '<span class="prompt-models"', 'data-full-access']) {
+  for (const part of ['<div class="prompt-hl"', '<span class="prompt-models"']) {
     assert.ok(html.includes(part), `Agents tab has ${part}`);
     assert.ok(board.includes(part), `board box has ${part}`);
   }

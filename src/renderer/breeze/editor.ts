@@ -1050,6 +1050,7 @@ splitTa.addEventListener('input', () => {
   paintSplit(); saveSession(); scheduleLint(b); autoSaveSoon();
   $('#splitDirty').classList.toggle('hidden', !isDirty(b));
 });
+splitTa.addEventListener('input', e => linkTagAfter(splitTa, e)); // after the handler above has taken the text
 splitTa.addEventListener('beforeinput', e => { const b = splitBuf(); if (b) beforeEdit(b, e as InputEvent, splitTa); });
 splitTa.addEventListener('selectionchange', paintSplit);
 splitTa.addEventListener('keydown', (e: Event) => {
@@ -1228,17 +1229,54 @@ function pairKey(e: KeyboardEvent, ta: CodeSurface): boolean {
   replaceRange(ta, s, en, ch + close, s + 1);
   return true;
 }
+// Files with tags: HTML-like ones (names ignore case) and XML, SVG, JSX and TSX (they don't).
+function tagMode(path: string): { xml: boolean; jsx: boolean } | null {
+  const ext = extOf(path), jsx = ext === 'jsx' || ext === 'tsx';
+  if (langOf(path)[0] !== 'html' && !jsx) return null;
+  return { xml: jsx || ext === 'xml' || ext === 'svg', jsx };
+}
 // Typing '/' just after '<' finishes the closing tag of the innermost open element: <test>…</ becomes <test>…</test>.
+// Typing '>' to finish an opening tag adds its closing tag after the caret: <a| + '>' becomes <a>|</a>.
 function closeTagKey(e: KeyboardEvent, ta: CodeSurface, b: EditorBuffer): boolean {
-  if (e.key !== '/' || !plainKey(e)) return false;
-  const v = ta.value, s = ta.selectionStart, ext = extOf(b.path);
-  if (s !== ta.selectionEnd || v[s - 1] !== '<' || v.length > 200000) return false;
-  if (langOf(b.path)[0] !== 'html' && ext !== 'jsx' && ext !== 'tsx') return false;
-  const name = openTagAt(v, s - 1, ['xml', 'svg', 'jsx', 'tsx'].includes(ext));
+  if ((e.key !== '/' && e.key !== '>') || !plainKey(e)) return false;
+  const v = ta.value, s = ta.selectionStart, mode = tagMode(b.path);
+  if (s !== ta.selectionEnd || v.length > 200000 || !mode) return false;
+  if (e.key === '>') {
+    const name = tagToAutoClose(v.slice(Math.max(0, s - 2000), s), mode.xml, mode.jsx);
+    if (!name || v.startsWith(`</${name}>`, s)) return false;
+    replaceRange(ta, s, s, `></${name}>`, s + 1);
+    return true;
+  }
+  if (v[s - 1] !== '<') return false;
+  const name = openTagAt(v, s - 1, mode.xml);
   if (!name) return false;
   const tail = `/${name}>`;
   replaceRange(ta, s, s, tail, s + tail.length);
   return true;
+}
+// Linked tag names: an edit inside <a>'s name renames its </a> too, and the other way round. beforeEdit notes the pair,
+// the edit's 'input' then copies the new name across (no undo step of its own: undo takes both back).
+let tagLink: { ta: CodeSurface; self: [number, number]; other: [number, number]; len: number } | null = null;
+function linkTagBefore(b: EditorBuffer, ta: CodeSurface | null, e: InputEvent): void {
+  tagLink = null;
+  if (!ta || ta.multi || !/^(insert|delete)/.test(e.inputType)) return;
+  const mode = tagMode(b.path), v = ta.value;
+  if (!mode || v.length > 200000) return;
+  const p = tagPairAt(v, ta.selectionStart, ta.selectionEnd, mode.xml);
+  if (p) tagLink = { ta, ...p, len: v.length };
+}
+function linkTagAfter(ta: CodeSurface, e: Event): void {
+  const l = tagLink;
+  tagLink = null;
+  if (!l || l.ta !== ta || !(e instanceof InputEvent) || ta.multi) return; // our own follow-up edit is a plain Event
+  const v = ta.value, delta = v.length - l.len, s = l.self[0], end = l.self[1] + delta, c = ta.selectionStart;
+  if (end < s || c < s || c > end) return; // the edit reached past the name
+  const name = v.slice(s, end);
+  if (!/^(?:[A-Za-z][\w:.-]*)?$/.test(name)) return; // a space or quote: the name stopped there, the partner stays
+  const [os, oe] = l.other[0] > s ? [l.other[0] + delta, l.other[1] + delta] : l.other;
+  if (v.slice(os, oe) === name) return;
+  ta.setRangeText(name, os, oe, 'preserve');
+  ta.dispatchEvent(new Event('input'));
 }
 function editorKeys(e: KeyboardEvent): void {
   // Mid-composition keys belong to the IME; no shortcut may act on them.

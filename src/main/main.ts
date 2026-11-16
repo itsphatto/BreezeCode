@@ -1884,8 +1884,8 @@ handle('sys:runCommand', async (_e, cmd) => {
   return true;
 });
 // Full access: build mode runs with no guard. Agents may reach files outside the project, .env files and .git,
-// Claude skips every permission check and Codex leaves its sandbox. Off unless the user turns it on.
-const fullAccess = () => loadState().agentFullAccess === true;
+// Claude skips every permission check and Codex leaves its sandbox. On unless the user turns it off in Settings.
+const fullAccess = () => loadState().agentFullAccess !== false;
 handle('agent:fullAccess', () => fullAccess());
 handle('agent:setFullAccess', (_e, on) => { saveState({ agentFullAccess: on === true }); return on === true; });
 // Skills view: the agents' skills (removed to the Recycle Bin) and Claude Code's plugins (turned on or off).

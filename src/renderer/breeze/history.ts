@@ -524,6 +524,11 @@ async function handleAgentDroppedFiles(dt: DataTransfer, s: Surface, tab?: Agent
     return;
   }
 
+  await attachFilesToAgent(files, s, targetTab);
+}
+// Dropped or picked files: an image shows as a picture, anything else as a file chip. Both stay where they are on disk.
+async function attachFilesToAgent(files: File[], s: Surface, tab?: AgentTabState): Promise<void> {
+  const targetTab = tab || getActiveTab(s);
   for (const file of files) {
     const diskPath = getDroppedFilePath(file);
     const rel = diskPath && rootInfo ? toRelProject(diskPath) : null;

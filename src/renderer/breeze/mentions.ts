@@ -516,6 +516,16 @@ document.addEventListener('paste', async (e: ClipboardEvent) => {
 
   const target = e.target as HTMLElement | null;
   const activeEl = document.activeElement;
+  // An Agent board box's prompt: the image goes to that box.
+  const boardEl = (target?.closest?.('.board-composer') ?? activeEl?.closest?.('.board-composer'))?.closest<HTMLElement>('.board-box.filled');
+  const boardS = boardEl?.dataset.box ? SURFACES[`board:${boardEl.dataset.box}`] : undefined;
+  if (boardS) {
+    const f = imgItem ? imgItem.getAsFile() : imgFile;
+    if (!f) return;
+    e.preventDefault();
+    await addPastedImage(f, boardS);
+    return;
+  }
   const inBox = !!(target?.closest('#box, .box-composer') || activeEl === SURFACES.box.prompt || appState.mode === 'box');
   const inIde = !!(target?.closest('#agents, .composer') || activeEl === SURFACES.ide.prompt || (!inBox && appState.mode === 'ide'));
 
