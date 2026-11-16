@@ -869,7 +869,7 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
 // A menu with more rows than fit (every page in a project, say) keeps a fixed size: its rows scroll in a box inside it,
 // with the editor's slider (scrollSlider, editor.ts) for the hidden scrollbar. The menu itself doesn't scroll, so the
 // slider and the keyboard highlight (its ::before) stay put. Long labels end in "…" and show whole on hover.
-const MENU_MAX_H = 420;
+const MENU_MAX_H = 520; // tall enough for the View menu without scrolling
 let keepSearch = false;
 function fitMenuHeight(m: HTMLElement): void {
   if (m.scrollHeight <= Math.min(MENU_MAX_H, innerHeight - 16)) {
@@ -1013,9 +1013,13 @@ function markKbRow(): void {
   slideKbHighlight();
 }
 function moveKbSelection(down: boolean): void {
-  const usable = kbTarget()[1].map((it, i) => (!it.sep && !it.header && !it.slider && !it.search && (!it.enabled || it.enabled()) ? i : -1)).filter(i => i !== -1);
-  const pos = usable.indexOf(kbIdx);
-  kbIdx = usable[(pos + (down ? 1 : -1) + usable.length) % usable.length] ?? -1;
+  const [m, items] = kbTarget();
+  // The keys pick up from the row under the pointer, unless they have moved since the pointer last did (.kb-nav).
+  const hovered = m && !m.classList.contains('kb-nav') ? m.querySelector<HTMLElement>('[data-mi]:hover') : null;
+  if (hovered) kbIdx = Number(hovered.dataset.mi);
+  const usable = items.map((it, i) => (!it.sep && !it.header && !it.slider && !it.search && (!it.enabled || it.enabled()) ? i : -1)).filter(i => i !== -1);
+  // The next usable row past kbIdx, wrapping; kbIdx itself may be unusable (a hovered disabled row) or -1 (none yet).
+  kbIdx = (down ? usable.find(i => i > kbIdx) ?? usable[0] : [...usable].reverse().find(i => i < kbIdx) ?? usable[usable.length - 1]) ?? -1;
   markKbRow();
 }
 // Right (or Enter) on a row with "›" opens its submenu and moves the keys into it; Left goes back out.

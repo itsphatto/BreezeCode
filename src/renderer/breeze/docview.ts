@@ -859,9 +859,17 @@ dfView.addEventListener('keydown', e => {
 });
 
 // View → Document View: the file as a document, or its source in the editor.
+let dfFade: Animation | null = null;
 commands['df.toggleView'] = () => {
   const b = activeBuf();
   if (!isDocFile(b)) { toast('Open a Word, PowerPoint, Excel, PDF or SVG file first'); return; }
-  if (dfRaw.has(b.path)) dfRaw.delete(b.path); else { dfFlush(b); dfRaw.add(b.path); }
+  const toDoc = dfRaw.has(b.path);
+  if (toDoc) dfRaw.delete(b.path); else { dfFlush(b); dfRaw.add(b.path); }
+  dfFade?.cancel();
   renderEditor();
+  // The document view lies over the code, so fading it in or out cross-fades the two. Going to code, it stays up
+  // (click-through) just long enough to fade away.
+  if (!toDoc) { dfView.classList.remove('hidden'); dfView.style.pointerEvents = 'none'; }
+  const fade = dfFade = dfView.animate([{ opacity: toDoc ? 0 : 1 }, { opacity: toDoc ? 1 : 0 }], { duration: 200, easing: 'ease-out' });
+  if (!toDoc) fade.onfinish = fade.oncancel = () => { dfView.style.pointerEvents = ''; if (dfViewPath == null) dfView.classList.add('hidden'); };
 };

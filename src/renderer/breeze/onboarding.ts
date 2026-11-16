@@ -291,15 +291,74 @@ function renderHomeContrib(): void {
     box.classList.remove('hidden');
   }));
 }
+// A year button: the newest year goes back to the last twelve months, as GitHub's profile does; the graph stays put
+// until the year's answer lands, and a failed one leaves it as it was.
+function showContribYear(year: number | null): void {
+  const seq = ++contribSeq;
+  background(api.gh.contributions(year).then(r => {
+    if (seq !== contribSeq) return;
+    if (r.ok) { const data = r.data; morphContribYear(() => drawContrib(data)); }
+    else toast(r.message ?? 'Could not load that year from GitHub');
+  }));
+}
+// The squares cross-fade into the new year's (a view transition, .contrib-morph in breeze.css) while the blue pill
+// slides from the old year's button to the new one's and the count scrambles to its new number.
+function morphContribYear(change: () => void): void {
+  const root = document.documentElement;
+  if (!document.startViewTransition || motionOff() || matchMedia('(prefers-reduced-motion: reduce)').matches
+    || [...root.classList].some(c => c.endsWith('-morph') || c === 'scm-fade')) { change(); return; }
+  const from = document.querySelector('.contrib-year-pill')?.getBoundingClientRect();
+  const total = document.querySelector('#homeContribTitle .cg-total')?.textContent;
+  root.classList.add('contrib-morph');
+  const t = document.startViewTransition(change);
+  const done = () => root.classList.remove('contrib-morph');
+  t.finished.then(done, done);
+  t.updateCallbackDone.then(() => {
+    const count = document.querySelector<HTMLElement>('#homeContribTitle .cg-total');
+    if (count && count.textContent !== total) scrambleText(count);
+    const pill = document.querySelector<HTMLElement>('.contrib-year-pill');
+    const to = pill?.getBoundingClientRect();
+    if (!pill || !from || !to?.width) return;
+    pill.animate([
+      { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})` },
+      { transform: 'none' },
+    ], { duration: 340, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+  }, () => {});
+}
+function drawContribYears(c: GhContributions): void {
+  const box = $('#homeContribYears');
+  box.textContent = '';
+  if (c.years.length < 2) return;
+  const shown = c.year ?? c.years[0];
+  for (const y of c.years) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'contrib-year';
+    b.textContent = String(y);
+    b.setAttribute('aria-pressed', String(y === shown));
+    if (y === shown) b.prepend(Object.assign(document.createElement('span'), { className: 'contrib-year-pill' }));
+    b.onclick = () => { if (y !== shown) showContribYear(y === c.years[0] ? null : y); };
+    box.append(b);
+  }
+}
+const contribSpan = (c: GhContributions) => c.year ? `in ${c.year}` : 'in the last year';
+// The count sits in a span of its own, so a year change can scramble just that number (scrambleText, setup.ts).
+function setContribTitle(c: GhContributions, tail: string): void {
+  const n = document.createElement('span');
+  n.className = 'cg-total';
+  n.textContent = c.total.toLocaleString();
+  $('#homeContribTitle').replaceChildren(n, ` contribution${c.total === 1 ? '' : 's'}${tail}`);
+}
 // The last year drawn, so moving the graph to a side (homedock.ts) can redraw it upright without asking GitHub again.
 let lastContrib: GhContributions | null = null;
 function drawContrib(c: GhContributions): void {
   lastContrib = c;
+  drawContribYears(c);
   if (homeGraphDock() !== 'bottom') { drawContribUpright(c); return; }
   $('#homeContrib').classList.remove('upright');
-  $('#homeContribTitle').textContent = `${c.total.toLocaleString()} contribution${c.total === 1 ? '' : 's'} in the last year`;
+  setContribTitle(c, ` ${contribSpan(c)}`);
   const graph = $('#homeContribGraph');
-  graph.setAttribute('aria-label', `${c.total} GitHub contributions in the last year`);
+  graph.setAttribute('aria-label', `${c.total} GitHub contributions ${contribSpan(c)}`);
   graph.textContent = '';
   // Placed by grid line (set from script: the page's CSP blocks inline style attributes). Column 1 holds the day
   // names, row 1 the month names; a day sits in its week's column and its weekday's row.

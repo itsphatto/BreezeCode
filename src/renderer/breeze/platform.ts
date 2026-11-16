@@ -639,7 +639,7 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
         return { ok: true, data: { closed: true } };
       },
       // A made-up year, quiet early on and busier lately, so the graph can be seen without the desktop app.
-      async contributions() {
+      async contributions(year) {
         if (current?.provider !== 'GitHub') return { ok: false, error: 'not-github' };
         const end = new Date(), start = new Date(end);
         start.setDate(start.getDate() - 364 - start.getDay());
@@ -653,7 +653,7 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
           total += count;
           weeks[weeks.length - 1].push({ date: d.toISOString().slice(0, 10), count, level: count ? Math.min(4, Math.ceil(count / 3)) : 0 });
         }
-        return { ok: true, data: { login: 'demo', total, weeks } };
+        return { ok: true, data: { login: 'demo', total, year: year ?? null, years: [end.getFullYear(), end.getFullYear() - 1], weeks } }; // shortcut: any year shows the same made-up data
       },
     },
     auth: {
