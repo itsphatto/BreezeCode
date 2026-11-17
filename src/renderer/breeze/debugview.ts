@@ -23,6 +23,7 @@ function leaveDebugView(): void {
   showIde();
 }
 $('#dbgBack').onclick = leaveDebugView;
+$('#dbgLogoHome').onclick = () => { hideDbgHover(); goHome(); };
 $('#debugBtn').onclick = openDebugView;
 
 /* ----- The activity bar, copied from the IDE so the page keeps its place in the app ----- */

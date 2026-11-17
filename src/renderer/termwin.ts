@@ -29,11 +29,14 @@
   const applyPrefs = () => {
     const theme = read<string>('breeze.theme', 'dark');
     document.documentElement.dataset.theme = ['dark', 'contrast', 'light'].includes(theme) ? theme : 'dark';
+    // Only Glass carries over: a custom picture is the main window's alone.
+    if (read<string>('breeze.backdrop', 'none') === 'glass') document.documentElement.dataset.backdrop = 'glass';
+    else delete document.documentElement.dataset.backdrop;
     const size = Math.min(24, Math.max(10, Number(read<number>('breeze.codeSize', 13)) || 13));
     document.documentElement.style.setProperty('--code-size', `${size}px`);
   };
   applyPrefs();
-  window.addEventListener('storage', e => { if (e.key === 'breeze.theme' || e.key === 'breeze.codeSize') applyPrefs(); });
+  window.addEventListener('storage', e => { if (e.key === 'breeze.theme' || e.key === 'breeze.codeSize' || e.key === 'breeze.backdrop') applyPrefs(); });
 
   /* ----- Output, with the colours programs ask for (ANSI SGR); other escape codes are dropped ----- */
   interface Style { fg?: string; bg?: string; b?: boolean; d?: boolean; i?: boolean; u?: boolean }

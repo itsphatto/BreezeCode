@@ -16509,10 +16509,15 @@ body.layout-animating #previewPane {
 }
 
 .dbg-bar {
+  position: relative;
   gap: 12px;
 }
 
+/* The controls sit in the middle of the bar, like the IDE's project name; the file name stays by the logo. */
 .dbg-tools {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 2px;
@@ -19277,18 +19282,6 @@ input.dbg-edit.bad:focus-visible {
 
 .board-bar {
   gap: 12px;
-}
-
-.board-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex-shrink: 0;
-  font-size: 13px;
-}
-
-.board-title b {
-  font-weight: 600;
 }
 
 .board-roster {

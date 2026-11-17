@@ -781,7 +781,7 @@
   <!-- Agent board (board.ts): drag agents into boxes; every box runs at once, and blocked edits are relayed -->
   <div class="board hidden" id="board">
     <header class="titlebar board-bar">
-      <span class="board-title"><svg data-i="layoutGrid" data-size="16"></svg><b>Agent board</b></span>
+      <button class="logo logo-home" id="boardLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeCode.png" alt=""></button>
       <div class="board-roster" id="boardRoster" role="list" aria-label="Your agents. Drag one into a box."></div>
       <span class="spacer"></span>
       <span class="board-auto" title="When on, each box shows the file its agent is editing, at the box's left."><span>Code</span><button class="switch switch-sm" id="boardCode" type="button" role="switch" aria-checked="true" aria-label="Show code"><span class="sw-knob"></span></button></span>
@@ -798,6 +798,9 @@
 
   <div class="debug hidden" id="debug">
     <header class="titlebar dbg-bar">
+      <button class="logo logo-home" id="dbgLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeCode.png" alt=""></button>
+      <span class="dbg-what" id="dbgWhat"></span>
+      <!-- Centred on the bar (breeze.css .dbg-tools), whatever sits either side. -->
       <div class="dbg-tools" id="dbgTools" role="toolbar" aria-label="Debug controls">
         <button class="icon-btn dbg-tool" id="dbgGo" data-act="run.start"><svg data-i="play" data-size="15"></svg></button>
         <button class="icon-btn dbg-tool" id="dbgPause" data-act="debug.pause"><svg data-i="pause" data-size="15"></svg></button>
@@ -808,7 +811,6 @@
         <button class="icon-btn dbg-tool" id="dbgRestart" data-act="debug.restart"><svg data-i="rotateCw" data-size="15"></svg></button>
         <button class="icon-btn dbg-tool dbg-stop" id="dbgStop" data-act="debug.stop"><svg data-i="stop" data-size="15"></svg></button>
       </div>
-      <span class="dbg-what" id="dbgWhat"></span>
       <span class="spacer"></span>
       <button class="btn btn-sm dbg-back" id="dbgBack" title="Back to the editor. The program keeps running."><svg data-i="chevronLeft" data-size="14"></svg><span>Back to editor</span></button>
     </header>

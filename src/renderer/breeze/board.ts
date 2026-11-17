@@ -55,6 +55,7 @@ function leaveBoard(): void {
   renderBoardStatus();
 }
 $('#boardBack').onclick = leaveBoard;
+$('#boardLogoHome').onclick = () => { goHome(); renderBoardStatus(); };
 $('#boardBtn').onclick = openBoard;
 commands['view.board'] = () => openBoard();
 

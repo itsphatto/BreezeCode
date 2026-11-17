@@ -26,12 +26,13 @@
 }
 
 :root {
-  --bg: #0c0c0c;
-  --bar: #0c0c0c;
-  --line: #2b2b2b;
-  --text: #cccccc;
-  --text-2: #9d9d9d;
-  --text-3: #6e6e6e;
+  /* The main window's theme colours (breeze.css :root), so the two windows read as one app. */
+  --bg: #1d1d1f;
+  --bar: #1d1d1f;
+  --line: #3a3a3c;
+  --text: #f5f5f7;
+  --text-2: #aaaaaa;
+  --text-3: #9a9a9f;
   --hover: rgba(255, 255, 255, .08);
   --caret: #e5e5e5;
   --sel: rgba(38, 79, 120, .9);
@@ -51,7 +52,7 @@
   --cmd-flag: #f472b6;
   --cmd-str: #34d399;
   --cmd-num: #fdba74;
-  --ps: #cccccc;
+  --ps: #f5f5f7;
   --brand: #2f7bff; /* the logo's blue (assets/brand/Icon.png), a touch lighter to read on black */
   --ansi-0: var(--text-3); --ansi-1: var(--term-red); --ansi-2: var(--term-green); --ansi-3: var(--term-yellow);
   --ansi-4: var(--term-blue); --ansi-5: var(--term-magenta); --ansi-6: var(--term-cyan); --ansi-7: var(--text);
@@ -63,20 +64,21 @@
 :root[data-theme="contrast"] {
   --bg: #000000;
   --bar: #000000;
-  --line: #6fc3df;
+  --line: #26262c;
   --text: #ffffff;
-  --text-2: #e6e6e6;
+  --text-2: #a1a1aa;
+  --text-3: #8a8a94;
 }
 
 :root[data-theme="light"] {
   --bg: #fbf9f4;
-  --bar: #f3efe6;
-  --line: #ded7c8;
-  --text: #2b2a27;
-  --text-2: #5d5a52;
-  --text-3: #8f8a7e;
+  --bar: #fbf9f4;
+  --line: #d8d1c0;
+  --text: #26231e;
+  --text-2: #57514a;
+  --text-3: #645d53;
   --hover: rgba(0, 0, 0, .07);
-  --caret: #2b2a27;
+  --caret: #26231e;
   --sel: rgba(0, 122, 255, .22);
   --ok: #0069d1;
   --err: #c42b1c;
@@ -95,6 +97,17 @@
   --brand: #005cff;
   color-scheme: light;
 }
+
+/* Glass (Settings → Appearance), as the main window does it: main gives the window the system's frosted material and
+   the page lets it show through, thinner in dark themes, paler in light so dark ink still reads. */
+:root[data-backdrop="glass"] { --bd-a: 34%; background: transparent; }
+:root[data-backdrop="glass"][data-theme="light"] { --bd-a: 52%; }
+:root[data-backdrop="glass"] {
+  --bg: color-mix(in srgb, #1d1d1f var(--bd-a), transparent);
+  --bar: transparent;
+}
+:root[data-backdrop="glass"][data-theme="contrast"] { --bg: color-mix(in srgb, #000 var(--bd-a), transparent); }
+:root[data-backdrop="glass"][data-theme="light"] { --bg: color-mix(in srgb, #fbf9f4 var(--bd-a), transparent); }
 
 * {
   box-sizing: border-box;

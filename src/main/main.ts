@@ -1253,7 +1253,7 @@ function openTermWindow() {
     show: false,
     title: 'Terminal - Breeze Code',
     icon: APP_ICON,
-    backgroundColor: '#0c0c0c',
+    backgroundColor: glassOn ? '#00000000' : themeBg, // the main window's theme, or see-through under Glass
     titleBarStyle: 'hidden', // the page draws its own window buttons; macOS keeps its traffic lights
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'termPreload.js') },
   });
@@ -1261,6 +1261,7 @@ function openTermWindow() {
   const st: TermState = { win: w, cwd: root || termCwd, procs: new Map() };
   termWins.set(wcId, st);
   showTaskbarIcon(w);
+  if (glassOn) setWindowGlass(w, true).catch(logError('terminal glass'));
   const stopAll = () => { for (const c of st.procs.values()) killTree(c); st.procs.clear(); };
   w.once('ready-to-show', () => w.show());
   w.loadFile(TERM_PAGE).catch(logError('terminal window'));
@@ -1975,7 +1976,9 @@ handle('win:theme', (_e, theme) => {
   themeBg = THEME_BG[theme];
   themeName = theme;
   if (glassOn) tintGlass();
-  if (win && !glassOn) win.setBackgroundColor(themeBg); // glass keeps the window see-through
+  if (glassOn) return; // glass keeps the windows see-through
+  if (win) win.setBackgroundColor(themeBg);
+  for (const t of termWins.values()) if (!t.win.isDestroyed()) t.win.setBackgroundColor(themeBg);
 });
 // Windows 10 (and Windows 11 before 22H2) has no backgroundMaterial, so the blur is asked of the window manager
 // directly: SetWindowCompositionAttribute with the blur-behind accent (3; 0 turns it off). Breeze has no native module,
@@ -2003,22 +2006,30 @@ function windowsBlur(w: BrowserWindow, on: boolean): Promise<boolean> {
 // Appearance → Glass: the system blurs and tints whatever is behind the window (acrylic on Windows 11 22H2+, a blur on
 // older Windows, vibrancy on macOS) and the page draws its panels see-through over it. Returns false where the system
 // can't (Linux, or a Windows call that failed).
-handle('win:glass', async (_e, on) => {
-  if (!win) return false;
-  on = on === true;
+// Asks the system for (or drops) the frosted material behind one window. Resolves whether it took.
+async function setWindowGlass(w: BrowserWindow, on: boolean): Promise<boolean> {
   if (process.platform === 'win32') {
     const build = Number(process.getSystemVersion().split('.')[2]); // backgroundMaterial needs Windows 11 22H2 (22621)
-    if (build >= 22621) win.setBackgroundMaterial(on ? 'acrylic' : 'none');
-    else if (!(await windowsBlur(win, on)) && on) return false;
+    if (build >= 22621) w.setBackgroundMaterial(on ? 'acrylic' : 'none');
+    else if (!(await windowsBlur(w, on)) && on) return false;
   } else if (process.platform === 'darwin') {
-    win.setVibrancy(on ? 'under-window' : null);
+    w.setVibrancy(on ? 'under-window' : null);
   } else {
     return false;
   }
-  if (!win) return false; // closed while PowerShell ran
+  if (w.isDestroyed()) return false; // closed while PowerShell ran
+  w.setBackgroundColor(on ? '#00000000' : themeBg);
+  return true;
+}
+handle('win:glass', async (_e, on) => {
+  if (!win) return false;
+  on = on === true;
+  if (!(await setWindowGlass(win, on)) && on) return false;
+  if (!win) return false;
   glassOn = on;
   tintGlass();
-  win.setBackgroundColor(on ? '#00000000' : themeBg);
+  // Terminal windows follow: their page turns see-through from the same setting (termwin.ts).
+  for (const t of termWins.values()) if (!t.win.isDestroyed()) setWindowGlass(t.win, on).catch(logError('terminal glass'));
   return true;
 });
 // Glass keeps its text readable over whatever is behind the window (settings.ts tuneGlass). The page watches the
