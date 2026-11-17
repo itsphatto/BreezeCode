@@ -49,4 +49,4 @@ function isPageUrl(url: unknown, file: string, platform: string = process.platfo
   try { return typeof url === 'string' && key(url) === key(file); } catch { return false; } // a malformed URL is never the page
 }
 
-export { isInside, resolveUnder, resolveReal, isGitPath, isPageUrl };
+export { isInside, resolveUnder, resolveReal, realExisting, isGitPath, isPageUrl };

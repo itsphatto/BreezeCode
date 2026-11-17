@@ -157,6 +157,20 @@ contextBridge.exposeInMainWorld('breeze', {
     ask: (opts: unknown) => invoke('agent:ask', opts),
     onEvent: (cb: Listener) => listen('agent:event', cb),
   },
+  // Breeze Agent: automation tasks, their questions, memory, and the tray (main.ts "Breeze Agent").
+  agentTask: {
+    list: () => invoke('agent:task:list'),
+    projects: () => invoke('agent:task:projects'),
+    create: (input: unknown) => invoke('agent:task:create', input),
+    action: (id: unknown, action: unknown, delta?: unknown) => invoke('agent:task:action', id, action, delta),
+    answer: (id: unknown, answer: unknown) => invoke('agent:task:answer', id, answer),
+    stopAll: () => invoke('agent:task:stopAll'),
+    memory: () => invoke('agent:memory:list'),
+    forget: (id: unknown) => invoke('agent:memory:remove', id),
+    clearMemory: () => invoke('agent:memory:clear'),
+    setTray: (on: unknown, startWithSystem?: unknown) => invoke('agent:setTray', on, startWithSystem),
+    onEvent: (cb: Listener) => listen('agent:task', cb),
+  },
   skills: {
     list: () => invoke('skills:list'),
     read: (file: unknown) => invoke('skills:read', file),

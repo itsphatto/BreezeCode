@@ -1,10 +1,13 @@
 /* ================= App state (survives reloads) ================= */
-type WorkMode = 'ide' | 'box';
+// 'agent' is Breeze Agent, unlocked by a code in Settings → Miscellaneous (settings.ts AGENT_CODE).
+type WorkMode = 'ide' | 'box' | 'agent';
 interface AppState {
   onboarded: boolean; step: number; name: string | null; termsAcceptedAt: number | null;
   user: User | null; agent: string | null; detect: Detection | null;
   vibeArmed: boolean; vibeSites: string[]; vibeSite: string | null; mode: WorkMode;
   discord: boolean; discordDetails: boolean; devMode: boolean;
+  // Breeze Agent: unlocked, kept running in the tray when the window closes, started with the system.
+  agentUnlocked: boolean; agentTray: boolean; agentStartup: boolean;
   // Friends: share what I'm doing at all, and the open folder's name with it.
   friendsShare: boolean; friendsProject: boolean;
 }
@@ -12,8 +15,10 @@ const savedApp = store.get<Partial<AppState>>('breeze.app', {});
 const appState: AppState = {
   onboarded: false, step: 0, name: null, termsAcceptedAt: null, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
   discord: false, discordDetails: true, devMode: false, friendsShare: true, friendsProject: true,
+  agentUnlocked: false, agentTray: true, agentStartup: false,
   ...savedApp,
 };
+if (appState.mode === 'agent' && !appState.agentUnlocked) appState.mode = 'ide';
 // A save from before the name screen has no `name` (every save since does) and counts the later steps one lower.
 if (savedApp.name === undefined && savedApp.step) appState.step++;
 const saveApp = () => store.set('breeze.app', appState);

@@ -18,6 +18,8 @@ const SETTINGS_TABS: [SettingsTab, string, string][] = [
 ];
 // Developer stays out of the list until its code is entered under Miscellaneous.
 const DEV_CODE = 'developermode';
+// Breeze Agent stays hidden until this code is entered there too: then it is a third Workspace in General.
+const AGENT_CODE = 'agentic';
 const visibleSettingsTabs = () => SETTINGS_TABS.filter(([id]) => id !== 'dev' || appState.devMode);
 // Developer mode shows on the app icon and the Discord logo.
 function applyDevMode(): void {
@@ -832,9 +834,13 @@ function settingsBody(tab: SettingsTab): string {
     case 'general': return `<h4>General</h4>
       ${accountHtml()}
       <h5>Preferences</h5>
-      ${settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode))}
+      ${settingRow('Workspace', appState.agentUnlocked ? 'Full editor, chat only, or automation tasks.' : 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space'], ...(appState.agentUnlocked ? [['agent', 'Breeze Agent'] as [string, string]] : [])], appState.mode))}
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
       ${settingRow('Performance', powerNote(), segHtml('sPower', [['auto', 'Auto'], ['on', 'Always on'], ['off', 'Off']], powerInfo.mode))}
+      ${appState.agentUnlocked ? `<h5>Breeze Agent</h5>
+      ${settingRow('Keep running in tray', 'Closing the window hides Breeze to the tray, so schedules and triggers keep going. Quit from the tray icon.', switchHtml('sAgentTray', appState.agentTray, 'Keep running in tray'))}
+      <div class="set-dim ${appState.agentTray ? '' : 'off'}"${appState.agentTray ? '' : ' inert'}>
+      ${settingRow('Start with your computer', 'Opens Breeze hidden in the tray when you sign in.', switchHtml('sAgentStartup', appState.agentStartup, 'Start with your computer'))}</div>` : ''}
       <h5>Editor</h5>
       ${settingRow('Auto save', 'Off, a second after you stop typing, or when you switch tabs or windows.', segHtml('sAutoSave', [['off', 'Off'], ['delay', 'After delay'], ['focus', 'On focus change']], autoSave))}
       <h5>Layout</h5>
@@ -876,7 +882,10 @@ function settingsBody(tab: SettingsTab): string {
         ${settingRow('Full access', agentFullAccess
           ? '<span class="set-warn">On: in build mode agents run any command, reach any file on this computer (.env and .git too) and skip every check.</span>'
           : 'Off: agents stay in the project, keep out of .env and .git, and Codex runs sandboxed.', switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
-        ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}`;
+        ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}
+        ${appState.agentUnlocked ? `<h5>Breeze Agent memory</h5>
+        <p class="set-sub">Short facts Breeze Agent keeps about you and each project, on this computer only. A project’s facts never reach another project.</p>
+        <div class="agent-mem-list" id="sAgentMemory"></div>` : ''}`;
     }
     case 'misc': return `<h4>Miscellaneous</h4>
       <h5>Vibe Code Mode</h5>
@@ -884,7 +893,8 @@ function settingsBody(tab: SettingsTab): string {
       <h5>Feed</h5>
       <div class="social-grid ${appState.vibeArmed ? '' : 'off'}" id="sFeeds"${appState.vibeArmed ? '' : ' inert'}></div>
       <h5>Code</h5>
-      ${settingRow('Enter code', appState.devMode ? 'Developer is unlocked.' : '', '<div class="set-code"><input class="input" id="sCode" aria-label="Code" placeholder="Code" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sCodeGo" disabled>Enter</button></div>')}`;
+      ${settingRow('Enter code', [appState.devMode ? 'Developer is unlocked.' : '', appState.agentUnlocked ? 'Breeze Agent is unlocked.' : ''].filter(Boolean).join(' '), '<div class="set-code"><input class="input" id="sCode" aria-label="Code" placeholder="Code" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sCodeGo" disabled>Enter</button></div>')}
+      ${appState.agentUnlocked ? settingRow('Lock Breeze Agent', 'Hide it again. Its tasks and memory stay on this computer; scheduled tasks stop until you unlock it.', '<button class="btn btn-sm" id="sAgentLock">Lock</button>') : ''}`;
     case 'discord': {
       const a = discordActivity();
       const status = { on: 'Connected', off: 'Off', error: 'Not connected' }[discordState.state];
@@ -1427,6 +1437,15 @@ function bindSettings(m: HTMLElement): void {
   const tryCode = () => {
     const v = codeIn.value.trim().toLowerCase();
     if (!v) return;
+    if (v === AGENT_CODE) {
+      if (appState.agentUnlocked) { toast('Breeze Agent is already unlocked'); return; }
+      appState.agentUnlocked = true; saveApp(); applyAgentTray();
+      buildMenubar(); // Help gets Breeze Agent
+      toast('Breeze Agent unlocked');
+      settingsTab = 'general';
+      refreshSettings();
+      return;
+    }
     if (v !== DEV_CODE) { toast('That code didn’t work'); codeIn.select(); return; }
     appState.devMode = true; saveApp(); applyDevMode();
     toast('Developer unlocked');
@@ -1439,6 +1458,17 @@ function bindSettings(m: HTMLElement): void {
     codeIn.oninput = () => { $<HTMLButtonElement>('#sCodeGo', pane).disabled = !codeIn.value.trim(); };
   }
   on('sClassicSwitch', () => { setClassicSwitch(!classicSwitch); refreshSettings(); });
+  on('sAgentLock', () => {
+    appState.agentUnlocked = false;
+    if (appState.mode === 'agent') { closeModal(); enterMode('ide'); }
+    saveApp(); applyAgentTray(); buildMenubar();
+    toast('Breeze Agent locked');
+    refreshSettings();
+  });
+  on('sAgentTray', () => { appState.agentTray = !appState.agentTray; saveApp(); applyAgentTray(); refreshSettings(); });
+  on('sAgentStartup', () => { appState.agentStartup = !appState.agentStartup; saveApp(); applyAgentTray(); refreshSettings(); });
+  const memEl = $('#sAgentMemory', pane);
+  if (memEl) void renderAgentMemory(memEl);
   on('sDevOff', () => { appState.devMode = false; saveApp(); applyDevMode(); settingsTab = 'misc'; refreshSettings(); });
   // Friends
   on('sFriendsShare', () => { appState.friendsShare = !appState.friendsShare; saveApp(); queueFriendsPresence(); refreshSettings(); });
@@ -1583,7 +1613,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; refreshSettings(); renderAccessSwitches(); } }));
   closeMenu();
   if (tab) settingsTab = tab;
-  const gears = [$('#settingsBtn'), $('#boxSettings'), $('#homeSettings')];
+  const gears = [$('#settingsBtn'), $('#boxSettings'), $('#agentSettings'), $('#homeSettings')];
   gears.forEach(g => { g.classList.add('open'); g.setAttribute('aria-expanded', 'true'); });
   openModal(`<div class="settings-modal" aria-label="Settings">
       <nav class="set-nav" aria-label="Settings sections">${settingsNavHeadHtml()}</nav>

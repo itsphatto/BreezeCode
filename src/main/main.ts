@@ -1,5 +1,5 @@
 // Electron main process for Breeze IDE: window, file system, search, terminal, git, agents, sign-in and Vibe Mode.
-import { app, BrowserWindow, Menu, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, net, powerMonitor, protocol, safeStorage, screen, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, Notification, Tray, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, net, powerMonitor, protocol, safeStorage, screen, session, shell } from 'electron';
 import { spawn, execFile, exec } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
@@ -29,7 +29,9 @@ import * as mcpLib from './mcp';
 import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './previewServer';
 import { normalizeQuestion, normalizePlan, QuestionDesk, NO_ANSWER, NO_APPROVAL } from './askuser';
 import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
-import type { ToolReply } from './breezemcp';
+import type { ToolReply, McpTool } from './breezemcp';
+import * as core from './agentcore';
+import { MemoryStore } from './agentmemory';
 import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal } from './agentimages';
 import { parseTestOutput } from './testresults';
 import { expandAbbr } from './emmet';
@@ -357,8 +359,10 @@ function createSplash(bounds: Electron.Rectangle) {
 // first frames unseen (a slow machine would otherwise stutter through the fade); win:launchFade then fades it in, the
 // intro dissolving into the app, and closes the splash.
 const LAUNCH_FADE = 300; // ms
+// Started by the system at sign-in for Breeze Agent's tray: the window stays hidden until opened from the tray.
+let startHidden = process.argv.includes('--breeze-tray');
 function revealMain(): void {
-  if (!win || win.isVisible()) return;
+  if (!win || win.isVisible() || startHidden) return;
   if (splash) {
     win.setOpacity(0);
     setTimeout(fadeMain, 4000); // a page that never says it's ready still shows
@@ -425,7 +429,7 @@ function createWindow() {
   });
 
   showTaskbarIcon(win);
-  createSplash(win.getBounds());
+  if (!startHidden) createSplash(win.getBounds());
   // However the page fares, the app window shows in the end.
   setTimeout(showMain, LAUNCH_HANDOFF + 5000);
   win.loadFile(APP_PAGE).catch(logError('loadFile'));
@@ -478,6 +482,8 @@ function createWindow() {
   });
   win.webContents.on('render-process-gone', killAllTerms);
   // Terminal windows belong to this one: they close with it.
+  // With Breeze Agent's tray on, closing hides the window: schedules and triggers keep running.
+  win.on('close', e => { hideToTray(e); });
   win.on('closed', () => { win = null; vibeView = null; splash?.destroy(); stopWatching(); stopLiveServer(); killAllTerms(); for (const t of termWins.values()) t.win.close(); });
 }
 
@@ -586,6 +592,7 @@ function startWatching(retried = false): void {
       timer = setTimeout(() => {
         const changed = [...pending];
         win?.webContents.send('fs:changed', changed);
+        if (root) for (const rel of changed.slice(0, 20)) agentTrigger({ kind: 'save', project: root, path: rel });
         notifyLiveClients(changed);
         pending = new Set();
       }, 250);
@@ -2214,6 +2221,9 @@ function shellEvent(runId: number, id: string, command?: string): void {
 function emit(runId: number, ev: Loose): void {
   watchImages(runId, ev);
   if (ev?.t === 'done' && ev.tokens) addUsage(runs.get(runId)?.agent, ev.tokens);
+  // A Breeze Agent task's run has its own panel, so its events go there, not to the agent chat.
+  const tc = taskRuns.get(runId);
+  if (tc) { win?.webContents.send('agent:task', { type: 'run', runId, ev }); tc.onEvent(ev); return; }
   const entry = teamOf.get(runId);
   if (entry) {
     if (ev?.t === 'done') {
@@ -3007,8 +3017,9 @@ function codexFallback(errText: string): string | null {
 
 // Agents work in the open project; Breeze Space chats may also run without one, in the Breeze Space folder.
 // `pick`: a model and effort for this run only, over the agent's saved ones (an Agent board box's own).
-async function startRun(runId: number, { agent, mode, prompt, session, box, team, pick }: { agent: string; mode: string; prompt: string; session?: string | null; box?: boolean; team?: Loose; pick?: { model?: string; effort?: string } | null }): Promise<void> {
-  const base = root || (box ? boxDir() : null);
+async function startRun(runId: number, { agent, mode, prompt, session, box, team, pick, taskBase }: { agent: string; mode: string; prompt: string; session?: string | null; box?: boolean; team?: Loose; pick?: { model?: string; effort?: string } | null; taskBase?: string | null }): Promise<void> {
+  // A Breeze Agent task runs in its own project folder, which need not be the one open on screen.
+  const base = taskBase || root || (box ? boxDir() : null);
   if (!base) throw new Error('Open a folder first');
   if (session && !SAFE_ID.test(session)) session = null;
   const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null, pick: pick || null };
@@ -3364,6 +3375,7 @@ function commandOutput(runId: number, text: unknown): void {
     else { delete f.file; delete f.line; }
   }
   const { skipped, ...counts } = report; // `skipped` on an event is a team's list of files
+  if (report.failures.length && ir?.base) agentTrigger({ kind: 'testFail', project: ir.base, text: report.failures.map(f => f.name ?? '').join('\n') });
   emit(runId, { t: 'tests', ...counts, skippedCount: skipped });
 }
 
@@ -3426,9 +3438,252 @@ const toolResultText = (content: unknown): string => typeof content === 'string'
   : Array.isArray(content) ? content.map(p => (p?.type === 'text' ? String(p.text ?? '') : '')).join('\n') : '';
 const breezeMcp = new BreezeMcpServer({
   call: (runId, name, args, signal) => {
+    if (AGENT_TOOL_FNS[name]) return AGENT_TOOL_FNS[name](runId, args);
     if (!runs.has(runId)) throw new Error('That run has ended.');
     return BREEZE_TOOL_FNS[name](runId, args, signal);
   },
+  extra: runId => (taskRuns.has(runId) ? AGENT_TOOLS : []),
+});
+
+/* ================= Breeze Agent: automation tasks across projects ================= */
+// agentcore.ts is the brain (plan → steps → check → retry, the queue, schedules, trigger limits); this is its
+// wiring: each step is an ordinary agent run (startRun) in the task's own project, its events go to the Agent
+// screen ('agent:task'), and questions come back through agent:task:answer. Tasks and memory live in userData.
+const AGENT_TASKS_FILE = () => path.join(app.getPath('userData'), 'agent-tasks.json');
+const agentMemory = new MemoryStore(path.join(app.getPath('userData'), 'agent-memory.json'));
+// Runs a task started: runId -> what reads their events. Their MCP connection gets the task and memory tools.
+interface TaskCollector { taskId: string; onEvent(ev: Loose): void }
+const taskRuns = new Map<number, TaskCollector>();
+const taskOfRun = (runId: number) => agentCore.get(taskRuns.get(runId)?.taskId ?? '');
+let nextAgentAsk = 1;
+const agentAsks = new Map<number, (a: core.Answer) => void>();
+const taskTitle = (t: core.Task) => (t.goal.length > 60 ? `${t.goal.slice(0, 59)}…` : t.goal);
+
+function agentNotify(body: string): void {
+  try { if (Notification.isSupported()) new Notification({ title: 'Breeze Agent', body, icon: APP_ICON }).show(); } catch { /* no notifications here */ }
+}
+function loadTasks(): core.Task[] {
+  try { const j = JSON.parse(fs.readFileSync(AGENT_TASKS_FILE(), 'utf8')); return Array.isArray(j?.tasks) ? j.tasks : []; } catch { return []; }
+}
+let tasksSaveTimer: ReturnType<typeof setTimeout> | undefined;
+function saveTasks(tasks: core.Task[]): void {
+  // Saved a moment later, so a burst of step updates writes the file once.
+  clearTimeout(tasksSaveTimer);
+  tasksSaveTimer = setTimeout(() => {
+    try { fs.writeFileSync(AGENT_TASKS_FILE(), JSON.stringify({ tasks }, null, 1)); } catch (e) { logError('agent tasks')(e); }
+  }, 200);
+}
+const sendTask = (msg: Loose) => { if (win && !win.isDestroyed()) win.webContents.send('agent:task', msg); };
+
+const agentCore: core.AgentCore = new core.AgentCore({
+  now: Date.now,
+  memory: task => agentMemory.promptBlock(task.goal, task.project),
+  save: saveTasks,
+  changed: task => { sendTask({ type: 'update', task }); refreshTray(); },
+  notify: (task, text) => {
+    // A notification only when nobody is looking at the window: the Agent screen shows it otherwise.
+    if (!win || win.isDestroyed() || !win.isVisible() || !win.isFocused()) agentNotify(`${taskTitle(task)}: ${text}`);
+    sendTask({ type: 'notify', id: task.id, text });
+  },
+  ask: (task, q, signal) => new Promise<core.Answer>(resolve => {
+    const id = nextAgentAsk++;
+    const done = (a: core.Answer) => {
+      if (!agentAsks.delete(id)) return;
+      sendTask({ type: 'ask-end', id });
+      resolve(a);
+    };
+    agentAsks.set(id, done);
+    signal.addEventListener('abort', () => done({ approve: false, cancel: true }), { once: true });
+    sendTask({ type: 'ask', id, taskId: task.id, kind: q.kind, text: q.text });
+  }),
+  run: (task, prompt, mode, signal) => new Promise<core.RunResult>(resolve => {
+    // A project that was moved or deleted can't be worked in: the task fails with the reason instead of running elsewhere.
+    if (!fs.existsSync(task.project)) { resolve({ ok: false, text: `The project folder ${task.project} is gone.` }); return; }
+    let lastText = '', planText = '', errText = '';
+    let sid: string | null = task.session ?? null;
+    let runId = 0;
+    const onAbort = () => stopRun(runId);
+    const collector: TaskCollector = {
+      taskId: task.id,
+      onEvent(ev) {
+        if (ev?.t === 'text') lastText = String(ev.text ?? '');
+        else if (ev?.t === 'plan') planText = String(ev.text ?? '');
+        else if (ev?.t === 'session' && ev.id) sid = String(ev.id);
+        else if (ev?.t === 'error') errText = String(ev.text ?? '');
+        else if (ev?.t === 'done') {
+          taskRuns.delete(runId);
+          signal.removeEventListener('abort', onAbort);
+          const text = (mode === 'plan' ? planText || lastText : lastText) || '';
+          resolve({ ok: ev.ok !== false && !ev.stopped && !errText, text: errText ? `${text}\n${errText}`.trim() : text, stopped: ev.stopped === true, session: sid });
+        }
+      },
+    };
+    // launchRun gives the id before startRun's first await, so the collector is in place before any event.
+    runId = nextRun;
+    taskRuns.set(runId, collector);
+    const got = launchRun({ agent: task.agent, mode: mode === 'plan' ? 'plan' : 'build', prompt, session: task.session ?? null, team: null, taskBase: task.project });
+    if (got !== runId) { taskRuns.delete(runId); runId = got; taskRuns.set(runId, collector); }
+    sendTask({ type: 'run-start', taskId: task.id, runId });
+    signal.addEventListener('abort', onAbort, { once: true });
+  }),
+}, loadTasks());
+
+/* ----- Task and memory tools, for task runs only (breezeMcp `extra`) ----- */
+const AGENT_TOOLS: McpTool[] = [
+  { name: 'task_update', description: 'Tell Breeze Agent whether the step you are on is finished. Call it once at the end of the step, after checking your work.',
+    inputSchema: { type: 'object', properties: { done: { type: 'boolean', description: 'true when the step is finished and checked' }, note: { type: 'string', description: 'One line: what you did, or why it failed' } }, required: ['done'] } },
+  { name: 'task_note', description: 'Add one line to the task’s log, for the user to read: progress worth knowing about.',
+    inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }, annotations: { readOnlyHint: true } },
+  { name: 'git_status', description: 'The task project’s git branch and changed files (git status --short --branch).',
+    inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
+  { name: 'remember', description: 'Keep one short, lasting fact about the user or this project for later tasks (a preference, a convention, where something lives). Never keys, passwords or file contents.',
+    inputSchema: { type: 'object', properties: { fact: { type: 'string' }, global: { type: 'boolean', description: 'true when it is about the user, not just this project' } }, required: ['fact'] } },
+  { name: 'recall', description: 'Look up facts remembered about the user and this project.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  { name: 'forget', description: 'Forget remembered facts that contain this text (this project and the user’s only).',
+    inputSchema: { type: 'object', properties: { match: { type: 'string' } }, required: ['match'] } },
+];
+const AGENT_TOOL_FNS: Record<string, (runId: number, args: Loose) => Promise<ToolReply>> = {
+  async task_update(runId, a) {
+    const t = taskOfRun(runId);
+    if (!t) throw new Error('This run is not part of a Breeze Agent task.');
+    agentCore.mark(t.id, a.done === true, String(a.note ?? ''));
+    return { text: a.done === true ? 'Noted: step finished.' : 'Noted: step not finished.' };
+  },
+  async task_note(runId, a) {
+    const t = taskOfRun(runId);
+    if (!t) throw new Error('This run is not part of a Breeze Agent task.');
+    agentCore.note(t.id, String(a.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 300));
+    return { text: 'Added to the task log.' };
+  },
+  async git_status(runId) {
+    const t = taskOfRun(runId);
+    if (!t) throw new Error('This run is not part of a Breeze Agent task.');
+    const out = await new Promise<string>((res, rej) => execFile('git', ['status', '--short', '--branch'], { cwd: t.project, windowsHide: true, timeout: 20000, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => (err ? rej(new Error((stderr || err.message).trim())) : res(stdout))));
+    return { text: out.trim().slice(0, 8000) || 'Nothing changed.' };
+  },
+  async remember(runId, a) {
+    const t = taskOfRun(runId);
+    const m = agentMemory.add(String(a.fact ?? ''), a.global === true ? null : t?.project ?? null);
+    sendTask({ type: 'memory' });
+    return { text: `Remembered: ${m.text}` };
+  },
+  async recall(runId, a) {
+    const found = agentMemory.recall(String(a.query ?? ''), taskOfRun(runId)?.project ?? null);
+    return { text: found.length ? found.map(m => `- ${m.text}`).join('\n') : 'Nothing remembered about that yet.' };
+  },
+  async forget(runId, a) {
+    const n = agentMemory.forget(String(a.match ?? ''), taskOfRun(runId)?.project ?? null);
+    if (n) sendTask({ type: 'memory' });
+    return { text: n ? `Forgot ${n} fact${n === 1 ? '' : 's'}.` : 'Nothing matched.' };
+  },
+};
+
+/* ----- The Agent screen's requests ----- */
+// A task's project must be one Breeze knows (the recent list or the open folder), never any path the page sends.
+const knownProjects = (): string[] => [...new Set([root, ...(loadState().recent || [])].filter((p): p is string => typeof p === 'string' && !!p))];
+const samePath = (a: string, b: string) => (isWin ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b));
+handle('agent:task:list', () => ({ tasks: agentCore.list(), running: agentCore.running() }));
+handle('agent:task:projects', () => knownProjects().map(p => ({ path: p, name: path.basename(p), missing: !fs.existsSync(p) })));
+handle('agent:task:create', (_e, input) => {
+  const i = (input && typeof input === 'object' ? input : {}) as Loose;
+  const project = knownProjects().find(p => samePath(p, String(i.project ?? '')));
+  if (!project) throw new Error('Pick one of your Breeze projects.');
+  const agent = String(i.agent ?? '');
+  if (agent !== 'local' && agent !== 'antigravity' && !agentBins.has(agent)) throw new Error('That agent isn’t set up on this computer.');
+  // Device Control isn't part of this build, so no task asks for it.
+  return agentCore.create({ goal: String(i.goal ?? ''), project, agent, control: i.control, device: false, schedule: i.schedule, trigger: i.trigger });
+});
+handle('agent:task:action', (_e, id, action, delta) => {
+  const tid = String(id ?? '');
+  if (!agentCore.get(tid)) return false;
+  if (action === 'run') agentCore.runNow(tid);
+  else if (action === 'pause') agentCore.pause(tid);
+  else if (action === 'cancel') agentCore.cancel(tid);
+  else if (action === 'remove') { agentCore.remove(tid); sendTask({ type: 'removed', id: tid }); }
+  else if (action === 'move') agentCore.reorder(tid, Number(delta) || 0);
+  else return false;
+  return true;
+});
+handle('agent:task:answer', (_e, id, answer) => {
+  const done = agentAsks.get(Number(id));
+  if (!done) return false;
+  const a = (answer && typeof answer === 'object' ? answer : {}) as Loose;
+  const feedback = typeof a.feedback === 'string' ? a.feedback.trim().slice(0, 2000) : '';
+  done(a.approve === true ? { approve: true, feedback: feedback || undefined } : { approve: false, feedback: feedback || undefined, cancel: a.cancel === true });
+  return true;
+});
+handle('agent:task:stopAll', () => agentCore.stopAll());
+handle('agent:memory:list', () => agentMemory.list().map(m => ({ ...m, project: m.scope === 'global' ? null : m.scope })));
+handle('agent:memory:remove', (_e, id) => { const ok = agentMemory.remove(String(id ?? '')); if (ok) sendTask({ type: 'memory' }); return ok; });
+handle('agent:memory:clear', () => { agentMemory.clear(); sendTask({ type: 'memory' }); return true; });
+
+// Schedules: checked every minute, and once at launch so a run missed while Breeze was closed fires once.
+setInterval(() => agentCore.tick(), 60000).unref();
+app.whenReady().then(() => setTimeout(() => agentCore.tick(), 5000)).catch(logError('agent tick'));
+// Triggers. A file saved in the open project fires 'save'; a run's failing tests fire 'testFail' for its project.
+function agentTrigger(ev: core.TriggerEvent): void {
+  try { agentCore.trigger(ev, samePath); } catch (e) { logError('agent trigger')(e); }
+}
+
+/* ----- Tray: Breeze keeps running for schedules and triggers when its window is closed ----- */
+// On only while Breeze Agent is unlocked and the user hasn't switched it off (agent:setTray). The first close says so.
+let tray: Tray | null = null;
+let trayWanted = false;
+let quitting = false;
+app.on('before-quit', () => { quitting = true; });
+function refreshTray(): void {
+  if (!tray) return;
+  const running = agentCore.list().filter(t => agentCore.running().includes(t.id));
+  const items: Electron.MenuItemConstructorOptions[] = [
+    { label: 'Open Breeze', click: () => showFromTray() },
+    { type: 'separator' },
+    ...(running.length
+      ? running.map(t => ({ label: taskTitle(t), submenu: [{ label: 'Pause', click: () => agentCore.pause(t.id) }, { label: 'Cancel', click: () => agentCore.cancel(t.id) }] }))
+      : [{ label: 'No tasks running', enabled: false }]),
+    { type: 'separator' },
+    { label: 'Stop all tasks', enabled: running.length > 0, click: () => agentCore.stopAll() },
+    { label: 'Quit Breeze', click: () => { quitting = true; app.quit(); } },
+  ];
+  tray.setContextMenu(Menu.buildFromTemplate(items));
+  tray.setToolTip(running.length ? `Breeze Agent · ${running.length} running` : 'Breeze Code');
+}
+function showFromTray(): void {
+  startHidden = false;
+  if (!win || win.isDestroyed()) { createWindow(); return; }
+  win.show();
+  win.focus();
+}
+function setTray(on: boolean): void {
+  trayWanted = on;
+  if (on && !tray) {
+    try {
+      tray = new Tray(nativeImage.createFromPath(APP_ICON).resize({ width: 16, height: 16, quality: 'best' }));
+      tray.on('click', showFromTray);
+      refreshTray();
+    } catch (e) { logError('tray')(e); tray = null; }
+  } else if (!on && tray) { tray.destroy(); tray = null; }
+  if (!on && startHidden) showFromTray(); // no tray to open it from: show the window
+}
+// Closing the window hides it to the tray instead, while the tray is on. Returns true when it hid.
+function hideToTray(e: Electron.Event): boolean {
+  if (!trayWanted || !tray || quitting || !win) return false;
+  e.preventDefault();
+  win.hide();
+  if (!loadState().trayToldOnce) {
+    saveState({ trayToldOnce: true });
+    try { if (Notification.isSupported()) new Notification({ title: 'Breeze is still running', body: 'Breeze Agent keeps your schedules and triggers going from the tray. Quit from the tray icon.', icon: APP_ICON }).show(); } catch { /* fine */ }
+  }
+  return true;
+}
+handle('agent:setTray', (_e, on, startWithSystem) => {
+  setTray(on === true);
+  // Start with Windows/macOS: hidden, straight to the tray.
+  if (typeof startWithSystem === 'boolean' && (isWin || process.platform === 'darwin')) {
+    try { app.setLoginItemSettings({ openAtLogin: startWithSystem && on === true, args: ['--breeze-tray'] }); } catch (e) { logError('login item')(e); }
+  }
+  return { tray: !!tray, startWithSystem: (isWin || process.platform === 'darwin') ? app.getLoginItemSettings({ args: ['--breeze-tray'] }).openAtLogin : false };
 });
 // While a write_file call is still arriving, a file that doesn't exist yet opens in the editor and its text types
 // in as the model writes it ('draft' events). Only new files: rewriting a whole file would flicker.

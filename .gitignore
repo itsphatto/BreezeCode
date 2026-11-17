@@ -19,7 +19,11 @@ src/renderer/termwin.js
 src/main/*.js
 *.tsbuildinfo
 engine/target/
+hands/target/
 runtime/breeze-engine.exe
+runtime/breeze-engine
+runtime/breeze-hands.exe
+runtime/breeze-hands
 
 # Logs
 *.log

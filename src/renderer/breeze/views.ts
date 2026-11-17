@@ -85,6 +85,7 @@ function enterMode(mode: WorkMode): void {
   saveApp();
   closeMenu();
   if (mode === 'ide') { showIde(); return; }
+  if (mode === 'agent') { enterAgent(); return; }
   swapScreen('#box');
   useSurface('box');
   renderUser(); renderAgentBar(); renderBoxFolder();

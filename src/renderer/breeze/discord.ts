@@ -7,6 +7,8 @@ function discordActivity(): DiscordActivity {
   const working = Object.values(agentsDef).find(a => a.status === 'working');
   const inBox = appState.mode === 'box';
   const file = active ? baseName(active) : null;
+  // Breeze Agent says only that it is automating: never which task or project.
+  if (appState.mode === 'agent') return { details: 'Automating with Breeze Agent', state: 'Breeze Code', start: discordSince, dev: appState.devMode };
   if (!appState.discordDetails) {
     let details = 'Writing code';
     if (working) details = 'Vibe coding with agents';

@@ -216,7 +216,7 @@ let friendsPresenceTimer: TimeoutId | undefined;
 // the open folder's name, and only when Show my project name is on.
 function friendsActivity(): FriendsPresence {
   let activity: FriendActivity = 'idle';
-  if (Object.values(agentsDef).some(a => a.status === 'working')) activity = 'agent';
+  if (Object.values(agentsDef).some(a => a.status === 'working') || appState.mode === 'agent') activity = 'agent';
   else if (debugLive) activity = 'debug';
   else if (appState.mode === 'box') activity = 'space';
   else if (active) activity = 'editing';

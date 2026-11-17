@@ -73,13 +73,15 @@ interface AgentAttachment {
 }
 type ImageAttachment = AgentAttachment;
 // A chat surface: the IDE panel, Breeze Space, or one box of the Agent board (`board:box1`…`board:box8`).
-type SurfaceName = WorkMode | `board:${string}`;
+// Breeze Agent has no chat surface of its own: its tasks run in main (agentmode.ts shows them).
+type ChatMode = 'ide' | 'box';
+type SurfaceName = ChatMode | `board:${string}`;
 const isBoardSurface = (name: SurfaceName): name is `board:${string}` => name.startsWith('board:');
 const boxKeyOf = (name: SurfaceName): string => name.slice('board:'.length);
 const attachmentsMap: Record<string, AgentAttachment[]> = { ide: [], box: [] };
 
 interface Surface { name: SurfaceName; chat: HTMLElement; prompt: HTMLTextAreaElement; send: HTMLElement; mode: HTMLSelectElement; attachmentsEl: HTMLElement; }
-const SURFACES: Record<string, Surface> & Record<WorkMode, Surface> = {
+const SURFACES: Record<string, Surface> & Record<ChatMode, Surface> = {
   ide: { name: 'ide', chat: $('#chat'), prompt: $<HTMLTextAreaElement>('#prompt'), send: $('#send'), mode: $<HTMLSelectElement>('#agentMode'), attachmentsEl: $('#promptAttachments') },
   box: { name: 'box', chat: $('#boxChat'), prompt: $<HTMLTextAreaElement>('#boxPrompt'), send: $('#boxSend'), mode: $<HTMLSelectElement>('#boxMode'), attachmentsEl: $('#boxPromptAttachments') },
 };
@@ -166,7 +168,7 @@ function findTabForRun(runId: number): { tab: AgentTabState; run: Run } | null {
   return null;
 }
 
-const surfaceTabs: Record<string, AgentTabState[]> & Record<WorkMode, AgentTabState[]> = { ide: [], box: [] };
+const surfaceTabs: Record<string, AgentTabState[]> & Record<ChatMode, AgentTabState[]> = { ide: [], box: [] };
 const activeTabId: Record<string, string> = { ide: '', box: '' };
 // An Agent board box: a surface of its own with one chat and no tab strip.
 function registerSurface(s: Surface): void {

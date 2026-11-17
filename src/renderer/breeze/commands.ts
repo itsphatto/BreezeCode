@@ -30,7 +30,7 @@ function searchSelection(): void {
 }
 function backToOnboarding(n: number): void {
   appState.onboarded = false; saveApp();
-  for (const id of ['#ide', '#box', '#debug', '#board']) $(id).classList.add('hidden');
+  for (const id of ['#ide', '#box', '#agent', '#debug', '#board']) $(id).classList.add('hidden');
   $('#onboard').classList.remove('hidden');
   goStep(n);
 }
@@ -198,6 +198,7 @@ const commands: Record<string, () => unknown> = {
   'sync.open': () => openCloudWorkspaces(),
   'mode.ide': () => enterMode('ide'),
   'mode.box': () => enterMode('box'),
+  'mode.agent': () => { if (appState.agentUnlocked) enterMode('agent'); },
   'help.about': showAbout,
 };
 function showAbout(): void {
@@ -464,6 +465,7 @@ const MENUS: Menu[] = [
       { label: 'Home', act: 'app.home' },
       { label: 'Breeze Code', act: 'mode.ide', checked: () => appState.mode === 'ide' },
       { label: 'Breeze Space', act: 'mode.box', checked: () => appState.mode === 'box' },
+      ...(appState.agentUnlocked ? [{ label: 'Breeze Agent', act: 'mode.agent', checked: () => appState.mode === 'agent' }] : []),
       { sep: true },
       { label: 'Sync Workspace', act: 'sync.run', enabled: () => !!user && !!rootInfo },
       { label: 'Open Cloud Workspace', act: 'sync.open', enabled: () => !!user },
@@ -987,7 +989,7 @@ document.addEventListener('mousedown', e => {
       closeMenu();
       return;
     }
-    if (!target.closest('.menu, .menubar, #settingsBtn, #boxSettings, #homeSettings, .avatars, .dd-btn, #chatHistory,#boxModel, #boxFolder, [data-act="git.more"]')) {
+    if (!target.closest('.menu, .menubar, #settingsBtn, #boxSettings, #agentSettings, #homeSettings, .avatars, .dd-btn, #chatHistory,#boxModel, #boxFolder, [data-act="git.more"]')) {
       closeMenu();
     }
   }

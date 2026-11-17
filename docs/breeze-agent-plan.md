@@ -1,7 +1,13 @@
 # Breeze Agent: Full Build Plan
 
-Status: **planning only, nothing built yet.**
+Status: **built, except Device Control (section 11).**
 Ships as one build, not in phases.
+
+**What changed from the plan while building:**
+- **Device Control was not built.** Its tool layer couldn't be completed in this build. The `breeze-hands` sidecar (`hands/`, `src/main/hands.ts`) and the block list and control rules (`src/main/deviceguard.ts`, with tests) are in the repo but nothing calls them. The composer has no Device Control toggle, and every task is created with `device: false`.
+- **Triggers wired:** "file saved" (open project only, from the folder watcher) and "tests failed" (from any run's test output). "Git commit" and "PR comment" are in the brain and its tests, but nothing fires them yet, so the UI doesn't offer them.
+- **Kill switch:** `Ctrl+Alt+Esc` while Breeze has focus, the **Stop all** button, and the tray's **Stop all tasks**. It is not a system-wide hotkey.
+- **Vision check:** not needed without screen tools.
 
 ---
 
