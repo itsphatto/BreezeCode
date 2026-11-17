@@ -705,6 +705,46 @@ async function emptyBox(key: string): Promise<void> {
   morphBoard(() => { removeBox(box); renderBoard(); saveBoard(); renderBoardStatus(); });
 }
 
+/* ----- History: this folder's earlier chats (the IDE's list, which boxes file into too), each reopened in a box ----- */
+function boardHistoryMenu(anchor: HTMLElement): void {
+  if (menuWasOpen(anchor)) { closeMenu(); return; }
+  closeMenu();
+  const list = chatHistory(SURFACES.ide);
+  const openIn = (id: string) => [...boardBoxes.values()].find(b => b.tab.historyId === id);
+  const items: MenuItem[] = list.length
+    ? list.map(e => ({ label: e.title, key: openIn(e.id) ? 'open' : timeAgo(e.at), run: () => reopenInBox(e) }))
+    : [{ label: 'No earlier chats yet', enabled: () => false }];
+  const r = anchor.getBoundingClientRect();
+  anchor.classList.add('open');
+  popupMenu(r.right - 300, r.bottom + 4, items, () => anchor.classList.remove('open'), anchor);
+  const m = $('#menuRoot .menu');
+  if (!m) return;
+  m.classList.add('history-menu');
+  m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
+}
+// A chat already in a box is brought forward instead of opened twice. Otherwise it goes in the first free box, with the
+// agent that had it (or the first one found, when that agent is gone), and carries on from its saved sessions.
+function reopenInBox(e: ChatEntry): void {
+  const open = [...boardBoxes.values()].find(b => b.tab.historyId === e.id);
+  if (open) { open.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); open.surface.prompt.focus(); return; }
+  const key = firstFreeKey();
+  if (!key) { toast(`The board is full: empty a box first (${BOARD_MAX} at most)`); return; }
+  const found = foundAgents();
+  const agent = found.find(a => a.id === e.agent)?.id ?? found[0]?.id;
+  if (!agent) { toast('No agent is installed to carry on this chat'); return; }
+  const sessions = e.sessions ? { ...e.sessions } : (e.session && e.agent ? { [e.agent]: e.session } : {});
+  morphBoard(() => {
+    const box = fillBox(key, agent, { historyId: e.id, sessions });
+    box.tab.title = e.title; // so it is filed back under its own name, not "Box N"
+    $$('[data-live]', box.tab.panel).forEach(el => { el.outerHTML = '<div class="resolved">Earlier session</div>'; });
+    $$('.team-claiming', box.tab.panel).forEach(el => el.classList.add('settled'));
+    saveBoard();
+    renderBoardStatus();
+  });
+  requestAnimationFrame(() => { const b = boardBoxes.get(key); if (b) { scrollRestoredChats(); b.surface.prompt.focus(); } });
+}
+$('#boardHistory').onclick = e => boardHistoryMenu(e.currentTarget as HTMLElement);
+
 /* ----- Ownership: "owns N files", from main ----- */
 let boardOwners: Record<string, string> = {};
 function refreshOwners(o?: { owners: Record<string, string> } | Record<string, string>): void {

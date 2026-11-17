@@ -19284,6 +19284,14 @@ input.dbg-edit.bad:focus-visible {
   gap: 12px;
 }
 
+/* History: an outline button like Back to editor, its icon lined up with the label. */
+.board-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  -webkit-app-region: no-drag;
+}
+
 .board-roster {
   display: flex;
   align-items: center;

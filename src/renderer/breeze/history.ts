@@ -16,8 +16,8 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   if (!tab.historyId) tab.historyId = newChatId();
   const id = tab.historyId;
   const first = tab.panel.querySelector('.msg.user .body')?.textContent ?? '';
-  // The tab's own name (typed, or the agent's), else the first request.
-  const title = (/^Chat \d+$/i.test(tab.title) ? '' : tab.title) || first.trim().replaceAll(/\s+/g, ' ').slice(0, 64) || 'Chat';
+  // The tab's own name (typed, or the agent's), else the first request. A board box's "Box 3" is no name either.
+  const title = (/^(Chat|Box) \d+$/i.test(tab.title) ? '' : tab.title) || first.trim().replaceAll(/\s+/g, ' ').slice(0, 64) || 'Chat';
   const old = chatHistory(s);
   // A chat stays under the folder it began in, even if another folder is open by now.
   const folder = old.find(e => e.id === id)?.folder ?? rootInfo?.root ?? null;
