@@ -74,9 +74,9 @@ export function blockedPath(abs: string, env: GuardEnv): string | null {
     roots.push(...POSIX_SYSTEM);
   }
   roots.push(...HOME_SECRETS.map(s => api.join(home, s)));
-  if (roots.some(r => within(r, abs, platform))) return 'That place holds system files, keys, logins or wallets, which Breeze Agent never touches.';
+  if (roots.some(r => within(r, abs, platform))) return 'That place holds system files, keys, logins or wallets, which Breeze never touches.';
   const name = api.basename(abs);
-  if (SECRET_FILE.test(name)) return `${name} looks like a key, password or wallet file, which Breeze Agent never touches.`;
+  if (SECRET_FILE.test(name)) return `${name} looks like a key, password or wallet file, which Breeze never touches.`;
   if (ENV_FILE.test(name) && !(env.projects ?? []).some(p => within(p, abs, platform))) return '.env files outside your Breeze projects are off limits.';
   return null;
 }
@@ -164,13 +164,13 @@ export function toolVerdict(tool: string, args: Record<string, unknown>, ctx: To
   const cmd = typeof args.command === 'string' ? args.command : '';
   // The floor: the same at every level.
   if (tool === 'key_type') {
-    if (ctx.passwordField) return block('The focused box is a password field. Breeze Agent never types into one.');
-    if (looksLikeSecret(text)) return block('That text looks like a key or token. Breeze Agent never types secrets.');
+    if (ctx.passwordField) return block('The focused box is a password field. Breeze never types into one.');
+    if (looksLikeSecret(text)) return block('That text looks like a key or token. Breeze never types secrets.');
     if (looksLikeCard(text)) return ask('That text looks like a card number. Sending money always needs your OK.');
   }
   if (tool === 'shell_run') {
     const v = commandVerdict(cmd);
-    if (v === 'never') return block('That command can wipe a drive or the system. Breeze Agent never runs it.');
+    if (v === 'never') return block('That command can wipe a drive or the system. Breeze never runs it.');
     if (v === 'always-ask') return ask(`This command changes accounts, security or power: ${cmd.slice(0, 120)}`);
   }
   if (tool === 'fs_delete' && (ctx.deleteCount ?? 1) > MASS_DELETE) return ask(`This deletes ${ctx.deleteCount} files.`);

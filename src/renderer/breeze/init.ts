@@ -5,7 +5,7 @@
 const lastMode: WorkMode | null = (() => {
   if (!appState.onboarded) return null;
   const s = store.get<string>(SCREEN_KEY, '');
-  return s === '#ide' || s === '#debug' || s === '#board' ? 'ide' : s === '#box' ? 'box' : s === '#agent' ? (appState.agentUnlocked ? 'agent' : 'ide') : null;
+  return s === '#ide' || s === '#debug' || s === '#board' ? 'ide' : s === '#box' ? 'box' : null;
 })();
 // A reload of the window (Ctrl+R, a settings change that reloads) still has its project, so it swaps back before
 // start-up and Home never flashes by. A fresh launch waits for the project (the window stays hidden until then).
@@ -35,7 +35,7 @@ async function boot(): Promise<void> {
   setVibeArmed(appState.vibeArmed);
   if (appState.discord) { renderDiscord('off', 'Connecting to Discord'); queueDiscord(); }
   if (appState.devMode) background(api.win.devIcon(true));
-  if (appState.agentUnlocked) applyAgentTray(); // the tray, for Breeze Agent's schedules and triggers
+  applyAgentTray(); // the tray, for agentic tasks' schedules and triggers (it shows only while a task needs it)
   // The main process remembers who signed in; it wins over the renderer's copy.
   const signed = await api.auth.user().catch(() => null);
   if (signed || isDesktop) { user = signed; appState.user = signed; saveApp(); }
@@ -51,7 +51,7 @@ async function boot(): Promise<void> {
   else { term.cwd = await api.term.cwd(); renderPs(); }
   if (info && 'launched' in info) showLaunched(info);
   else if (reloadedMode) enterMode(reloadedMode);
-  else if (lastMode === 'box' || lastMode === 'agent' || (lastMode === 'ide' && info)) enterMode(lastMode); // a folder from the command line won above
+  else if (lastMode === 'box' || (lastMode === 'ide' && info)) enterMode(lastMode); // a folder from the command line won above
   renderTree(); renderScm();
   if (step === STEP.home) renderHome();
   renderBoxFolder();
@@ -88,7 +88,7 @@ async function boot(): Promise<void> {
 // off until your first click or key press (sound.ts lifts data-starting), so nothing chirps on its own at launch.
 {
   if (appState.onboarded) goStep(STEP.home);
-  if (reloadedMode) swapScreen(reloadedMode === 'ide' ? '#ide' : reloadedMode === 'agent' ? '#agent' : '#box'); // before start-up, so Home never flashes by
+  if (reloadedMode) swapScreen(reloadedMode === 'ide' ? '#ide' : '#box'); // before start-up, so Home never flashes by
   const welcome = $('.ob-step[data-step="0"]');
   const starting = boot();
   background(starting);

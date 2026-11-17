@@ -45,6 +45,12 @@ test('parseVerdict: the last marker wins, else how the run ended', () => {
   assert.equal(parseVerdict('no marker', false).ok, false);
 });
 
+test('the chat never shows the step markers', () => {
+  assert.equal(core.stripStepMarkers('Updated the deps.\n\nSTEP_DONE'), 'Updated the deps.');
+  assert.equal(core.stripStepMarkers('Tried.\n**STEP_FAILED: tests red**\n'), 'Tried.');
+  assert.equal(core.stripStepMarkers('The STEP_DONE word mid-line stays'), 'The STEP_DONE word mid-line stays');
+});
+
 test('schedules: daily at a time and every N hours', () => {
   const from = new Date(2026, 0, 1, 8, 0).getTime();
   assert.equal(nextRunAt({ kind: 'daily', at: '09:00' }, from), new Date(2026, 0, 1, 9, 0).getTime());

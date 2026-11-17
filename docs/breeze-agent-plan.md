@@ -1,7 +1,14 @@
 # Breeze Agent: Full Build Plan
 
-Status: **built, except Device Control (section 11).**
-Ships as one build, not in phases.
+Status: **built, then merged into Breeze Space. Device Control (section 11) was not built.**
+
+> **Update: merged into Breeze Space.** There is no separate Breeze Agent workspace any more: no unlock code, no 3rd Workspace button, no Agent screen. Sections 2 to 5 below describe the original design; this is what replaced them:
+> - **Every message in Breeze Space is read** by `src/main/agentintent.ts`. Rules only: no AI call, so no added time or cost. A question stays a normal chat reply. A message with several jobs, a list of steps, a big job, a chore on a connected service (email, Discord, Slack…), a schedule ("every morning") or a trigger ("when tests fail") becomes an agentic task. Starting a message with `/task` forces a task; `/chat` forces a normal reply.
+> - **The task runs in the chat it came from, using Space's own pieces:** the plan-approval card, step notes ("Step 2 of 4 · …"), each step streaming like a normal reply, the question card when it's stuck, and Stop to cancel the task. A schedule that fires after a restart opens its own chat in the side bar.
+> - **Only Claude Code and Codex can run tasks,** because only they reach Breeze's MCP tools. On Antigravity, OpenCode or the local model, Space switches to the first of Claude Code or Codex that's installed and says so in the chat. If neither is installed, the message goes through as a normal chat.
+> - **The agent pill's menu** holds the Control level, "Next task runs" (overrides the schedule or trigger read from the message), and the task list (open its chat, run now, pause, cancel, remove, stop all).
+> - **The tray** shows only while a task is running, queued, waiting for you, or has a schedule or trigger waiting, and the "Keep running in tray" setting is on. Someone who never starts a task never sees it: closing still quits.
+> - **Emails, Discord and other services** work through MCP servers you connect in Breeze. Breeze doesn't include its own Gmail or Discord clients. Deleting Discord messages needs a bot in a server you manage; automating a personal Discord account breaks Discord's rules.
 
 **What changed from the plan while building:**
 - **Device Control was not built.** Its tool layer couldn't be completed in this build. The `breeze-hands` sidecar (`hands/`, `src/main/hands.ts`) and the block list and control rules (`src/main/deviceguard.ts`, with tests) are in the repo but nothing calls them. The composer has no Device Control toggle, and every task is created with `device: false`.

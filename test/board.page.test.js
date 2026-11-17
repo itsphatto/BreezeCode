@@ -19,7 +19,7 @@ test('board.ts is compiled', () => {
 });
 
 test('swapScreen knows the board page', () => {
-  assert.match(src('src/renderer/breeze/setup.ts'), /\['#onboard', '#ide', '#box', '#agent', '#debug', '#board'\]/);
+  assert.match(src('src/renderer/breeze/setup.ts'), /\['#onboard', '#ide', '#box', '#debug', '#board'\]/);
 });
 
 test('agents drag into boxes and Ctrl+Shift+B opens the board', () => {

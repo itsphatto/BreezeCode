@@ -157,13 +157,12 @@ contextBridge.exposeInMainWorld('breeze', {
     ask: (opts: unknown) => invoke('agent:ask', opts),
     onEvent: (cb: Listener) => listen('agent:event', cb),
   },
-  // Breeze Agent: automation tasks, their questions, memory, and the tray (main.ts "Breeze Agent").
+  // Agentic tasks in Breeze Space: classify a message, run tasks, memory, and the tray (main.ts "Agentic tasks").
   agentTask: {
+    classify: (text: unknown) => invoke('agent:task:classify', text),
     list: () => invoke('agent:task:list'),
-    projects: () => invoke('agent:task:projects'),
     create: (input: unknown) => invoke('agent:task:create', input),
     action: (id: unknown, action: unknown, delta?: unknown) => invoke('agent:task:action', id, action, delta),
-    answer: (id: unknown, answer: unknown) => invoke('agent:task:answer', id, answer),
     stopAll: () => invoke('agent:task:stopAll'),
     memory: () => invoke('agent:memory:list'),
     forget: (id: unknown) => invoke('agent:memory:remove', id),

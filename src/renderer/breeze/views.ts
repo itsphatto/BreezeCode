@@ -85,7 +85,6 @@ function enterMode(mode: WorkMode): void {
   saveApp();
   closeMenu();
   if (mode === 'ide') { showIde(); return; }
-  if (mode === 'agent') { enterAgent(); return; }
   swapScreen('#box');
   useSurface('box');
   renderUser(); renderAgentBar(); renderBoxFolder();
@@ -125,6 +124,7 @@ function boxAgentItems(): MenuItem[] {
   }
   items.push({ label: 'Manage agents', run: openAgentPicker });
   if (a?.found && a.models?.length) items.push({ sep: true }, ...modelPickerItems(a));
+  items.push(...agenticMenuItems()); // Control level, when the next task runs, and the tasks (agentmode.ts)
   return items;
 }
 $('#boxModel').onclick = e => {

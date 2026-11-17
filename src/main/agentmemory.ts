@@ -1,4 +1,4 @@
-// Breeze Agent's memory: short facts about the user and each project, kept on this computer only.
+// Agentic tasks' memory: short facts about the user and each project, kept on this computer only.
 // Plain functions and a class with no Electron, so test/agentmemory.test.js can cover them.
 // A fact belongs to one project or to everything ('global'). A project's facts never reach another project's
 // prompts. Nothing that looks like a key, password or file dump is kept.
@@ -21,7 +21,7 @@ export function memoryRefusal(text: string): string | null {
   const t = text.trim();
   if (!t) return 'There is nothing to remember.';
   if (t.length > MAX_TEXT) return `Keep a memory under ${MAX_TEXT} characters: one fact, not a file.`;
-  if (looksLikeSecret(t) || /\b(?:password|passwd|api[_ -]?key|secret|token)\s*[:=]\s*\S+/i.test(t)) return 'That looks like a secret. Breeze Agent never remembers keys or passwords.';
+  if (looksLikeSecret(t) || /\b(?:password|passwd|api[_ -]?key|secret|token)\s*[:=]\s*\S+/i.test(t)) return 'That looks like a secret. Breeze never remembers keys or passwords.';
   if ((t.match(/\n/g) ?? []).length > 4 || /[{};]\s*\n.*[{};]/s.test(t)) return 'That looks like code or file contents. Remember a short fact instead.';
   return null;
 }
@@ -119,7 +119,7 @@ export class MemoryStore {
     return false;
   }
 
-  // The lines that go into a task's prompt: what Breeze Agent knows, cut to fit `maxChars`.
+  // The lines that go into a task's prompt: what the tasks know, cut to fit `maxChars`.
   promptBlock(goal: string, project: string | null, maxChars = 1500): string {
     const found = this.recall(goal, project, 20);
     if (!found.length) return '';

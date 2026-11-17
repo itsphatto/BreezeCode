@@ -1,37 +1,37 @@
-/* ================= Breeze Agent: automation tasks (unlocked in Settings → Miscellaneous) ================= */
-// The brain lives in main (agentcore.ts): it plans each task, runs the steps with the agent picked here, and asks
-// through 'ask' messages. This screen gives it a goal, a project, an agent, a Control level and when to run, and
-// shows the queue, each task's checklist, its live output and its questions.
-const agentTasks = new Map<string, AgentTask>();
-let agentRunning = new Set<string>();
-const agentAsksByTask = new Map<string, Extract<AgentTaskMsg, { type: 'ask' }>>();
-const agentRunTask = new Map<number, string>(); // runId -> task id
-const agentLive = new Map<string, string[]>();   // the last lines a task's current run printed
-const agentSeenSteps = new Map<string, Set<number>>(); // step rows already shown, so only new ones animate in
-let agentSelected: string | null = null;
-let agentLoaded = false;
-let agentProject: string | null = null;
-let agentAgentId: string | null = null;
-let agentWhen: { label: string; schedule?: AgentSchedule; trigger?: { kind: AgentTriggerKind; match?: string } } = { label: 'Run now' };
-const AGENT_LIVE_LINES = 6;
-
-const CONTROL_LABELS: Record<AgentControl, string> = { ask: 'Ask', plan: 'Approve plan', auto: 'Auto', full: 'Full auto' };
+/* ================= Agentic tasks in Breeze Space ================= */
+// Space reads every message (main's agentintent.ts): a question stays a chat reply; a job of several steps, a
+// schedule ("every morning…") or a trigger ("when tests fail…") becomes a task for the agentic brain (main's
+// agentcore.ts). The task reports in the chat it came from, with Space's own pieces: the plan card to approve,
+// each step streaming like any reply, notes between steps, the question card when it is stuck. The agent pill's
+// menu holds the Control level, when the next task runs, and the task list. `/task` and `/chat` at the start of a
+// message override the reading.
+const AGENTIC_AGENTS = ['claude', 'codex']; // they reach Breeze's MCP server; main refuses any other
+const CONTROL_LEVELS: AgentControl[] = ['ask', 'plan', 'auto', 'full'];
+const CONTROL_LABELS: Record<AgentControl, string> = { ask: 'Ask each step', plan: 'Approve plan', auto: 'Auto', full: 'Full auto' };
 const STATUS_LABELS: Record<AgentTaskStatus, string> = {
   planning: 'Planning', awaiting: 'Needs you', queued: 'Queued', running: 'Running', paused: 'Paused',
   waiting: 'Waiting', done: 'Done', failed: 'Failed', cancelled: 'Cancelled',
 };
-const agentScreenShowing = () => !$('#agent').classList.contains('hidden');
+const ACTIVE_STATUSES: AgentTaskStatus[] = ['planning', 'awaiting', 'queued', 'running'];
+const agTasks = new Map<string, AgentTask>();
+const agTaskTab = new Map<string, AgentTabState>();
+// Which chat a task reports in, kept by the chat's history id so a restart finds it again.
+const agTabLinks: Record<string, string> = store.get<Record<string, string>>('breeze.agentic.tabs', {});
+// What the chat has already been told about each task, so an update only adds what changed.
+const agSaid = new Map<string, { status: AgentTaskStatus; steps: Map<number, AgentStep['status']>; planned: boolean }>();
+let agControl: AgentControl = CONTROL_LEVELS.includes(store.get<AgentControl>('breeze.agentic.control', 'plan')) ? store.get<AgentControl>('breeze.agentic.control', 'plan') : 'plan';
+type AgentWhen = { label: string; schedule?: AgentSchedule; trigger?: { kind: AgentTriggerKind; match?: string } };
+let agNextWhen: AgentWhen | null = null; // the agent menu's pick for the next task, over what the message says
 
 /* ----- Tray and memory (Settings) ----- */
-// The tray is only there while Breeze Agent is unlocked: Breeze Code users who never unlock it see no change.
+// The tray shows only while a task needs it (main decides); this is the user's on/off for it.
 function applyAgentTray(): void {
-  const on = appState.agentUnlocked && appState.agentTray;
-  background(api.agentTask.setTray(on, on && appState.agentStartup));
+  background(api.agentTask.setTray(appState.agentTray, appState.agentTray && appState.agentStartup));
 }
 async function renderAgentMemory(el: HTMLElement): Promise<void> {
   const items = await api.agentTask.memory().catch(() => [] as AgentMemoryItem[]);
   if (!el.isConnected) return;
-  if (!items.length) { el.innerHTML = '<p class="set-sub">Nothing remembered yet. Breeze Agent adds facts as it works.</p>'; return; }
+  if (!items.length) { el.innerHTML = '<p class="set-sub">Nothing remembered yet. Agentic tasks add facts as they work.</p>'; return; }
   const rows = [...items].sort((a, b) => b.at - a.at).map(m => `<div class="agent-mem-row" data-mem="${escAttr(m.id)}">
       <span class="agent-mem-text">${esc(m.text)}</span>
       <span class="agent-mem-scope" title="${escAttr(m.project ?? 'Every project')}">${esc(m.project ? baseName(m.project.replaceAll('\\', '/')) : 'Everywhere')}</span>
@@ -42,372 +42,256 @@ async function renderAgentMemory(el: HTMLElement): Promise<void> {
     if (row) void api.agentTask.forget(row.dataset.mem ?? '').then(() => renderAgentMemory(el));
   });
   const clear = el.querySelector<HTMLElement>('[data-mem-clear]');
-  if (clear) clear.onclick = () => void api.agentTask.clearMemory().then(() => { toast('Breeze Agent forgot everything'); return renderAgentMemory(el); });
+  if (clear) clear.onclick = () => void api.agentTask.clearMemory().then(() => { toast('Agentic tasks forgot everything'); return renderAgentMemory(el); });
 }
 
-/* ----- Entering the screen ----- */
-function enterAgent(): void {
-  swapScreen('#agent');
-  if (!appState.detect) detectTools().then(renderAgentComposer, () => toast('Could not look for agents on this computer'));
-  void loadAgentTasks();
-  renderAgentComposer();
-  $<HTMLTextAreaElement>('#agentPrompt').focus();
+/* ----- Which chat a task belongs to ----- */
+function bindTask(id: string, tab: AgentTabState): void {
+  agTaskTab.set(id, tab);
+  if (tab.historyId && agTabLinks[id] !== tab.historyId) { agTabLinks[id] = tab.historyId; store.set('breeze.agentic.tabs', agTabLinks); }
 }
-async function loadAgentTasks(): Promise<void> {
-  const { tasks, running } = await api.agentTask.list().catch(() => ({ tasks: [] as AgentTask[], running: [] as string[] }));
-  agentTasks.clear();
-  for (const t of tasks) { agentTasks.set(t.id, t); agentSeenSteps.set(t.id, new Set(t.steps.map(s => s.id))); }
-  agentRunning = new Set(running);
-  agentLoaded = true;
-  if (agentSelected && !agentTasks.has(agentSelected)) agentSelected = null;
-  renderAgentSide();
-  renderAgentDetail();
-  renderAgentOrb();
+// The chat a task reports in: the one it came from, else the one linked to it, else a new chat named after it
+// (a schedule firing after a restart, say), which shows in the side bar like any chat.
+function taskTab(t: AgentTask): AgentTabState {
+  const tabs = surfaceTabs.box;
+  const bound = agTaskTab.get(t.id);
+  if (bound && tabs.includes(bound)) { bindTask(t.id, bound); return bound; }
+  const linked = agTabLinks[t.id] ? tabs.find(x => x.historyId === agTabLinks[t.id]) : undefined;
+  const tab = linked ?? createAgentTab(SURFACES.box, t.goal.replaceAll(/\s+/g, ' ').slice(0, 64), undefined, null, true);
+  if (!linked && tab.panel.querySelector('.empty')) tab.panel.innerHTML = '';
+  bindTask(t.id, tab);
+  return tab;
+}
+const tasksIn = (tab: AgentTabState) => [...agTaskTab].filter(([, x]) => x === tab).map(([id]) => agTasks.get(id)).filter((t): t is AgentTask => !!t);
+function agenticTabBusy(tab: AgentTabState): boolean {
+  return tasksIn(tab).some(t => ACTIVE_STATUSES.includes(t.status));
+}
+// Stop in a chat with a task in it cancels the task (main stops its current step too).
+function stopAgenticTask(tab: AgentTabState): boolean {
+  const live = tasksIn(tab).filter(t => ACTIVE_STATUSES.includes(t.status));
+  if (!live.length) return false;
+  for (const t of live) background(api.agentTask.action(t.id, 'cancel'));
+  return true;
 }
 
-/* ----- The orb: it breathes slowly while idle, quickly while a task works ----- */
-function renderAgentOrb(): void {
-  const busy = [...agentTasks.values()].some(t => t.status === 'running' || t.status === 'planning');
-  const waiting = [...agentTasks.values()].some(t => t.status === 'awaiting');
-  for (const orb of $$('.agent-orb')) {
-    orb.classList.toggle('busy', busy);
-    orb.classList.toggle('waiting', !busy && waiting);
+/* ----- The agent ----- */
+// Only Claude Code and Codex can run a task. On another agent, Space switches to the first of them that is set up,
+// and says so in the chat.
+function agenticAgent(tab: AgentTabState): DetectedAgent | null {
+  const cur = selectedAgent();
+  if (cur?.found && AGENTIC_AGENTS.includes(cur.id)) return cur;
+  const alt = AGENTIC_AGENTS.map(id => appState.detect?.agents.find(a => a.id === id && a.found)).find((a): a is DetectedAgent => !!a);
+  if (!alt) return null;
+  appState.agent = alt.id;
+  saveApp();
+  renderAgentBar();
+  updateBoxEmptyWho();
+  toolLine('note', `${cur?.name ?? 'Your agent'} can’t run agentic tasks, so Breeze switched to ${alt.name}.`, tab);
+  return alt;
+}
+
+/* ----- A message from Space's composer ----- */
+// handled: the task took it. Otherwise `text` goes to the agent as a normal chat (without a leading /chat).
+async function routeAgentic(tab: AgentTabState, text: string): Promise<{ handled: boolean; text: string }> {
+  tab.parsing = true;
+  let intent: AgentIntent | null = null;
+  try { intent = await api.agentTask.classify(text); } catch { intent = null; } finally { tab.parsing = false; }
+  if (!intent) return { handled: false, text };
+  if (!intent.agentic) return { handled: false, text: intent.goal || text };
+  const ag = agenticAgent(tab);
+  if (!ag) {
+    toolLine('note', 'Agentic tasks need Claude Code or Codex. Install one from Settings → Agents. This message goes to your agent as a normal chat.', tab);
+    return { handled: false, text: intent.goal || text };
   }
-  $('#agentStopAll').hidden = !busy;
+  const when = agNextWhen ?? (intent.schedule ? { label: '', schedule: intent.schedule } : intent.trigger ? { label: '', trigger: intent.trigger } : null);
+  try {
+    const t = await api.agentTask.create({ goal: intent.goal, project: rootInfo?.root ?? 'box', agent: ag.id, control: agControl, schedule: when?.schedule ?? null, trigger: when?.trigger ?? null });
+    agNextWhen = null;
+    bindTask(t.id, tab);
+    agTasks.set(t.id, t);
+    sayTask(t, tab);
+  } catch (e) { errorCard(errMsg(e), undefined, tab); }
+  refreshTabBusy(tab);
+  saveChat(tab);
+  return { handled: true, text };
 }
 
-/* ----- The queue at the left ----- */
-const taskSort = (a: AgentTask, b: AgentTask) => {
-  const rank = (t: AgentTask) => (t.status === 'awaiting' ? 0 : t.status === 'running' || t.status === 'planning' ? 1 : t.status === 'queued' ? 2 : t.status === 'paused' ? 3 : t.status === 'waiting' ? 4 : 5);
-  return rank(a) - rank(b) || (rank(a) <= 4 ? a.order - b.order : b.updatedAt - a.updatedAt);
-};
+/* ----- What the chat says as a task moves along ----- */
 function whenText(t: AgentTask): string {
-  if (t.schedule?.kind === 'daily') return `Every day at ${t.schedule.at}`;
-  if (t.schedule?.kind === 'every') return t.schedule.hours === 1 ? 'Every hour' : `Every ${t.schedule.hours} hours`;
-  if (t.trigger?.kind === 'save') return t.trigger.match ? `When ${t.trigger.match} is saved` : 'When a file is saved';
-  if (t.trigger?.kind === 'testFail') return 'When tests fail';
+  if (t.schedule?.kind === 'daily') return `every day at ${t.schedule.at}`;
+  if (t.schedule?.kind === 'every') return t.schedule.hours === 1 ? 'every hour' : `every ${t.schedule.hours} hours`;
+  if (t.trigger?.kind === 'save') return t.trigger.match ? `when ${t.trigger.match} is saved` : 'when a file is saved';
+  if (t.trigger?.kind === 'testFail') return 'when tests fail';
   return '';
 }
-function renderAgentSide(): void {
-  const list = $('#agentQueue');
-  const tasks = [...agentTasks.values()].sort(taskSort);
-  if (!tasks.length) { list.innerHTML = '<div class="agent-queue-empty">Tasks you give Breeze Agent line up here.</div>'; return; }
-  list.innerHTML = tasks.map(t => {
-    const sub = [STATUS_LABELS[t.status], whenText(t), baseName(t.project.replaceAll('\\', '/'))].filter(Boolean).join(' · ');
-    return `<button class="box-side-row agent-task-row ${t.id === agentSelected ? 'on' : ''}" type="button" data-task="${escAttr(t.id)}" title="${escAttr(t.goal)}">
-      <span class="agent-dot s-${t.status}" aria-hidden="true"></span>
-      <span class="agent-task-text"><span class="agent-task-goal">${esc(t.goal)}</span><span class="agent-task-sub">${esc(sub)}</span></span></button>`;
-  }).join('');
-  list.querySelectorAll<HTMLElement>('[data-task]').forEach(b => b.onclick = () => selectAgentTask(b.dataset.task ?? null));
-}
-function selectAgentTask(id: string | null): void {
-  agentSelected = id;
-  renderAgentSide();
-  renderAgentDetail();
-}
-
-/* ----- One task: what it is, its question, its steps, what it's printing, its log ----- */
-function stepIcon(s: AgentStep): string {
-  if (s.status === 'done') return svgIcon('check', 13);
-  if (s.status === 'failed') return svgIcon('circleX', 13);
-  if (s.status === 'skipped') return svgIcon('minus', 13);
-  if (s.status === 'running') return '<span class="spinner sm" aria-hidden="true"></span>';
-  return svgIcon('circle', 13);
-}
-function askCardHtml(a: Extract<AgentTaskMsg, { type: 'ask' }>): string {
-  const head = a.kind === 'plan' ? 'Approve this plan?' : a.kind === 'step' ? 'Run this step?' : 'Breeze Agent is stuck';
-  const ok = a.kind === 'plan' ? 'Approve' : a.kind === 'step' ? 'Run it' : 'Try again';
-  const no = a.kind === 'stuck' ? 'Skip step' : a.kind === 'step' ? 'Skip' : null;
-  return `<div class="agent-ask" data-ask="${a.id}">
-    <div class="agent-ask-head">${svgIcon('alert', 14)}<b>${esc(head)}</b></div>
-    <div class="agent-ask-text">${esc(a.text)}</div>
-    <textarea class="input agent-ask-input" rows="1" placeholder="${a.kind === 'plan' ? 'Or say what to change' : 'Anything to add (optional)'}" aria-label="Your answer"></textarea>
-    <div class="agent-ask-row">
-      <button class="btn btn-primary btn-sm" type="button" data-ask-ok>${esc(ok)}</button>
-      ${a.kind === 'plan' ? '<button class="btn btn-sm" type="button" data-ask-change>Change plan</button>' : ''}
-      ${no ? `<button class="btn btn-sm" type="button" data-ask-no>${esc(no)}</button>` : ''}
-      <span class="flex-1"></span>
-      <button class="btn btn-sm agent-ask-cancel" type="button" data-ask-cancel>Stop task</button>
-    </div></div>`;
-}
-function agentEmptyHtml(): string {
-  const examples = ['Every morning, summarize what changed in git yesterday', 'Update the dependencies, run the tests and fix what breaks', 'When tests fail, find the cause and fix it'];
-  return `<div class="empty agent-empty">
-    <div class="agent-orb agent-orb-lg" aria-hidden="true"><span></span></div>
-    <h4>What should Breeze Agent do?</h4>
-    <p>Give it a goal. It plans the steps, runs them with your agent, checks each one, and asks when it needs you.</p>
-    <div class="agent-examples">${examples.map(x => `<button class="agent-example" type="button" data-example="${escAttr(x)}">${esc(x)}</button>`).join('')}</div>
-  </div>`;
-}
-function renderAgentDetail(): void {
-  const feed = $('#agentFeed');
-  const t = agentSelected ? agentTasks.get(agentSelected) : null;
-  if (!t) {
-    if (!feed.querySelector('.agent-empty')) feed.innerHTML = agentEmptyHtml();
-    feed.querySelectorAll<HTMLElement>('[data-example]').forEach(b => b.onclick = () => {
-      const p = $<HTMLTextAreaElement>('#agentPrompt');
-      p.value = b.dataset.example ?? '';
-      p.focus();
-      updateAgentSend();
-    });
-    renderAgentOrb();
-    return;
+const handoff = (text: string, tab: AgentTabState) => addMsg(`<div class="handoff">${esc(text)}</div>`, tab);
+function sayTask(t: AgentTask, tab: AgentTabState): void {
+  const was = agSaid.get(t.id);
+  const said = was ?? { status: t.status, steps: new Map<number, AgentStep['status']>(), planned: false };
+  const first = !was;
+  const changed = first || was.status !== t.status;
+  // Started, or fired by its schedule or trigger.
+  if (first && t.status === 'waiting') handoff(`Scheduled to run ${whenText(t)}, in this chat`, tab);
+  if (!first && was.status === 'waiting' && (t.status === 'queued' || t.status === 'planning')) {
+    const why = t.log[t.log.length - 1]?.text;
+    if (why) toolLine('note', why, tab);
   }
-  const seen = agentSeenSteps.get(t.id) ?? new Set<number>();
-  const ask = agentAsksByTask.get(t.id);
-  const live = agentLive.get(t.id) ?? [];
-  const active = t.status === 'running' || t.status === 'planning';
-  const can = {
-    run: ['waiting', 'paused', 'failed', 'cancelled', 'done'].includes(t.status),
-    pause: ['running', 'planning', 'queued', 'awaiting'].includes(t.status),
-    cancel: !['done', 'cancelled'].includes(t.status),
-  };
-  const agentName = appState.detect?.agents.find(a => a.id === t.agent)?.name ?? t.agent;
-  const chips = [baseName(t.project.replaceAll('\\', '/')), agentName, CONTROL_LABELS[t.control], whenText(t)].filter(Boolean);
-  const next = t.status === 'waiting' && t.nextRunAt ? `<span class="agent-next">Next run ${esc(new Date(t.nextRunAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }))}</span>` : '';
-  feed.innerHTML = `<div class="agent-task" data-task-view="${escAttr(t.id)}">
-    <div class="agent-task-head">
-      <span class="agent-status s-${t.status}"><span class="agent-dot s-${t.status}" aria-hidden="true"></span>${esc(STATUS_LABELS[t.status])}</span>
-      ${next}
-      <span class="flex-1"></span>
-      ${can.run ? `<button class="btn btn-sm" type="button" data-act-task="run">${svgIcon('play', 13)}<span>${t.status === 'paused' ? 'Resume' : 'Run now'}</span></button>` : ''}
-      ${can.pause ? `<button class="btn btn-sm" type="button" data-act-task="pause">${svgIcon('pause', 13)}<span>Pause</span></button>` : ''}
-      ${can.cancel ? `<button class="btn btn-sm" type="button" data-act-task="cancel">${svgIcon('stop', 13)}<span>Cancel</span></button>` : ''}
-      <button class="icon-btn" type="button" data-act-task="up" title="Move up in the queue" aria-label="Move up">${svgIcon('up', 14)}</button>
-      <button class="icon-btn" type="button" data-act-task="down" title="Move down in the queue" aria-label="Move down">${svgIcon('down', 14)}</button>
-      <button class="icon-btn" type="button" data-act-task="remove" title="Remove task" aria-label="Remove task">${svgIcon('trash', 14)}</button>
-    </div>
-    <h3 class="agent-goal">${esc(t.goal)}</h3>
-    <div class="agent-chips">${chips.map(c => `<span class="pill">${esc(c)}</span>`).join('')}</div>
-    ${t.error && (t.status === 'failed' || t.status === 'waiting') ? `<div class="agent-error">${svgIcon('alert', 13)}<span>${esc(t.error)}</span></div>` : ''}
-    ${ask ? askCardHtml(ask) : ''}
-    ${t.steps.length ? `<ol class="agent-steps">${t.steps.map(s => `<li class="agent-step s-${s.status}${seen.has(s.id) ? '' : ' new'}" data-step="${s.id}">
-        <span class="agent-step-ico">${stepIcon(s)}</span>
-        <span class="agent-step-text"><span class="agent-step-title">${esc(s.title)}</span>${s.note && s.status !== 'done' ? `<span class="agent-step-note">${esc(s.note)}</span>` : ''}${s.tries && s.status !== 'done' ? `<span class="agent-step-note">Tried ${s.tries} times</span>` : ''}</span></li>`).join('')}</ol>`
-      : t.status === 'planning' ? '<div class="agent-planning"><span class="spinner sm" aria-hidden="true"></span>Planning the steps…</div>' : ''}
-    ${active && live.length ? `<div class="agent-live"><div class="agent-live-head">Live</div><div class="agent-live-body">${md(live.join('\n\n'))}</div></div>` : ''}
-    ${t.log.length ? `<details class="agent-log"><summary>Log · ${t.log.length}</summary><div class="agent-log-body">${t.log.slice(-60).reverse().map(l => `<div class="agent-log-row"><span class="agent-log-at">${esc(timeAgo(l.at))}</span><span>${esc(l.text)}</span></div>`).join('')}</div></details>` : ''}
-  </div>`;
-  // New steps rise in one after another (the page's policy allows no inline styles, so the delay is set here).
-  feed.querySelectorAll<HTMLElement>('.agent-step.new').forEach((li, i) => li.style.setProperty('--i', String(i)));
-  for (const s of t.steps) seen.add(s.id);
-  agentSeenSteps.set(t.id, seen);
-  feed.querySelectorAll<HTMLElement>('[data-act-task]').forEach(b => b.onclick = () => agentTaskAction(t.id, b.dataset.actTask ?? ''));
-  if (ask) wireAgentAsk(feed, ask);
-  renderAgentOrb();
-}
-function agentTaskAction(id: string, act: string): void {
-  if (act === 'up' || act === 'down') { background(api.agentTask.action(id, 'move', act === 'up' ? -1 : 1).then(loadAgentTasks)); return; }
-  if (act === 'remove') {
-    background(api.agentTask.action(id, 'remove'));
-    agentTasks.delete(id);
-    agentAsksByTask.delete(id);
-    if (agentSelected === id) agentSelected = null;
-    renderAgentSide(); renderAgentDetail();
-    return;
+  if (changed && t.status === 'queued') showThinking('Waiting for the task before it in this folder', 'planner', tab, t.agent);
+  if (changed && t.status === 'planning') showThinking(`${speaker('planner', t.agent).name} is planning the steps`, 'planner', tab, t.agent);
+  // The plan: the plan card shows it when it needs approving; at Auto and Full auto it is a message.
+  if (t.steps.length && !said.planned) {
+    said.planned = true;
+    if (t.control === 'auto' || t.control === 'full') {
+      hideThinking(tab);
+      agentMsg('planner', md(`**Plan**\n\n${t.steps.map(s => `${s.id}. ${s.title}`).join('\n')}`), tab, t.agent);
+    }
   }
-  if (act === 'run' || act === 'pause' || act === 'cancel') background(api.agentTask.action(id, act));
-}
-function wireAgentAsk(root: HTMLElement, a: Extract<AgentTaskMsg, { type: 'ask' }>): void {
-  const card = root.querySelector<HTMLElement>(`[data-ask="${a.id}"]`);
-  if (!card) return;
-  const input = card.querySelector<HTMLTextAreaElement>('.agent-ask-input')!;
-  const send = (answer: { approve: boolean; feedback?: string; cancel?: boolean }) => {
-    card.classList.add('answered');
-    card.querySelectorAll('button').forEach(b => ((b as HTMLButtonElement).disabled = true));
-    background(api.agentTask.answer(a.id, answer));
-  };
-  const feedback = () => input.value.trim() || undefined;
-  card.querySelector<HTMLElement>('[data-ask-ok]')!.onclick = () => send({ approve: true, feedback: a.kind === 'plan' ? undefined : feedback() });
-  const change = card.querySelector<HTMLElement>('[data-ask-change]');
-  if (change) change.onclick = () => {
-    const f = feedback();
-    if (!f) { input.focus(); toast('Say what to change first'); return; }
-    send({ approve: false, feedback: f });
-  };
-  const no = card.querySelector<HTMLElement>('[data-ask-no]');
-  if (no) no.onclick = () => send({ approve: false });
-  card.querySelector<HTMLElement>('[data-ask-cancel]')!.onclick = () => send({ approve: false, cancel: true });
-  input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); (a.kind === 'plan' && input.value.trim() ? change : card.querySelector<HTMLElement>('[data-ask-ok]'))?.click(); } };
+  // Steps.
+  const n = t.steps.length;
+  for (const s of t.steps) {
+    const before = said.steps.get(s.id);
+    if (before === s.status) continue;
+    if (s.status === 'running' && before !== 'running') toolLine('note', `Step ${s.id} of ${n} · ${s.title}`, tab);
+    else if (s.status === 'todo' && before === 'running' && s.tries) toolLine('note', `Step ${s.id} didn’t finish${s.note ? `: ${s.note}` : ''}. Trying again.`, tab);
+    else if (s.status === 'failed') toolLine('note', `Step ${s.id} failed${s.note ? `: ${s.note}` : ''}`, tab);
+    else if (s.status === 'skipped' && t.status !== 'cancelled') toolLine('note', `Skipped step ${s.id}`, tab);
+    said.steps.set(s.id, s.status);
+  }
+  // Where it ended up.
+  if (changed && !first) {
+    if (t.status === 'done') { hideThinking(tab); handoff(`Task done · ${plural(n, 'step')}`, tab); }
+    else if (t.status === 'failed') { hideThinking(tab); errorCard(t.error ?? 'The task stopped.', 'Send it again, or change the Control level from the agent menu.', tab); }
+    else if (t.status === 'cancelled') { hideThinking(tab); handoff('Task cancelled', tab); }
+    else if (t.status === 'paused') { hideThinking(tab); handoff('Task paused · resume it from the agent menu', tab); }
+    else if (t.status === 'waiting') {
+      hideThinking(tab);
+      const next = t.nextRunAt ? ` · next run ${new Date(t.nextRunAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : '';
+      if (t.error) errorCard(t.error, `It runs again ${whenText(t)}.`, tab);
+      else handoff(`Done${next}`, tab);
+    }
+  }
+  said.status = t.status;
+  agSaid.set(t.id, said);
 }
 
 /* ----- Messages from main ----- */
 api.agentTask.onEvent(msg => {
   if (msg.type === 'update') {
-    const had = agentTasks.has(msg.task.id);
-    agentTasks.set(msg.task.id, msg.task);
-    if (!had) agentSeenSteps.set(msg.task.id, new Set());
-    if (msg.task.status !== 'running' && msg.task.status !== 'planning') agentLive.delete(msg.task.id);
-    if (msg.task.status === 'running' || msg.task.status === 'planning') agentRunning.add(msg.task.id); else agentRunning.delete(msg.task.id);
-    if (!agentLoaded || !agentScreenShowing()) { renderAgentOrb(); return; }
-    renderAgentSide();
-    if (msg.task.id === agentSelected) renderAgentDetail(); else renderAgentOrb();
+    const t = msg.task;
+    agTasks.set(t.id, t);
+    const tab = taskTab(t);
+    sayTask(t, tab);
+    refreshTabBusy(tab);
+    saveChat(tab);
   } else if (msg.type === 'removed') {
-    agentTasks.delete(msg.id);
-    if (agentSelected === msg.id) agentSelected = null;
-    if (agentScreenShowing()) { renderAgentSide(); renderAgentDetail(); }
-  } else if (msg.type === 'ask') {
-    agentAsksByTask.set(msg.taskId, msg);
-    sfx.play('answer');
-    if (!agentScreenShowing()) toast('Breeze Agent needs you');
-    else if (!agentSelected) selectAgentTask(msg.taskId);
-    else if (agentSelected === msg.taskId) renderAgentDetail();
-    else renderAgentSide();
-  } else if (msg.type === 'ask-end') {
-    for (const [taskId, a] of agentAsksByTask) if (a.id === msg.id) { agentAsksByTask.delete(taskId); if (taskId === agentSelected && agentScreenShowing()) renderAgentDetail(); }
+    agTasks.delete(msg.id);
+    const tab = agTaskTab.get(msg.id);
+    agTaskTab.delete(msg.id);
+    agSaid.delete(msg.id);
+    if (agTabLinks[msg.id]) { delete agTabLinks[msg.id]; store.set('breeze.agentic.tabs', agTabLinks); }
+    if (tab) refreshTabBusy(tab);
+  } else if (msg.type === 'question') {
+    const t = agTasks.get(msg.taskId);
+    if (!t) return;
+    const tab = taskTab(t);
+    hideThinking(tab);
+    // The chat's own question and plan cards; their answer goes back through agent:reply.
+    const r = tab.run ?? taskRunFor(tab, 0, t.agent, 'planner');
+    AGENT_EVENTS[msg.ev.t]?.(r, msg.ev, tab);
+    saveChat(tab);
+    if (msg.ev.t === 'question' && (appState.mode !== 'box' || activeTabId.box !== tab.id)) toast('An agentic task needs your answer in Breeze Space');
   } else if (msg.type === 'run-start') {
-    agentRunTask.set(msg.runId, msg.taskId);
-    agentLive.set(msg.taskId, []);
-  } else if (msg.type === 'run') {
-    const taskId = agentRunTask.get(msg.runId);
-    if (!taskId) return;
-    const lines = agentLive.get(taskId) ?? [];
-    const ev = msg.ev;
-    if (ev.t === 'text' && ev.text) {
-      // A run's text events grow one reply: the newest replaces the last line unless a tool ran in between.
-      if (lines.length && !lines[lines.length - 1].startsWith('`')) lines[lines.length - 1] = ev.text; else lines.push(ev.text);
-    } else if (ev.t === 'tool' && ev.label) lines.push(`\`${ev.label.replaceAll('`', "'").slice(0, 160)}\``);
-    else if (ev.t === 'done') agentRunTask.delete(msg.runId);
-    else return;
-    agentLive.set(taskId, lines.slice(-AGENT_LIVE_LINES));
-    if (taskId === agentSelected && agentScreenShowing()) scheduleAgentLive();
+    const t = agTasks.get(msg.taskId);
+    if (!t || msg.mode !== 'build') return; // the planning run stays out of the chat
+    attachTaskRun(taskTab(t), msg.runId, msg.agent, msg.step);
   } else if (msg.type === 'notify') {
-    if (agentScreenShowing()) {
-      const t = agentTasks.get(msg.id);
-      if (t && msg.id !== agentSelected) toast(`${t.goal.slice(0, 50)}: ${msg.text}`);
-      if (msg.text === 'Done.') sfx.play('answer');
-    }
+    const t = agTasks.get(msg.id);
+    const tab = t && agTaskTab.get(t.id);
+    if (t && tab && (appState.mode !== 'box' || activeTabId.box !== tab.id)) toast(`${t.goal.slice(0, 50)}: ${msg.text}`);
   } else if (msg.type === 'memory') {
     const el = document.querySelector<HTMLElement>('#sAgentMemory');
     if (el) void renderAgentMemory(el);
   }
 });
-// Live output arrives many times a second; the task view redraws at most every 250 ms.
-let agentLiveTimer: TimeoutId | undefined;
-function scheduleAgentLive(): void {
-  if (agentLiveTimer) return;
-  agentLiveTimer = setTimeout(() => { agentLiveTimer = undefined; renderAgentDetail(); }, 250);
+// A Run for the chat to file a task's events under: the same shape a sent message gets (teams.ts startAgentRun).
+function taskRunFor(tab: AgentTabState, id: number, agent: string, phase: AgentKey): Run {
+  return { id, tabId: tab.id, surfaceName: tab.surfaceName, agent, mode: 'build', uiMode: 'build', phase, tools: 0, files: new Set(), plan: null, lastText: '', replied: false, announce: true };
+}
+// A step's run streams into the chat like any reply: text, tools, edited files, the "Changed 3 files" card.
+function attachTaskRun(tab: AgentTabState, runId: number, agent: string, step: number | null): void {
+  const run = taskRunFor(tab, runId, agent, 'builder');
+  tab.runId = runId;
+  tab.run = run;
+  tab.agentId = agent;
+  agentRun = run;
+  agentsDef.builder.used = 0;
+  agentsDef.builder.agentId = agent;
+  showThinking(`${speaker('builder', agent).name} is working${step ? ` on step ${step}` : ''}`, 'builder', tab, agent);
+  updateTabBusyState(SURFACES[tab.surfaceName], tab);
+  renderAgentTabs(SURFACES[tab.surfaceName]);
+  // Events that came before this message, kept by teams.ts until a tab claimed their run.
+  const early = earlyEvents.splice(0);
+  for (const [id, ev] of early) { if (id === runId) handleAgentEvent(run, ev, tab); else earlyEvents.push([id, ev]); }
+  if (tab.runId === runId) setAgent('builder', 'working', step ? `Working on step ${step}` : 'Working on the task', 0);
 }
 
-/* ----- The composer: goal, agent, project, Control level, when ----- */
-function agentFoundAgents(): DetectedAgent[] { return (appState.detect?.agents ?? []).filter(a => a.found); }
-function renderAgentComposer(): void {
-  const agents = agentFoundAgents();
-  if (!agentAgentId || !agents.some(a => a.id === agentAgentId)) agentAgentId = agents.find(a => a.id === appState.agent)?.id ?? agents[0]?.id ?? null;
-  const ag = agents.find(a => a.id === agentAgentId);
-  swapText($('#agentAgent'), ag ? ag.name : 'No agent');
-  if (!agentProject) agentProject = rootInfo?.root ?? null;
-  swapText($('#agentProjectName'), agentProject ? baseName(agentProject.replaceAll('\\', '/')) : 'Pick a project');
-  $('#agentProject').title = agentProject ? `The task works in ${agentProject}` : 'Pick the project this task works in';
-  swapText($('#agentWhenName'), agentWhen.label);
-  updateAgentSend();
-}
-function updateAgentSend(): void {
-  const ready = !!$<HTMLTextAreaElement>('#agentPrompt').value.trim() && !!agentProject && !!agentAgentId;
-  $<HTMLButtonElement>('#agentSend').disabled = !ready;
-}
-// Opens a menu above a composer button, the way Breeze Space's do.
-function agentMenuAbove(btn: HTMLElement, items: MenuItem[]): void {
-  if (menuWasOpen(btn)) { closeMenu(); return; }
-  btn.classList.add('open');
-  const r = btn.getBoundingClientRect();
-  popupMenu(r.left, r.top - 8, items, () => btn.classList.remove('open'));
-  const m = $('#menuRoot .menu');
-  m.classList.add('up');
-  m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`;
-}
-$('#agentAgent').onclick = e => {
-  const agents = appState.detect?.agents ?? [];
-  agentMenuAbove(e.currentTarget as HTMLElement, [
-    { label: 'Run steps with:', enabled: () => false },
-    ...agents.map(ag => ({
-      label: ag.name, icon: brandMark('menu-ico', ag.id, ag.name[0]), key: ag.found ? undefined : 'not set up',
-      checked: () => ag.id === agentAgentId, enabled: () => ag.found,
-      run: () => { agentAgentId = ag.id; renderAgentComposer(); },
-    })),
-    { sep: true },
-    { label: 'Manage agents', run: openAgentPicker },
-  ]);
-};
-$('#agentProject').onclick = async e => {
-  const btn = e.currentTarget as HTMLElement;
-  const projects = await api.agentTask.projects().catch(() => []);
-  agentMenuAbove(btn, projects.length
-    ? [{ label: 'Work in:', enabled: () => false }, ...projects.map(p => ({
-      label: p.name, key: p.missing ? 'missing' : undefined, enabled: () => !p.missing,
-      checked: () => !!agentProject && p.path === agentProject,
-      run: () => { agentProject = p.path; renderAgentComposer(); },
-    }))]
-    : [{ label: 'Open a project in Breeze Code first', enabled: () => false }]);
-};
-$('#agentWhen').onclick = e => {
-  const set = (w: typeof agentWhen) => () => { agentWhen = w; renderAgentComposer(); };
-  const daily = (at: string) => ({ label: `Every day at ${at}`, run: set({ label: `Every day at ${at}`, schedule: { kind: 'daily', at } }), checked: () => agentWhen.schedule?.kind === 'daily' && agentWhen.schedule.at === at });
-  const every = (hours: number) => {
+/* ----- The agent pill's menu: Control level, when the next task runs, the tasks ----- */
+function agenticMenuItems(): MenuItem[] {
+  const tasks = [...agTasks.values()].filter(t => t.status !== 'done' && t.status !== 'cancelled').sort((a, b) => a.order - b.order);
+  const setWhen = (w: AgentWhen | null) => () => { agNextWhen = w; toast(w ? `The next task runs ${w.label.toLowerCase()}` : 'The next task runs as your message says'); };
+  const daily = (at: string): MenuItem => ({ label: `Every day at ${at}`, checked: () => agNextWhen?.schedule?.kind === 'daily' && agNextWhen.schedule.at === at, run: setWhen({ label: `Every day at ${at}`, schedule: { kind: 'daily', at } }) });
+  const every = (hours: number): MenuItem => {
     const label = hours === 1 ? 'Every hour' : `Every ${hours} hours`;
-    return { label, run: set({ label, schedule: { kind: 'every', hours } }), checked: () => agentWhen.schedule?.kind === 'every' && agentWhen.schedule.hours === hours };
+    return { label, checked: () => agNextWhen?.schedule?.kind === 'every' && agNextWhen.schedule.hours === hours, run: setWhen({ label, schedule: { kind: 'every', hours } }) };
   };
-  agentMenuAbove(e.currentTarget as HTMLElement, [
-    { label: 'Run now', run: set({ label: 'Run now' }), checked: () => !agentWhen.schedule && !agentWhen.trigger },
+  const taskItem = (t: AgentTask): MenuItem => ({
+    label: t.goal.length > 44 ? `${t.goal.slice(0, 43)}…` : t.goal,
+    key: STATUS_LABELS[t.status],
+    sub: () => [
+      { label: 'Open chat', run: () => { const tab = taskTab(t); if (appState.mode !== 'box') enterMode('box'); switchAgentTab(SURFACES.box, tab.id); } },
+      ...(['waiting', 'paused', 'failed'].includes(t.status) ? [{ label: t.status === 'paused' ? 'Resume' : 'Run now', run: () => background(api.agentTask.action(t.id, 'run')) }] : []),
+      ...(ACTIVE_STATUSES.includes(t.status) ? [{ label: 'Pause', run: () => background(api.agentTask.action(t.id, 'pause')) }] : []),
+      { label: 'Cancel', run: () => background(api.agentTask.action(t.id, 'cancel')) },
+      { label: 'Remove', run: () => background(api.agentTask.action(t.id, 'remove')) },
+    ],
+  });
+  const running = tasks.some(t => ACTIVE_STATUSES.includes(t.status));
+  return [
     { sep: true },
-    { label: 'Every day', sub: () => ['07:00', '09:00', '12:00', '18:00', '21:00'].map(daily) },
-    { label: 'Every few hours', sub: () => [1, 3, 6, 12].map(every) },
-    { sep: true },
-    { label: 'When a file is saved', run: set({ label: 'When a file is saved', trigger: { kind: 'save' } }), checked: () => agentWhen.trigger?.kind === 'save' },
-    { label: 'When tests fail', run: set({ label: 'When tests fail', trigger: { kind: 'testFail' } }), checked: () => agentWhen.trigger?.kind === 'testFail' },
-  ]);
-};
-$<HTMLTextAreaElement>('#agentPrompt').addEventListener('input', () => {
-  const p = $<HTMLTextAreaElement>('#agentPrompt');
-  p.style.height = 'auto';
-  p.style.height = `${Math.min(p.scrollHeight, 200)}px`;
-  updateAgentSend();
-});
-$<HTMLTextAreaElement>('#agentPrompt').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void sendAgentTask(); }
-});
-$('#agentSend').onclick = () => void sendAgentTask();
-async function sendAgentTask(): Promise<void> {
-  const p = $<HTMLTextAreaElement>('#agentPrompt');
-  const goal = p.value.trim();
-  if (!goal) return;
-  if (!agentAgentId) { toast('Set up an agent first'); openAgentPicker(); return; }
-  if (!agentProject) { toast('Pick a project for the task'); $('#agentProject').click(); return; }
-  const control = ($<HTMLSelectElement>('#agentControl').value || 'plan') as AgentControl;
-  try {
-    const t = await api.agentTask.create({ goal, project: agentProject, agent: agentAgentId, control, schedule: agentWhen.schedule ?? null, trigger: agentWhen.trigger ?? null });
-    sfx.play('send');
-    p.value = '';
-    p.style.height = '';
-    agentWhen = { label: 'Run now' };
-    agentTasks.set(t.id, t);
-    agentSeenSteps.set(t.id, new Set());
-    selectAgentTask(t.id);
-    renderAgentComposer();
-  } catch (err) { toast((err as Error).message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); }
+    { label: 'Agentic tasks:', enabled: () => false },
+    { label: 'Control level', key: CONTROL_LABELS[agControl], sub: () => CONTROL_LEVELS.map(c => ({ label: CONTROL_LABELS[c], checked: () => agControl === c, run: () => setControl(c) })) },
+    {
+      label: 'Next task runs', key: agNextWhen?.label ?? 'As written',
+      sub: () => [
+        { label: 'As written in the message', checked: () => !agNextWhen, run: setWhen(null) },
+        { sep: true },
+        { label: 'Every day', sub: () => ['07:00', '09:00', '12:00', '18:00', '21:00'].map(daily) },
+        { label: 'Every few hours', sub: () => [1, 3, 6, 12].map(every) },
+        { sep: true },
+        { label: 'When a file is saved', checked: () => agNextWhen?.trigger?.kind === 'save', run: setWhen({ label: 'When a file is saved', trigger: { kind: 'save' } }) },
+        { label: 'When tests fail', checked: () => agNextWhen?.trigger?.kind === 'testFail', run: setWhen({ label: 'When tests fail', trigger: { kind: 'testFail' } }) },
+      ],
+    },
+    { label: 'Tasks', key: tasks.length ? String(tasks.length) : undefined, sub: () => (tasks.length ? [...tasks.map(taskItem), { sep: true }, { label: 'Stop all tasks', enabled: () => running, run: agenticStopAll }] : [{ label: 'No tasks yet', enabled: () => false }]) },
+  ];
 }
-// Full auto warns the way the Full access switch does.
-$<HTMLSelectElement>('#agentControl').addEventListener('change', () => {
-  const v = $<HTMLSelectElement>('#agentControl').value;
-  $('#agent').classList.toggle('control-full', v === 'full');
-  if (v === 'full') toast('Full auto: no questions, the agent acts on its own');
+function setControl(c: AgentControl): void {
+  agControl = c;
+  store.set('breeze.agentic.control', c);
+  if (c === 'full') toast('Full auto: tasks run every step without asking you');
+}
+// The kill switch: every running task pauses. Ctrl+Alt+Esc does the same while Breeze has focus.
+function agenticStopAll(): void {
+  background(api.agentTask.stopAll().then(n => toast(n ? `Paused ${plural(n, 'task')}` : 'No task was running')));
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && e.ctrlKey && e.altKey) { e.preventDefault(); agenticStopAll(); }
 });
 
-/* ----- Title bar ----- */
-// Breeze Agent's own logo when it's in assets/brand, else the app icon. It may have failed before this script ran.
-{
-  const img = $<HTMLImageElement>('#agentLogo');
-  const fallback = () => { if (!img.src.endsWith('/Icon.png')) img.src = '../../assets/brand/Icon.png'; };
-  if (img.complete && !img.naturalWidth) fallback(); else img.addEventListener('error', fallback, { once: true });
-}
-$('#agentLogoHome').onclick = goHome;
-$('#agentSettings').onclick = e => openSettings(e.currentTarget as HTMLElement);
-$('#agentNew').onclick = () => { selectAgentTask(null); $<HTMLTextAreaElement>('#agentPrompt').focus(); };
-// The kill switch: every running task stops and pauses. Ctrl+Alt+Esc does the same while Breeze has focus.
-const agentStopAll = () => background(api.agentTask.stopAll().then(n => toast(n ? `Paused ${plural(n, 'task')}` : 'Nothing was running')));
-$('#agentStopAll').onclick = agentStopAll;
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && e.ctrlKey && e.altKey && appState.agentUnlocked) { e.preventDefault(); agentStopAll(); }
-});
-// Agents found after the screen opened fill in the composer's agent.
-window.addEventListener('focus', () => { if (agentScreenShowing()) renderAgentComposer(); });
+// The tasks main kept: their chats find them again, and what they already said isn't said twice.
+void api.agentTask.list().then(({ tasks }) => {
+  for (const t of tasks) {
+    agTasks.set(t.id, t);
+    agSaid.set(t.id, { status: t.status, steps: new Map(t.steps.map(s => [s.id, s.status])), planned: t.steps.length > 0 });
+  }
+}).catch(() => { /* no tasks */ });

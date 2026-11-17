@@ -109,7 +109,7 @@ class BreezeMcpServer {
 
   #extra: (runId: number) => McpTool[];
 
-  // `extra` adds tools for one run on top of the base set: Breeze Agent gives its task runs the task and memory tools.
+  // `extra` adds tools for one run on top of the base set: agentic tasks give their runs the task and memory tools.
   constructor({ tools = BREEZE_TOOLS, call, extra }: { tools?: McpTool[]; call: ToolCall; extra?: (runId: number) => McpTool[] }) {
     this.#tools = tools;
     this.#call = call;

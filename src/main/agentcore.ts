@@ -1,4 +1,4 @@
-// Breeze Agent's brain: it turns a goal into steps, hands each step to one of the agents Breeze already runs
+// The agentic brain behind Breeze Space's tasks: it turns a goal into steps, hands each step to one of the agents Breeze already runs
 // (Claude, Codex, Antigravity, the local model), checks the result, retries, and asks when it is stuck.
 // It also keeps the queue, the schedules and the trigger limits. No Electron here: main.ts passes in how to run a
 // step, ask the user and save, so test/agentcore.test.js can drive it with fakes.
@@ -84,9 +84,14 @@ export function parseVerdict(text: string, runOk: boolean): { ok: boolean; note:
   return { ok: runOk, note: runOk ? '' : 'The agent stopped before finishing.' };
 }
 
+// The reply as the chat shows it: the STEP_DONE / STEP_FAILED line is for the brain, not the reader.
+export function stripStepMarkers(text: string): string {
+  return text.split('\n').filter(l => !/^\s*\**\s*STEP[_ ](?:DONE|FAILED)\b/i.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+}
+
 export function planPrompt(task: Task, memory: string, feedback?: string): string {
   return [
-    'You are Breeze Agent, planning an automation task. Do not change anything yet.',
+    'You are Breeze, planning an agentic task for the user. Do not change anything yet.',
     `Project folder: ${task.project}`,
     memory,
     `Goal: ${task.goal}`,
@@ -106,7 +111,7 @@ export function stepPrompt(task: Task, step: Step, memory: string): string {
     'If you cannot finish it, end with: STEP_FAILED: <the reason in one line>',
   ].filter(Boolean);
   return [
-    `You are Breeze Agent, running step ${step.id} of ${task.steps.length} of a task.`,
+    `You are Breeze, running step ${step.id} of ${task.steps.length} of a task.`,
     `Goal of the whole task: ${task.goal}`,
     memory,
     done ? `Already done:\n${done}` : '',

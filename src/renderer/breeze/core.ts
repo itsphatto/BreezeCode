@@ -174,7 +174,7 @@ type DocKind = 'type' | 'delete' | 'paste' | 'other';
 type PowerMode = 'auto' | 'on' | 'off';
 interface PowerInfo { mode: PowerMode; saver: boolean; onBattery: boolean; lowEnd: boolean; reason: 'forced' | 'battery' | 'lowend' | null }
 
-/* Breeze Agent (main.ts "Breeze Agent", agentcore.ts): a task, its steps, and what the Agent screen hears. */
+/* Agentic tasks in Breeze Space (main.ts "Agentic tasks", agentcore.ts): a task, its steps, and what Space hears. */
 type AgentControl = 'ask' | 'plan' | 'auto' | 'full';
 type AgentTaskStatus = 'planning' | 'awaiting' | 'queued' | 'running' | 'paused' | 'waiting' | 'done' | 'failed' | 'cancelled';
 type AgentSchedule = { kind: 'daily'; at: string } | { kind: 'every'; hours: number };
@@ -187,16 +187,16 @@ interface AgentTask {
   schedule?: AgentSchedule | null; trigger?: { kind: AgentTriggerKind; match?: string } | null;
   nextRunAt?: number | null; lastRunAt?: number | null; unattended?: boolean; error?: string | null;
 }
+// project: an open or recent folder, or 'box' for the Breeze Space folder.
 interface AgentTaskInput { goal: string; project: string; agent: string; control: AgentControl; schedule?: AgentSchedule | null; trigger?: { kind: AgentTriggerKind; match?: string } | null }
+interface AgentIntent { agentic: boolean; goal: string; schedule: AgentSchedule | null; trigger: { kind: AgentTriggerKind; match?: string } | null; why: string }
 interface AgentMemoryItem { id: string; scope: string; project: string | null; text: string; at: number; used: number }
 type AgentTaskMsg =
   | { type: 'update'; task: AgentTask }
   | { type: 'removed'; id: string }
   | { type: 'notify'; id: string; text: string }
-  | { type: 'ask'; id: number; taskId: string; kind: 'plan' | 'step' | 'stuck'; text: string }
-  | { type: 'ask-end'; id: number }
-  | { type: 'run-start'; taskId: string; runId: number }
-  | { type: 'run'; runId: number; ev: AgentEvent }
+  | { type: 'question'; taskId: string; ev: AgentEvent }
+  | { type: 'run-start'; taskId: string; runId: number; mode: 'plan' | 'build'; agent: string; step: number | null }
   | { type: 'memory' };
 
 interface BreezeApi {
@@ -453,11 +453,10 @@ interface BreezeApi {
     onTermMaximized(cb: (maximized: boolean) => void): () => void;
     launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
   agentTask: {
+    classify(text: string): Promise<AgentIntent>;
     list(): Promise<{ tasks: AgentTask[]; running: string[] }>;
-    projects(): Promise<{ path: string; name: string; missing: boolean }[]>;
     create(input: AgentTaskInput): Promise<AgentTask>;
     action(id: string, action: 'run' | 'pause' | 'cancel' | 'remove' | 'move', delta?: number): Promise<boolean>;
-    answer(id: number, answer: { approve: boolean; feedback?: string; cancel?: boolean }): Promise<boolean>;
     stopAll(): Promise<number>;
     memory(): Promise<AgentMemoryItem[]>;
     forget(id: string): Promise<boolean>;

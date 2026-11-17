@@ -160,67 +160,73 @@ const demoPrFiles: Record<number, GhFile[]> = {
 };
 
 let demoConnectDone: (() => void) | null = null;
-// Breeze Agent in the browser preview: tasks plan and run on timers, so the Agent screen can be tried without the app.
+// Agentic tasks in the browser preview: a message with several jobs plans, asks for approval on Space's own plan
+// card, and runs its steps on timers into the chat, so the flow can be tried without the app.
+const demoReplies = new Map<string, (reply: AskReply | null) => void>();
 function demoAgentTasks(): BreezeApi['agentTask'] {
   const listeners: ((m: AgentTaskMsg) => void)[] = [];
   const send = (m: AgentTaskMsg) => listeners.forEach(cb => cb(m));
   const tasks: AgentTask[] = [];
   const memory: AgentMemoryItem[] = [
     { id: 'm1', scope: 'global', project: null, text: 'Prefers short commit messages in the imperative', at: Date.now() - 86_400_000, used: 3 },
-    { id: 'm2', scope: '/Users/you/Projects/landing', project: '/Users/you/Projects/landing', text: 'Tests run with npm test', at: Date.now() - 3_600_000, used: 1 },
   ];
-  const asks = new Map<number, (a: { approve: boolean; feedback?: string; cancel?: boolean }) => void>();
-  let nextAsk = 1;
+  let nextRun = 9000;
   const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
-  const touch = (t: AgentTask, line?: string) => { t.updatedAt = Date.now(); if (line) t.log.push({ at: t.updatedAt, text: line }); send({ type: 'update', task: t }); };
+  const touch = (t: AgentTask, line?: string) => { t.updatedAt = Date.now(); if (line) t.log.push({ at: t.updatedAt, text: line }); send({ type: 'update', task: JSON.parse(JSON.stringify(t)) }); };
   async function drive(t: AgentTask): Promise<void> {
     t.status = 'planning'; touch(t, 'Planning.');
     await wait(1200);
     t.steps = ['Read the project and find where it goes', 'Make the change', 'Run the tests and fix what fails'].map((title, i) => ({ id: i + 1, title, status: 'todo', tries: 0 }));
     if (t.control === 'ask' || t.control === 'plan') {
       t.status = 'awaiting'; touch(t, 'Waiting for you to approve the plan.');
-      const id = nextAsk++;
-      const a = await new Promise<{ approve: boolean; cancel?: boolean }>(r => { asks.set(id, r); send({ type: 'ask', id, taskId: t.id, kind: 'plan', text: t.steps.map(s => `${s.id}. ${s.title}`).join('\n') }); });
-      send({ type: 'ask-end', id });
-      if (!a.approve) { t.status = 'cancelled'; t.steps.forEach(s => (s.status = 'skipped')); touch(t, 'Plan turned down.'); return; }
+      const id = `demo-q-${t.id}`;
+      const reply = await new Promise<AskReply | null>(r => { demoReplies.set(id, r); send({ type: 'question', taskId: t.id, ev: { t: 'question', id, question: 'Approve this plan?', options: [{ label: 'Approve', description: '' }], multiSelect: false, plan: t.steps.map(s => `${s.id}. ${s.title}`).join('\n') } }); });
+      const ok = Array.isArray(reply?.picked) && reply.picked.includes('Approve');
+      if (!ok) { t.status = 'cancelled'; t.steps.forEach(s => (s.status = 'skipped')); touch(t, 'Plan turned down.'); return; }
     }
     for (const s of t.steps) {
-      if ((t.status as AgentTaskStatus) === 'paused' || (t.status as AgentTaskStatus) === 'cancelled') return;
+      if ((t.status as AgentTaskStatus) === 'cancelled') return;
       t.status = 'running'; s.status = 'running'; touch(t, `Step ${s.id}: ${s.title}`);
-      send({ type: 'run-start', taskId: t.id, runId: s.id });
-      send({ type: 'run', runId: s.id, ev: { t: 'text', text: `Working on: ${s.title}…` } });
-      await wait(1600);
-      if ((t.status as AgentTaskStatus) === 'paused' || (t.status as AgentTaskStatus) === 'cancelled') return;
+      const runId = nextRun++;
+      send({ type: 'run-start', taskId: t.id, runId, mode: 'build', agent: t.agent, step: s.id });
+      const say = (ev: AgentEvent) => agentListeners.forEach(cb => cb(runId, ev));
+      await wait(500);
+      say({ t: 'text', text: `Working on: ${s.title.toLowerCase()}.` });
+      await wait(900);
+      say({ t: 'text', text: `Working on: ${s.title.toLowerCase()}. Finished and checked.` });
+      say({ t: 'done', ok: true, ms: 1400 });
+      if ((t.status as AgentTaskStatus) === 'cancelled') return;
       s.status = 'done'; touch(t, `Step ${s.id} done.`);
     }
     t.status = t.schedule || t.trigger ? 'waiting' : 'done'; touch(t, 'Done.');
-    send({ type: 'notify', id: t.id, text: 'Done.' });
   }
   return {
+    async classify(text) {
+      const task = /^\/task\b/i.test(text), chat = /^\/chat\b/i.test(text);
+      const goal = text.replace(/^\/(task|chat)\b\s*/i, '');
+      const agentic = task || (!chat && (/\b(and then|then|after that)\b/i.test(goal) || (goal.match(/\b(fix|add|update|run|test|refactor|write|check|delete|summari[sz]e)\b/gi) ?? []).length >= 3 || /\bevery (morning|day|hour)\b/i.test(goal)));
+      return { agentic, goal, schedule: agentic && /\bevery morning\b/i.test(goal) ? { kind: 'daily', at: '09:00' } : null, trigger: null, why: 'demo' };
+    },
     async list() { return { tasks, running: tasks.filter(t => t.status === 'running').map(t => t.id) }; },
-    async projects() { return [{ path: '/Users/you/Projects/landing', name: 'landing', missing: false }, { path: '/Users/you/Projects/api', name: 'api', missing: false }]; },
     async create(input) {
-      if (!input.goal.trim()) throw new Error('Say what the task should do.');
+      if (!['claude', 'codex'].includes(input.agent)) throw new Error('Agentic tasks need Claude Code or Codex.');
       const now = Date.now();
       const t: AgentTask = { id: `t${now}`, goal: input.goal.trim(), project: input.project, agent: input.agent, control: input.control, device: false, steps: [], status: input.schedule || input.trigger ? 'waiting' : 'queued',
         log: [], createdAt: now, updatedAt: now, order: tasks.length + 1, schedule: input.schedule ?? null, trigger: input.trigger ?? null,
         nextRunAt: input.schedule ? now + 3_600_000 : null, lastRunAt: null, error: null };
       tasks.push(t);
-      touch(t, t.status === 'waiting' ? 'Scheduled.' : 'Queued.');
-      if (t.status === 'queued') void drive(t);
-      return t;
+      if (t.status === 'queued') setTimeout(() => void drive(t), 50);
+      return JSON.parse(JSON.stringify(t));
     },
-    async action(id, action, delta) {
+    async action(id, action) {
       const t = tasks.find(x => x.id === id);
       if (!t) return false;
-      if (action === 'pause') { t.status = 'paused'; t.steps.forEach(s => { if (s.status === 'running') s.status = 'todo'; }); touch(t, 'Paused.'); }
-      else if (action === 'cancel') { t.status = 'cancelled'; touch(t, 'Cancelled.'); }
-      else if (action === 'run') { t.steps = t.steps.filter(s => s.status !== 'done').length ? t.steps : []; void drive(t); }
+      if (action === 'pause') { t.status = 'paused'; touch(t, 'Paused.'); }
+      else if (action === 'cancel') { t.status = 'cancelled'; t.steps.forEach(s => { if (s.status !== 'done') s.status = 'skipped'; }); touch(t, 'Cancelled.'); }
+      else if (action === 'run') void drive(t);
       else if (action === 'remove') { tasks.splice(tasks.indexOf(t), 1); send({ type: 'removed', id }); }
-      else if (action === 'move') { t.order += Math.sign(delta ?? 0) * 1.5; touch(t); }
       return true;
     },
-    async answer(id, a) { const r = asks.get(id); if (!r) return false; asks.delete(id); r(a); return true; },
     async stopAll() { let n = 0; for (const t of tasks) if (t.status === 'running') { t.status = 'paused'; touch(t, 'Paused.'); n++; } return n; },
     async memory() { return memory; },
     async forget(id) { const i = memory.findIndex(m => m.id === id); if (i < 0) return false; memory.splice(i, 1); send({ type: 'memory' }); return true; },
@@ -450,7 +456,7 @@ function demoApi(): BreezeApi {
       },
       async stop() { /* demo runs finish on their own */ },
       async answer() { /* demo runs never ask */ },
-      async reply() { return true; },
+      async reply(id, reply) { const settle = demoReplies.get(id); if (settle) { demoReplies.delete(id); settle(reply); } return true; },
       async setModel() { return true; },
       // Canned replies for the conflict Duel: an advocate argues its side; the judge merges the two versions it was shown
       // (ours, then theirs' lines that ours doesn't have) in a fenced block.
