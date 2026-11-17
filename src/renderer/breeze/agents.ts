@@ -131,6 +131,8 @@ interface AgentTabState {
   teamClaim?: TeamClaimState;
   // Send is waiting for the mention parse, so a second Enter does not send the prompt twice.
   parsing?: boolean;
+  // Messages sent with Ctrl+Enter (or to an agent that can't take one mid-task), sent in turn as it finishes (composerui.ts).
+  queue?: QueuedMsg[];
 }
 
 interface TeamClaimState {
@@ -442,6 +444,8 @@ function switchAgentTab(s: Surface, tid: string): void {
   if (!next) return;
   activeTabId[s.name] = next.id;
   next.unreadDone = false;
+  if (typeof renderQueue === 'function') { renderQueue(next); setTimeout(() => background(flushQueue(next)), 0); }
+  if (typeof refreshComposers === 'function') refreshComposers();
   next.panel.classList.add('active');
 
   if (s.name === 'ide' && next.agentId && appState.agent !== next.agentId) {
@@ -550,7 +554,7 @@ function updateTabBusyState(s: Surface, tab?: AgentTabState): void {
   const t = tab || getActiveTab(s);
   const on = tabBusy(t);
   s.send.classList.toggle('stop', on);
-  void setIcon(s.send, on ? 'stop' : 'send');
+  void setIcon(s.send, on ? 'stop' : 'arrowUp');
   const span = $('span', s.send);
   if (span) swapText(span, on ? 'Stop' : 'Send');
   s.send.title = on ? 'Stop the agent' : 'Send (Enter)';

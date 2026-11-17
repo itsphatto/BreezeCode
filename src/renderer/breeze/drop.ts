@@ -800,6 +800,10 @@ function agentDropTarget(e: DragEvent): AgentDropTargetInfo | null {
     }
     return { el: $('#agents'), surface: SURFACES.ide };
   }
+  // An Agent board box: anywhere on it attaches to its own prompt.
+  const boardBox = t.closest<HTMLElement>('.board-box.filled');
+  const boardS = boardBox?.dataset.box ? SURFACES[`board:${boardBox.dataset.box}`] : undefined;
+  if (boardBox && boardS) return { el: boardBox.querySelector<HTMLElement>('.composer-box') ?? boardBox, surface: boardS, tab: getActiveTab(boardS) };
   const inBox = t.closest('#box');
   const inAgents = t.closest('#agents');
   if (!inBox && !inAgents) return null;
@@ -1473,7 +1477,7 @@ document.addEventListener('dragover', e => {
     markDrop(null);
     clearTreeDropMarks();
     markAgentDrop(ag.el);
-    const container = ag.surface.name === 'box' ? $('#box') : $('#agents');
+    const container = isBoardSurface(ag.surface.name) ? null : ag.surface.name === 'box' ? $('#box') : $('#agents'); // a board box: just its prompt lights up
     setFluidContainer(container, e.clientX, e.clientY);
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     return;

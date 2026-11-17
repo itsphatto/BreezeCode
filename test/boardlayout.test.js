@@ -58,3 +58,34 @@ test('too narrow for the boxes side by side: two columns, rows to scroll to', ()
 test('no width yet (the page is hidden): the wide layout', () => {
   assert.equal(plain(boardLayout(8, 0)).cols, 4);
 });
+
+const { boardTiles, dragShares } = vm.runInContext('({ boardTiles, dragShares })', ctx);
+const round = r => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) });
+
+test('boardTiles: two boxes share the width, a handle in the gap', () => {
+  const t = plain(boardTiles(2, 1006, 500, 6, {}));
+  assert.deepEqual(t.boxes.map(round), [{ x: 0, y: 0, w: 500, h: 500 }, { x: 506, y: 0, w: 500, h: 500 }]);
+  assert.deepEqual(t.sashes.map(s => [s.key, s.index, s.dir, round(s.rect)]), [['2', 0, 'row', { x: 500, y: 0, w: 6, h: 500 }]]);
+});
+
+test('boardTiles: saved sizes move the line, and three keeps one tall box with two stacked', () => {
+  const two = plain(boardTiles(2, 1006, 500, 6, { 2: [3, 1] }));
+  assert.equal(Math.round(two.boxes[0].w), 750);
+  const three = plain(boardTiles(3, 1006, 506, 6, { 3: [1, 1], '3.1': [1, 3] }));
+  assert.deepEqual(three.boxes.map(round), [{ x: 0, y: 0, w: 500, h: 506 }, { x: 506, y: 0, w: 500, h: 125 }, { x: 506, y: 131, w: 500, h: 375 }]);
+  assert.deepEqual(three.sashes.map(s => s.key), ['3', '3.1']);
+});
+
+test('boardTiles: from four up, each row splits on its own', () => {
+  const five = plain(boardTiles(5, 1212, 406, 6, {}));
+  assert.equal(five.boxes.length, 5);
+  assert.deepEqual(five.sashes.map(s => [s.key, s.index]), [['5.0', 0], ['5.0', 1], ['5', 0], ['5.1', 0]]);
+  assert.ok(five.boxes.every(b => b.w > 0 && b.h > 0));
+});
+
+test('dragShares trades room between neighbours, never under the minimum', () => {
+  assert.deepEqual(plain(dragShares(undefined, 2, 0, 100, 1000, 200)).map(v => +v.toFixed(2)), [0.6, 0.4]);
+  assert.deepEqual(plain(dragShares([1, 1], 2, 0, -900, 1000, 200)).map(v => +v.toFixed(2)), [0.2, 0.8]);
+  assert.deepEqual(plain(dragShares([1, 1, 1], 3, 1, 50, 900, 100)).map(v => +v.toFixed(3)), [0.333, 0.389, 0.278]);
+  assert.deepEqual(plain(dragShares([0, 'x'], 2, 0, 0, 1000, 200)), [0.5, 0.5]); // bad saved values: an even split
+});

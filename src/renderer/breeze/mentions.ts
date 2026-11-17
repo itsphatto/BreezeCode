@@ -210,9 +210,8 @@ function renderPromptModels(kit: PromptKit = IDE_KIT): void {
   const box = kit.models;
   const text = kit.ta.value;
   const typed = !!text.trim();
-  // An empty prompt shows neither Full access nor a model chip; once something is typed both come in.
   box.closest('.composer-box')?.classList.toggle('has-text', typed);
-  const picked = typed ? kit.picked(text) : [];
+  const picked = kit.picked(text);
   const tagged = picked.filter(a => a.models?.length || a.version);
   const ids = tagged.map(a => a.id);
   // An untagged agent's chip fades out where it is; the box keeps its row until then (see fitPrompt), so the chip
@@ -279,7 +278,7 @@ const PROMPT_MAX_H = 200;
 function fitPrompt(kit: PromptKit = IDE_KIT): void {
   const ta = kit.ta;
   const box = ta.closest('.composer-box') as HTMLElement;
-  box.classList.toggle('compact', !kit.models.querySelector('.prompt-model'));
+  box.classList.remove('compact'); // every composer keeps its bottom row (composerui.ts)
   ta.style.height = 'auto';
   const need = ta.scrollHeight;
   ta.style.height = `${Math.min(PROMPT_MAX_H, need)}px`;
@@ -483,7 +482,13 @@ for (const s of Object.values(SURFACES)) {
     if (tabBusy(tab)) stopAgent(tab);
     else void sendPrompt();
   };
-  s.prompt.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendPrompt(); } });
+  // Enter sends; while the agent works it adds to its task, and Ctrl+Enter queues (composerui.ts).
+  s.prompt.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    if (submitWhileBusy(s, getActiveTab(s), e.ctrlKey || e.metaKey)) return;
+    void sendPrompt();
+  });
 
   const box = s.prompt.closest<HTMLElement>('.composer-box');
   if (box) {
@@ -516,6 +521,16 @@ document.addEventListener('paste', async (e: ClipboardEvent) => {
 
   const target = e.target as HTMLElement | null;
   const activeEl = document.activeElement;
+  // An Agent board box's prompt: the image goes to that box.
+  const boardEl = (target?.closest?.('.board-composer') ?? activeEl?.closest?.('.board-composer'))?.closest<HTMLElement>('.board-box.filled');
+  const boardS = boardEl?.dataset.box ? SURFACES[`board:${boardEl.dataset.box}`] : undefined;
+  if (boardS) {
+    const f = imgItem ? imgItem.getAsFile() : imgFile;
+    if (!f) return;
+    e.preventDefault();
+    await addPastedImage(f, boardS);
+    return;
+  }
   const inBox = !!(target?.closest('#box, .box-composer') || activeEl === SURFACES.box.prompt || appState.mode === 'box');
   const inIde = !!(target?.closest('#agents, .composer') || activeEl === SURFACES.ide.prompt || (!inBox && appState.mode === 'ide'));
 

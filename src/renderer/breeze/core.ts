@@ -319,6 +319,7 @@ interface BreezeApi {
     run(opts: { agent: string; mode: AgentMode; prompt: string; session: string | null; box?: boolean }): Promise<number>;
 
     stop(runId: number): Promise<void>;
+    steer(runId: number, text: string): Promise<boolean>; // adds a message to the running task; false: queue it instead
     answer(id: string, answer: 'once' | 'all' | 'deny'): Promise<void>;
     // The answer to an agent's question; false when it had already stopped waiting.
     reply(id: string, reply: AskReply | null): Promise<boolean>;
@@ -444,6 +445,7 @@ interface BreezeApi {
   };
   win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>; devIcon(on: boolean): Promise<void>;
     glass(on: boolean): Promise<boolean>; // false: this system can't draw a see-through window
+    dictate(): Promise<boolean>; // Windows voice typing into the focused field; false where there is none
     backdropWhere(): Promise<{ source: string; x: number; y: number; w: number; h: number } | null>; // the window's display (a capture source) and its place on it, in fractions; null: not offered here
     pickBackdrop(): Promise<{ url: string; name: string } | null>;
     minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>;

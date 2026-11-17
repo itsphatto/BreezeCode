@@ -1261,7 +1261,7 @@ function openTermWindow() {
     show: false,
     title: 'Terminal - Breeze Code',
     icon: APP_ICON,
-    backgroundColor: '#0c0c0c',
+    backgroundColor: glassOn ? '#00000000' : themeBg, // the main window's theme, or see-through under Glass
     titleBarStyle: 'hidden', // the page draws its own window buttons; macOS keeps its traffic lights
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'termPreload.js') },
   });
@@ -1269,6 +1269,7 @@ function openTermWindow() {
   const st: TermState = { win: w, cwd: root || termCwd, procs: new Map() };
   termWins.set(wcId, st);
   showTaskbarIcon(w);
+  if (glassOn) setWindowGlass(w, true).catch(logError('terminal glass'));
   const stopAll = () => { for (const c of st.procs.values()) killTree(c); st.procs.clear(); };
   w.once('ready-to-show', () => w.show());
   w.loadFile(TERM_PAGE).catch(logError('terminal window'));
@@ -1290,6 +1291,19 @@ function handleTerm(channel: string, fn: (st: TermState, ...args: any[]) => unkn
   });
 }
 handle('win:newTerminal', () => openTermWindow());
+// The composer's mic: Windows' own voice typing (Win+H), which types into whatever has focus, so the page focuses its
+// prompt first. keybd_event from a short PowerShell, as Breeze has no native module. False where there is none.
+const DICTATE_CS = `using System.Runtime.InteropServices;
+public static class BreezeKeys {
+  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
+  public static void WinH() { keybd_event(0x5B, 0, 0, System.UIntPtr.Zero); keybd_event(0x48, 0, 0, System.UIntPtr.Zero); keybd_event(0x48, 0, 2, System.UIntPtr.Zero); keybd_event(0x5B, 0, 2, System.UIntPtr.Zero); }
+}`;
+handle('win:dictate', () => {
+  if (process.platform !== 'win32') return false;
+  const script = `Add-Type -TypeDefinition @'\n${DICTATE_CS}\n'@\n[BreezeKeys]::WinH()`;
+  return new Promise<boolean>(resolve => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+    { windowsHide: true, timeout: 20_000 }, err => resolve(!err)));
+});
 handleTerm('tw:new', () => openTermWindow());
 handleTerm('tw:info', async st => ({ cwd: st.cwd, platform: process.platform, user: `${os.userInfo().username}@${os.hostname()}`, sys: await termSysInfo() }));
 // The facts the terminal window's welcome banner lists beside the logo (termwin.ts), like neofetch.
@@ -1892,8 +1906,8 @@ handle('sys:runCommand', async (_e, cmd) => {
   return true;
 });
 // Full access: build mode runs with no guard. Agents may reach files outside the project, .env files and .git,
-// Claude skips every permission check and Codex leaves its sandbox. Off unless the user turns it on.
-const fullAccess = () => loadState().agentFullAccess === true;
+// Claude skips every permission check and Codex leaves its sandbox. On unless the user turns it off in Settings.
+const fullAccess = () => loadState().agentFullAccess !== false;
 handle('agent:fullAccess', () => fullAccess());
 handle('agent:setFullAccess', (_e, on) => { saveState({ agentFullAccess: on === true }); return on === true; });
 // Skills view: the agents' skills (removed to the Recycle Bin) and Claude Code's plugins (turned on or off).
@@ -1983,7 +1997,9 @@ handle('win:theme', (_e, theme) => {
   themeBg = THEME_BG[theme];
   themeName = theme;
   if (glassOn) tintGlass();
-  if (win && !glassOn) win.setBackgroundColor(themeBg); // glass keeps the window see-through
+  if (glassOn) return; // glass keeps the windows see-through
+  if (win) win.setBackgroundColor(themeBg);
+  for (const t of termWins.values()) if (!t.win.isDestroyed()) t.win.setBackgroundColor(themeBg);
 });
 // Windows 10 (and Windows 11 before 22H2) has no backgroundMaterial, so the blur is asked of the window manager
 // directly: SetWindowCompositionAttribute with the blur-behind accent (3; 0 turns it off). Breeze has no native module,
@@ -2011,22 +2027,30 @@ function windowsBlur(w: BrowserWindow, on: boolean): Promise<boolean> {
 // Appearance → Glass: the system blurs and tints whatever is behind the window (acrylic on Windows 11 22H2+, a blur on
 // older Windows, vibrancy on macOS) and the page draws its panels see-through over it. Returns false where the system
 // can't (Linux, or a Windows call that failed).
-handle('win:glass', async (_e, on) => {
-  if (!win) return false;
-  on = on === true;
+// Asks the system for (or drops) the frosted material behind one window. Resolves whether it took.
+async function setWindowGlass(w: BrowserWindow, on: boolean): Promise<boolean> {
   if (process.platform === 'win32') {
     const build = Number(process.getSystemVersion().split('.')[2]); // backgroundMaterial needs Windows 11 22H2 (22621)
-    if (build >= 22621) win.setBackgroundMaterial(on ? 'acrylic' : 'none');
-    else if (!(await windowsBlur(win, on)) && on) return false;
+    if (build >= 22621) w.setBackgroundMaterial(on ? 'acrylic' : 'none');
+    else if (!(await windowsBlur(w, on)) && on) return false;
   } else if (process.platform === 'darwin') {
-    win.setVibrancy(on ? 'under-window' : null);
+    w.setVibrancy(on ? 'under-window' : null);
   } else {
     return false;
   }
-  if (!win) return false; // closed while PowerShell ran
+  if (w.isDestroyed()) return false; // closed while PowerShell ran
+  w.setBackgroundColor(on ? '#00000000' : themeBg);
+  return true;
+}
+handle('win:glass', async (_e, on) => {
+  if (!win) return false;
+  on = on === true;
+  if (!(await setWindowGlass(win, on)) && on) return false;
+  if (!win) return false;
   glassOn = on;
   tintGlass();
-  win.setBackgroundColor(on ? '#00000000' : themeBg);
+  // Terminal windows follow: their page turns see-through from the same setting (termwin.ts).
+  for (const t of termWins.values()) if (!t.win.isDestroyed()) setWindowGlass(t.win, on).catch(logError('terminal glass'));
   return true;
 });
 // Glass keeps its text readable over whatever is behind the window (settings.ts tuneGlass). The page watches the
@@ -2275,6 +2299,17 @@ function stopRun(runId: number | string): void {
   r.abort?.abort();
 }
 handle('agent:run', (_e, opts) => launchRun({ ...opts, team: null }));
+// One user message in Claude Code's stream-json input.
+const claudeUserLine = (text: string) => `${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })}\n`;
+// A message sent while the agent works, added to the task it is on. Only Claude Code takes one mid-task, and only
+// before its turn ends; false tells the page to queue it as the next message instead.
+handle('agent:steer', (_e, runId, text) => {
+  const r = runs.get(Number(runId));
+  const msg = String(text ?? '').trim();
+  if (!msg || !r || r.stopped || r.agent !== 'claude' || !r.steerable || !r.child?.stdin?.writable) return false;
+  r.child.stdin.write(claudeUserLine(msg.slice(0, 100_000)));
+  return true;
+});
 
 /* ----- Agent usage: tokens each agent used this month, and how much of its plan is left ----- */
 // Tokens come from Claude's and Codex's own logs (below) and, for other agents, from each finished run in Breeze.
@@ -2836,7 +2871,7 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number }
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose }
 // `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
@@ -2872,7 +2907,9 @@ const CLAUDE_ASK_DENIED = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   const build = mode === 'build';
   const full = build && fullAccess();
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
+  // --input-format stream-json: the prompt is the first of its messages on stdin, and a message sent while it works
+  // (agent:steer) is added to the task it is on.
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
   // MCP servers connected in Breeze, and Breeze's own. Print mode can't ask, so in build mode their tools are allowed
   // up front. Breeze's own only ask, show and look, so every mode gets them.
   const mcpFile = mcpConfigFile(shell, breezeUrl);
@@ -2999,7 +3036,10 @@ function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): vo
   ctx.done = true;
   const text = d.result || ctx.lastText;
   if (mode === 'plan' && text) emit(runId, { t: 'plan', text });
-  emit(runId, { t: 'done', ok: true, tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0) });
+  // Done is sent when the process ends (streamCli): a message added mid-task can take it through one more turn, and
+  // the tokens of every turn count.
+  ctx.tokens = (ctx.tokens || 0) + (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0);
+  ctx.final = { t: 'done', ok: true, tokens: ctx.tokens };
 }
 function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
@@ -3063,7 +3103,11 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     } catch (err) { dropSettingsFile(run); breezeMcp.close(runId); throw err; }
     run.child = child;
     child.stdin!.on('error', () => { /* the agent exited before reading its prompt; its output says why */ });
-    child.stdin!.end(cli.prompt ?? undefined);
+    if (agent === 'claude') {
+      // Its first message; stdin stays open for more until its turn ends (streamCli).
+      child.stdin!.write(claudeUserLine(cli.prompt ?? ''));
+      run.steerable = true;
+    } else child.stdin!.end(cli.prompt ?? undefined);
     streamCli(runId, run, child, agent === 'claude' ? claudeEvent : agent === 'opencode' ? opencodeEvent : codexEvent, mode, retryModel);
   };
   // A retry starts from the close listener, so a failed launch there ends the run instead of throwing.
@@ -3101,7 +3145,12 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
   let buf = '';
   const line = (text: string) => {
     if (!text) return;
-    try { parse(runId, JSON.parse(text), ctx, mode); } catch { ctx.stderr += text + '\n'; } // not JSON: keep it for the error message
+    let d: Loose;
+    try { d = JSON.parse(text); } catch { ctx.stderr += text + '\n'; return; } // not JSON: keep it for the error message
+    try { parse(runId, d, ctx, mode); } catch (err) { ctx.stderr += `${(err as Error).message}\n`; }
+    // Claude's turn is over: close its input so it exits once anything already sent is answered. Nothing more can be
+    // added after this; the page queues it for the next message instead.
+    if (run.agent === 'claude' && d?.type === 'result' && run.steerable) { run.steerable = false; child.stdin?.end(); }
   };
   // Decoded as a stream, so a character split across two chunks stays whole.
   child.stdout!.setEncoding('utf8');
@@ -3121,7 +3170,7 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
     questions.cancelRun(runId);
     if (!ctx.done && !ctx.retry && NO_SESSION.test(ctx.lastError + ctx.stderr)) ctx.retry = ctx.lastError + ctx.stderr;
     if (ctx.retry && !run.stopped && ctx.retryModel?.(ctx.retry)) return;
-    if (ctx.done) return;
+    if (ctx.done) { if (ctx.final) emit(runId, ctx.final); return; }
     if (run.stopped) { emit(runId, { t: 'done', ok: false, stopped: true }); return; }
     emit(runId, { t: 'error', text: ctx.lastError || ctx.stderr.trim().split('\n').slice(-6).join('\n') || `The agent exited with code ${code}` });
     emit(runId, { t: 'done', ok: false });

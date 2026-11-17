@@ -28,7 +28,7 @@ function applyDevMode(): void {
 const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'opencode', 'ollama'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
 let settingsTab: SettingsTab = 'general';
-let agentFullAccess = false; // the main process keeps the real value; read each time Settings opens
+let agentFullAccess = true; // on unless turned off in Settings → Agents; the main process keeps the real value; read each time Settings opens
 let justSwitched = false;
 const settingsRoot = () => document.querySelector<HTMLElement>('#modalRoot .scrim:not(.closing) .settings-modal');
 // The on/off switch (styles under "on/off switch" in breeze.css): a rounded track and a square knob that stretches as it slides.
@@ -818,6 +818,7 @@ const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found &&
 function updateUsage(el: HTMLElement): void {
   background(api.agent.usage().then(u => {
     agentUsage = u;
+    if (typeof refreshComposers === 'function') refreshComposers();
     const html = usageHtml(usageAgents());
     if (!el.isConnected || (html === usageShown && el.childElementCount)) return;
     usageShown = html;
@@ -1588,19 +1589,18 @@ function renderAccessSwitches(): void {
 }
 // The switch flips at once instead of after main answers; main's answer only corrects it, and a failure flips it back.
 function setFullAccess(on: boolean): void {
-  const show = (v: boolean) => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); } };
+  const show = (v: boolean) => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); if (typeof refreshComposers === 'function') refreshComposers(); } };
   show(on);
   background(api.agent.setFullAccess(on).then(v => {
     show(v);
     toast(v ? 'Full access on: agents can run anything in build mode' : 'Full access off');
   }, (e: unknown) => { show(!on); throw e; }));
 }
-$$<HTMLButtonElement>('[data-full-access]').forEach(b => b.onclick = () => setFullAccess(!agentFullAccess));
-background(api.agent.fullAccess().then(v => { agentFullAccess = v; renderAccessSwitches(); }));
+background(api.agent.fullAccess().then(v => { agentFullAccess = v; if (typeof refreshComposers === 'function') refreshComposers(); }));
 
 function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   if (settingsRoot()) { closeModal(); return; }
-  background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); } }));
+  background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); if (typeof refreshComposers === 'function') refreshComposers(); } }));
   closeMenu();
   if (tab) settingsTab = tab;
   const gears = [$('#settingsBtn'), $('#boxSettings'), $('#homeSettings')];

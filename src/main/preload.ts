@@ -147,6 +147,7 @@ contextBridge.exposeInMainWorld('breeze', {
   agent: {
     run: (opts: unknown) => invoke('agent:run', opts),
     stop: (runId: unknown) => invoke('agent:stop', runId),
+    steer: (runId: unknown, text: unknown) => invoke('agent:steer', runId, text),
     answer: (id: unknown, answer: unknown) => invoke('agent:answer', id, answer),
     reply: (id: unknown, reply: unknown) => invoke('agent:reply', id, reply),
     setModel: (agent: unknown, model: unknown, effort: unknown) => invoke('agent:setModel', { agent, model, effort }),
@@ -284,6 +285,7 @@ contextBridge.exposeInMainWorld('breeze', {
     edit: (role: unknown) => invoke('win:edit', role),
     theme: (t: unknown) => invoke('win:theme', t),
     glass: (on: unknown) => invoke('win:glass', on),
+    dictate: () => invoke('win:dictate'),
     backdropWhere: () => invoke('win:backdropWhere'),
     pickBackdrop: () => invoke('win:pickBackdrop'),
     devIcon: (on: unknown) => invoke('win:devIcon', on),

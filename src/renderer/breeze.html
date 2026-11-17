@@ -378,15 +378,18 @@
               </section>
               <!-- Ask an agent from Home: opens the folder shown in the chip in the IDE and sends there (homedock.ts). -->
               <form class="home-ask" id="homeAsk" autocomplete="off">
-                <div class="home-ask-box">
+                <div class="home-ask-box composer-box cmp" id="homeAskBox">
+                  <div class="composer-attachments hidden" id="homeAskFiles"></div>
                   <textarea id="homeAskInput" rows="2" spellcheck="true" aria-label="Message to the agent" placeholder="Ask an agent to build something…"></textarea>
-                  <div class="home-ask-row">
-                    <button type="button" class="pill pill-btn box-folder home-ask-dir" id="homeAskDir" title="The folder the agent works in" aria-haspopup="menu"><svg data-i="folder" data-size="14"></svg><span id="homeAskDirName">Choose a folder</span><svg data-i="chevronDown" data-size="12"></svg></button>
-                    <span class="prompt-models home-ask-models" id="homeAskModels"></span>
+                  <div class="row cmp-row">
+                    <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><button class="icon-btn cmp-attach" type="button" title="Attach photos or files" aria-label="Attach photos or files"><svg data-i="paperclip" data-size="15"></svg></button><input class="cmp-attach-pick" type="file" multiple hidden><button class="cmp-perm" type="button" aria-haspopup="menu"><svg data-i="shield" data-size="14"></svg><span class="cmp-perm-label">Full access</span><svg data-i="chevronDown" data-size="12"></svg></button>
                     <span class="flex-1"></span>
-                    <button type="submit" class="icon-btn" id="homeAskSend" title="Send (Enter)" aria-label="Send"><svg data-i="send" data-size="14"></svg></button>
+                    <span class="prompt-models home-ask-models" id="homeAskModels"></span>
+                    <button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
+                    <button type="submit" class="cmp-send" id="homeAskSend" title="Send (Enter)" aria-label="Send"><svg data-i="arrowUp" data-size="15"></svg></button>
                   </div>
                 </div>
+                <div class="cmp-meta"><button type="button" class="cmp-folder cmp-folder-btn" id="homeAskDir" title="The folder the agent works in" aria-haspopup="menu"><svg data-i="folder" data-size="13"></svg><span id="homeAskDirName">Choose a folder</span><svg data-i="chevronDown" data-size="11"></svg></button><span class="cmp-env" title="Agents run on this computer"><svg data-i="monitor" data-size="13"></svg><span>Local</span></span><span class="cmp-branch hidden"><svg data-i="gitBranch" data-size="13"></svg><span class="cmp-branch-name"></span></span><span class="flex-1"></span><span class="cmp-ctx hidden" role="meter" aria-label="Usage limit used" aria-valuemin="0" aria-valuemax="100"><span class="cmp-ctx-bar"><i></i></span><span class="cmp-ctx-pct"></span></span></div>
               </form>
             </div>
             <aside class="home-dock" id="homeDockRight" data-dock="right"></aside>
@@ -675,24 +678,24 @@
         </div>
         <div class="chat" id="chat"></div>
         <div class="composer">
-          <div class="composer-box">
+          <div class="composer-box cmp">
             <div class="composer-attachments hidden" id="promptAttachments"></div>
             <div class="prompt-field">
               <div class="prompt-hl" id="promptHl" aria-hidden="true"></div>
               <textarea id="prompt" rows="1" aria-label="Message to the agent"
                 placeholder=" "></textarea>
             </div>
-            <div class="row">
+            <div class="row cmp-row">
               <!-- No mode picker: the agent decides for itself whether to answer, plan or change files. -->
               <select class="select hidden" id="agentMode" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select>
-              <span class="prompt-models" id="promptModels"></span>
+              <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><button class="icon-btn cmp-attach" type="button" title="Attach photos or files" aria-label="Attach photos or files"><svg data-i="paperclip" data-size="15"></svg></button><input class="cmp-attach-pick" type="file" multiple hidden><button class="cmp-perm" type="button" aria-haspopup="menu"><svg data-i="shield" data-size="14"></svg><span class="cmp-perm-label">Full access</span><svg data-i="chevronDown" data-size="12"></svg></button>
               <span class="flex-1"></span>
-              <span class="composer-access" title="Full access lets agents run any command and reach any file. Off keeps them in the project."><span class="ca-label">Full access</span><button class="switch switch-sm" data-full-access type="button" role="switch" aria-checked="false" aria-label="Full access"><span class="sw-knob"></span></button></span>
-              <button class="icon-btn improve-prompt" data-improve-prompt type="button" title="Improve prompt" aria-label="Improve prompt"><svg data-i="sparkles" data-size="14"></svg><span class="spinner sm" aria-hidden="true"></span></button>
-              <button class="btn btn-primary btn-sm" id="send" title="Send (Enter)" aria-label="Send"><svg data-i="send"
-                  data-size="14"></svg></button>
+              <span class="prompt-models" id="promptModels"></span>
+              <button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
+              <button class="cmp-send" id="send" title="Send (Enter)" aria-label="Send"><svg data-i="arrowUp" data-size="15"></svg></button>
             </div>
           </div>
+          <div class="cmp-meta"><span class="cmp-folder"><svg data-i="folder" data-size="13"></svg><span class="cmp-folder-name">No folder</span></span><span class="cmp-env" title="Agents run on this computer"><svg data-i="monitor" data-size="13"></svg><span>Local</span></span><span class="cmp-branch hidden"><svg data-i="gitBranch" data-size="13"></svg><span class="cmp-branch-name"></span></span><span class="flex-1"></span><span class="cmp-ctx hidden" role="meter" aria-label="Usage limit used" aria-valuemin="0" aria-valuemax="100"><span class="cmp-ctx-bar"><i></i></span><span class="cmp-ctx-pct"></span></span></div>
         </div>
       </aside>
     </div>
@@ -755,25 +758,24 @@
       <div class="box-chat" id="boxChat" aria-live="polite"></div>
     </main>
     <div class="box-composer">
-      <div class="composer-box">
+      <div class="composer-box cmp">
         <div class="composer-attachments hidden" id="boxPromptAttachments"></div>
         <div class="prompt-field">
           <div class="prompt-hl" id="boxPromptHl" aria-hidden="true"></div>
           <textarea id="boxPrompt" rows="2" aria-label="Message to the agent"
             placeholder="Ask Breeze anything"></textarea>
         </div>
-        <div class="row">
-          <button class="pill blue pill-btn" id="boxModel" aria-haspopup="menu" title="Choose the agent">No
-            agent</button>
+        <div class="row cmp-row">
           <select class="select hidden" id="boxMode" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select>
-          <button class="pill pill-btn box-folder" id="boxFolder" title="The folder the agent works in">No
-            folder</button>
+          <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><button class="icon-btn cmp-attach" type="button" title="Attach photos or files" aria-label="Attach photos or files"><svg data-i="paperclip" data-size="15"></svg></button><input class="cmp-attach-pick" type="file" multiple hidden><button class="cmp-perm" type="button" aria-haspopup="menu"><svg data-i="shield" data-size="14"></svg><span class="cmp-perm-label">Full access</span><svg data-i="chevronDown" data-size="12"></svg></button>
           <span class="flex-1"></span>
+          <button class="cmp-model" id="boxModel" aria-haspopup="menu" title="Choose the agent">No agent</button>
           <button class="icon-btn improve-prompt" data-improve-prompt type="button" title="Improve prompt" aria-label="Improve prompt"><svg data-i="sparkles" data-size="14"></svg><span class="spinner sm" aria-hidden="true"></span></button>
-          <button class="btn btn-primary btn-sm" id="boxSend" title="Send (Enter)" aria-label="Send"><svg data-i="send"
-              data-size="14"></svg></button>
+          <button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
+          <button class="cmp-send" id="boxSend" title="Send (Enter)" aria-label="Send"><svg data-i="arrowUp" data-size="15"></svg></button>
         </div>
       </div>
+      <div class="cmp-meta"><button class="cmp-folder cmp-folder-btn box-folder" id="boxFolder" title="The folder the agent works in" aria-haspopup="menu">No folder</button><span class="cmp-env" title="Agents run on this computer"><svg data-i="monitor" data-size="13"></svg><span>Local</span></span><span class="cmp-branch hidden"><svg data-i="gitBranch" data-size="13"></svg><span class="cmp-branch-name"></span></span><span class="flex-1"></span><span class="cmp-ctx hidden" role="meter" aria-label="Usage limit used" aria-valuemin="0" aria-valuemax="100"><span class="cmp-ctx-bar"><i></i></span><span class="cmp-ctx-pct"></span></span></div>
     </div>
   </div>
 
@@ -782,10 +784,12 @@
   <!-- Agent board (board.ts): drag agents into boxes; every box runs at once, and blocked edits are relayed -->
   <div class="board hidden" id="board">
     <header class="titlebar board-bar">
-      <span class="board-title"><svg data-i="layoutGrid" data-size="16"></svg><b>Agent board</b></span>
+      <button class="logo logo-home" id="boardLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeCode.png" alt=""></button>
       <div class="board-roster" id="boardRoster" role="list" aria-label="Your agents. Drag one into a box."></div>
       <span class="spacer"></span>
+      <span class="board-auto" title="When on, each box shows the file its agent is editing, at the box's left."><span>Code</span><button class="switch switch-sm" id="boardCode" type="button" role="switch" aria-checked="true" aria-label="Show code"><span class="sw-knob"></span></button></span>
       <span class="board-auto" title="When on, a request one agent makes of another is sent on its own. Off, each waits for Send."><span>Auto-relay</span><button class="switch switch-sm" id="boardAuto" type="button" role="switch" aria-checked="true" aria-label="Auto-relay"><span class="sw-knob"></span></button></span>
+      <button class="btn btn-sm board-history" id="boardHistory" type="button" title="Earlier chats in this folder. Pick one to open it in a free box." aria-haspopup="menu"><svg width="13" height="13"><use href="#i-history" /></svg><span>History</span></button>
       <button class="btn btn-sm board-stop" id="boardStopAll" title="Stop every box and drop waiting relays"><svg data-i="stop" data-size="13"></svg><span>Stop all</span></button>
       <button class="btn btn-sm dbg-back" id="boardBack" title="Back to the editor. The boxes keep running."><svg data-i="chevronLeft" data-size="14"></svg><span>Back to editor</span></button>
     </header>
@@ -798,6 +802,9 @@
 
   <div class="debug hidden" id="debug">
     <header class="titlebar dbg-bar">
+      <button class="logo logo-home" id="dbgLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeCode.png" alt=""></button>
+      <span class="dbg-what" id="dbgWhat"></span>
+      <!-- Centred on the bar (breeze.css .dbg-tools), whatever sits either side. -->
       <div class="dbg-tools" id="dbgTools" role="toolbar" aria-label="Debug controls">
         <button class="icon-btn dbg-tool" id="dbgGo" data-act="run.start"><svg data-i="play" data-size="15"></svg></button>
         <button class="icon-btn dbg-tool" id="dbgPause" data-act="debug.pause"><svg data-i="pause" data-size="15"></svg></button>
@@ -808,7 +815,6 @@
         <button class="icon-btn dbg-tool" id="dbgRestart" data-act="debug.restart"><svg data-i="rotateCw" data-size="15"></svg></button>
         <button class="icon-btn dbg-tool dbg-stop" id="dbgStop" data-act="debug.stop"><svg data-i="stop" data-size="15"></svg></button>
       </div>
-      <span class="dbg-what" id="dbgWhat"></span>
       <span class="spacer"></span>
       <button class="btn btn-sm dbg-back" id="dbgBack" title="Back to the editor. The program keeps running."><svg data-i="chevronLeft" data-size="14"></svg><span>Back to editor</span></button>
     </header>
@@ -947,6 +953,7 @@
   <script src="breeze/history.js" defer></script>
   <script src="breeze/mentions.js" defer></script>
   <script src="breeze/teams.js" defer></script>
+  <script src="breeze/composerui.js" defer></script>
   <script src="breeze/boardrelay.js" defer></script>
   <script src="breeze/boardlayout.js" defer></script>
   <script src="breeze/board.js" defer></script>
