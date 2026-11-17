@@ -482,7 +482,13 @@ for (const s of Object.values(SURFACES)) {
     if (tabBusy(tab)) stopAgent(tab);
     else void sendPrompt();
   };
-  s.prompt.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendPrompt(); } });
+  // Enter sends; while the agent works it adds to its task, and Ctrl+Enter queues (composerui.ts).
+  s.prompt.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    if (submitWhileBusy(s, getActiveTab(s), e.ctrlKey || e.metaKey)) return;
+    void sendPrompt();
+  });
 
   const box = s.prompt.closest<HTMLElement>('.composer-box');
   if (box) {

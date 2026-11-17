@@ -6252,6 +6252,72 @@ textarea:not(:placeholder-shown) + .ph-rot {
   background: var(--warn);
 }
 
+/* Queued messages (Ctrl+Enter), above the prompt until the agent finishes. */
+.cmp-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -2px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font: 12px var(--font-ui);
+}
+
+.cmp-queue-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 2px 2px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.cmp-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 2px 2px 8px;
+  border-radius: 7px;
+  background: rgba(var(--ink), .05);
+  color: var(--text-2);
+}
+
+.cmp-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmp-queue-att {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.cmp-queue-item .icon-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--text-3);
+}
+
+.cmp-queue-item .icon-btn:hover {
+  background: rgba(var(--ink), .08);
+  color: var(--text);
+}
+
+/* A message added to a task while the agent was working on it. */
+.msg.user.steered .meta::after {
+  content: "· added while working";
+  margin-left: 4px;
+  color: var(--text-3);
+}
+
 /* A board box is narrower: its line packs tighter. */
 .board-composer .cmp-meta {
   gap: 10px;

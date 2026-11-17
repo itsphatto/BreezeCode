@@ -886,6 +886,7 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   tab.runId = null;
   tab.run = null;
   if (typeof refreshComposerUsage === 'function') refreshComposerUsage(true);
+  if (!ev.stopped && tab.queue?.length) setTimeout(() => background(flushQueue(tab)), 0);
   if (agentRun?.id === r.id) agentRun = null;
   hideThinking(tab);
 

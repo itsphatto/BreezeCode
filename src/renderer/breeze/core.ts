@@ -294,6 +294,7 @@ interface BreezeApi {
     run(opts: { agent: string; mode: AgentMode; prompt: string; session: string | null; box?: boolean }): Promise<number>;
 
     stop(runId: number): Promise<void>;
+    steer(runId: number, text: string): Promise<boolean>; // adds a message to the running task; false: queue it instead
     answer(id: string, answer: 'once' | 'all' | 'deny'): Promise<void>;
     // The answer to an agent's question; false when it had already stopped waiting.
     reply(id: string, reply: AskReply | null): Promise<boolean>;

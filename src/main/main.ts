@@ -2278,6 +2278,17 @@ function stopRun(runId: number | string): void {
   r.abort?.abort();
 }
 handle('agent:run', (_e, opts) => launchRun({ ...opts, team: null }));
+// One user message in Claude Code's stream-json input.
+const claudeUserLine = (text: string) => `${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })}\n`;
+// A message sent while the agent works, added to the task it is on. Only Claude Code takes one mid-task, and only
+// before its turn ends; false tells the page to queue it as the next message instead.
+handle('agent:steer', (_e, runId, text) => {
+  const r = runs.get(Number(runId));
+  const msg = String(text ?? '').trim();
+  if (!msg || !r || r.stopped || r.agent !== 'claude' || !r.steerable || !r.child?.stdin?.writable) return false;
+  r.child.stdin.write(claudeUserLine(msg.slice(0, 100_000)));
+  return true;
+});
 
 /* ----- Agent usage: tokens each agent used this month, and how much of its plan is left ----- */
 // Tokens come from Claude's and Codex's own logs (below) and, for other agents, from each finished run in Breeze.
@@ -2839,7 +2850,7 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number }
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose }
 // `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
@@ -2875,7 +2886,9 @@ const CLAUDE_ASK_DENIED = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 function claudeArgs(mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   const build = mode === 'build';
   const full = build && fullAccess();
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
+  // --input-format stream-json: the prompt is the first of its messages on stdin, and a message sent while it works
+  // (agent:steer) is added to the task it is on.
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--permission-mode', full ? 'bypassPermissions' : build ? 'acceptEdits' : 'default'];
   // MCP servers connected in Breeze, and Breeze's own. Print mode can't ask, so in build mode their tools are allowed
   // up front. Breeze's own only ask, show and look, so every mode gets them.
   const mcpFile = mcpConfigFile(shell, breezeUrl);
@@ -3002,7 +3015,10 @@ function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): vo
   ctx.done = true;
   const text = d.result || ctx.lastText;
   if (mode === 'plan' && text) emit(runId, { t: 'plan', text });
-  emit(runId, { t: 'done', ok: true, tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0) });
+  // Done is sent when the process ends (streamCli): a message added mid-task can take it through one more turn, and
+  // the tokens of every turn count.
+  ctx.tokens = (ctx.tokens || 0) + (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0);
+  ctx.final = { t: 'done', ok: true, tokens: ctx.tokens };
 }
 function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
@@ -3065,7 +3081,11 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     } catch (err) { dropSettingsFile(run); breezeMcp.close(runId); throw err; }
     run.child = child;
     child.stdin!.on('error', () => { /* the agent exited before reading its prompt; its output says why */ });
-    child.stdin!.end(cli.prompt ?? undefined);
+    if (agent === 'claude') {
+      // Its first message; stdin stays open for more until its turn ends (streamCli).
+      child.stdin!.write(claudeUserLine(cli.prompt ?? ''));
+      run.steerable = true;
+    } else child.stdin!.end(cli.prompt ?? undefined);
     streamCli(runId, run, child, agent === 'claude' ? claudeEvent : agent === 'opencode' ? opencodeEvent : codexEvent, mode, retryModel);
   };
   // A retry starts from the close listener, so a failed launch there ends the run instead of throwing.
@@ -3103,7 +3123,12 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
   let buf = '';
   const line = (text: string) => {
     if (!text) return;
-    try { parse(runId, JSON.parse(text), ctx, mode); } catch { ctx.stderr += text + '\n'; } // not JSON: keep it for the error message
+    let d: Loose;
+    try { d = JSON.parse(text); } catch { ctx.stderr += text + '\n'; return; } // not JSON: keep it for the error message
+    try { parse(runId, d, ctx, mode); } catch (err) { ctx.stderr += `${(err as Error).message}\n`; }
+    // Claude's turn is over: close its input so it exits once anything already sent is answered. Nothing more can be
+    // added after this; the page queues it for the next message instead.
+    if (run.agent === 'claude' && d?.type === 'result' && run.steerable) { run.steerable = false; child.stdin?.end(); }
   };
   // Decoded as a stream, so a character split across two chunks stays whole.
   child.stdout!.setEncoding('utf8');
@@ -3123,7 +3148,7 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
     questions.cancelRun(runId);
     if (!ctx.done && !ctx.retry && NO_SESSION.test(ctx.lastError + ctx.stderr)) ctx.retry = ctx.lastError + ctx.stderr;
     if (ctx.retry && !run.stopped && ctx.retryModel?.(ctx.retry)) return;
-    if (ctx.done) return;
+    if (ctx.done) { if (ctx.final) emit(runId, ctx.final); return; }
     if (run.stopped) { emit(runId, { t: 'done', ok: false, stopped: true }); return; }
     emit(runId, { t: 'error', text: ctx.lastError || ctx.stderr.trim().split('\n').slice(-6).join('\n') || `The agent exited with code ${code}` });
     emit(runId, { t: 'done', ok: false });

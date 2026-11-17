@@ -379,6 +379,7 @@ function demoApi(): BreezeApi {
         return id;
       },
       async stop() { /* demo runs finish on their own */ },
+      async steer() { return false; },
       async answer() { /* demo runs never ask */ },
       async reply() { return true; },
       async setModel() { return true; },
@@ -799,6 +800,7 @@ const SPEAKER = 'M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5
 const LINE_ICONS: Record<string, IconNode> = {
   plus: [['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]],
   arrowUp: [['path', { d: 'm5 12 7-7 7 7' }], ['path', { d: 'M12 19V5' }]],
+  clock: [['circle', { cx: 12, cy: 12, r: 10 }], ['path', { d: 'M12 6v6l4 2' }]],
   mic: [['path', { d: 'M12 19v3' }], ['path', { d: 'M19 10v2a7 7 0 0 1-14 0v-2' }], ['rect', { x: 9, y: 2, width: 6, height: 13, rx: 3 }]],
   shield: [['path', { d: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z' }]],
   shieldCheck: [['path', { d: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z' }], ['path', { d: 'm9 12 2 2 4-4' }]],

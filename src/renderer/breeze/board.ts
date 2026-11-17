@@ -507,9 +507,13 @@ function wireBox(box: BoardBox): void {
   s.send.onclick = () => (tabBusy(box.tab) ? stopBox(box) : void sendBox(box));
   // The composer's own buttons (+, paperclip, access, mic) and the line under it; drops go through drop.ts and
   // pasted images through mentions.ts, as before.
-  wireComposer({ box: $('.composer-box', el), meta: $('.cmp-meta', el), surface: s, agent: () => box.agent, attach: files => background(attachFilesToAgent(files, s, box.tab)) });
+  wireComposer({ box: $('.composer-box', el), meta: $('.cmp-meta', el), surface: s, agent: () => box.agent, tab: () => box.tab, send: () => sendBox(box), attach: files => background(attachFilesToAgent(files, s, box.tab)) });
   s.prompt.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!boxBusy(box)) void sendBox(box); }
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    // While it works, Enter adds to its task and Ctrl+Enter queues (composerui.ts).
+    if (submitWhileBusy(s, box.tab, e.ctrlKey || e.metaKey, boxBusy(box))) return;
+    void sendBox(box);
   });
   s.prompt.addEventListener('input', () => syncPromptHl(kit));
   syncPromptHl(kit);
