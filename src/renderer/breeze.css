@@ -20452,48 +20452,6 @@ input.dbg-edit.bad:focus-visible {
   font-family: var(--font-ui);
 }
 
-/* ================= Agentic tasks in Breeze Space =================
-   Settings → Agents: what the agentic tasks remember (agentmode.ts renderAgentMemory). */
-.agent-mem-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.agent-mem-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-size: 13px;
-  animation: staggerRowIn .25s ease both;
-}
-
-.agent-mem-row:hover {
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-}
-
-.agent-mem-text {
-  flex: 1;
-  min-width: 0;
-  color: var(--text);
-}
-
-.agent-mem-scope {
-  flex: none;
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--text-3);
-}
-
-.agent-mem-foot {
-  margin-top: 8px;
-}
-
 /* ================= Power saver =================
    <html data-power="saver"> (power.ts): on battery, on low-end hardware, or as Settings → General → Performance says.
    Everything here is scoped to that attribute, so a plugged-in machine draws exactly as before.
