@@ -174,6 +174,31 @@ type DocKind = 'type' | 'delete' | 'paste' | 'other';
 type PowerMode = 'auto' | 'on' | 'off';
 interface PowerInfo { mode: PowerMode; saver: boolean; onBattery: boolean; lowEnd: boolean; reason: 'forced' | 'battery' | 'lowend' | null }
 
+/* Agentic tasks in Breeze Space (main.ts "Agentic tasks", agentcore.ts): a task, its steps, and what Space hears. */
+type AgentControl = 'ask' | 'plan' | 'auto' | 'full';
+type AgentTaskStatus = 'planning' | 'awaiting' | 'queued' | 'running' | 'paused' | 'waiting' | 'done' | 'failed' | 'cancelled';
+type AgentSchedule = { kind: 'daily'; at: string } | { kind: 'every'; hours: number };
+type AgentTriggerKind = 'save' | 'commit' | 'testFail' | 'prComment';
+interface AgentStep { id: number; title: string; detail?: string; status: 'todo' | 'running' | 'done' | 'failed' | 'skipped'; tries: number; note?: string }
+interface AgentTask {
+  id: string; goal: string; project: string; agent: string; control: AgentControl; device: boolean;
+  steps: AgentStep[]; status: AgentTaskStatus; log: { at: number; text: string }[];
+  createdAt: number; updatedAt: number; order: number;
+  schedule?: AgentSchedule | null; trigger?: { kind: AgentTriggerKind; match?: string } | null;
+  nextRunAt?: number | null; lastRunAt?: number | null; unattended?: boolean; error?: string | null;
+}
+// project: an open or recent folder, or 'box' for the Breeze Space folder.
+interface AgentTaskInput { goal: string; project: string; agent: string; control: AgentControl; schedule?: AgentSchedule | null; trigger?: { kind: AgentTriggerKind; match?: string } | null }
+interface AgentIntent { agentic: boolean; goal: string; schedule: AgentSchedule | null; trigger: { kind: AgentTriggerKind; match?: string } | null; why: string }
+interface AgentMemoryItem { id: string; scope: string; project: string | null; text: string; at: number; used: number }
+type AgentTaskMsg =
+  | { type: 'update'; task: AgentTask }
+  | { type: 'removed'; id: string }
+  | { type: 'notify'; id: string; text: string }
+  | { type: 'question'; taskId: string; ev: AgentEvent }
+  | { type: 'run-start'; taskId: string; runId: number; mode: 'plan' | 'build'; agent: string; step: number | null }
+  | { type: 'memory' };
+
 interface BreezeApi {
   version?: string;
   platform?: string;
@@ -429,6 +454,18 @@ interface BreezeApi {
     termPopup(action: 'minimize' | 'toggleMaximize'): Promise<void>; // the popped-out terminal's window (layout.ts)
     onTermMaximized(cb: (maximized: boolean) => void): () => void;
     launchWait(): Promise<number | null>; launchShow(): Promise<void>; launchFade(): Promise<void>; };
+  agentTask: {
+    classify(text: string): Promise<AgentIntent>;
+    list(): Promise<{ tasks: AgentTask[]; running: string[] }>;
+    create(input: AgentTaskInput): Promise<AgentTask>;
+    action(id: string, action: 'run' | 'pause' | 'cancel' | 'remove' | 'move', delta?: number): Promise<boolean>;
+    stopAll(): Promise<number>;
+    memory(): Promise<AgentMemoryItem[]>;
+    forget(id: string): Promise<boolean>;
+    clearMemory(): Promise<boolean>;
+    setTray(on: boolean, startWithSystem?: boolean): Promise<{ tray: boolean; startWithSystem: boolean }>;
+    onEvent(cb: (msg: AgentTaskMsg) => void): () => void;
+  };
   // Power saver (power.ts): main decides when it is on and tells the page of every change.
   power: { get(): Promise<PowerInfo>; setMode(mode: PowerMode): Promise<PowerInfo>; onChange(cb: (info: PowerInfo) => void): () => void; };
 }

@@ -107,9 +107,13 @@ class BreezeMcpServer {
   #port = 0;
   #runs = new Map<string, number>(); // token -> run id
 
-  constructor({ tools = BREEZE_TOOLS, call }: { tools?: McpTool[]; call: ToolCall }) {
+  #extra: (runId: number) => McpTool[];
+
+  // `extra` adds tools for one run on top of the base set: agentic tasks give their runs the task and memory tools.
+  constructor({ tools = BREEZE_TOOLS, call, extra }: { tools?: McpTool[]; call: ToolCall; extra?: (runId: number) => McpTool[] }) {
     this.#tools = tools;
     this.#call = call;
+    this.#extra = extra ?? (() => []);
   }
 
   // Starts listening the first time it is needed; resolves with the port.
@@ -183,10 +187,11 @@ class BreezeMcpServer {
       res.write(': waiting\n\n');
       beat = setInterval(() => res.write(': waiting\n\n'), KEEPALIVE_MS);
     }
+    const tools = [...this.#tools, ...this.#extra(runId)];
     const replies: Record<string, unknown>[] = [];
     try {
       for (const m of messages) {
-        const reply = await handleRpc(m, this.#tools, (name, args) => this.#call(runId, name, args, abort.signal));
+        const reply = await handleRpc(m, tools, (name, args) => this.#call(runId, name, args, abort.signal));
         if (reply) replies.push(reply);
       }
     } finally { clearInterval(beat); }

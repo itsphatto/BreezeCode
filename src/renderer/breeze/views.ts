@@ -125,6 +125,7 @@ function boxAgentItems(): MenuItem[] {
   }
   items.push({ label: 'Manage agents', run: openAgentPicker });
   if (a?.found && a.models?.length) items.push({ sep: true }, ...modelPickerItems(a));
+  items.push(...agenticMenuItems()); // Control level, when the next task runs, and the tasks (agentmode.ts)
   return items;
 }
 $('#boxModel').onclick = e => {
@@ -134,6 +135,10 @@ $('#boxModel').onclick = e => {
   const r = btn.getBoundingClientRect();
   popupMenu(r.left, r.top - 8, boxAgentItems(), () => btn.classList.remove('open'));
   const m = $('#menuRoot .menu');
+  // Full access lives at the foot of this menu instead of beside Send; flipping it leaves the menu open.
+  m.insertAdjacentHTML('beforeend', `<div class="menu-sep"></div><label class="composer-access menu-access" title="Full access lets agents run any command and reach any file. Off keeps them in the project."><span class="ca-label">Full access</span><button class="switch switch-sm" data-full-access type="button" role="switch" aria-checked="false" aria-label="Full access"><span class="sw-knob"></span></button></label>`);
+  $<HTMLButtonElement>('.menu-access [data-full-access]', m).onclick = () => setFullAccess(!agentFullAccess);
+  renderAccessSwitches();
   m.classList.add('up');
   m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`; // open upwards, above the composer
 };

@@ -182,7 +182,7 @@ const createdTabIds = new Set<string>();
 
 // A tab is busy while a run, a team's claim pass (runId -1) or any member of its team is still going.
 function tabBusy(t: AgentTabState): boolean {
-  return t.runId != null || (t.agentTeam?.pending ?? 0) > 0;
+  return t.runId != null || (t.agentTeam?.pending ?? 0) > 0 || agenticTabBusy(t); // an agentic task in it: agentmode.ts
 }
 function hasAnyActiveRun(): boolean {
   for (const list of Object.values(surfaceTabs)) {

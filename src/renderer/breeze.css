@@ -14799,7 +14799,7 @@ body.layout-animating #previewPane {
   cursor: pointer;
   outline-offset: 2px;
   touch-action: none;
-  transition: --complete .22s cubic-bezier(.65, 0, .35, 1), outline .2s ease;
+  transition: --complete .32s cubic-bezier(.65, 0, .35, 1), outline .2s ease;
 }
 
 .switch.on {
@@ -14859,7 +14859,40 @@ body.layout-animating #previewPane {
   border-radius: 4px;
 }
 
-/* Improve prompt, beside Send: in the Agents tab it comes in once something is typed (mentions.ts sets .has-text). */
+/* Full access, beside Send: its label turns amber while it's on, as a reminder agents can reach anything. */
+.composer-access {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-right: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: color .2s ease;
+}
+
+.composer-access.on {
+  color: var(--warn);
+}
+
+/* Breeze Space keeps it at the foot of the agent menu, label left and switch right like a menu row. */
+.menu-access {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 4px 12px 6px;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+/* The Agents tab's prompt: Full access only shows once something is typed (mentions.ts sets .has-text), next to the
+   model chip that comes in at the same time. */
+.composer .composer-box:not(.has-text) .composer-access {
+  display: none;
+}
+
+/* Improve prompt, beside Send: in the Agents tab it comes in with Full access, once something is typed. */
 .composer .composer-box:not(.has-text) .improve-prompt {
   display: none;
 }
@@ -14868,7 +14901,7 @@ body.layout-animating #previewPane {
    every .switch and the class .liquid-toggle; Developer → Classic switches takes them out again. Drawn at the
    original 140×60 and zoomed down, so every number below is the original's. Filters live in breeze.html. */
 .switch.liquid-toggle {
-  --transition: 0.2s;
+  --transition: 0.3s;
   --ease: ease-out;
   --hue: 211;
   --unchecked: hsl(218, 8%, 81%);
@@ -14893,8 +14926,8 @@ body.layout-animating #previewPane {
   background: #0000;
   box-shadow: none;
   outline-offset: 2px;
-  /* tap: hold the bubble up first, then slide; a dropped drag just settles */
-  transition: --complete .1s ease-out .08s, outline var(--transition) var(--ease);
+  /* tap: hold the bubble up first, then slide; a dropped drag just settles. settings.ts SETTLE_TAP/DROP cover these. */
+  transition: --complete .32s cubic-bezier(.65, 0, .35, 1) .1s, outline var(--transition) var(--ease);
 
   &.switch-sm {
     zoom: .25;
@@ -14905,7 +14938,7 @@ body.layout-animating #previewPane {
   }
 
   &[data-dropped] {
-    transition: --complete .12s ease-out, outline var(--transition) var(--ease);
+    transition: --complete .22s ease-out, outline var(--transition) var(--ease);
   }
 
   &:is(:active, [data-pressed]) {
@@ -20419,6 +20452,48 @@ input.dbg-edit.bad:focus-visible {
   font-family: var(--font-ui);
 }
 
+/* ================= Agentic tasks in Breeze Space =================
+   Settings → Agents: what the agentic tasks remember (agentmode.ts renderAgentMemory). */
+.agent-mem-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-mem-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  animation: staggerRowIn .25s ease both;
+}
+
+.agent-mem-row:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.agent-mem-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.agent-mem-scope {
+  flex: none;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.agent-mem-foot {
+  margin-top: 8px;
+}
+
 /* ================= Power saver =================
    <html data-power="saver"> (power.ts): on battery, on low-end hardware, or as Settings → General → Performance says.
    Everything here is scoped to that attribute, so a plugged-in machine draws exactly as before.
@@ -20477,3 +20552,4 @@ input.dbg-edit.bad:focus-visible {
 :root[data-power="saver"] .editor-blur-out {
   filter: none !important;
 }
+

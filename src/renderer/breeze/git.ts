@@ -264,6 +264,7 @@ function typeScmMsg(text: string): void {
   tick();
 }
 async function generateCommitMsg(): Promise<void> {
+  if (commitMsgPending) return; // one at a time: a second, later answer would type itself into the box again
   const currentFiles = gitState.files ?? [];
   if (!currentFiles.length) {
     toast('No changes to generate commit message for');
@@ -279,6 +280,7 @@ async function generateCommitMsg(): Promise<void> {
     genBtnEl.disabled = true;
     genBtnEl.classList.add('busy'); // the sparkles turn into the spinner (breeze.css)
   }
+  commitMsgPending = true;
   try {
     if (!activeAg?.found) {
       const fallbackMsg = heuristicCommitMsg(currentFiles);
@@ -322,7 +324,6 @@ Instructions:
 - If there are multiple distinct changes, provide a concise summary title, followed by an empty line and short bullet points (- ...) detailing the key changes.
 - Output ONLY the commit message itself. Do NOT output code blocks, quotes, or conversational preamble.`;
 
-    commitMsgPending = true;
     sfx.play('think');
     humWhileThinking();
     const res = await api.git.genCommitMsg({
@@ -1006,7 +1007,6 @@ Object.assign(commands, {
     ], () => btn?.classList.remove('open'), btn);
   },
 });
-$('#scmGenMsg')?.addEventListener('click', () => { void generateCommitMsg(); });
 
 
 /* ----- Change marks in the editor gutter ----- */

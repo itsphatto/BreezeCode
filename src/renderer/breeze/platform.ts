@@ -160,6 +160,82 @@ const demoPrFiles: Record<number, GhFile[]> = {
 };
 
 let demoConnectDone: (() => void) | null = null;
+// Agentic tasks in the browser preview: a message with several jobs plans, asks for approval on Space's own plan
+// card, and runs its steps on timers into the chat, so the flow can be tried without the app.
+const demoReplies = new Map<string, (reply: AskReply | null) => void>();
+function demoAgentTasks(): BreezeApi['agentTask'] {
+  const listeners: ((m: AgentTaskMsg) => void)[] = [];
+  const send = (m: AgentTaskMsg) => listeners.forEach(cb => cb(m));
+  const tasks: AgentTask[] = [];
+  const memory: AgentMemoryItem[] = [
+    { id: 'm1', scope: 'global', project: null, text: 'Prefers short commit messages in the imperative', at: Date.now() - 86_400_000, used: 3 },
+  ];
+  let nextRun = 9000;
+  const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const touch = (t: AgentTask, line?: string) => { t.updatedAt = Date.now(); if (line) t.log.push({ at: t.updatedAt, text: line }); send({ type: 'update', task: JSON.parse(JSON.stringify(t)) }); };
+  async function drive(t: AgentTask): Promise<void> {
+    t.status = 'planning'; touch(t, 'Planning.');
+    await wait(1200);
+    t.steps = ['Read the project and find where it goes', 'Make the change', 'Run the tests and fix what fails'].map((title, i) => ({ id: i + 1, title, status: 'todo', tries: 0 }));
+    if (t.control === 'ask' || t.control === 'plan') {
+      t.status = 'awaiting'; touch(t, 'Waiting for you to approve the plan.');
+      const id = `demo-q-${t.id}`;
+      const reply = await new Promise<AskReply | null>(r => { demoReplies.set(id, r); send({ type: 'question', taskId: t.id, ev: { t: 'question', id, question: 'Approve this plan?', options: [{ label: 'Approve', description: '' }], multiSelect: false, plan: t.steps.map(s => `${s.id}. ${s.title}`).join('\n') } }); });
+      const ok = Array.isArray(reply?.picked) && reply.picked.includes('Approve');
+      if (!ok) { t.status = 'cancelled'; t.steps.forEach(s => (s.status = 'skipped')); touch(t, 'Plan turned down.'); return; }
+    }
+    for (const s of t.steps) {
+      if ((t.status as AgentTaskStatus) === 'cancelled') return;
+      t.status = 'running'; s.status = 'running'; touch(t, `Step ${s.id}: ${s.title}`);
+      const runId = nextRun++;
+      send({ type: 'run-start', taskId: t.id, runId, mode: 'build', agent: t.agent, step: s.id });
+      const say = (ev: AgentEvent) => agentListeners.forEach(cb => cb(runId, ev));
+      await wait(500);
+      say({ t: 'text', text: `Working on: ${s.title.toLowerCase()}.` });
+      await wait(900);
+      say({ t: 'text', text: `Working on: ${s.title.toLowerCase()}. Finished and checked.` });
+      say({ t: 'done', ok: true, ms: 1400 });
+      if ((t.status as AgentTaskStatus) === 'cancelled') return;
+      s.status = 'done'; touch(t, `Step ${s.id} done.`);
+    }
+    t.status = t.schedule || t.trigger ? 'waiting' : 'done'; touch(t, 'Done.');
+  }
+  return {
+    async classify(text) {
+      const task = /^\/task\b/i.test(text), chat = /^\/chat\b/i.test(text);
+      const goal = text.replace(/^\/(task|chat)\b\s*/i, '');
+      const agentic = task || (!chat && (/\b(and then|then|after that)\b/i.test(goal) || (goal.match(/\b(fix|add|update|run|test|refactor|write|check|delete|summari[sz]e)\b/gi) ?? []).length >= 3 || /\bevery (morning|day|hour)\b/i.test(goal)));
+      return { agentic, goal, schedule: agentic && /\bevery morning\b/i.test(goal) ? { kind: 'daily', at: '09:00' } : null, trigger: null, why: 'demo' };
+    },
+    async list() { return { tasks, running: tasks.filter(t => t.status === 'running').map(t => t.id) }; },
+    async create(input) {
+      if (!['claude', 'codex'].includes(input.agent)) throw new Error('Agentic tasks need Claude Code or Codex.');
+      const now = Date.now();
+      const t: AgentTask = { id: `t${now}`, goal: input.goal.trim(), project: input.project, agent: input.agent, control: input.control, device: false, steps: [], status: input.schedule || input.trigger ? 'waiting' : 'queued',
+        log: [], createdAt: now, updatedAt: now, order: tasks.length + 1, schedule: input.schedule ?? null, trigger: input.trigger ?? null,
+        nextRunAt: input.schedule ? now + 3_600_000 : null, lastRunAt: null, error: null };
+      tasks.push(t);
+      if (t.status === 'queued') setTimeout(() => void drive(t), 50);
+      return JSON.parse(JSON.stringify(t));
+    },
+    async action(id, action) {
+      const t = tasks.find(x => x.id === id);
+      if (!t) return false;
+      if (action === 'pause') { t.status = 'paused'; touch(t, 'Paused.'); }
+      else if (action === 'cancel') { t.status = 'cancelled'; t.steps.forEach(s => { if (s.status !== 'done') s.status = 'skipped'; }); touch(t, 'Cancelled.'); }
+      else if (action === 'run') void drive(t);
+      else if (action === 'remove') { tasks.splice(tasks.indexOf(t), 1); send({ type: 'removed', id }); }
+      return true;
+    },
+    async stopAll() { let n = 0; for (const t of tasks) if (t.status === 'running') { t.status = 'paused'; touch(t, 'Paused.'); n++; } return n; },
+    async memory() { return memory; },
+    async forget(id) { const i = memory.findIndex(m => m.id === id); if (i < 0) return false; memory.splice(i, 1); send({ type: 'memory' }); return true; },
+    async clearMemory() { memory.length = 0; send({ type: 'memory' }); return true; },
+    async setTray(on) { return { tray: on, startWithSystem: false }; },
+    onEvent(cb) { listeners.push(cb); return () => { const i = listeners.indexOf(cb); if (i >= 0) listeners.splice(i, 1); }; },
+  };
+}
+
 function demoApi(): BreezeApi {
   const files = new Map(Object.entries(DEMO_FILES));
   const binary = new Set(['assets/beans.jpg']);
@@ -381,7 +457,7 @@ function demoApi(): BreezeApi {
       async stop() { /* demo runs finish on their own */ },
       async steer() { return false; },
       async answer() { /* demo runs never ask */ },
-      async reply() { return true; },
+      async reply(id, reply) { const settle = demoReplies.get(id); if (settle) { demoReplies.delete(id); settle(reply); } return true; },
       async setModel() { return true; },
       // Canned replies for the conflict Duel: an advocate argues its side; the judge merges the two versions it was shown
       // (ours, then theirs' lines that ours doesn't have) in a fenced block.
@@ -435,6 +511,7 @@ function demoApi(): BreezeApi {
       },
       onEvent(cb) { agentListeners.push(cb); return () => { }; },
     },
+    agentTask: demoAgentTasks(),
     // MCP servers kept in the browser, so the preview can connect and remove them (nothing is started).
     mcp: {
       async list() {

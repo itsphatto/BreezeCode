@@ -23,10 +23,16 @@ class Engine extends EventEmitter {
   nextId = 1;
   session: Session | null = null;      // the current child's requests and the pieces of the reply being read
 
-  constructor({ exe, journalDir }: { exe: string; journalDir: string }) {
+  args: string[];
+  notBuilt: string;
+
+  // `args` and `notBuilt` let another sidecar (Breeze Agent's hands, hands.ts) speak the same JSON lines.
+  constructor({ exe, journalDir, args, notBuilt }: { exe: string; journalDir: string; args?: string[]; notBuilt?: string }) {
     super();
     this.exe = exe;
     this.journalDir = journalDir;
+    this.args = args ?? ['--journal-dir', journalDir];
+    this.notBuilt = notBuilt ?? NOT_BUILT;
   }
 
   get running() { return this.child !== null; }
@@ -44,12 +50,12 @@ class Engine extends EventEmitter {
 
   start(): Session {
     if (this.child) return this.session!;
-    if (!fs.existsSync(this.exe)) throw new Error(NOT_BUILT);
+    if (!fs.existsSync(this.exe)) throw new Error(this.notBuilt);
     let child: ChildProcess;
     try {
-      child = spawn(this.exe, ['--journal-dir', this.journalDir], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(this.exe, this.args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
-      throw (e as NodeJS.ErrnoException)?.code === 'ENOENT' ? new Error(NOT_BUILT) : e;
+      throw (e as NodeJS.ErrnoException)?.code === 'ENOENT' ? new Error(this.notBuilt) : e;
     }
     // Each process gets its own session, so a late event from a dead one can't touch the next one's requests.
     const s: Session = { pending: new Map(), parts: [] };
@@ -81,7 +87,7 @@ class Engine extends EventEmitter {
       // A spawn that failed after returning (a blocked exe: EACCES, EPERM) keeps its "spawn ..." message, so the page
       // can tell the engine can't start from the engine stopping.
       const fromSpawn = e && (String(e.syscall ?? '').startsWith('spawn') || String(e.message ?? '').startsWith('spawn'));
-      const why = e?.code === 'ENOENT' ? new Error(NOT_BUILT) : fromSpawn ? new Error(e.message) : new Error('The engine stopped');
+      const why = e?.code === 'ENOENT' ? new Error(this.notBuilt) : fromSpawn ? new Error(e.message) : new Error('The engine stopped');
       for (const p of s.pending.values()) p.reject(why);
       s.pending.clear();
       this.emit('down');

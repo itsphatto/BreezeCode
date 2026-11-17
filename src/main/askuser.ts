@@ -84,9 +84,15 @@ class QuestionDesk {
 
   // Shows the question (through `emit`) and resolves with the text of the answer.
   ask(runId: number, q: Question, emit: (ev: QuestionEvent) => void, signal?: AbortSignal): Promise<string> {
-    if (signal?.aborted) return Promise.resolve(NO_ANSWER);
+    return this.askReply(runId, q, emit, signal).then(reply => replyText(q, reply));
+  }
+
+  // The same card, resolving with what the card sent (null: closed or ended unanswered). agentic tasks' own
+  // questions (approve a plan, run a step, what to do when stuck) read the clicked option rather than a sentence.
+  askReply(runId: number, q: Question, emit: (ev: QuestionEvent) => void, signal?: AbortSignal): Promise<Reply | null> {
+    if (signal?.aborted) return Promise.resolve(null);
     const id = this.#newId();
-    return new Promise<string>(resolve => {
+    return new Promise<Reply | null>(resolve => {
       const onAbort = () => this.cancel(id);
       this.#open.set(id, {
         runId, q,
@@ -94,7 +100,7 @@ class QuestionDesk {
           this.#open.delete(id);
           signal?.removeEventListener('abort', onAbort);
           if (ended) emit({ t: 'question-end', id }); // the card stops taking clicks
-          resolve(replyText(q, reply));
+          resolve(reply);
         },
       });
       signal?.addEventListener('abort', onAbort, { once: true });

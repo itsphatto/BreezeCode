@@ -580,6 +580,7 @@ commands['agent.stop'] = () => stopAgent();
 
 function stopAgent(targetTab?: AgentTabState): void {
   const tab = targetTab || getActiveTab(surface);
+  if (stopAgenticTask(tab)) return; // Stop on an agentic task cancels the whole task, not just its current step
   const team = tab.agentTeam;
   if (team && team.pending > 0) {
     team.stopped = true;
@@ -657,6 +658,13 @@ async function sendPrompt(): Promise<void> {
   if (parsed && tasks.length === 1) {
     const body = [parsed.shared, tasks[0].text].filter(Boolean).join('\n\n') || text;
     await startAgentRun(tasks[0].agentId, MODES[uiMode] ?? 'plan', withAttachments(headers, body), uiMode, tab, true);
+    return;
+  }
+  // Breeze Space reads each message: a task (plan → steps → checks) goes to the agentic brain (agentmode.ts).
+  if (s.name === 'box') {
+    const routed = await routeAgentic(tab, withAttachments(headers, text));
+    if (routed.handled) return;
+    await startAgentRun(selectedAgent()?.id ?? agent.id, MODES[uiMode] ?? 'plan', routed.text, uiMode, tab, true);
     return;
   }
   await startAgentRun(agent.id, MODES[uiMode] ?? 'plan', withAttachments(headers, text), uiMode, tab, true);
