@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coffee Menu</title>
+  <style>
+    body {
+      font-family: Georgia, "Times New Roman", serif;
+      background: #f7f1e8;
+      color: #3b2a1e;
+      margin: 0;
+      padding: 40px 20px;
+    }
+    .menu {
+      max-width: 560px;
+      margin: 0 auto;
+      background: #fffaf3;
+      border: 2px solid #3b2a1e;
+      border-radius: 12px;
+      padding: 32px;
+    }
+    h1 {
+      text-align: center;
+      margin: 0 0 4px;
+      letter-spacing: 2px;
+    }
+    .subtitle {
+      text-align: center;
+      font-style: italic;
+      color: #7a5c45;
+      margin: 0 0 28px;
+    }
+    h2 {
+      border-bottom: 1px solid #c9ad8f;
+      padding-bottom: 6px;
+      margin-top: 28px;
+      font-size: 1.2em;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin: 12px 0;
+    }
+    .item .name {
+      font-weight: bold;
+    }
+    .item .desc {
+      display: block;
+      font-size: 0.9em;
+      color: #7a5c45;
+      font-style: italic;
+    }
+    .price {
+      font-weight: bold;
+      white-space: nowrap;
+      margin-left: 16px;
+    }
+    footer {
+      text-align: center;
+      margin-top: 32px;
+      font-size: 0.85em;
+      color: #7a5c45;
+    }
+  </style>
+</head>
+<body>
+  <main class="menu">
+    <h1>Coffee Menu</h1>
+    <p class="subtitle">Freshly roasted, brewed to order</p>
+
+    <h2>Espresso</h2>
+    <div class="item">
+      <div>
+        <span class="name">Espresso</span>
+        <span class="desc">Single shot, rich and bold</span>
+      </div>
+      <span class="price">$2.50</span>
+    </div>
+    <div class="item">
+      <div>
+        <span class="name">Americano</span>
+        <span class="desc">Espresso with hot water</span>
+      </div>
+      <span class="price">$3.00</span>
+    </div>
+    <div class="item">
+      <div>
+        <span class="name">Cappuccino</span>
+        <span class="desc">Equal parts espresso, steamed milk and foam</span>
+      </div>
+      <span class="price">$4.00</span>
+    </div>
+    <div class="item">
+      <div>
+        <span class="name">Latte</span>
+        <span class="desc">Espresso with silky steamed milk</span>
+      </div>
+      <span class="price">$4.25</span>
+    </div>
+    <div class="item">
+      <div>
+        <span class="name">Mocha</span>
+        <span class="desc">Latte with dark chocolate and whipped cream</span>
+      </div>
+      <span class="price">$4.75</span>
+    </div>
+
+    <h2>Brewed</h2>
+    <div class="item">
+      <div>
+        <span class="name">Drip Coffee</span>
+        <span class="desc">House blend, refills welcome</span>
+      </div>
+      <span class="price">$2.25</span>
+    </div>
+    <div class="item">
+      <div>
+        <span class="name">Cold Brew</span>
+        <span class="desc">Steeped 18 hours, served over ice</span>
+      </div>
+      <span class="price">$3.75</span>
+    </div>
+
+    <h2>Extras</h2>
+    <div class="item">
+      <span class="name">Oat / Almond Milk</span>
+      <span class="price">+$0.60</span>
+    </div>
+    <div class="item">
+      <span class="name">Extra Shot</span>
+      <span class="price">+$0.75</span>
+    </div>
+    <div class="item">
+      <span class="name">Vanilla or Caramel Syrup</span>
+      <span class="price">+$0.50</span>
+    </div>
+
+    <footer>Ask about our seasonal special.</footer>
+  </main>
+</body>
+</html>

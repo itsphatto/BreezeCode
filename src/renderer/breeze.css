@@ -6010,6 +6010,253 @@ textarea:not(:placeholder-shown) + .ph-rot {
   font: 12px var(--font-ui);
 }
 
+/* ---------- The composer (composerui.ts): one layout for every agent prompt ----------
+   Home, the Agents panel, Breeze Space and each board box:
+     [+] [paperclip] [access ▾] ……… [model ▾] [mic] (↑)      ← inside the box, under the prompt
+     folder · Local · branch ……………………… context ▭ 28%       ← under the box */
+.composer-box.cmp {
+  display: block;
+  padding: 10px 10px 8px;
+  border-radius: 12px;
+}
+
+.composer-box.cmp > .cmp-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin-top: 8px;
+}
+
+.cmp-row .flex-1 {
+  flex: 1;
+  min-width: 0;
+}
+
+.cmp-row :is(.cmp-plus, .cmp-attach, .cmp-mic) {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--text-2);
+}
+
+/* The + is the one boxed button, as the box's way in to everything else. */
+.cmp-row .cmp-plus {
+  margin-right: 2px;
+  border: 1px solid var(--line);
+}
+
+.cmp-row :is(.cmp-plus, .cmp-attach, .cmp-mic):hover {
+  background: rgba(var(--ink), .07);
+  color: var(--text);
+}
+
+.cmp-row .cmp-mic[hidden] {
+  display: none;
+}
+
+/* Improve prompt runs from the + menu: the + spins while it works. */
+.cmp-plus .spinner {
+  display: none;
+}
+
+.cmp-plus.busy .spinner {
+  display: block;
+}
+
+.cmp-plus.busy svg {
+  display: none;
+}
+
+/* Access, the model and Breeze Space's agent: quiet text buttons with a caret. */
+.cmp-row :is(.cmp-perm, .cmp-model),
+.cmp .prompt-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  font: 12.5px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cmp-row :is(.cmp-perm, .cmp-model):is(:hover, .open),
+.cmp .prompt-model:is(:hover, .open) {
+  background: rgba(var(--ink), .07);
+  color: var(--text);
+}
+
+/* Squeezed, the model chip gives way (its model name shortens first); access always reads in full. */
+.cmp-row .cmp-perm {
+  flex-shrink: 0;
+}
+
+.cmp-perm-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Project only reads as the safer setting. */
+.cmp-perm.limited > svg:first-child {
+  color: var(--ok);
+}
+
+.cmp-row :is(.cmp-perm, .cmp-model) > svg:last-child,
+.cmp .prompt-model > svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+.cmp-row .cmp-model {
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmp-row .cmp-model .menu-ico {
+  flex-shrink: 0;
+}
+
+.cmp .prompt-models {
+  flex: 0 1 auto;
+  padding: 0;
+}
+
+.cmp .prompt-model,
+.cmp .prompt-model.open,
+.cmp .prompt-model:focus-visible {
+  border-color: transparent;
+}
+
+/* Send: a filled square with an arrow; Stop takes its place while the agent works. */
+.composer-box.cmp :is(#send, #boxSend, #homeAskSend, .cmp-send) {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: var(--blue);
+  color: #f5f5f7;
+  cursor: pointer;
+  transition: background-color .15s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
+}
+
+.composer-box.cmp :is(#send, #boxSend, #homeAskSend, .cmp-send):hover {
+  filter: brightness(1.08);
+}
+
+.composer-box.cmp :is(#send, #boxSend, #homeAskSend, .cmp-send) .ico-svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Nothing to send yet: it dims where it is and takes no pointer. */
+.composer-box.cmp:has(.composer-attachments.hidden):has(textarea:placeholder-shown) .cmp-send:not(.stop) {
+  opacity: .35;
+  pointer-events: none;
+}
+
+/* The line under the box: where the agent works, and how full its context is. */
+.cmp-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 7px 6px 0;
+  color: var(--text-3);
+  font: 12px var(--font-ui);
+  white-space: nowrap;
+}
+
+.cmp-meta > :is(.cmp-folder, .cmp-env, .cmp-branch) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cmp-meta > :is(.cmp-folder, .cmp-env, .cmp-branch) > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmp-meta svg {
+  flex-shrink: 0;
+}
+
+.cmp-meta .cmp-folder-btn {
+  max-width: 220px;
+  height: 22px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.cmp-meta .cmp-folder-btn:is(:hover, .open) {
+  background: rgba(var(--ink), .07);
+  color: var(--text);
+}
+
+.cmp-meta .flex-1 {
+  flex: 1;
+}
+
+.cmp-ctx {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.cmp-ctx-bar {
+  width: 44px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.cmp-ctx-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ok);
+  transition: width .4s cubic-bezier(.22, 1, .36, 1);
+}
+
+.cmp-ctx.high .cmp-ctx-bar i {
+  background: var(--warn);
+}
+
+/* A board box is narrower: its line packs tighter. */
+.board-composer .cmp-meta {
+  gap: 10px;
+}
+
 /* ---------- search & quick open ---------- */
 .search-box {
   display: flex;
@@ -9103,16 +9350,6 @@ body.vibing .ide {
   field-sizing: content;
 }
 
-.home-ask-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: .5em;
-}
-
-.home-ask-dir {
-  font-size: 12px;
-}
 
 /* ---------- Home → Agent: one agent's tokens, and the other agents ---------- */
 /* In the middle of Home, up and down as well as across; a window too short for it scrolls from the top. */

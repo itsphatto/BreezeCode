@@ -161,6 +161,7 @@ function renderHomeAsk(): void {
     ? `<button type="button" class="prompt-model" data-agent="${escAttr(a.id)}" aria-haspopup="menu" aria-label="${escAttr(`${agentShortName(a)}: change model${a.api ? '' : ' or effort'}`)}">${promptModelHtml(a)}</button>`
     : '';
   if (box.innerHTML !== html) box.innerHTML = html;
+  if (typeof refreshComposers === 'function') refreshComposers();
 }
 $('#homeAskModels').addEventListener('click', e => {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.prompt-model');
@@ -213,11 +214,31 @@ async function sendFromHome(): Promise<void> {
   input.value = '';
   enterMode('ide');
   if (!layout.agentsOpen) commands['view.toggleAgents']();
+  const files = homeAskFiles.splice(0);
+  renderHomeAskFiles();
+  if (files.length) await attachFilesToAgent(files, SURFACES.ide);
   // The IDE's own Send does the rest: the chosen agent, @mentions, the chat's title.
   SURFACES.ide.prompt.value = text;
   SURFACES.ide.prompt.dispatchEvent(new Event('input', { bubbles: true }));
   await sendPrompt();
 }
+let homeAskFiles: File[] = [];
+function renderHomeAskFiles(): void {
+  const el = $('#homeAskFiles');
+  el.classList.toggle('hidden', !homeAskFiles.length);
+  el.innerHTML = homeAskFiles.map((f, i) => `<span class="attachment-chip"><span class="attachment-thumb attachment-icon file-icon">${svgIcon(f.type.startsWith('image/') ? 'eye' : 'file', 13)}</span><span class="attachment-name">${esc(f.name)}</span><button type="button" class="attachment-del" data-i="${i}" aria-label="Remove ${escAttr(f.name)}">×</button></span>`).join('');
+}
+$('#homeAskFiles').addEventListener('click', e => {
+  const del = (e.target as HTMLElement).closest<HTMLElement>('.attachment-del');
+  if (!del) return;
+  homeAskFiles.splice(Number(del.dataset.i), 1);
+  renderHomeAskFiles();
+});
+wireComposer({
+  box: $('#homeAskBox'), meta: $('#homeAsk .cmp-meta'), skills: false,
+  folder: homeAskDir,
+  attach: files => { homeAskFiles.push(...files); renderHomeAskFiles(); },
+});
 $('#homeAsk').addEventListener('submit', e => { e.preventDefault(); background(sendFromHome()); });
 $('#homeAskInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); background(sendFromHome()); }

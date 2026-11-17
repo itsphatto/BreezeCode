@@ -1283,6 +1283,19 @@ function handleTerm(channel: string, fn: (st: TermState, ...args: any[]) => unkn
   });
 }
 handle('win:newTerminal', () => openTermWindow());
+// The composer's mic: Windows' own voice typing (Win+H), which types into whatever has focus, so the page focuses its
+// prompt first. keybd_event from a short PowerShell, as Breeze has no native module. False where there is none.
+const DICTATE_CS = `using System.Runtime.InteropServices;
+public static class BreezeKeys {
+  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
+  public static void WinH() { keybd_event(0x5B, 0, 0, System.UIntPtr.Zero); keybd_event(0x48, 0, 0, System.UIntPtr.Zero); keybd_event(0x48, 0, 2, System.UIntPtr.Zero); keybd_event(0x5B, 0, 2, System.UIntPtr.Zero); }
+}`;
+handle('win:dictate', () => {
+  if (process.platform !== 'win32') return false;
+  const script = `Add-Type -TypeDefinition @'\n${DICTATE_CS}\n'@\n[BreezeKeys]::WinH()`;
+  return new Promise<boolean>(resolve => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+    { windowsHide: true, timeout: 20_000 }, err => resolve(!err)));
+});
 handleTerm('tw:new', () => openTermWindow());
 handleTerm('tw:info', async st => ({ cwd: st.cwd, platform: process.platform, user: `${os.userInfo().username}@${os.hostname()}`, sys: await termSysInfo() }));
 // The facts the terminal window's welcome banner lists beside the logo (termwin.ts), like neofetch.

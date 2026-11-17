@@ -816,6 +816,7 @@ const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found &&
 function updateUsage(el: HTMLElement): void {
   background(api.agent.usage().then(u => {
     agentUsage = u;
+    if (typeof refreshComposers === 'function') refreshComposers();
     const html = usageHtml(usageAgents());
     if (!el.isConnected || (html === usageShown && el.childElementCount)) return;
     usageShown = html;
@@ -1560,14 +1561,14 @@ document.addEventListener('powerchange', refreshSettings);
 
 // The switch flips at once instead of after main answers; main's answer only corrects it, and a failure flips it back.
 function setFullAccess(on: boolean): void {
-  const show = (v: boolean) => { if (v !== agentFullAccess) { agentFullAccess = v; refreshSettings(); } };
+  const show = (v: boolean) => { if (v !== agentFullAccess) { agentFullAccess = v; refreshSettings(); if (typeof refreshComposers === 'function') refreshComposers(); } };
   show(on);
   background(api.agent.setFullAccess(on).then(v => {
     show(v);
     toast(v ? 'Full access on: agents can run anything in build mode' : 'Full access off');
   }, (e: unknown) => { show(!on); throw e; }));
 }
-background(api.agent.fullAccess().then(v => { agentFullAccess = v; }));
+background(api.agent.fullAccess().then(v => { agentFullAccess = v; if (typeof refreshComposers === 'function') refreshComposers(); }));
 
 function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   if (settingsRoot()) { closeModal(); return; }

@@ -449,13 +449,12 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     <div class="board-box-body">
     <div class="board-box-main">
     <div class="board-chat chat"></div>
-    <div class="composer board-composer"><div class="composer-box">
+    <div class="composer board-composer"><div class="composer-box cmp">
       <div class="composer-attachments hidden"></div>
       <div class="prompt-field"><div class="prompt-hl" aria-hidden="true"></div><textarea rows="1" data-no-grow aria-label="Message to ${escAttr(agentNameOf(agent))} in box ${boxNumber(key)}" placeholder=" "></textarea></div>
-      <div class="row"><select class="select hidden" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select><span class="prompt-models"></span><span class="flex-1"></span>
-        <button class="icon-btn board-attach" type="button" title="Attach photos or files" aria-label="Attach photos or files"><svg data-i="paperclip" data-size="14"></svg></button><input class="board-attach-pick" type="file" multiple hidden>
-        <button class="btn btn-primary btn-sm board-send" title="Send (Enter)" aria-label="Send"><svg data-i="send" data-size="14"></svg></button></div>
-    </div></div>
+      <div class="row cmp-row"><select class="select hidden" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select><button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><button class="icon-btn cmp-attach" type="button" title="Attach photos or files" aria-label="Attach photos or files"><svg data-i="paperclip" data-size="15"></svg></button><input class="cmp-attach-pick" type="file" multiple hidden><button class="cmp-perm" type="button" aria-haspopup="menu"><svg data-i="shield" data-size="14"></svg><span class="cmp-perm-label">Full access</span><svg data-i="chevronDown" data-size="12"></svg></button><span class="flex-1"></span><span class="prompt-models"></span><button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
+        <button class="cmp-send board-send" title="Send (Enter)" aria-label="Send"><svg data-i="arrowUp" data-size="15"></svg></button></div>
+    </div><div class="cmp-meta"><span class="cmp-folder"><svg data-i="folder" data-size="13"></svg><span class="cmp-folder-name">No folder</span></span><span class="cmp-env" title="Agents run on this computer"><svg data-i="monitor" data-size="13"></svg><span>Local</span></span><span class="cmp-branch hidden"><svg data-i="gitBranch" data-size="13"></svg><span class="cmp-branch-name"></span></span><span class="flex-1"></span><span class="cmp-ctx hidden" role="meter" aria-label="Context used" aria-valuemin="0" aria-valuemax="100"><span class="cmp-ctx-bar"><i></i></span><span class="cmp-ctx-pct"></span></span></div></div>
     </div>
     <div class="board-live-sash" role="separator" aria-orientation="vertical" aria-label="Resize the code view" title="Drag to resize · double-click to reset"></div>
     <aside class="box-live board-live closed" aria-label="File the agent is editing"><div class="box-live-head"></div><div class="box-live-body"></div></aside>
@@ -506,14 +505,9 @@ function wireBox(box: BoardBox): void {
   wireSlash(s); // before the send handler below, so Enter picks a skill instead of sending
   rotatePlaceholder(s.prompt, ' ', IDE_PLACEHOLDERS);
   s.send.onclick = () => (tabBusy(box.tab) ? stopBox(box) : void sendBox(box));
-  // Photos and files: the paperclip's picker here, a drop anywhere on the box (drop.ts), a pasted image (mentions.ts).
-  const pick = $<HTMLInputElement>('.board-attach-pick', el);
-  $('.board-attach', el).onclick = () => pick.click();
-  pick.onchange = () => {
-    const files = [...(pick.files ?? [])];
-    pick.value = ''; // picking the same file again still fires
-    background(attachFilesToAgent(files, s, box.tab));
-  };
+  // The composer's own buttons (+, paperclip, access, mic) and the line under it; drops go through drop.ts and
+  // pasted images through mentions.ts, as before.
+  wireComposer({ box: $('.composer-box', el), meta: $('.cmp-meta', el), surface: s, agent: () => box.agent, attach: files => background(attachFilesToAgent(files, s, box.tab)) });
   s.prompt.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!boxBusy(box)) void sendBox(box); }
   });
@@ -640,7 +634,7 @@ function refreshBoardLimits(force = false): void {
   for (const b of boardBoxes.values()) paintBoxLimit(b);
   if (!force && Date.now() - boardUsageAt < 30_000) return;
   boardUsageAt = Date.now();
-  background(api.agent.usage().then(u => { agentUsage = u; for (const b of boardBoxes.values()) paintBoxLimit(b); }));
+  background(api.agent.usage().then(u => { agentUsage = u; for (const b of boardBoxes.values()) paintBoxLimit(b); if (typeof refreshComposers === 'function') refreshComposers(); }));
 }
 // A model or effort changed somewhere (renderAgentBar): every box's header and prompt chip show it.
 function renderBoardModels(): void {

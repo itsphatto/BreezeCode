@@ -52,6 +52,7 @@ function renderBranch(): void {
   const behind = s.behind ? ` ↓${s.behind}` : '';
   const branchLabel = s.repo ? esc((s.branch || 'main') + ahead + behind) : 'no repository';
   $('#sbBranch').innerHTML = `${svgIcon('gitBranch', 14)}<span>${branchLabel}</span>`;
+  if (typeof refreshComposers === 'function') refreshComposers();
   // Local changes take the badge's number; files waiting on the remote show as ↓N on their own, or as a dot beside the count.
   const n = s.files?.length ?? 0;
   const incoming = s.incoming ?? [];

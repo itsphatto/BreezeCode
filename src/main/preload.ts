@@ -271,6 +271,7 @@ contextBridge.exposeInMainWorld('breeze', {
     edit: (role: unknown) => invoke('win:edit', role),
     theme: (t: unknown) => invoke('win:theme', t),
     glass: (on: unknown) => invoke('win:glass', on),
+    dictate: () => invoke('win:dictate'),
     backdropWhere: () => invoke('win:backdropWhere'),
     pickBackdrop: () => invoke('win:pickBackdrop'),
     devIcon: (on: unknown) => invoke('win:devIcon', on),

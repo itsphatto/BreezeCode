@@ -419,6 +419,7 @@ interface BreezeApi {
   };
   win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>; devIcon(on: boolean): Promise<void>;
     glass(on: boolean): Promise<boolean>; // false: this system can't draw a see-through window
+    dictate(): Promise<boolean>; // Windows voice typing into the focused field; false where there is none
     backdropWhere(): Promise<{ source: string; x: number; y: number; w: number; h: number } | null>; // the window's display (a capture source) and its place on it, in fractions; null: not offered here
     pickBackdrop(): Promise<{ url: string; name: string } | null>;
     minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>;

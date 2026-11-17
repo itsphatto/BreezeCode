@@ -885,6 +885,7 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   if (tab.agentTeam?.runs.has(r.id)) { finishTeamMember(r, ev, tab, tab.agentTeam); return; }
   tab.runId = null;
   tab.run = null;
+  if (typeof refreshComposerUsage === 'function') refreshComposerUsage(true);
   if (agentRun?.id === r.id) agentRun = null;
   hideThinking(tab);
 
