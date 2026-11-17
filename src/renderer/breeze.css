@@ -9079,6 +9079,14 @@ body.vibing .ide {
   background: var(--bg);
 }
 
+/* Under Glass or a picture --bg-1 is see-through, so the fade band stacks on the panel and reads as a dark shadow
+   round the box. Drop the band; the box blurs whatever scrolls under it instead. */
+:root[data-backdrop] .home-ask { background: none; }
+:root[data-backdrop] .home-ask-box {
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
 .home-ask textarea {
   display: block;
   box-sizing: border-box;
