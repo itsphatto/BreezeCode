@@ -61,6 +61,8 @@ new MutationObserver(recs => {
   }
 }).observe(document.body, { childList: true, subtree: true });
 
+// How long a liquid switch keeps its bubble up: a tap's whole slide (breeze.css: .1s delay + .32s), or a drop's .22s.
+const SETTLE_TAP = 450, SETTLE_DROP = 220;
 const switchSettle = new WeakMap<HTMLElement, number>();
 function settleSwitch(el: HTMLElement, ms: number): void {
   clearTimeout(switchSettle.get(el));
@@ -83,9 +85,9 @@ function settleSwitch(el: HTMLElement, ms: number): void {
     delete el.dataset.dragging;
     if (!el.classList.contains('liquid-toggle')) delete el.dataset.active;
     el.style.removeProperty('--delta');
-    if (!moved) { if (el.classList.contains('liquid-toggle')) settleSwitch(el, 200); return; }
+    if (!moved) { if (el.classList.contains('liquid-toggle')) settleSwitch(el, SETTLE_TAP); return; }
     const at = Number.parseFloat(el.style.getPropertyValue('--complete')) || 0;
-    if (el.classList.contains('liquid-toggle')) { el.dataset.dropped = 'true'; settleSwitch(el, 100); }
+    if (el.classList.contains('liquid-toggle')) { el.dataset.dropped = 'true'; settleSwitch(el, SETTLE_DROP); }
     el.style.removeProperty('--complete');   // eases from where the knob was let go
     if ((at >= 50) === (from === 100) || e.type === 'pointercancel') swallow = el;
   };
@@ -104,7 +106,7 @@ function settleSwitch(el: HTMLElement, ms: number): void {
     const el = e.target instanceof HTMLElement ? e.target.closest<HTMLButtonElement>('button.switch.liquid-toggle') : null;
     if (!el || el.disabled || (e.key !== 'Enter' && e.key !== ' ')) return;
     el.dataset.active = 'true'; el.dataset.pressed = 'true';
-    settleSwitch(el, 200);
+    settleSwitch(el, SETTLE_TAP);
   });
   document.addEventListener('pointermove', e => {
     if (!drag) return;
@@ -877,9 +879,7 @@ function settingsBody(tab: SettingsTab): string {
         <div class="set-agents">${list}</div>
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
         <h5>Permissions</h5>
-        ${settingRow('Full access', agentFullAccess
-          ? '<span class="set-warn">On: in build mode agents run any command, reach any file on this computer (.env and .git too) and skip every check.</span>'
-          : 'Off: agents stay in the project, keep out of .env and .git, and Codex runs sandboxed.', switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
+        ${settingRow('Full access', fullAccessSub(), switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
         ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}
         <h5>Agentic task memory</h5>
         <p class="set-sub">Short facts agentic tasks keep about you and each project, on this computer only. A project’s facts never reach another project.</p>
@@ -1232,7 +1232,7 @@ function bindSettings(m: HTMLElement): void {
   const prevSwitch = new Map<string, string>();
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => prevSwitch.set(s.id, getComputedStyle(s).getPropertyValue('--complete')));
   // Held switches and how long their bubble stays up: 0.1s after a drag is let go, a tap's whole slide otherwise.
-  const prevHeld = new Map([...pane.querySelectorAll<HTMLElement>('.switch[data-active]')].map(s => [s.id, s.dataset.dropped ? 100 : 200]));
+  const prevHeld = new Map([...pane.querySelectorAll<HTMLElement>('.switch[data-active]')].map(s => [s.id, s.dataset.dropped ? SETTLE_DROP : SETTLE_TAP]));
   if (pane.dataset.tab !== settingsTab) lightJoke = ''; // a fresh joke for each visit
   // A part greyed out by its switch (Discord presence, Vibe Code Mode's feeds) fades there and back. The pane is
   // rebuilt below, so the new copy takes over from exactly how the old one looked, even mid-fade: turning presence on
@@ -1299,7 +1299,7 @@ function bindSettings(m: HTMLElement): void {
     const held = prevHeld.get(s.id);
     if (!classicSwitch && held) {
       s.dataset.active = 'true'; s.dataset.pressed = 'true';
-      if (held === 100) s.dataset.dropped = 'true';
+      if (held === SETTLE_DROP) s.dataset.dropped = 'true';
       settleSwitch(s, held);
     }
     if (Number.isNaN(was) || Math.abs(was - to) < .5) return;
@@ -1569,17 +1569,26 @@ function powerNote(): string {
 // Unplugging (or plugging in) with Settings open updates the row.
 document.addEventListener('powerchange', refreshSettings);
 
-// The switch beside each Send button is the same setting as Settings → Agents → Full access.
+const FULL_ACCESS_ON = 'On: in build mode agents run any command, reach any file on this computer (.env and .git too) and skip every check.';
+const FULL_ACCESS_OFF = 'Off: agents stay in the project, keep out of .env and .git, and Codex runs sandboxed.';
+const fullAccessSub = () => (agentFullAccess ? `<span class="set-warn">${FULL_ACCESS_ON}</span>` : FULL_ACCESS_OFF);
+// The switch beside each Send button is the same setting as Settings → Agents → Full access. Settings' row is updated
+// in place, not by redrawing the pane, so the switch slides with its own transition and nothing around it is rebuilt.
 function renderAccessSwitches(): void {
-  $$<HTMLButtonElement>('[data-full-access]').forEach(b => {
+  $$<HTMLButtonElement>('[data-full-access], #sFullAccess').forEach(b => {
     b.classList.toggle('on', agentFullAccess);
     b.setAttribute('aria-checked', String(agentFullAccess));
     b.closest('.composer-access')?.classList.toggle('on', agentFullAccess);
   });
+  const sub = document.querySelector('#sFullAccess')?.closest('.set-row')?.querySelector<HTMLElement>('.set-sub');
+  if (sub && sub.textContent !== (agentFullAccess ? FULL_ACCESS_ON : FULL_ACCESS_OFF)) {
+    sub.innerHTML = fullAccessSub();
+    sub.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
 }
 // The switch flips at once instead of after main answers; main's answer only corrects it, and a failure flips it back.
 function setFullAccess(on: boolean): void {
-  const show = (v: boolean) => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); refreshSettings(); } };
+  const show = (v: boolean) => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); } };
   show(on);
   background(api.agent.setFullAccess(on).then(v => {
     show(v);
@@ -1591,7 +1600,7 @@ background(api.agent.fullAccess().then(v => { agentFullAccess = v; renderAccessS
 
 function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   if (settingsRoot()) { closeModal(); return; }
-  background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; refreshSettings(); renderAccessSwitches(); } }));
+  background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); } }));
   closeMenu();
   if (tab) settingsTab = tab;
   const gears = [$('#settingsBtn'), $('#boxSettings'), $('#homeSettings')];

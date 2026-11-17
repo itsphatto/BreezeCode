@@ -14490,7 +14490,7 @@ body.layout-animating #previewPane {
   cursor: pointer;
   outline-offset: 2px;
   touch-action: none;
-  transition: --complete .22s cubic-bezier(.65, 0, .35, 1), outline .2s ease;
+  transition: --complete .32s cubic-bezier(.65, 0, .35, 1), outline .2s ease;
 }
 
 .switch.on {
@@ -14567,6 +14567,16 @@ body.layout-animating #previewPane {
   color: var(--warn);
 }
 
+/* Breeze Space keeps it at the foot of the agent menu, label left and switch right like a menu row. */
+.menu-access {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 4px 12px 6px;
+  font-size: inherit;
+  cursor: pointer;
+}
+
 /* The Agents tab's prompt: Full access only shows once something is typed (mentions.ts sets .has-text), next to the
    model chip that comes in at the same time. */
 .composer .composer-box:not(.has-text) .composer-access {
@@ -14590,7 +14600,7 @@ body.layout-animating #previewPane {
    every .switch and the class .liquid-toggle; Developer → Classic switches takes them out again. Drawn at the
    original 140×60 and zoomed down, so every number below is the original's. Filters live in breeze.html. */
 .switch.liquid-toggle {
-  --transition: 0.2s;
+  --transition: 0.3s;
   --ease: ease-out;
   --hue: 211;
   --unchecked: hsl(218, 8%, 81%);
@@ -14615,8 +14625,8 @@ body.layout-animating #previewPane {
   background: #0000;
   box-shadow: none;
   outline-offset: 2px;
-  /* tap: hold the bubble up first, then slide; a dropped drag just settles */
-  transition: --complete .1s ease-out .08s, outline var(--transition) var(--ease);
+  /* tap: hold the bubble up first, then slide; a dropped drag just settles. settings.ts SETTLE_TAP/DROP cover these. */
+  transition: --complete .32s cubic-bezier(.65, 0, .35, 1) .1s, outline var(--transition) var(--ease);
 
   &.switch-sm {
     zoom: .25;
@@ -14627,7 +14637,7 @@ body.layout-animating #previewPane {
   }
 
   &[data-dropped] {
-    transition: --complete .12s ease-out, outline var(--transition) var(--ease);
+    transition: --complete .22s ease-out, outline var(--transition) var(--ease);
   }
 
   &:is(:active, [data-pressed]) {
