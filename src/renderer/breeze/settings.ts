@@ -959,6 +959,9 @@ function settingsBody(tab: SettingsTab): string {
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
         <h5>Permissions</h5>
         ${settingRow('Full access', fullAccessSub(), switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
+        <h5>Agent Board</h5>
+        ${settingRow('Code', 'Each box shows the file its agent is editing, at the box\'s left.', switchHtml('sBoardCode', boardCodeOn, 'Show code in board boxes'))}
+        ${settingRow('Auto-relay', 'A request one agent makes of another is sent on its own. Off, each waits for Send.', switchHtml('sAutoRelay', relayQueue.auto, 'Auto-relay'))}
         ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}`;
     }
     case 'misc': return `<h4>Miscellaneous</h4>
@@ -1484,6 +1487,10 @@ function bindSettings(m: HTMLElement): void {
   });
   on('sAgentPicker', () => openAgentPicker());
   on('sFullAccess', () => setFullAccess(!agentFullAccess));
+  // The Agent Board's switches (board.ts), here instead of in the board's bar.
+  const flip = (el: HTMLElement, v: boolean) => { el.classList.toggle('on', v); el.setAttribute('aria-checked', String(v)); };
+  on('sBoardCode', el => { setBoardCode(!boardCodeOn); flip(el, boardCodeOn); });
+  on('sAutoRelay', el => { setAutoRelay(!relayQueue.auto); flip(el, relayQueue.auto); });
   const usageEl = pane.querySelector<HTMLElement>('#sUsage');
   // A kept list (a redraw of this section, Full access flipped) is left exactly as it is, timer and all: no fetch, so
   // nothing in it moves because of the redraw.

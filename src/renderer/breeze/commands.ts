@@ -754,7 +754,7 @@ function bindMenuSlider(row: HTMLElement, sl: MenuSlider): void {
   const paint = (i: number, at = i / last) => {
     if (i !== shown) { shown = i; hum?.set(i / last, i === last); }
     row.style.setProperty('--pos', String(at));
-    // The top step (Extra) turns the fill red and races the bubbles.
+    // The top step (Max) turns the fill red and races the bubbles.
     row.classList.toggle('max', i === last);
     // More effort, faster bubbles; updatePlaybackRate keeps each bubble where it is instead of jumping.
     for (const a of bubbles) a.updatePlaybackRate(i === last ? 6 : .6 + at * 2.4);

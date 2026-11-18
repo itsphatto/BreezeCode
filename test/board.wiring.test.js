@@ -40,9 +40,9 @@ test('an emptied box is cleared in main', () => {
   assert.ok(preload.includes("invoke('board:clearBox'"));
 });
 
-test('agent chips can be dragged (the global -webkit-user-drag: none is undone for them)', () => {
+test('agent chips and side-bar chats can be dragged (the global -webkit-user-drag: none is undone for them)', () => {
   const css = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze.css'), 'utf8');
-  assert.match(css, /\.board-chip\[draggable="true"\]\s*\{\s*-webkit-user-drag: element;/);
+  assert.match(css, /\.board-chip\[draggable="true"\],\s*\.board-side \.box-side-chat\[draggable="true"\]\s*\{\s*-webkit-user-drag: element;/);
 });
 
 test('clicking an empty box opens the agent picker', () => {

@@ -509,6 +509,21 @@ function demoApi(): BreezeApi {
           },
         };
       },
+      // Browser preview: a few made-up Claude Code and Codex chats, so the board's side bar shows imported ones.
+      async chatLogs() {
+        const h = (n: number) => Date.now() - n * 3_600_000, here = rootInfo?.root ?? 'C:\\demo\\project';
+        return [
+          { agent: 'claude', session: 'demo-claude-1', title: 'Fix the login redirect loop', at: h(2), cwd: here },
+          { agent: 'codex', session: 'demo-codex-1', title: 'Add a dark theme toggle', at: h(26), cwd: here },
+          { agent: 'claude', session: 'demo-claude-2', title: 'Write tests for the parser', at: h(70), cwd: 'C:\\demo\\other-app' },
+        ];
+      },
+      async chatLog(agent, session) {
+        return [
+          { role: 'user', text: `What does ${session} do?`, at: Date.now() - 7_200_000 },
+          { role: 'agent', text: `It was a **${agent === 'codex' ? 'Codex' : 'Claude Code'}** chat.\n\n- read the files\n- made the change`, at: Date.now() - 7_100_000 },
+        ];
+      },
       onEvent(cb) { agentListeners.push(cb); return () => { }; },
     },
     agentTask: demoAgentTasks(),

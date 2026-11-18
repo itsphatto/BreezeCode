@@ -23,7 +23,7 @@ export type AgentMode = 'plan' | 'build' | 'ask';
 /**
  * Reasoning effort configuration.
  */
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'extra';
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'extra' | 'max';
 
 /**
  * Configuration options for initializing AntigravityAgentService.
@@ -39,7 +39,7 @@ export interface AntigravityAgentOptions {
   mode?: AgentMode;
   /** Specific model name to request (e.g. gemini-2.5-pro, gemini-2.5-flash) */
   model?: string;
-  /** Reasoning effort: 'low' | 'medium' | 'high' | 'extra' */
+  /** Reasoning effort: 'low' | 'medium' | 'high' | 'extra' | 'max' */
   effort?: ReasoningEffort;
   /** Existing session ID to resume */
   sessionId?: string;
@@ -1225,7 +1225,7 @@ export class AntigravityAgentService extends EventEmitter {
    * The --effort value agy takes for this model, or null to leave the flag off.
    * agy rejects the flag for Claude models ("--effort is not supported") and for ids that already
    * carry their level (gemini-3.8-flash-low, gpt-oss-120b-medium: "conflicts with --effort=…"),
-   * and only knows low|medium|high|xhigh|max, so Breeze's "extra" becomes "xhigh".
+   * and only knows low|medium|high|xhigh|max, so Breeze's "extra" becomes "xhigh" ("max" is "max").
    */
   public static effortFlag(model: string, effort?: string | null): string | null {
     const e = String(effort || '').toLowerCase();

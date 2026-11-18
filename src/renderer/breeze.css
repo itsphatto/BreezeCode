@@ -12342,8 +12342,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   outline-offset: 1px;
 }
 
-/* The default agent's logo in black and white: grey, a little contrast so marks inside it (Codex's prompt) still read,
-   dimmed like the line icon until its half is lit. */
+/* The default agent's logo in its own colours, a touch dimmed until its half is lit or hovered. */
 .msw-agent {
   display: grid;
   width: 15px;
@@ -12354,8 +12353,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: grayscale(1) contrast(1.15);
-  opacity: .62;
+  opacity: .8;
   transition: opacity .15s ease;
 }
 
@@ -19965,8 +19963,9 @@ input.dbg-edit.bad:focus-visible {
   transition: background .15s, border-color .15s, transform .15s;
 }
 
-/* The global `-webkit-user-drag: none` rule would stop the chip from dragging at all. */
-.board-chip[draggable="true"] {
+/* The global `-webkit-user-drag: none` rule would stop the chip (and a chat in the board's side bar) from dragging at all. */
+.board-chip[draggable="true"],
+.board-side .box-side-chat[draggable="true"] {
   -webkit-user-drag: element;
 }
 
@@ -20018,26 +20017,6 @@ input.dbg-edit.bad:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-
-.board-auto {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-2);
-  font-size: 12px;
-  -webkit-app-region: no-drag;
-}
-
-.board-stop {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  -webkit-app-region: no-drag;
-}
-
-.board-stop svg {
-  color: var(--err);
 }
 
 .board-main {
@@ -20223,6 +20202,37 @@ input.dbg-edit.bad:focus-visible {
   border-color: var(--blue);
   background: var(--blue-soft);
   box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+/* A chat dragged over another chat: the half it would open on lights up instead of the whole box (board.ts). */
+.board-box.drop-on[data-drop-side] {
+  border-color: var(--line);
+  background: var(--bg-1);
+  box-shadow: none;
+}
+
+.board-grid:not(.tiles) > .board-box.drop-on[data-drop-side] {
+  position: relative; /* tiles are placed absolutely already */
+}
+
+.board-box.drop-on[data-drop-side]::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  z-index: 5;
+  border-radius: 8px;
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 2px var(--blue);
+  pointer-events: none;
+  transition: inset .18s cubic-bezier(.32, .72, 0, 1);
+}
+
+.board-box.drop-on[data-drop-side="left"]::after {
+  inset: 4px 50% 4px 4px;
+}
+
+.board-box.drop-on[data-drop-side="right"]::after {
+  inset: 4px 4px 4px 50%;
 }
 
 .board-box.shake {

@@ -96,7 +96,7 @@ function enterMode(mode: WorkMode): void {
 }
 /* ----- The title bars' Code / Agent Board switcher ----- */
 // One per screen (Home, the IDE, the Agent Board), each lit on its own screen's half (breeze.html); Home's on neither.
-// The Agent Board half is the default agent's logo in black and white (breeze.css), else Breeze's own agent mark.
+// The Agent Board half is the default agent's logo in colour, else Breeze's own agent mark.
 function renderModeSwitch(): void {
   const a = selectedAgent();
   const file = a ? BRAND_ICONS[a.id] : undefined;

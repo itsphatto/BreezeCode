@@ -380,13 +380,14 @@ function modelLabel(a: DetectedAgent | null): string {
   return a.api && a.version ? a.version : a.name;
 }
 
-const EFFORTS = ['Low', 'Medium', 'High', 'Extra'] as const;
+const EFFORTS = ['Low', 'Medium', 'High', 'Extra', 'Max'] as const;
 type EffortLevel = typeof EFFORTS[number];
 const EFFORT_HINTS: Record<EffortLevel, string> = {
   Low: 'Quick answers, light thinking',
   Medium: 'Balanced speed and depth',
   High: 'Thinks harder, a little slower',
-  Extra: 'Deepest thinking, slowest',
+  Extra: 'Thinks much harder, slower',
+  Max: 'Deepest thinking, slowest', // Codex has nothing above Extra: its Max runs as Extra (main.ts codexEffort)
 };
 
 function currentEffort(): EffortLevel {

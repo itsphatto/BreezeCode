@@ -1,7 +1,8 @@
 /* ----- Chat history: "New chat" files the current conversation away; the clock button brings one back ----- */
 // `sessions` is the current shape; an older entry has `session` (+ `agent`) instead, and openChat turns that into `sessions`.
 // `folder`: the project open when a Breeze Space chat began, so its side bar can group chats by folder.
-interface ChatEntry { id: string; title: string; at: number; html: string; agent: string | null; session: string | null; sessions?: Record<string, string>; folder?: string | null; }
+// `log`: a chat from Claude Code's or Codex's own logs (the Agent Board lists them); its messages are read when it is opened.
+interface ChatEntry { id: string; title: string; at: number; html: string; agent: string | null; session: string | null; sessions?: Record<string, string>; folder?: string | null; log?: { agent: string; session: string }; }
 const historyKey = (s: Surface) => `breeze.history:${chatScope(s)}`;
 const chatIdKey = (s: Surface) => `breeze.chatId:${chatScope(s)}`;
 const HISTORY_MAX = 30, HISTORY_BYTES = 1_500_000;
