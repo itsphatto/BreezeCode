@@ -107,7 +107,8 @@ function wireComposer(c: Composer): void {
       const pct = Math.max(0, Math.min(100, Math.round(w.used)));
       return `<div class="cmp-usage-row${pct >= 80 ? ' high' : ''}"><span class="lbl">${esc(w.label)}</span><span class="cmp-ctx-bar"><i data-w="${pct}"></i></span><span class="pct">${pct}%</span>${w.resetsAt ? `<small>resets ${esc(resetText(w.resetsAt))}</small>` : ''}</div>`;
     }).join('');
-    $$<HTMLElement>('.cmp-ctx-bar i', m).forEach(i => { i.style.width = `${i.dataset.w}%`; }); // the CSP blocks inline style attributes
+    // The CSP blocks inline style attributes; the fill's colour follows what's left (breeze.css).
+    $$<HTMLElement>('.cmp-ctx-bar i', m).forEach(i => { i.style.width = `${i.dataset.w}%`; i.style.setProperty('--usage-left', String(100 - Number(i.dataset.w))); });
     const r = more.getBoundingClientRect();
     m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
     m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`;
@@ -266,7 +267,9 @@ function paintComposer(c: Composer): void {
   if (wins.length) {
     const tight = wins.reduce((a, w) => (w.used > a.used ? w : a));
     const pct = Math.max(0, Math.min(100, Math.round(tight.used)));
-    $<HTMLElement>('.cmp-ctx-bar i', meter).style.width = `${pct}%`;
+    const fill = $<HTMLElement>('.cmp-ctx-bar i', meter);
+    fill.style.width = `${pct}%`;
+    fill.style.setProperty('--usage-left', String(100 - pct));
     $('.cmp-ctx-pct', meter).textContent = `${pct}%`;
     meter.setAttribute('aria-valuenow', String(pct));
     const name = appState.detect?.agents.find(a => a.id === id)?.name ?? 'This agent';

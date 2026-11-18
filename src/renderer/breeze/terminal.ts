@@ -761,9 +761,30 @@ function showRunErrors(refs: ErrorRef[]): void {
     if (b.path === active) renderCode();
   }
 }
+// Super Error Alert (Settings → Miscellaneous): the window's corners glow red and a siren wails, both for 3 seconds.
+// A second failure while one is going restarts it rather than stacking a second siren on top.
+let errAlertUntil = 0;
+function superErrorAlert(): void {
+  let el = document.getElementById('errAlert');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'errAlert';
+    el.setAttribute('aria-hidden', 'true');
+    document.body.append(el);
+  }
+  el.classList.remove('on');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('on');
+  if (Date.now() >= errAlertUntil) sfx.siren(3);
+  errAlertUntil = Date.now() + 3000;
+  el.onanimationend = () => el.classList.remove('on');
+}
+// Runs stopped with Ctrl+C or the stop button: their non-zero exit is the user's doing, not an error to alarm about.
+const killedRuns = new Set<number>();
 function killCommand(): void {
   const session = activeTermSession;
   if (session?.proc == null) return;
+  killedRuns.add(session.proc);
   background(api.term.kill(session.proc));
   termWrite('^C\n', '', session);
 }
@@ -879,8 +900,10 @@ api.term.onExit((id, code) => {
       termAppend(errDiv, session);
     }
   }
+  const killed = killedRuns.delete(id);
   if (id !== runId) return;
   if (code === 0) sfx.play('success');
+  else if (code && !killed && appState.superErrorAlert) superErrorAlert();
   if (session.pending) {
     const rest = session.pending.text;
     session.pending.el.remove();
