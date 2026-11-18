@@ -251,17 +251,23 @@ function initTooltip(): void {
   document.addEventListener('pointerover', (e) => {
     cursorX = e.clientX;
     cursorY = e.clientY;
-    const target = (e.target as HTMLElement).closest<HTMLElement>('[title], [data-tooltip], [alt]');
+    const target = (e.target as HTMLElement).closest<HTMLElement>('[title], [data-tooltip], [alt], button[aria-label], [role="button"][aria-label]');
     if (!target) {
       hideTooltip();
       return;
     }
 
-    // Tips only show in the file manager (the Explorer's buttons and file tree), on the debugger's toolbar, whose
-    // icon-only buttons need them, on Home's contribution graph and on the setup steps before Home. Anywhere else the
-    // title is taken off so the system tip doesn't pop up either; an icon-only control keeps it as its aria-label so
-    // it still has a name. Iframe titles stay: they name the frame for screen readers and never show a tip.
-    if (!target.closest('[data-panel="files"], .dbg-tools, .contrib-graph, .ob-step:not(.home-step)')) {
+    // Tips show on every icon-only control (it has no words of its own, so the tip is its only visible name), and
+    // anywhere in the file manager (the Explorer's buttons and file tree), the debugger's toolbar, Home's contribution
+    // graph and the setup steps before Home. Anywhere else the title is taken off so the system tip doesn't pop up
+    // either; the control keeps it as its aria-label. Iframe titles stay: they name the frame for screen readers.
+    // A switch is named by the label beside it, so it never gets a tip of its own.
+    const iconOnly = target.tagName !== 'IFRAME' && target.getAttribute('role') !== 'switch' && !target.textContent?.trim();
+    if (iconOnly && !target.dataset.tooltip && !target.hasAttribute('title') && !target.hasAttribute('alt')) {
+      const label = target.getAttribute('aria-label')?.trim();
+      if (label) target.dataset.tooltip = label;
+    }
+    if (!iconOnly && !target.closest('[data-panel="files"], .dbg-tools, .contrib-graph, .ob-step:not(.home-step)')) {
       if (target.hasAttribute('title') && target.tagName !== 'IFRAME') {
         const val = target.getAttribute('title')?.trim() ?? '';
         target.removeAttribute('title');
@@ -275,6 +281,7 @@ function initTooltip(): void {
       const val = target.getAttribute('title') || '';
       target.removeAttribute('title');
       if (val.trim()) target.dataset.tooltip = val.trim();
+      if (val.trim() && iconOnly && !target.hasAttribute('aria-label')) target.setAttribute('aria-label', val.trim());
     } else if (target.hasAttribute('alt') && !target.dataset.tooltip) {
       const val = target.getAttribute('alt') || '';
       if (val.trim()) target.dataset.tooltip = val.trim();
