@@ -783,6 +783,15 @@ function runSummary(r: Run, ev: AgentEvent): string[] {
   return [time, usage].filter(Boolean);
 }
 
+// A chat saved before the tick was an icon wrote "✓ Done · 12s · 599 tokens": shown again, it reads like a new one.
+function upgradeRunDone(root: Element): void {
+  for (const span of root.querySelectorAll<HTMLElement>('.run-done > span:only-child')) {
+    const rest = (span.textContent ?? '').replace(/^✓\s*Done\s*(·\s*)?/, '');
+    span.textContent = rest || 'Done';
+    span.insertAdjacentHTML('beforebegin', svgIcon('check', 14));
+  }
+}
+
 /* ----- "Edited app.ts, ran a command +12 −3 · View changes ▸" under a reply that changed files ----- */
 function editsText(files: string[], commands: number): string {
   const names = files.map(f => baseName(f.replaceAll('\\', '/')));
@@ -924,13 +933,13 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   if (allDone) vibeDone(true);
 
   const bits = runSummary(r, ev);
-  const summary = bits.length ? ' · ' + bits.join(' · ') : '';
+  // A tick and the run's time and usage ("✓ 12s · 599 tokens"); "Done" only when there is neither to show.
   if (r.files.size) {
     const files = [...r.files];
     const edits = addMsg(editsHtml(files, r.commands ?? 0), tab);
     background(fillEditCounts(edits, files, tab));
   }
-  addMsg(`<div class="run-done"><span>✓ Done${summary}</span></div>`, tab);
+  addMsg(`<div class="run-done">${svgIcon('check', 14)}<span>${bits.length ? bits.join(' · ') : 'Done'}</span></div>`, tab);
   if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
   if (r.files.size && running) autoReloadPreview();
 }

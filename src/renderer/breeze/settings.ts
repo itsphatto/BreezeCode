@@ -324,6 +324,9 @@ let bgOpacity = clamp(Math.round(Number(store.get<number>('breeze.bgOpacity', BG
 const BG_BLUR_MAX = 40;
 let bgBlur = clamp(Math.round(Number(store.get<number>('breeze.bgBlur', 0)) || 0), 0, BG_BLUR_MAX);
 let bgSize = ''; // "1920 × 1080" once the picture has loaded
+const bdShown = new Map<string, number>(); // each backdrop knob's value as last drawn, so a redraw can glide from it
+const bdMorph = new Map<string, number>(); // each knob's glide frame
+let swLook = ''; // the Custom background card's picture as last drawn, to cross-fade from
 // Glass's opacity knob (percent): the least share of each surface that stays solid. null: the theme's own (GLASS_RANGE).
 let glassFloor: number | null = store.get<number | null>('breeze.glassOpacity', null);
 if (glassFloor !== null) glassFloor = clamp(Math.round(Number(glassFloor)) || 34, 10, 90);
@@ -720,14 +723,44 @@ function bindBackdropSettings(pane: HTMLElement): void {
   const bdSlider = (id: string, min: number, max: number, unit: string, get: () => number, set: (v: number) => void) => {
     const slider = $<HTMLInputElement>(`#${id}`, pane);
     if (!slider) return;
+    const label = $(`#${id}Val`, pane);
+    // The knob and its fill at `v`; the number rolls its changed digits like the usage dashboard's (rollText).
+    const knob = (v: number) => {
+      v = clamp(v, min, max);
+      slider.value = String(v);
+      slider.style.setProperty('--fill', `${(v - min) / (max - min) * 100}%`);
+    };
+    const roll = (text: string) => {
+      const from = label.dataset.to ?? label.textContent ?? '';
+      if (from === text) return;
+      label.textContent = text;
+      rollText(label, from);
+    };
     const show = (v: number) => {
+      cancelAnimationFrame(bdMorph.get(id) ?? 0);
       set(clamp(Math.round(v), min, max));
-      slider.value = String(get());
-      slider.style.setProperty('--fill', `${(get() - min) / (max - min) * 100}%`);
-      swapText($(`#${id}Val`, pane), `${get()}${unit}`);
+      knob(get());
+      roll(`${get()}${unit}`);
+      bdShown.set(id, get());
       applyBackdropLook();
     };
-    show(get());
+    // Redrawn with another value (Glass turned on or off): the knob glides there instead of jumping.
+    const was = bdShown.get(id), to = get();
+    if (was === undefined || was === to || motionOff()) show(to);
+    else {
+      bdShown.set(id, to);
+      applyBackdropLook();
+      label.textContent = `${was}${unit}`;
+      roll(`${to}${unit}`);
+      knob(was);
+      const t0 = performance.now();
+      const step = (now: number) => {
+        const p = clamp((now - t0) / 380, 0, 1);
+        knob(was + (to - was) * (1 - (1 - p) ** 3));
+        if (p < 1) bdMorph.set(id, requestAnimationFrame(step));
+      };
+      bdMorph.set(id, requestAnimationFrame(step));
+    }
     slider.oninput = () => show(+slider.value);
     slider.addEventListener('wheel', e => { e.preventDefault(); show(get() + (e.deltaY < 0 || e.deltaX > 0 ? 2 : -2)); }, { passive: false });
   };
@@ -743,7 +776,16 @@ function bindBackdropSettings(pane: HTMLElement): void {
   bdSlider('sBgBlur', 0, BG_BLUR_MAX, 'px', () => bgBlur, v => { bgBlur = v; store.set('breeze.bgBlur', v); });
   // The pictures on the Custom background card and the panel's swatch show the chosen picture.
   const sw = pane.querySelector<HTMLElement>('[data-swatch="image"]');
-  if (sw) { if (bgImage) sw.style.setProperty('--sw-img', `url("${bgImage.url.replace(/"/g, '%22')}")`); else sw.style.removeProperty('--sw-img'); }
+  if (sw) {
+    if (bgImage) sw.style.setProperty('--sw-img', `url("${bgImage.url.replace(/"/g, '%22')}")`); else sw.style.removeProperty('--sw-img');
+    // A picture added, changed or removed cross-fades on the card (and Remove fades in beside Change).
+    const look = getComputedStyle(sw).backgroundImage;
+    if (swLook && swLook !== look && !motionOff()) {
+      sw.animate([{ backgroundImage: swLook }, { backgroundImage: look }], { duration: 450, easing: 'ease' });
+      if (!swLook.includes('url(')) $('#sBgClear', pane)?.animate([{ opacity: 0, transform: 'scale(.92)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    }
+    swLook = look;
+  }
 }
 
 // The account card sits at the top of General.
@@ -1274,14 +1316,13 @@ function bindSettings(m: HTMLElement): void {
   // rebuilt below, so the new copy takes over from exactly how the old one looked, even mid-fade: turning presence on
   // redraws the pane again when Discord answers, and a fade that restarted from the on/off state was cut short there.
   // Coming back eases in more slowly than greying out.
-  const DIMMABLE = ['.set-dim', '.social-grid'];
-  const was = pane.dataset.tab === settingsTab ? DIMMABLE.map(s => {
-    const el = pane.querySelector(s);
-    return el ? { opacity: getComputedStyle(el).opacity, filter: getComputedStyle(el).filter } : null;
-  }) : [];
-  // Each row's description, by its title, so one that a redraw changes (Full access's On/Off) blurs in.
-  const rowText = () => new Map($$<HTMLElement>('.set-row', pane).map(r => [r.querySelector('.set-title')?.textContent ?? '', r.querySelector<HTMLElement>('.set-sub')]));
-  const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, el]) => [k, el?.textContent ?? ''])) : null;
+  const DIMMABLE = '.set-dim, .social-grid';
+  const was = pane.dataset.tab === settingsTab ? $$<HTMLElement>(DIMMABLE, pane).map(el => ({ opacity: getComputedStyle(el).opacity, filter: getComputedStyle(el).filter })) : [];
+  // Each row's title and description, by its control's id (else its title), so text a redraw changes blurs in: Full
+  // access's On/Off, or the opacity knob's row turning from Picture to Glass.
+  const rowKey = (r: HTMLElement) => r.querySelector('.set-ctl [id]')?.id || (r.querySelector('.set-title')?.textContent ?? '');
+  const rowText = () => new Map($$<HTMLElement>('.set-row', pane).map(r => [rowKey(r), [r.querySelector<HTMLElement>('.set-title'), r.querySelector<HTMLElement>('.set-sub')]]));
+  const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, els]) => [k, els.map(el => el?.textContent ?? '')])) : null;
   // The usage bars keep their place through a redraw of the same section (Full access flipped): rebuilt, they filled again.
   const keptUsage = pane.dataset.tab === settingsTab ? pane.querySelector('#sUsage') : null;
   pane.innerHTML = settingsBody(settingsTab);
@@ -1291,14 +1332,16 @@ function bindSettings(m: HTMLElement): void {
     pane.querySelector('#sUsage')?.replaceWith(keptUsage);
   }
   if (wasText) {
-    for (const [k, el] of rowText()) {
-      if (el && wasText.has(k) && wasText.get(k) !== el.textContent) {
-        el.animate([{ opacity: 0, filter: 'blur(2px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
-      }
+    for (const [k, els] of rowText()) {
+      els.forEach((el, i) => {
+        if (el && wasText.has(k) && wasText.get(k)![i] !== el.textContent) {
+          el.animate([{ opacity: 0, filter: 'blur(2px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+        }
+      });
     }
   }
-  DIMMABLE.forEach((s, i) => {
-    const el = pane.querySelector<HTMLElement>(s), from = was[i];
+  $$<HTMLElement>(DIMMABLE, pane).forEach((el, i) => {
+    const from = was[i];
     if (!el || !from) return;
     const to = { opacity: getComputedStyle(el).opacity, filter: getComputedStyle(el).filter };
     if (to.opacity === from.opacity && to.filter === from.filter) return;

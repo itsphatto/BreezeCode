@@ -107,6 +107,7 @@
   --glass-blur: blur(22px) saturate(160%);
   --space-blur: blur(1px) saturate(160%); /* Breeze Space's prompt and terminal, over its stars */
   --space-prompt-blur: blur(14px) saturate(160%); /* the prompt frosts the stars and rain behind it */
+  --space-msg-blur: blur(2px) saturate(160%); /* your messages in Breeze Space: a lighter frost than the prompt's */
   --settings-blur: blur(10px) saturate(160%);
   /* Ink is the colour of hover washes and hairlines, as an "r, g, b" triple for rgba(var(--ink), alpha):
      white over the dark themes, black over the light one. */
@@ -163,6 +164,7 @@
   --glass-blur: none;
   --space-blur: none;
   --space-prompt-blur: none;
+  --space-msg-blur: none;
   --settings-blur: none;
   --glass-line: rgba(70, 55, 30, .12);
   /* Fibre grain: brown noise at a few percent, tiled over the big surfaces (see "paper grain" below). */
@@ -5312,9 +5314,9 @@ body.resizing-h .term-body {
   text-align: left;
 }
 
-/* In Breeze Space your message frosts the stars and rain behind it, like the prompt. */
+/* In Breeze Space your message frosts the stars and rain behind it, more lightly than the prompt. */
 #box .msg.user .body {
-  backdrop-filter: var(--space-prompt-blur);
+  backdrop-filter: var(--space-msg-blur);
 }
 
 .msg ol {
@@ -6056,7 +6058,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   min-width: 0;
 }
 
-.cmp-row :is(.cmp-plus, .cmp-attach, .cmp-mic) {
+.cmp-row :is(.cmp-plus, .cmp-mic) {
   position: relative;
   display: grid;
   place-items: center;
@@ -6074,7 +6076,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   border: 1px solid var(--line);
 }
 
-.cmp-row :is(.cmp-plus, .cmp-attach, .cmp-mic):hover {
+.cmp-row :is(.cmp-plus, .cmp-mic):hover {
   background: rgba(var(--ink), .07);
   color: var(--text);
 }
@@ -8467,13 +8469,18 @@ body.vibing .ide {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 6px;
   width: fit-content;
   max-width: 100%;
   align-self: flex-start;
   box-sizing: border-box;
   margin-bottom: 14px;
   color: #86efac;
+}
+
+.run-done > svg {
+  flex: none;
+  stroke-width: 2.5;
 }
 
 /* "Edited app.ts, ran a command +12 −3 · View changes ▸": opens to the files, each with its own counts. */
@@ -10128,10 +10135,14 @@ body.vibe-side .vibe-panel {
   pointer-events: none;
 }
 
+/* Over the conversation, which scrolls on up behind it to the window's top edge (.box-main). */
 .box-bar {
+  position: relative;
+  z-index: 6;
   background: transparent;
   border-bottom-color: transparent;
   grid-column: 1 / -1;
+  grid-row: 1;
 }
 
 .box > .box-tabs-bar {
@@ -10142,13 +10153,56 @@ body.vibe-side .vibe-panel {
   grid-column: 2;
 }
 
+/* The conversation runs edge to edge: up behind the title bar to the window's top and on under the prompt, which
+   floats over its bottom. The chat keeps room for both (the bar's 45px above its first message, --box-cmp-h,
+   composerui.ts, below its last), and blurred fades (.box-main::before and ::after) frost what scrolls behind them. */
 .box > .box-main {
-  grid-row: 3;
+  grid-row: 1 / 5;
 }
 
 .box > .box-composer {
   grid-row: 4;
+  position: relative;
+  z-index: 5;
 }
+
+/* The conversation's ends blur progressively, not as one blurred strip: six stacked layers, each blurring twice as much
+   as the one before and masked to a band that overlaps its neighbours', so the blur grows smoothly toward the edge
+   (strongest behind the title bar, and behind the prompt). Top: the bar and 64px under it. Bottom: the prompt and 64px
+   above it, under the prompt. */
+.box > .box-fade {
+  grid-column: 2;
+  position: relative;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.box > .box-fade-top {
+  --fade-dir: to top;
+  grid-row: 1 / 4;
+  align-self: start;
+  height: calc(45px + 64px);
+  z-index: 5;
+}
+
+.box > .box-fade-bot {
+  --fade-dir: to bottom;
+  grid-row: 3 / 5;
+  align-self: end;
+  height: calc(var(--box-cmp-h, 160px) + 64px);
+}
+
+.box-fade > i {
+  position: absolute;
+  inset: 0;
+}
+
+.box-fade > i:nth-child(1) { backdrop-filter: blur(.5px); mask-image: linear-gradient(var(--fade-dir), transparent 0%, #000 12.5%, #000 25%, transparent 37.5%); }
+.box-fade > i:nth-child(2) { backdrop-filter: blur(1px); mask-image: linear-gradient(var(--fade-dir), transparent 12.5%, #000 25%, #000 37.5%, transparent 50%); }
+.box-fade > i:nth-child(3) { backdrop-filter: blur(2px); mask-image: linear-gradient(var(--fade-dir), transparent 25%, #000 37.5%, #000 50%, transparent 62.5%); }
+.box-fade > i:nth-child(4) { backdrop-filter: blur(4px); mask-image: linear-gradient(var(--fade-dir), transparent 37.5%, #000 50%, #000 62.5%, transparent 75%); }
+.box-fade > i:nth-child(5) { backdrop-filter: blur(8px); mask-image: linear-gradient(var(--fade-dir), transparent 50%, #000 62.5%, #000 75%, transparent 87.5%); }
+.box-fade > i:nth-child(6) { backdrop-filter: blur(16px); mask-image: linear-gradient(var(--fade-dir), transparent 62.5%, #000 75%); }
 
 /* The IDE's terminal panel, brought over by the title bar's button (terminalTo, layout.ts) as a side bar at the right. It
    opens and closes on its width (the same animated layout change as the IDE's panels, body.layout-animating), with its
@@ -10883,10 +10937,36 @@ body.layout-animating .box > .terminal.open {
   overflow: auto;
 }
 
+/* The conversation and its prompt sit left of centre, just after the chats side bar, leaving a strip free at the right
+   (--box-r, as a share of the conversation's column): narrower windows give up the strip before the column shrinks,
+   and it goes when the terminal or the file the agent is editing takes that side. Percentages, so each resolves
+   against its own box (the scroller, the grid column). */
+.box {
+  --box-r: min(28%, max(0px, 100% - 812px));
+}
+
+.box:has(> .terminal.open, > .box-live:not(.closed)),
+body.vibe-side .box {
+  --box-r: 0px;
+}
+
+/* The left edge stays where the free strip puts it; the right edge reaches out to the Breeze Code button's
+   (--box-end, composerui.ts), never narrower than the plain column. With a panel open it is the plain centred column. */
+.box-chat,
+.box-composer {
+  --box-w: min(780px, calc(100% - 32px - var(--box-r)));
+  --box-x: calc((100% - var(--box-r) - var(--box-w)) / 2);
+  width: max(var(--box-w), calc(100% - var(--box-x) - var(--box-end, 16px)));
+  margin: 0 auto 0 var(--box-x);
+}
+
+.box:has(> .terminal.open, > .box-live:not(.closed)) :is(.box-chat, .box-composer),
+body.vibe-side .box :is(.box-chat, .box-composer) {
+  width: var(--box-w);
+}
+
 .box-chat {
-  width: min(780px, calc(100% - 32px));
-  margin: 0 auto;
-  padding: 28px 0 16px;
+  padding: calc(45px + 28px) 0 calc(var(--box-cmp-h, 160px) + 16px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -10910,8 +10990,6 @@ body.layout-animating .box > .terminal.open {
 }
 
 .box-composer {
-  width: min(780px, calc(100% - 32px));
-  margin: 0 auto;
   padding: 0 0 22px;
 }
 
@@ -12133,6 +12211,46 @@ body.layout-animating .box > .terminal.open {
 
 .swap-quick .screen-out.screen-soft {
   animation-duration: .1s;
+}
+
+/* The same swap as a view transition (swapScreen, setup.ts): the showing page's title bar, logo and activity bar are
+   named, so they are held where they are and only morph where the two pages differ, and the work area fades out and
+   in, with the Source Control page's timing. */
+:root.page-morph .page-vt > .titlebar {
+  view-transition-name: page-bar;
+}
+
+:root.page-morph .page-vt > .titlebar > .logo {
+  view-transition-name: page-logo;
+}
+
+:root.page-morph .page-vt > :is(.main, .board-main, .dbg-main) > .activity {
+  view-transition-name: page-rail;
+}
+
+:root.page-morph::view-transition-group(page-bar),
+:root.page-morph::view-transition-group(page-logo),
+:root.page-morph::view-transition-group(page-rail) {
+  animation-duration: .32s;
+  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+:root.page-morph::view-transition-old(root) {
+  animation: fadeOut .14s ease-in both;
+}
+
+:root.page-morph::view-transition-new(root) {
+  animation: fade .2s ease-out .06s both;
+}
+
+/* Under Glass or a picture two see-through pages stacked mid-fade let less of the backdrop through (as above): the
+   work area swaps at once, and the bars still morph. */
+:root[data-backdrop].page-morph::view-transition-old(root) {
+  display: none;
+}
+
+:root[data-backdrop].page-morph::view-transition-new(root) {
+  animation: none;
 }
 
 @keyframes screenSoftShift {
@@ -14500,16 +14618,6 @@ body.layout-animating #previewPane {
     pointer-events: none;
   }
 
-  .box-main::before {
-    top: 0;
-    margin-block: 0 -40px;
-  }
-
-  .box-main::after {
-    bottom: 0;
-    margin-block: -40px 0;
-  }
-
   /* The terminal's output has 6px of padding above and below, and 14px at the sides. */
   #box > .terminal .term-body::before {
     top: -6px;
@@ -14539,11 +14647,42 @@ body.layout-animating #previewPane {
     animation-range: calc(100% - 48px) 100%;
   }
 
-  /* Breeze Space's conversation has no mask (see above) to hide the rows the squeeze pulls away, so its copy showed
-     displaced over the sharp rows. Blur alone keeps the copy where the rows are. */
-  .box-main::before,
-  .box-main::after {
-    backdrop-filter: blur(4px);
+  /* Breeze Space's conversation has its own, progressive edges (.box-fade) instead of these layers. #box.box: to outrank
+     the :is() above, which takes its #box argument's weight. */
+  #box.box > .box-main::before,
+  #box.box > .box-main::after {
+    display: none;
+  }
+
+  /* Its edge layers follow the conversation's scroll by name (they sit beside it, not in it): there while there is
+     more to scroll that way, gone when it all fits. On each layer, not their box: opacity on the box would make it
+     all a layer's backdrop-filter sees. */
+  #box {
+    timeline-scope: --box-chat;
+  }
+
+  #box > .box-main {
+    scroll-timeline: --box-chat block;
+  }
+
+  .box-fade > i {
+    opacity: 0;
+  }
+
+  .box-fade-top > i {
+    animation: edgeLayerTop linear both;
+    animation-timeline: --box-chat;
+    animation-range: 0 48px;
+  }
+
+  .box-fade-bot > i {
+    animation: edgeLayerBot linear both;
+    animation-timeline: --box-chat;
+    animation-range: calc(100% - 48px) 100%;
+  }
+
+  body.modal-up .box-fade {
+    display: none;
   }
 
   /* Under a dialog the layers go (the plain fade stays): its blur hides them, and the page under a dialog is drawn
@@ -16926,8 +17065,9 @@ body.layout-animating #previewPane {
   background: var(--sw-img, linear-gradient(135deg, #3b6fd1 0%, #5aa6c4 38%, #6fcf9d 62%, #2a3f7a 100%));
 }
 
+/* From the border's outer edge: laid out in the padding box, the picture left the see-through border's strip bare. */
 .theme-swatch[data-swatch="image"] {
-  background: var(--sw-img, linear-gradient(135deg, #2a2a2c, #4a4a50)) center / cover no-repeat;
+  background: var(--sw-img, linear-gradient(135deg, #2a2a2c, #4a4a50)) center / cover no-repeat border-box;
 }
 
 .theme-swatch[data-base="contrast"] { --sw-panel: rgba(0, 0, 0, .55); }
@@ -20689,6 +20829,7 @@ input.dbg-edit.bad:focus-visible {
   --glass-blur: none;
   --space-blur: none;
   --space-prompt-blur: none;
+  --space-msg-blur: none;
   --settings-blur: none;
 }
 :root[data-power="saver"]:not([data-theme="light"]),
