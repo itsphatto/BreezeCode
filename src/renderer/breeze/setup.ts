@@ -380,13 +380,14 @@ function modelLabel(a: DetectedAgent | null): string {
   return a.api && a.version ? a.version : a.name;
 }
 
-const EFFORTS = ['Low', 'Medium', 'High', 'Extra'] as const;
+const EFFORTS = ['Low', 'Medium', 'High', 'Extra', 'Max'] as const;
 type EffortLevel = typeof EFFORTS[number];
 const EFFORT_HINTS: Record<EffortLevel, string> = {
   Low: 'Quick answers, light thinking',
   Medium: 'Balanced speed and depth',
   High: 'Thinks harder, a little slower',
-  Extra: 'Deepest thinking, slowest',
+  Extra: 'Thinks much harder, slower',
+  Max: 'Deepest thinking, slowest', // Codex has nothing above Extra: its Max runs as Extra (main.ts codexEffort)
 };
 
 function currentEffort(): EffortLevel {
@@ -696,6 +697,7 @@ function renderAgentBar(): void {
   updateScmGenBtn();
   if (typeof renderHomeAsk === 'function') renderHomeAsk(); // Home's prompt box shows the same model and effort
   if (typeof renderBoardModels === 'function') renderBoardModels(); // and so do the Agent board's boxes
+  if (typeof renderModeSwitch === 'function') renderModeSwitch(); // the switcher's Agent Board half wears the default agent's logo
 }
 
 $('#agentBar').addEventListener('click', e => {
@@ -1254,7 +1256,6 @@ $('#adBars').addEventListener('pointerover', e => {
 });
 $('#adBars').addEventListener('pointerleave', hideDashTip);
 $$<HTMLElement>('.home-rail [data-home-view]').forEach(b => b.onclick = () => showHomeView(b.dataset.homeView ?? 'session'));
-$('#homeSpace').onclick = () => enterMode('box');
 function renderHome(): void {
   showHomeView('session');
   renderHomeProfile();
@@ -1487,6 +1488,7 @@ function swapScreen(to: string): void {
 
   const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out') && !el.classList.contains('screen-prep'));
   const debugSwap = !!prev && ['debug', 'board'].some(id => prev.id === id || next.id === id); // full pages cross-fade in place
+  if (typeof resetModeSwitches === 'function') resetModeSwitches(prev); // the one fading out keeps the slide it just played
   // Clicked away while a debugger swap is still playing: the next one plays faster.
   const quick = debugSwap && next.classList.contains('screen-out');
   clearTimeout(swapTimer);

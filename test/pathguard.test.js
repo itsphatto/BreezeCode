@@ -108,8 +108,10 @@ test('main.ts only runs the install commands the tools list offers', () => {
   assert.match(src, /handle\('sys:runCommand'[\s\S]*?if \(!allowed\.includes\(command\)\) return false;[\s\S]*?spawn\(/);
 });
 
-test('main.ts passes Extra effort to Codex and Claude Code as xhigh', () => {
+test('main.ts passes Extra effort to Codex and Claude Code as xhigh, and Max as max (xhigh for Codex)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.ts'), 'utf8');
   assert.match(src, /extra: 'xhigh'/);
+  assert.match(src, /max: 'max'/);
+  assert.match(src, /model_reasoning_effort=\$\{codexEffort\(effort\)\}/);
   assert.match(src, /args\.push\('--effort', effort\)/);
 });

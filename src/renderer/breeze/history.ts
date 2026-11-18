@@ -1,7 +1,8 @@
 /* ----- Chat history: "New chat" files the current conversation away; the clock button brings one back ----- */
 // `sessions` is the current shape; an older entry has `session` (+ `agent`) instead, and openChat turns that into `sessions`.
 // `folder`: the project open when a Breeze Space chat began, so its side bar can group chats by folder.
-interface ChatEntry { id: string; title: string; at: number; html: string; agent: string | null; session: string | null; sessions?: Record<string, string>; folder?: string | null; }
+// `log`: a chat from Claude Code's or Codex's own logs (the Agent Board lists them); its messages are read when it is opened.
+interface ChatEntry { id: string; title: string; at: number; html: string; agent: string | null; session: string | null; sessions?: Record<string, string>; folder?: string | null; log?: { agent: string; session: string }; }
 const historyKey = (s: Surface) => `breeze.history:${chatScope(s)}`;
 const chatIdKey = (s: Surface) => `breeze.chatId:${chatScope(s)}`;
 const HISTORY_MAX = 30, HISTORY_BYTES = 1_500_000;
@@ -26,6 +27,8 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   const list = [entry, ...old.filter(e => e.id !== id)].filter(e => (bytes += e.html.length) < HISTORY_BYTES).slice(0, HISTORY_MAX);
   store.set(historyKey(s), list);
   if (s.name === 'box') renderBoxSide();
+  // The Agent Board's side bar lists this folder's chats (and Space's old ones).
+  else if (typeof renderBoardSide === 'function' && boardPageShowing()) renderBoardSide();
 }
 
 function archiveChat(s: Surface): void {
@@ -175,7 +178,37 @@ function pruneBoxTabs(): void {
   const s = SURFACES.box;
   for (const t of [...surfaceTabs.box]) if (t.id !== activeTabId.box && !tabBusy(t)) closeAgentTab(s, t.id);
 }
+/* A chat belongs to the project it began in. Opened from another project's group, that project is opened first, so the
+   chat stays filed under it and its agent carries on in its own folder, never in whichever one happens to be open. */
+// A folder path written one way, whichever slashes and case it came with, so two spellings of one folder match.
+const folderKey = (p: string) => p.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+const chatInOpenFolder = (e: ChatEntry) => !e.folder || (!!rootInfo && folderKey(e.folder) === folderKey(rootInfo.root));
+// `working`: Agent Board boxes still running here, which stop with the folder, so that is asked first.
+// True once the chat's project is the open one; false when the switch was cancelled or failed.
+async function openChatFolder(e: ChatEntry, working = 0): Promise<boolean> {
+  const name = folderName(e.folder);
+  if (!(await confirmStopBoxes(working, `Open ${name}?`, `This chat belongs to ${name}.`, `Open ${name}`))) return false;
+  await openRecentFolder(e.folder as string);
+  return chatInOpenFolder(e);
+}
+// Asked before Agent Board boxes still working are closed (their runs stop); true at once when none are.
+function confirmStopBoxes(working: number, title: string, lead: string, go: string): Promise<boolean> {
+  if (!working) return Promise.resolve(true);
+  return new Promise<boolean>(res => {
+    const finish = settleOnce(res);
+    openModal(`<h3>${esc(title)}</h3>
+      <p class="sub">${esc(lead)} ${working} ${working === 1 ? 'box is' : 'boxes are'} still working and will stop.</p>
+      <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="stopBoxesGo">${esc(go)}</button></div>`, m => {
+      $('#stopBoxesGo', m).onclick = () => { modalOnClose = null; closeModal(); finish(true); };
+    }, () => finish(false));
+  });
+}
+
 function openBoxChat(e: ChatEntry): void {
+  if (!chatInOpenFolder(e)) {
+    background(openChatFolder(e).then(ok => { if (ok) { renderBoxFolder(); openBoxChat(e); } }));
+    return;
+  }
   const s = SURFACES.box;
   const open = surfaceTabs.box.find(t => t.historyId === e.id);
   if (open) switchAgentTab(s, open.id);

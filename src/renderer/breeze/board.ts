@@ -25,7 +25,8 @@ interface BoardBox {
 }
 const boxBusy = (b: BoardBox) => tabBusy(b.tab) || !!b.starting;
 const stoppedRuns = new Set<number>(); // runs the person stopped: their late relays and replies are dropped
-interface BoardSaved { boxes: Record<string, { agent: string; historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number }> }
+// `order`: the boxes' order on the page, when a chat dropped on a box's side put one out of number order.
+interface BoardSaved { boxes: Record<string, { agent: string; historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number }>; order?: string[] }
 
 const BOARD_MAX = 8;
 const boardBoxes = new Map<string, BoardBox>();
@@ -45,6 +46,8 @@ function openBoard(): void {
   if (boardFolder !== rootInfo.root) loadBoard();
   renderRoster();
   renderBoard();
+  renderBoardSide();
+  loadBoardLogs();
   placeBoardRailIndicator();
   refreshBoardLimits();
   requestAnimationFrame(scrollRestoredChats);
@@ -54,7 +57,9 @@ function leaveBoard(): void {
   showIde();
   renderBoardStatus();
 }
-$('#boardBack').onclick = leaveBoard;
+// The switcher replaced Back to editor (breeze.html): $('#boardBack').onclick = leaveBoard;
+// Its Code half leaves the same way (mode.ide), then the status bar says what the boxes are still doing.
+$('#board .mode-switch [data-mode="ide"]').addEventListener('click', () => setTimeout(renderBoardStatus, 0));
 $('#boardLogoHome').onclick = () => { goHome(); renderBoardStatus(); };
 $('#boardBtn').onclick = openBoard;
 commands['view.board'] = () => openBoard();
@@ -105,16 +110,17 @@ $('#boardRoster').addEventListener('dragstart', e => {
   setTimeout(() => { if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
 });
 $('#boardRoster').addEventListener('dragend', () => endBoardDrag());
-// A click on a chip adds that agent in a box of its own; Enter does the same from the keyboard.
+// A click on a chip starts a fresh chat with that agent, alone on the board; Enter does the same from the keyboard.
+// Dragging a chip onto the board is how it goes beside the boxes already there.
 $('#boardRoster').addEventListener('click', e => {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.board-chip');
-  if (chip) addAgent(chip.dataset.agent!);
+  if (chip) freshBoard(chip.dataset.agent!);
 });
 $('#boardRoster').addEventListener('keydown', e => {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.board-chip');
   if (!chip || e.key !== 'Enter') return;
   e.preventDefault(); // or Enter types a newline into the new box's prompt, which takes the focus
-  addAgent(chip.dataset.agent!);
+  freshBoard(chip.dataset.agent!);
 });
 
 /* ----- The grid: only the filled boxes, laid out for how many there are (boardlayout.ts) ----- */
@@ -124,15 +130,27 @@ const firstFreeKey = () => allBoxKeys().find(k => !boardBoxes.has(k));
 let boardDragging = false;
 function endBoardDrag(): void {
   boardGrid.classList.remove('dragging');
+  for (const o of boardGrid.querySelectorAll<HTMLElement>('.drop-on')) o.classList.remove('drop-on'); // a cancelled drag
   if (!boardDragging) return;
   boardDragging = false;
   morphBoard(renderBoard);
 }
-// The boxes on the page, in box order: the filled ones, and the one empty spot (none filled, or a chip being dragged).
+// The boxes' order on the page (the tiles fill left to right, then down): those a side drop placed, then the rest by number.
+let boardOrder: string[] = [];
+const orderOf = (k: string) => { const i = boardOrder.indexOf(k); return i < 0 ? BOARD_MAX + boxNumber(k) : i; };
+const byOrder = (a: string, b: string) => orderOf(a) - orderOf(b);
+// `key` goes just before (left) or after (right) `by`; every box gets a place, so the order holds as boxes come and go.
+function placeBox(key: string, by: string, side: DropSide): void {
+  const order = [...boardBoxes.keys()].filter(k => k !== key).sort(byOrder);
+  const i = order.indexOf(by);
+  order.splice(i < 0 ? order.length : side === 'left' ? i : i + 1, 0, key);
+  boardOrder = order;
+}
+// The boxes on the page, in that order: the filled ones, and the one empty spot (none filled, or a chip being dragged).
 function shownBoxKeys(): string[] {
   const free = firstFreeKey();
   const open = free && (!boardBoxes.size || boardDragging) ? [free] : [];
-  return [...boardBoxes.keys(), ...open].sort((a, b) => boxNumber(a) - boxNumber(b));
+  return [...boardBoxes.keys(), ...open].sort(byOrder);
 }
 function renderBoard(): void {
   const keys = shownBoxKeys();
@@ -155,13 +173,10 @@ function renderBoard(): void {
   paintBoardLive();
 }
 /* ----- The file a box's agent is editing: at the left of its chat, in every box ----- */
-// It takes up to half the box (breeze.css sizes it by the box's width). The bar's Code switch turns the panel on or off for every box (remembered); each box's code button hides its own.
+// It takes up to half the box (breeze.css sizes it by the box's width). Settings → Agents → Agent Board → Code turns the panel on or off for every box (remembered); each box's code button hides its own.
 const CODE_KEY = 'breeze.board.code';
 let boardCodeOn = store.get<boolean>(CODE_KEY, true);
 function paintBoardLive(): void {
-  const sw = $('#boardCode');
-  sw.setAttribute('aria-checked', String(boardCodeOn));
-  sw.classList.toggle('on', boardCodeOn);
   for (const b of boardBoxes.values()) {
     const has = !!b.live.path;
     const was = b.el.classList.contains('live-on');
@@ -176,12 +191,12 @@ function paintBoardLive(): void {
     if (on && !was) requestAnimationFrame(() => b.live.reveal());
   }
 }
-$('#boardCode').onclick = () => {
-  boardCodeOn = !boardCodeOn;
-  store.set(CODE_KEY, boardCodeOn);
-  if (boardCodeOn) for (const b of boardBoxes.values()) b.liveHidden = false; // on again: every box shows its file
+function setBoardCode(on: boolean): void {
+  boardCodeOn = on;
+  store.set(CODE_KEY, on);
+  if (on) for (const b of boardBoxes.values()) b.liveHidden = false; // on again: every box shows its file
   paintBoardLive();
-};
+}
 paintBoardLive();
 function boardLiveFile(key: string, path: string): void { boardBoxes.get(key)?.live.file(path); }
 function boardLiveDraft(key: string, path: string, text: string, phase?: string): void { boardBoxes.get(key)?.live.draft(path, text, phase); }
@@ -216,7 +231,6 @@ function layoutBoard(): void {
     });
     paintBoardSashes([]);
   }
-  for (const b of boardBoxes.values()) $('.board-box-split', b.el).classList.toggle('hidden', boardBoxes.size >= BOARD_MAX);
 }
 new ResizeObserver(() => { if (boardGrid.children.length) layoutBoard(); }).observe(boardGrid);
 
@@ -340,11 +354,32 @@ function morphBoard(change: () => void): void {
   document.startViewTransition(() => { change(); name(); }).finished.then(done, done);
 }
 
-// Puts the agent in a box of its own (the first free one), splitting the page with the boxes already there.
-function addAgent(agent: string): void {
-  const key = firstFreeKey();
-  if (!key) { toast(`The board is full: empty a box first (${BOARD_MAX} at most)`); return; }
-  dropAgent(key, agent);
+// New chat, an agent clicked in the roster and a chat picked in the side bar each take the whole board: the boxes there
+// have their chats filed away and close first (a working one is asked about). Dragging is how boxes go side by side.
+function closeBoxes(boxes: BoardBox[]): void {
+  for (const b of boxes) {
+    if (b.el.classList.contains('box-max')) toggleMaxBox(null);
+    if (boxBusy(b)) stopBox(b);
+    dropRelaysFor(b.key);
+    background(api.board.clearBox(b.key));
+    removeBox(b);
+  }
+}
+const workingBoxes = (except?: BoardBox) => [...boardBoxes.values()].filter(b => b !== except && boxBusy(b)).length;
+function freshBoard(agent: string): void {
+  background(confirmStopBoxes(workingBoxes(), 'Start a new chat?', 'The chats on the board close and are kept in the side bar.', 'New chat').then(ok => {
+    if (!ok) return;
+    morphBoard(() => {
+      closeBoxes([...boardBoxes.values()]);
+      const key = firstFreeKey() as string;
+      fillBox(key, agent);
+      renderBoard();
+      saveBoard();
+      renderBoardStatus();
+      boardBoxes.get(key)?.surface.prompt.focus();
+    });
+    sfx.play('send');
+  }));
 }
 function emptyBoxEl(key: string): HTMLElement {
   const el = document.createElement('div');
@@ -360,32 +395,53 @@ function paintEmptyBox(el: HTMLElement, key: string): void {
   if (!el.classList.contains('empty-box')) return;
   const spot = boardBoxes.size > 0;
   el.classList.toggle('spot-box', spot);
-  $('.board-drop-title', el).textContent = spot ? 'Drop here to add it' : 'Drop an agent here';
+  $('.board-drop-title', el).textContent = spot ? 'Drop here to add it' : 'Drop an agent or a chat here';
   $('.board-drop-hint', el).textContent = spot ? 'The boxes make room for it' : 'or click to pick one';
   el.setAttribute('aria-label', spot ? `Box ${boxNumber(key)}, a spot for the agent you are dragging.` : 'No agent yet. Click or press Enter to pick one.');
 }
+const BOARD_DRAG_TYPES = ['text/breeze-agent', 'text/breeze-chat']; // an agent from the roster, a chat from the side bar
+const boardDrag = (e: DragEvent) => !!e.dataTransfer && BOARD_DRAG_TYPES.some(t => e.dataTransfer!.types.includes(t));
+// A chat dragged over another chat's box lights the half it would open on (left or right); let go, it opens there.
+type DropSide = 'left' | 'right';
+function dropSideOf(e: DragEvent, el: HTMLElement): DropSide | null {
+  const box = boardBoxes.get(el.dataset.box!);
+  if (!box || boxBlank(box) || !e.dataTransfer?.types.includes('text/breeze-chat')) return null;
+  const r = el.getBoundingClientRect();
+  return e.clientX < r.left + r.width / 2 ? 'left' : 'right';
+}
 boardGrid.addEventListener('dragover', e => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('.board-box');
-  if (!el || !e.dataTransfer?.types.includes('text/breeze-agent')) return;
+  if (!el || !boardDrag(e) || !e.dataTransfer) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'copy';
-  for (const o of boardGrid.querySelectorAll('.drop-on')) if (o !== el) o.classList.remove('drop-on');
-  el.classList.add('drop-on');
+  // The panel (breeze.css .board-box::after) fades out where it was, so the side is left on a box it leaves. A box it
+  // comes into takes its side first, then lights: it fades in on that half, and only slides while it is on screen.
+  for (const o of boardGrid.querySelectorAll<HTMLElement>('.drop-on')) if (o !== el) o.classList.remove('drop-on');
+  const side = dropSideOf(e, el);
+  const entering = !el.classList.contains('drop-on');
+  if (side) el.dataset.dropSide = side; else delete el.dataset.dropSide;
+  if (entering) { void el.offsetWidth; el.classList.add('drop-on'); }
 });
 boardGrid.addEventListener('dragleave', e => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('.board-box');
   if (el && !el.contains(e.relatedTarget as Node)) el.classList.remove('drop-on');
 });
 boardGrid.addEventListener('drop', e => {
-  if (!boardDragging && !e.dataTransfer?.types.includes('text/breeze-agent')) return; // files: drop.ts attaches them to the box
+  if (!boardDragging && !boardDrag(e)) return; // files: drop.ts attaches them to the box
   const el = (e.target as HTMLElement).closest<HTMLElement>('.board-box');
   const agent = e.dataTransfer?.getData('text/breeze-agent');
+  const chat = e.dataTransfer?.getData('text/breeze-chat');
   boardGrid.classList.remove('dragging');
   boardDragging = false; // the open spot becomes the new box (or closes, dropped on a filled one) in the same morph
   el?.classList.remove('drop-on');
-  if (!el || !agent) { morphBoard(renderBoard); return; }
+  const side = el && e.dataTransfer ? dropSideOf(e, el) : null;
+  const entry = chat ? boardSideEntries().find(x => x.id === chat) : undefined;
+  if (!el || (!agent && !entry)) { morphBoard(renderBoard); return; }
   e.preventDefault();
-  dropAgent(el.dataset.box!, agent);
+  // A chat dropped on the open spot or on a box with nothing said yet goes there; dropped on another chat, it opens
+  // in a box of its own on the side it was dropped on (the board splits), so neither chat is put away.
+  if (entry) reopenInBox(entry, side ? undefined : el.dataset.box!, side ? { by: el.dataset.box!, side } : undefined);
+  else if (agent) dropAgent(el.dataset.box!, agent);
 });
 // Clicking an empty box (or Enter on it) lists the agents to put in it.
 function pickAgentFor(el: HTMLElement, x: number, y: number): void {
@@ -404,17 +460,19 @@ boardGrid.addEventListener('keydown', e => {
   pickAgentFor(el, r.left + 16, r.top + 16);
 });
 
+// A box whose chat has not begun: a dropped chat takes its place instead of opening beside it.
+const boxBlank = (box: BoardBox) => !box.tab.historyId && !box.tab.panel.querySelector('.msg');
 // A box that is working refuses a drop (it shakes); an idle one takes the new agent and starts a new chat.
+function refuseDrop(box: BoardBox): void {
+  box.el.classList.remove('shake');
+  void box.el.offsetWidth;
+  box.el.classList.add('shake');
+  setTimeout(() => box.el.classList.remove('shake'), 400);
+  toast(`${boxName(box)} is still working`);
+}
 function dropAgent(key: string, agent: string): void {
   const box = boardBoxes.get(key);
-  if (box && boxBusy(box)) {
-    box.el.classList.remove('shake');
-    void box.el.offsetWidth;
-    box.el.classList.add('shake');
-    setTimeout(() => box.el.classList.remove('shake'), 400);
-    toast(`${boxName(box)} is still working`);
-    return;
-  }
+  if (box && boxBusy(box)) { refuseDrop(box); return; }
   morphBoard(() => {
     if (box) {
       dropRelaysFor(key);
@@ -429,7 +487,8 @@ function dropAgent(key: string, agent: string): void {
 }
 
 /* ----- A filled box: header, chat, prompt ----- */
-function fillBox(key: string, agent: string, saved?: { historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number }): BoardBox {
+// `entry`: a chat from another list (an old Breeze Space chat), shown as it was; it is filed in this folder from then on.
+function fillBox(key: string, agent: string, saved?: { historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number; entry?: ChatEntry }): BoardBox {
   const el = document.createElement('section');
   el.className = 'board-box filled';
   el.dataset.box = key;
@@ -443,7 +502,6 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
       <span class="flex-1"></span>
       <button class="board-owns" type="button" title="Files this box owns"></button>
       <button class="icon-btn toggle board-box-code hidden" type="button" title="Hide the file the agent is editing" aria-label="Hide the file the agent is editing" aria-pressed="true"><svg data-i="code" data-size="14"></svg></button>
-      <button class="icon-btn board-box-split" type="button" title="Split: add an agent beside this one" aria-label="Split: add an agent beside this one" aria-haspopup="menu"><svg data-i="columns" data-size="14"></svg></button>
       <button class="icon-btn board-box-close" type="button" title="Empty this box" aria-label="Empty this box"><svg data-i="x" data-size="14"></svg></button>
     </header>
     <div class="board-box-body">
@@ -469,7 +527,7 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     attachmentsEl: $('.composer-attachments', el),
   };
   registerSurface(s);
-  const entry = saved?.historyId ? chatHistory(s).find(x => x.id === saved.historyId) : undefined;
+  const entry = saved?.entry ?? (saved?.historyId ? chatHistory(s).find(x => x.id === saved.historyId) : undefined);
   const tab = createAgentTab(s, `Box ${boxNumber(key)}`, entry?.html);
   tab.agentId = agent;
   tab.historyId = entry?.id;
@@ -521,11 +579,6 @@ function wireBox(box: BoardBox): void {
   $('.board-box-code', el).onclick = () => { box.liveHidden = !box.liveHidden; paintBoardLive(); };
   wireLiveSash(box);
   $('.board-owns', el).onclick = e => ownsMenu(box, e.currentTarget as HTMLElement);
-  $('.board-box-split', el).onclick = e => {
-    const agents = foundAgents();
-    if (!agents.length) { toast('No agents found. Install one from Settings.'); return; }
-    openChipMenu(e.currentTarget as HTMLElement, agents.map(a => ({ label: agentShortName(a), run: () => addAgent(a.id) })));
-  };
   $('.board-box-model', el).onclick = e => {
     const ag = boxAgent(box);
     if (ag) openChipMenu(e.currentTarget as HTMLElement, modelPickerItems(ag, false, boxModelTarget(box)));
@@ -558,6 +611,7 @@ function paintBox(box: BoardBox): void {
   else if (boardWaiting(box.key)) box.status = 'waiting';
   else if (box.status === 'working' || box.status === 'waiting') box.status = 'idle';
   $('.board-box-name', box.el).textContent = boxName(box);
+  paintBoardSideRow(box);
   paintBoxModel(box);
   paintBoxLimit(box);
   const dot = $('.board-dot', box.el);
@@ -626,7 +680,8 @@ function paintBoxLimit(box: BoardBox): void {
     el.title = 'No plan limit: it runs on this computer';
     return;
   }
-  const tight = wins.reduce((a, w) => (w.used > a.used ? w : a));
+  // Claude shows its 5-hour window, as the composer does; others their tightest.
+  const tight = (box.agent === 'claude' && wins.find(w => w.label === '5-hour')) || wins.reduce((a, w) => (w.used > a.used ? w : a));
   const left = Math.max(0, Math.round(100 - tight.used));
   el.textContent = `${left}% left`;
   el.classList.toggle('low', left <= 10);
@@ -691,7 +746,9 @@ function removeBox(box: BoardBox, archive = true): void {
   if (archive) archiveChatTab(box.surface, box.tab);
   box.el.remove();
   boardBoxes.delete(box.key);
+  boardOrder = boardOrder.filter(k => k !== box.key);
   surfaceTabs[box.surface.name] = [];
+  if (boardPageShowing()) renderBoardSide();
 }
 async function emptyBox(key: string): Promise<void> {
   const box = boardBoxes.get(key);
@@ -722,26 +779,244 @@ function boardHistoryMenu(anchor: HTMLElement): void {
 }
 // A chat already in a box is brought forward instead of opened twice. Otherwise it goes in the first free box, with the
 // agent that had it (or the first one found, when that agent is gone), and carries on from its saved sessions.
-function reopenInBox(e: ChatEntry): void {
+// `into`: the box it was dropped on (from the side bar); an idle box there gives its place up, a working one refuses.
+// A Claude Code or Codex chat (e.log) has its messages read from its log first.
+// `place`: open it on this side of that box (a chat dropped on another chat's half).
+// `alone`: a click in the side bar. The chat takes the whole board and the other boxes close (see freshBoard).
+// ('confirmed': the same, once any working box has been asked about; the boxes close in the same morph it opens in.)
+function reopenInBox(e: ChatEntry, into?: string, place?: { by: string; side: DropSide }, alone: boolean | 'confirmed' = false): void {
   const open = [...boardBoxes.values()].find(b => b.tab.historyId === e.id);
-  if (open) { open.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); open.surface.prompt.focus(); return; }
-  const key = firstFreeKey();
+  if (open && (!alone || boardBoxes.size === 1)) { open.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); open.surface.prompt.focus(); return; }
+  if (e.log && !e.html && !open) {
+    background(logChatHtml(e).then(html => { if (html) reopenInBox({ ...e, html }, into, place, alone); else toast('That chat could not be read'); }));
+    return;
+  }
+  // Another project's chat opens on that project's board (history.ts), not in a box working on this one.
+  if (!chatInOpenFolder(e)) {
+    background(openChatFolder(e, workingBoxes()).then(ok => {
+      if (!ok) return;
+      if (boardPageShowing()) openBoard(); // the board now shows that folder's boxes
+      reopenInBox(e, undefined, undefined, alone);
+    }));
+    return;
+  }
+  if (alone === true) {
+    background(confirmStopBoxes(workingBoxes(open), 'Open this chat?', 'The other chats on the board close and are kept in the side bar.', 'Open chat').then(ok => {
+      if (!ok) return;
+      if (!open) { reopenInBox(e, undefined, undefined, 'confirmed'); return; }
+      // Already in a box: that one stays and takes the page.
+      morphBoard(() => { closeBoxes([...boardBoxes.values()].filter(b => b !== open)); renderBoard(); saveBoard(); renderBoardStatus(); });
+      open.surface.prompt.focus();
+    }));
+    return;
+  }
+  const key = alone ? allBoxKeys()[0] : into ?? firstFreeKey();
   if (!key) { toast(`The board is full: empty a box first (${BOARD_MAX} at most)`); return; }
+  const was = alone ? undefined : boardBoxes.get(key);
+  if (was && boxBusy(was)) { refuseDrop(was); return; }
   const found = foundAgents();
   const agent = found.find(a => a.id === e.agent)?.id ?? found[0]?.id;
   if (!agent) { toast('No agent is installed to carry on this chat'); return; }
   const sessions = e.sessions ? { ...e.sessions } : (e.session && e.agent ? { [e.agent]: e.session } : {});
   morphBoard(() => {
-    const box = fillBox(key, agent, { historyId: e.id, sessions });
+    if (alone) { closeBoxes([...boardBoxes.values()]); renderBoard(); }
+    if (was) { dropRelaysFor(key); removeBox(was); background(api.board.clearBox(key)); }
+    if (place) placeBox(key, place.by, place.side);
+    const box = fillBox(key, agent, { historyId: e.id, sessions, entry: e });
     box.tab.title = e.title; // so it is filed back under its own name, not "Box N"
     $$('[data-live]', box.tab.panel).forEach(el => { el.outerHTML = '<div class="resolved">Earlier session</div>'; });
     $$('.team-claiming', box.tab.panel).forEach(el => el.classList.add('settled'));
     saveBoard();
     renderBoardStatus();
+    renderBoardSide();
   });
   requestAnimationFrame(() => { const b = boardBoxes.get(key); if (b) { scrollRestoredChats(); b.surface.prompt.focus(); } });
 }
-$('#boardHistory').onclick = e => boardHistoryMenu(e.currentTarget as HTMLElement);
+// The side bar replaced the History button (breeze.html): $('#boardHistory').onclick = e => boardHistoryMenu(e.currentTarget as HTMLElement);
+
+/* ----- Side bar: New chat, Search, then chats grouped by folder (as Breeze Space had, without its sky) ----- */
+// A click opens a chat alone on the board; dragged onto the board, it opens beside the boxes there (or in a blank one).
+// Claude Code's and Codex's own chats are listed too (main/agentlogs.ts), each carried on with its own session.
+const boardSideFolded = new Set(store.get<string[]>('breeze.board.sideFolded', []));
+let boardSideQuery = '';
+// This folder's chats (the Agents panel's and the boxes', one list), then Breeze Space's old chats not carried on
+// here yet, so none of them are lost with Space.
+function boardSideEntries(): ChatEntry[] {
+  const here = rootInfo ? chatHistory(SURFACES.ide).map(e => ({ ...e, folder: e.folder ?? rootInfo?.root ?? null })) : [];
+  const ids = new Set(here.map(e => e.id));
+  const ours = [...here, ...chatHistory(SURFACES.box).filter(e => !ids.has(e.id))];
+  // A log chat Breeze already has (it ran there, or was carried on in a box) is listed once, as Breeze's.
+  const known = new Set(ours.flatMap(e => [e.id, ...(e.session ? [e.session] : []), ...Object.values(e.sessions ?? {})]));
+  const hidden = new Set(store.get<string[]>(LOG_HIDDEN_KEY, []));
+  const names = store.get<Record<string, string>>(LOG_NAMES_KEY, {});
+  const logs = boardLogs.filter(e => !known.has(e.id) && !known.has(e.log!.session) && !hidden.has(e.id));
+  return [...ours, ...logs.map(e => (names[e.id] ? { ...e, title: names[e.id] } : e))];
+}
+/* Claude Code's and Codex's own chats, read from their logs each time the board opens. Renaming one keeps the name in
+   Breeze; deleting one only hides it here (the agent's own log is never changed). */
+const LOG_NAMES_KEY = 'breeze.board.logNames', LOG_HIDDEN_KEY = 'breeze.board.logHidden';
+let boardLogs: ChatEntry[] = [];
+const LOG_AGENT: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
+function loadBoardLogs(): void {
+  if (typeof api.agent.chatLogs !== 'function') return;
+  background(api.agent.chatLogs().then(list => {
+    boardLogs = list.map(l => ({
+      id: `log:${l.agent}:${l.session}`, title: l.title, at: l.at, html: '', agent: l.agent, session: l.session,
+      sessions: { [l.agent]: l.session }, folder: l.cwd && rootInfo && folderKey(l.cwd) === folderKey(rootInfo.root) ? rootInfo.root : l.cwd,
+      log: { agent: l.agent, session: l.session },
+    }));
+    if (boardPageShowing()) renderBoardSide();
+  }));
+}
+// A log chat's messages as Breeze's chat shows them: the person's as typed, the agent's as Markdown.
+async function logChatHtml(e: ChatEntry): Promise<string> {
+  const msgs = e.log ? await api.agent.chatLog(e.log.agent, e.log.session).catch(() => null) : null;
+  if (!msgs?.length || !e.log) return '';
+  const st = AGENT_STYLE[e.log.agent] ?? { letter: '?', tint: e.log.agent };
+  const name = esc(agentNameOf(e.log.agent));
+  const time = (at: number) => (at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+  return msgs.map(m => (m.role === 'user'
+    ? `<div class="msg user"><div class="meta"><b>${esc(displayName() ?? 'You')}</b> ${time(m.at)}</div><div class="body"><div>${esc(m.text).replaceAll('\n', '<br>')}</div></div></div>`
+    : `<div class="msg"><div class="meta">${brandMark('avatar mini', st.tint, st.letter)}<b>${name}</b> ${time(m.at)}</div><div class="body">${md(m.text)}</div></div>`)).join('');
+}
+// The list an entry is kept in: this folder's, or Space's.
+const sideStore = (id: string): Surface => (chatHistory(SURFACES.ide).some(e => e.id === id) ? SURFACES.ide : SURFACES.box);
+const boxWithChat = (id: string) => [...boardBoxes.values()].find(b => b.tab.historyId === id);
+function setBoardSide(open: boolean): void {
+  store.set('breeze.board.side', open);
+  $('#board').classList.toggle('side-closed', !open);
+  $('#boardSide').inert = !open;
+  requestAnimationFrame(layoutBoard);
+}
+setBoardSide(store.get<boolean>('breeze.board.side', true));
+function renderBoardSide(): void {
+  const list = $('#boardSideList');
+  if (list.querySelector('.rename-input')) return; // a chat is being renamed: redrawn once that is done
+  const q = boardSideQuery.toLowerCase();
+  const entries = boardSideEntries().filter(e => !q || `${e.title}\n${folderName(e.folder)}`.toLowerCase().includes(q));
+  // This folder first, then the rest in the order of their newest chat; each newest first.
+  const groups = new Map<string, ChatEntry[]>();
+  if (rootInfo) groups.set(rootInfo.root, []);
+  for (const e of entries) groups.set(e.folder ?? '', [...groups.get(e.folder ?? '') ?? [], e]);
+  for (const [k, v] of groups) { if (v.length) v.sort((a, b) => b.at - a.at); else groups.delete(k); }
+  if (!groups.size) {
+    list.innerHTML = `<div class="box-side-empty">${q ? 'No chats match' : 'Your chats show up here'}</div>`;
+    return;
+  }
+  list.innerHTML = [...groups].map(([folder, chats]) => {
+    const folded = !q && boardSideFolded.has(folder);
+    const rows = chats.map(e => {
+      const box = boxWithChat(e.id);
+      return `<button class="box-side-chat${box ? ' on' : ''}${box && boxBusy(box) ? ' busy' : ''}" type="button" role="listitem" draggable="true" data-chat="${escAttr(e.id)}" title="${escAttr(`${e.title}${e.log ? `\nFrom ${LOG_AGENT[e.log.agent] ?? e.log.agent}` : ''}\nClick to open it in a box, or drag it onto the board`)}">
+        <span class="nm">${esc(e.title)}</span><span class="box-side-busy" aria-label="Working"></span><span class="ago">${esc(timeAgo(e.at))}</span></button>`;
+    }).join('');
+    return `<div class="box-side-group${folded ? ' folded' : ''}">
+      <button class="box-side-folder" type="button" data-folder="${escAttr(folder)}" aria-expanded="${!folded}" title="${escAttr(folder || 'Chats from before folders were kept')}">
+        <span class="nm">${esc(folderName(folder) || 'Earlier chats')}</span>${svgIcon('chevronDown', 12)}</button>
+      <div class="box-side-chats">${rows}</div>
+    </div>`;
+  }).join('');
+}
+// A box's working dot, without redrawing the list on every event.
+function paintBoardSideRow(box: BoardBox): void {
+  const id = box.tab.historyId;
+  const row = id ? $('#boardSideList').querySelector<HTMLElement>(`[data-chat="${CSS.escape(id)}"]`) : null;
+  row?.classList.toggle('busy', boxBusy(box));
+}
+function newBoardChat(): void {
+  const agent = selectedAgent()?.id ?? foundAgents()[0]?.id;
+  if (!agent) { toast('No agents found. Install one from Settings.'); return; }
+  freshBoard(agent);
+}
+function renameBoardChat(id: string): void {
+  const row = $('#boardSideList').querySelector<HTMLElement>(`[data-chat="${CSS.escape(id)}"]`);
+  const e = boardSideEntries().find(x => x.id === id);
+  if (!row || !e) return;
+  const h = getComputedStyle(row).height; // the field takes the row's exact height, so nothing below it moves
+  renameInline(row, e.title, name => {
+    if (name && e.log) store.set(LOG_NAMES_KEY, { ...store.get<Record<string, string>>(LOG_NAMES_KEY, {}), [id]: name });
+    else if (name) {
+      renameChatEntry(sideStore(id), id, name);
+      const box = boxWithChat(id);
+      if (box) box.tab.title = name;
+    }
+    renderBoardSide();
+  });
+  const input = row.nextElementSibling as HTMLElement | null;
+  if (input?.matches('.rename-input')) input.style.height = h;
+}
+function deleteBoardChat(id: string): void {
+  if (boardLogs.some(e => e.id === id)) {
+    store.set(LOG_HIDDEN_KEY, [...store.get<string[]>(LOG_HIDDEN_KEY, []), id]);
+    renderBoardSide();
+    toast('Chat removed from this list');
+    return;
+  }
+  const s = sideStore(id);
+  store.set(historyKey(s), chatHistory(s).filter(e => e.id !== id));
+  const box = boxWithChat(id);
+  if (box) box.tab.historyId = undefined; // still open: filed again as a new chat if it changes
+  renderBoardSide();
+  toast('Chat deleted');
+}
+function closeBoardSearch(): void {
+  $<HTMLInputElement>('#boardSideSearch').value = '';
+  boardSideQuery = '';
+  $('#boardSideSearchBox').classList.add('hidden');
+  $('#boardSideSearchBtn').classList.remove('hidden');
+  renderBoardSide();
+}
+$('#boardSideNew').onclick = newBoardChat;
+$('#boardSideHide').onclick = () => setBoardSide(false);
+$('#boardSideShow').onclick = () => setBoardSide(true);
+$('#boardSideSearchBtn').onclick = () => {
+  $('#boardSideSearchBox').classList.remove('hidden');
+  $('#boardSideSearchBtn').classList.add('hidden');
+  $<HTMLInputElement>('#boardSideSearch').focus();
+};
+$('#boardSideSearch').addEventListener('input', ev => { boardSideQuery = (ev.target as HTMLInputElement).value.trim(); renderBoardSide(); });
+$('#boardSideSearch').addEventListener('keydown', ev => { if (ev.key === 'Escape') { ev.stopPropagation(); closeBoardSearch(); } });
+$('#boardSideSearch').addEventListener('blur', () => { if (!boardSideQuery) closeBoardSearch(); });
+$('#boardSideList').addEventListener('click', ev => {
+  const t = ev.target as HTMLElement;
+  const folder = t.closest<HTMLElement>('[data-folder]');
+  if (folder) {
+    const k = folder.dataset.folder ?? '';
+    if (boardSideFolded.has(k)) boardSideFolded.delete(k); else boardSideFolded.add(k);
+    store.set('breeze.board.sideFolded', [...boardSideFolded]);
+    renderBoardSide();
+    return;
+  }
+  const id = t.closest<HTMLElement>('[data-chat]')?.dataset.chat;
+  const e = id ? boardSideEntries().find(x => x.id === id) : undefined;
+  if (e) reopenInBox(e, undefined, undefined, true);
+});
+$('#boardSideList').addEventListener('dblclick', ev => {
+  const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-chat]')?.dataset.chat;
+  if (id) renameBoardChat(id);
+});
+$('#boardSideList').addEventListener('contextmenu', ev => {
+  const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-chat]')?.dataset.chat;
+  const e = id ? boardSideEntries().find(x => x.id === id) : undefined;
+  if (!id || !e) return;
+  ev.preventDefault();
+  popupMenu(ev.clientX, ev.clientY, [
+    { label: 'Open chat', run: () => reopenInBox(e, undefined, undefined, true) },
+    { label: 'Rename chat', run: () => renameBoardChat(id) },
+    { label: 'Delete chat', run: () => deleteBoardChat(id) },
+  ]);
+});
+// Dragging a chat opens a spot on the board, as dragging an agent from the roster does; dropped there or on another
+// chat, it opens in a box of its own beside the others.
+$('#boardSideList').addEventListener('dragstart', e => {
+  const row = (e.target as HTMLElement).closest<HTMLElement>('[data-chat]');
+  if (!row || !e.dataTransfer) return;
+  e.dataTransfer.setData('text/breeze-chat', row.dataset.chat!);
+  e.dataTransfer.effectAllowed = 'copy';
+  boardGrid.classList.add('dragging');
+  setTimeout(() => { if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
+});
+$('#boardSideList').addEventListener('dragend', () => endBoardDrag());
 
 /* ----- Ownership: "owns N files", from main ----- */
 let boardOwners: Record<string, string> = {};
@@ -792,7 +1067,7 @@ function saveBoard(): void {
     archiveChatTab(b.surface, b.tab);
     boxes[b.key] = { agent: b.agent, historyId: b.tab.historyId, sessions: b.tab.sessions, model: b.model, effort: b.effort, liveFrac: b.liveFrac };
   }
-  store.set(boardStoreKey(), { boxes } satisfies BoardSaved);
+  store.set(boardStoreKey(), { boxes, ...(boardOrder.length ? { order: boardOrder } : {}) } satisfies BoardSaved);
 }
 function loadBoard(): void {
   // The boxes on screen belong to `boardFolder`; their chats were filed there as they finished.
@@ -803,17 +1078,11 @@ function loadBoard(): void {
   boardOwners = {};
   boardFolder = rootInfo?.root ?? null;
   const saved = store.get<BoardSaved>(boardStoreKey(), { boxes: {} });
+  boardOrder = Array.isArray(saved.order) ? saved.order.filter(k => allBoxKeys().includes(k)) : [];
   for (const [key, s] of Object.entries(saved.boxes ?? {})) {
     if (allBoxKeys().includes(key) && typeof s?.agent === 'string') fillBox(key, s.agent, s);
   }
 }
-
-$('#boardStopAll').onclick = () => {
-  for (const b of boardBoxes.values()) if (boxBusy(b)) stopBox(b);
-  background(api.board.stopAll());
-  stopAllRelays();
-  toast('Stopped every box');
-};
 
 /* ----- Status bar: "Agent board — 2 working · Open" while the page is hidden ----- */
 function renderBoardStatus(): void {
@@ -836,7 +1105,8 @@ const relayQueue = new RelayQueue(3);
 const openAsks = new Map<string, Set<string>>();     // asking box -> its relays not yet answered
 const relayRuns = new Map<number, Relay>();          // run id -> the relay that run is answering
 const relayCards = new Map<string, HTMLElement>();   // relay id -> its card in the receiving box
-const AUTO_KEY = 'breeze.board.auto';
+// A new key, so Auto-relay starts on again for everyone (the old 'breeze.board.auto' could hold an off from the bar's switch).
+const AUTO_KEY = 'breeze.board.autoRelay';
 const boxLabel = (key: string) => { const b = boardBoxes.get(key); return b ? boxName(b) : `Box ${boxNumber(key)}`; };
 const boxBadge = (key: string) => {
   const b = boardBoxes.get(key);
@@ -1003,10 +1273,9 @@ function resetRelays(): void {
   relayCards.clear();
 }
 
-// Auto-relay: on by default, remembered.
-{
-  const sw = $('#boardAuto');
-  const set = (on: boolean) => { relayQueue.auto = on; sw.setAttribute('aria-checked', String(on)); sw.classList.toggle('on', on); };
-  set(store.get<boolean>(AUTO_KEY, true));
-  sw.onclick = () => { set(!relayQueue.auto); store.set(AUTO_KEY, relayQueue.auto); };
+// Auto-relay: on by default, remembered; switched in Settings → Agents → Agent Board.
+relayQueue.auto = store.get<boolean>(AUTO_KEY, true);
+function setAutoRelay(on: boolean): void {
+  relayQueue.auto = on;
+  store.set(AUTO_KEY, on);
 }

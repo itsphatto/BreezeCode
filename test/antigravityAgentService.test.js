@@ -318,6 +318,7 @@ test('effortFlag: only passes --effort where agy accepts it', () => {
   assert.equal(f('gpt-oss-120b-medium', 'high'), null, 'level is baked into the id');
   assert.equal(f('claude-sonnet-4-6', 'low'), null, 'Claude models take no --effort');
   assert.equal(f('some-future-model', 'extra'), 'xhigh', 'Breeze "extra" is agy "xhigh"');
+  assert.equal(f('some-future-model', 'Max'), 'max', 'Breeze "max" is agy "max"');
   assert.equal(f('some-future-model', 'Medium'), 'medium');
   assert.equal(f('some-future-model', 'bogus'), null);
   assert.equal(f('some-future-model', undefined), null);

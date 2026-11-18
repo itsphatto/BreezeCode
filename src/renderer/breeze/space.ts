@@ -135,7 +135,7 @@ function startSpace(): void {
   decorInterval(kick, 500, 1000);
   onDecorChange(kick);
 }
-startSpace();
+// Breeze Space removed (2026-11-18), kept commented for now: startSpace();
 
 // The Breeze Space buttons: while hovered, a little of that sky rises behind the label, faster than the real one moves
 // (which would hardly show at this size), and now and then a star shines.

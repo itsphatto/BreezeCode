@@ -509,6 +509,21 @@ function demoApi(): BreezeApi {
           },
         };
       },
+      // Browser preview: a few made-up Claude Code and Codex chats, so the board's side bar shows imported ones.
+      async chatLogs() {
+        const h = (n: number) => Date.now() - n * 3_600_000, here = rootInfo?.root ?? 'C:\\demo\\project';
+        return [
+          { agent: 'claude', session: 'demo-claude-1', title: 'Fix the login redirect loop', at: h(2), cwd: here },
+          { agent: 'codex', session: 'demo-codex-1', title: 'Add a dark theme toggle', at: h(26), cwd: here },
+          { agent: 'claude', session: 'demo-claude-2', title: 'Write tests for the parser', at: h(70), cwd: 'C:\\demo\\other-app' },
+        ];
+      },
+      async chatLog(agent, session) {
+        return [
+          { role: 'user', text: `What does ${session} do?`, at: Date.now() - 7_200_000 },
+          { role: 'agent', text: `It was a **${agent === 'codex' ? 'Codex' : 'Claude Code'}** chat.\n\n- read the files\n- made the change`, at: Date.now() - 7_100_000 },
+        ];
+      },
       onEvent(cb) { agentListeners.push(cb); return () => { }; },
     },
     agentTask: demoAgentTasks(),
@@ -926,6 +941,7 @@ const LINE_ICONS: Record<string, IconNode> = {
   pencil: [['path', { d: 'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' }], ['path', { d: 'm15 5 4 4' }]],
   terminal: [['path', { d: 'M4 17l6-6-6-6' }], ['path', { d: 'M12 19h8' }]],
   code: [['path', { d: 'm16 18 6-6-6-6' }], ['path', { d: 'm8 6-6 6 6 6' }]],
+  codeXml: [['path', { d: 'm18 16 4-4-4-4' }], ['path', { d: 'm6 8-4 4 4 4' }], ['path', { d: 'm14.5 4-5 16' }]],
   search: [['circle', { cx: 11, cy: 11, r: 8 }], ['path', { d: 'm21 21-4.3-4.3' }]],
   globe: [['circle', { cx: 12, cy: 12, r: 10 }], ['path', { d: 'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20' }], ['path', { d: 'M2 12h20' }]],
   todo: [['path', { d: 'm3 17 2 2 4-4' }], ['path', { d: 'm3 7 2 2 4-4' }], ['path', { d: 'M13 6h8' }], ['path', { d: 'M13 12h8' }], ['path', { d: 'M13 18h8' }]],
@@ -943,6 +959,8 @@ const LINE_ICONS: Record<string, IconNode> = {
   circleDot: [['circle', { cx: 12, cy: 12, r: 9 }], ['circle', { cx: 12, cy: 12, r: 3, fill: 'currentColor' }]],
   phone: [['rect', { x: 5, y: 2, width: 14, height: 20, rx: 2 }], ['path', { d: 'M12 18h.01' }]],
   trash: [['path', { d: 'M3 6h18' }], ['path', { d: 'M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6' }], ['path', { d: 'M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2' }], ['path', { d: 'M10 11v6' }], ['path', { d: 'M14 11v6' }]],
+  plug: [['path', { d: 'M12 22v-5' }], ['path', { d: 'M9 8V2' }], ['path', { d: 'M15 8V2' }], ['path', { d: 'M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z' }]],
+  blocks: [['rect', { x: 14, y: 3, width: 7, height: 7, rx: 1 }], ['path', { d: 'M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3' }]],
   puzzle: [['path', { d: 'M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z' }]],
   panelLeft: [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M9 3v18' }]],
   folder: [['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }]],

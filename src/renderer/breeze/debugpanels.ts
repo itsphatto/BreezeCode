@@ -701,6 +701,7 @@ function onDebugPanelsEvent(ev: DebugEvent): void {
     if (ev.state === 'starting') dbgRestarting = false;
   } else if (ev.type === 'exited' && debugFile && !dbgRestarting) {
     dbgOutNote(debugStopped ? `${baseName(debugFile)} was stopped.` : `${baseName(debugFile)} finished${ev.code != null ? ` with exit code ${ev.code}` : ''}.`);
+    if (!debugStopped && ev.code && appState.superErrorAlert) superErrorAlert();
   }
   if (ev.type === 'state') renderDbgPanels();
 }

@@ -113,6 +113,8 @@ interface AgentUsage { usage: Record<string, number>; limits: Record<string, Lim
 // cost: what the day's tokens would cost at API list prices (USD); 0 for an agent that isn't `priced`. unpriced: tokens
 // from a model with no known price, left out of the cost.
 interface TokenDay { input: number; output: number; cacheWrite: number; cacheRead: number; other: number; cost?: number; }
+interface ChatLogInfo { agent: 'claude' | 'codex'; session: string; title: string; at: number; cwd: string | null }
+interface ChatLogMsg { role: 'user' | 'agent'; text: string; at: number }
 interface AgentHistory { from: string; days: number; agents: Record<string, { days: Record<string, TokenDay>; tools: number; last: number; priced?: boolean; unpriced?: number }>; }
 interface Accounts { accounts: User[]; active: string | null; }
 // Workspace sync (main.js + sync.js). A failure comes back as { error, code } instead of throwing.
@@ -328,6 +330,9 @@ interface BreezeApi {
     setFullAccess(on: boolean): Promise<boolean>;
     usage(): Promise<AgentUsage>;
     history(): Promise<AgentHistory>;
+    // Chats from Claude Code's and Codex's own logs (main/agentlogs.ts), newest first; one of them's messages.
+    chatLogs(): Promise<ChatLogInfo[]>;
+    chatLog(agent: string, session: string): Promise<ChatLogMsg[] | null>;
     // One question to the user's agent, read-only; its reply as it came (no commit-message clean-up).
     ask(opts: { agent: string; prompt: string; model?: string; effort?: string }): Promise<string>;
     onEvent(cb: (runId: number, ev: AgentEvent) => void): () => void;

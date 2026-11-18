@@ -6,14 +6,14 @@
 
 ### Blazing-fast, Rust Engine Code editor with Multi AI-Integration
 
-Ask for a change in plain words. Claude Code, Codex, Antigravity or a local model makes it,<br>
+Ask for a change in plain words. Claude Code, Codex, Antigravity, OpenCode or a local model makes it,<br>
 and you see every file it reads, every edit and every command while it works.
 
 [**Download for Windows**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.itsphatto.site) &nbsp;·&nbsp; [FAQ](https://breezecode.itsphatto.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.7.7-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.7.9-007AFF?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Windows_10_%26_11-64--bit-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![Price](https://img.shields.io/badge/price-free-1d1d1f?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-source--available-1d1d1f?style=for-the-badge)
@@ -23,13 +23,11 @@ and you see every file it reads, every edit and every command while it works.
 ![Rust](https://img.shields.io/badge/Rust-document_engine-1d1d1f?style=flat-square&logo=rust&logoColor=f74c00)
 ![Size](https://img.shields.io/badge/installer-~110_MB-1d1d1f?style=flat-square)
 
-<sub>[Agents](#agents) · [Several agents at once](#several-agents-in-one-prompt) · [The editor](#the-editor) · [Git](#git-and-pull-requests) · [Breeze Space](#breeze-space) · [Settings](#settings-and-usage) · [Everything else](#everything-else) · [Getting started](#getting-started) · [Project layout](#project-layout) · [License](#license)</sub>
+<sub>[Agents](#agents) · [Several agents at once](#several-agents-in-one-prompt) · [Agent Board](#agent-board) · [The editor](#the-editor) · [Git](#git-and-pull-requests) · [Breeze Space](#breeze-space) · [Settings](#settings-and-usage) · [Everything else](#everything-else) · [Getting started](#getting-started) · [Project layout](#project-layout) · [License](#license)</sub>
 
 <br>
 
 <img src="docs/screenshots/hero.jpg" alt="Breeze Code with app.js open. Claude is editing it in the agents panel on the right, and the files it is working on are tagged Builder in the explorer" width="100%">
-
-<sub>Claude adding a search box to a small project. The files it's editing are tagged in the explorer, and each step shows in the chat.</sub>
 
 </div>
 
@@ -38,7 +36,7 @@ and you see every file it reads, every edit and every command while it works.
 ## What it is
 
 - **An editor first.** Tabs, split editors, a terminal, Git, a debugger, live preview and language servers. All of it works with no agent connected.
-- **Agents you already have.** Breeze finds Claude Code, Codex and Antigravity on your PC and uses their own sign-in. Or point it at a local model.
+- **Agents you already have.** Breeze finds Claude Code, Codex, Antigravity and OpenCode on your PC and uses their own sign-in. Or point it at a local model.
 - **Free.** No plans or credits. You only pay for an agent if you pick a paid one, and a local model needs no internet at all.
 - **Local.** Your files stay on your PC. API keys and sign-in tokens are encrypted with the Windows keychain. Updates ask before they download.
 
@@ -47,17 +45,29 @@ and you see every file it reads, every edit and every command while it works.
 | Agent | How Breeze talks to it | Usage shown in Settings |
 | --- | --- | --- |
 | <img src="assets/icons/claude.svg" height="16" alt=""> **Claude Code** | The `claude` CLI | Tokens this month, plus the 5-hour, weekly and weekly Fable limits |
-| <img src="assets/icons/codex.png" height="16" alt=""> **Codex** | The `codex` CLI | Tokens this month, plus its plan window |
+| <img src="assets/icons/codex.png" height="16" alt=""> **Codex** | The `codex` CLI | Tokens this month, plus its live plan window |
 | <img src="assets/icons/antigravity.png" height="16" alt=""> **Antigravity** | Antigravity's agent service | Antigravity doesn't report usage |
+| <img src="assets/icons/opencode.svg" height="16" alt=""> **OpenCode** | The `opencode` CLI | OpenCode doesn't report usage |
 | <img src="assets/icons/ollama.svg" height="16" alt=""> **Local model** | Ollama, LM Studio or any OpenAI-compatible server | None, it runs on your PC |
 
 Each prompt runs in one of three modes:
 
 - **Ask** answers questions and doesn't change files.
 - **Build** makes the changes.
-- **Plan** writes a numbered plan first. You approve it or ask for changes, then it gets built.
+- **Plan** writes a numbered plan first. You approve it in the chat or ask for changes, then it gets built.
 
-Every read, edit and command shows up in the agents panel as it happens. Pick each agent's model and effort from its chip. By default agents stay inside the project and keep out of `.env` and `.git`; Settings → Agents has a **Full access** switch if you want to lift that.
+While an agent works:
+
+- **Thinking steps.** A **Thinking** header with the agent's logo and a live timer opens into each step it took and how long it took. Tool calls are listed too.
+- **Every read, edit and command** shows up in the agents panel as it happens.
+- **Steer mid-task.** Send a new message to a running Claude Code agent to change its course without stopping it.
+- **Questions you can click.** An agent can ask you a question as a card with buttons instead of guessing.
+- **Pictures and test results.** Agents can show you an image or a preview screenshot. Test runs (node:test, Jest, Vitest, pytest, cargo test) appear as a card with the pass and fail counts and each failure.
+- **Image attachments.** Drop or paste images into a prompt. Pasted images go to a temp folder, so nothing is added to your project.
+
+Pick each agent's model and effort from its chip. Effort goes up to **Max** for Claude Code, OpenCode and Antigravity; Codex uses its highest level, `xhigh`. By default agents stay inside the project and keep out of `.env` and `.git`; the **Full access** switch in the agent menu lifts that.
+
+The **plan usage meter** in the prompt box opens every plan window (5-hour, weekly) with a bar and a percentage, and turns to a warning colour when usage runs high.
 
 Past chats are saved per project. **New chat** files the current one away and the clock button brings it back.
 
@@ -80,6 +90,15 @@ flowchart LR
 
 <img src="docs/screenshots/multi-agent.jpg" alt="Claude and Codex working from one prompt, with a Who does what card showing each agent's files and who owns the overlap" width="100%">
 
+## Agent Board
+
+Run agents side by side. Open the board with `Ctrl+Shift+B`, the board button in the activity bar, or the **Code / Agent Board** switch in the title bar.
+
+- **Boxes.** Drag agents into boxes. Each box has its own agent, model, effort and prompt, and the boxes run at the same time. Resize the tiles, or give a box a live file pane with its **Code** switch to watch what it writes.
+- **File ownership.** A file belongs to the first box that edits it. If another box edits it, Breeze puts the file back and relays the change to the owner. The owner's answer goes back to the asker.
+- **Relay limits.** After three relays between the same two boxes Breeze pauses the loop. The **Auto-relay** switch turns relaying off.
+- **Chats in the side bar.** The board's side bar lists your Breeze chats and your earlier Claude Code and Codex chats (read from their own logs). Any of them can be carried on in a box, and **History** reopens older ones.
+
 ## The editor
 
 <img src="docs/screenshots/live-preview.jpg" alt="styles.css open with colour swatches next to each hex value, and the live preview of index.html on the right" width="100%">
@@ -92,8 +111,11 @@ flowchart LR
 - **Colour swatches.** Every hex colour gets a small box of that colour. Click it to open a picker; each change is one undo step.
 - **Multi-cursor.** Alt+Click adds a cursor. Ctrl+D picks the next match, Ctrl+Shift+L picks all of them, Shift+Alt+drag selects a column.
 - **Emmet.** Type `ul>li*3` in HTML, JSX or CSS and press Tab.
-- **Live preview.** Open `index.html` beside your code and it refreshes as you type. Right-click an element to see its tag, id and classes. Markdown files preview as formatted pages.
+- **Live preview.** Open `index.html` beside your code and it refreshes as you type. Right-click an element to see its tag, id and classes, or edit its text in place. Markdown files preview as formatted pages and can be edited there too.
+- **Word, Excel, PowerPoint and PDF.** `.docx`, `.xlsx`, `.pptx` and `.pdf` files open in the editor and save back, with pictures and other binary parts kept as they were.
+- **Explain with Agents.** Select code, right-click, and your agents give you an explanation card.
 - **Command Palette.** Ctrl+Shift+P or F1, then type a few letters of any command. The ones you used last come first.
+- **Super Error Alert.** Optional (Settings → Miscellaneous). When a file you run or compile fails, the window's corners flash red and a siren sounds for 3 seconds.
 
 ### Run and debug
 
@@ -128,6 +150,7 @@ flowchart LR
 - Stage, discard, commit and push from Source Control. Commits are listed as checkpoints, with the branch graph.
 - Click a changed file to see its diff.
 - Files an agent is editing are marked in the explorer and on their tabs.
+- Commit messages can be written for you from the staged changes.
 - **Pull requests.** Read, comment on, merge or close GitHub pull requests without leaving Breeze.
 - **Merge conflicts** are resolved in a separate worktree, so your own checkout is never touched. **Conflict Duel** has one agent argue for each side, then a third proposes a merged version you can accept, edit or reject.
 
@@ -135,7 +158,9 @@ flowchart LR
 
 <img src="docs/screenshots/space-chat.jpg" alt="Breeze Space with a question about converting miles to kilometres and Claude's reply as a snippet.py code card" width="100%">
 
-A chat-only view with no editor. Code in a reply becomes a card you can copy or save in one click. You can open a terminal beside the chat, and chats are grouped by the folder they started in. Switch between Breeze Space and the editor with the button at the top right.
+A chat-only view with no editor. The conversation runs edge to edge, scrolling behind the title bar and the floating prompt. Code in a reply becomes a card you can copy or save in one click. You can open a terminal beside the chat, and chats are grouped by the folder they started in. Switch between Breeze Space and the editor with the button at the top right.
+
+**Tasks.** Breeze Space reads each message with plain rules, so there is no extra AI call. A question stays a normal reply. A message with several jobs, a list of steps, a chore on a connected service (email, Discord, Slack) or a schedule such as "every morning" or "when tests fail" becomes a task. You approve a plan, it runs step by step in the same chat, and Stop cancels it. Start a message with `/task` or `/chat` to choose yourself, and send `/stop` to remove the chat's tasks. Tasks run on Claude Code or Codex.
 
 <table>
 <tr>
@@ -143,8 +168,6 @@ A chat-only view with no editor. Code in a reply becomes a card you can copy or 
 <td width="50%"><img src="docs/screenshots/vibe.jpg" alt="Vibe Code Mode over the dimmed editor, with a feed card and the agent's live status"><br><sub>Vibe Code Mode</sub></td>
 </tr>
 </table>
-
-**Vibe Code Mode** dims the editor and plays an Instagram or Facebook feed while an agent works. A card tells you when the code is ready. It works in Breeze Space too.
 
 ## Settings and usage
 
@@ -154,14 +177,14 @@ A chat-only view with no editor. Code in a reply becomes a card you can copy or 
 <td width="50%"><img src="docs/screenshots/appearance.jpg" alt="Settings, Appearance page, with theme cards, the Glass switch, syntax colour presets and custom colours"></td>
 </tr>
 <tr>
-<td valign="top"><b>Agents.</b> Install and sign in to agents, set the default, turn on full access, and see how much of each plan you've used.</td>
-<td valign="top"><b>Appearance.</b> Dark, high contrast and light themes. Glass makes the window see-through, or set your own background picture. Pick a syntax colour preset or your own colours, and the font size.</td>
+<td valign="top"><b>Agents.</b> Install and sign in to agents, set the default, and see how much of each plan you've used.</td>
+<td valign="top"><b>Appearance.</b> Dark, high contrast and light themes. Glass makes the window see-through, or set your own background picture. Pick a syntax colour preset or your own colours, and the font size. Settings also has a search box and a **Performance** option: the power saver drops blur and looping motion on battery or slower machines.</td>
 </tr>
 </table>
 
 <img src="docs/screenshots/home-agent.jpg" alt="Home, Agent tab, showing tokens this month, plan limits, and a tokens per day chart with an estimated API cost" width="70%">
 
-<sub>Home → Agent: 30 days of token use per agent and what it would have cost at API prices (an estimate).</sub>
+<sub>Home → Agent: 30 days of token use per agent and what it would have cost at API prices (an estimate). Pick a year on the GitHub contribution graph, and drag the graph into the left, right or bottom dock.</sub>
 
 ## Everything else
 
@@ -170,12 +193,13 @@ A chat-only view with no editor. Code in a reply becomes a card you can copy or 
 | **Home** | New file, open folder or clone a repository, your recent projects and your GitHub contributions |
 | **First launch** | Looks for coding agents, Git, Node.js and your compilers, and lets you pick a theme and an agent |
 | **Friends** | Add friends by email and see who's online and what they're working on. You can hide your project name or stop sharing |
-| **Terminal** | A built-in terminal. Pop it out into its own window (with a system info banner) and the same sessions keep running |
-| **Skills and MCP** | Browse the skills and plugins your agents load, share skills between agents, and connect MCP servers for Claude Code without editing its config |
+| **Terminal** | A built-in terminal. Pop it out into its own window (with a system info banner) and the same sessions keep running. Glass and your background picture reach it too |
+| **Skills, Plugins and MCP** | A pop-up from the chats side bars: browse the skills and plugins your agents load, share skills between agents, and connect MCP servers for Claude Code without editing its config |
 | **Workspace sync** | Move workspaces between computers signed in to the same account, stored in a private GitHub repo or Google Drive's hidden app folder |
 | **Image attachments** | Drop or paste images into a prompt. Pasted images go to a temp folder, so nothing is added to your project |
 | **Local models** | Requests stay small (a project map, ranged file reads and snippet edits) so they fit a small context window |
 | **Accounts** | Sign in with GitHub or Google, with more than one account |
+| **Vibe Code Mode** | Dims the editor and plays an Instagram or Facebook feed while an agent works, then a card tells you when the code is ready. Works in Breeze Space too |
 | **What's new** | After an update, the first launch shows that release's notes once |
 | **Reopens where you left off** | Breeze starts in the view you last used |
 | **Discord** | Rich Presence shows what you're working on |
@@ -287,6 +311,11 @@ flowchart TB
 | `src/main/debug*.ts`, `dap.ts`, `cdp.ts`, `jdwp.ts` | Debugger backends (Python, Node, GDB, .NET, Java) |
 | `src/main/kernel.ts` | Python kernels for notebooks |
 | `src/main/github.ts`, `prconflict.ts` | Pull requests and conflict resolution in a throwaway worktree |
+| `src/main/board.ts`, `agentlogs.ts` | The Agent Board's file ownership and relays, and reading Claude Code and Codex chat logs |
+| `src/main/agentintent.ts`, `agentcore.ts`, `agentmemory.ts` | Breeze Space tasks: reading a message, plans, schedules and triggers, and task memory |
+| `src/main/breezemcp.ts`, `askuser.ts` | The MCP server Breeze hosts so CLI agents can ask you questions, get a plan approved or show a picture |
+| `src/main/officefile.ts` | Word, Excel, PowerPoint and PDF files as editable text |
+| `src/main/power.ts` | The power saver |
 | `src/main/skills.ts`, `mcp.ts` | Skills, plugins and MCP servers |
 | `src/main/sync.ts`, `friends.ts` | Workspace sync and Friends |
 | `src/main/previewServer.ts`, `previewInspector.ts` | The live preview and its element inspector |
@@ -299,6 +328,7 @@ flowchart TB
 | `engine/` | The Rust document engine (opening, editing, undo journal, search, saving) |
 | `assets/brand/` · `fonts/` · `icons/` | App icon and wordmarks · bundled fonts · agent and feed logos |
 | `runtime/` | C runtime helpers |
+| `hands/` | A Rust mouse and keyboard helper. Nothing in the app calls it yet |
 | `scripts/` | Build helpers |
 | `docs/screenshots/` | Screenshots used in this README |
 | `test/` | Tests |

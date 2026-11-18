@@ -313,7 +313,7 @@
         <span class="project">Breeze Code</span>
         <span class="spacer"></span>
         <button class="update-btn" id="homeUpdateBtn" data-update hidden>Update</button>
-        <button class="btn btn-sm space-btn" id="homeSpace">Breeze Space</button>
+        <div class="mode-switch" role="group" aria-label="Switch between Code and the Agent Board" id="homeSwitch"><button type="button" class="msw-seg" data-act="mode.ide" data-mode="ide" title="Code" aria-label="Code" aria-pressed="false"><svg data-i="codeXml" data-size="15"></svg></button><button type="button" class="msw-seg" data-act="view.board" data-mode="board" title="Agent Board" aria-label="Agent Board" aria-pressed="false"><span class="msw-agent"></span></button></div>
         <button class="avatars" id="homeProfile" aria-haspopup="menu" aria-label="Account"></button>
       </header>
       <div class="home-shell">
@@ -460,7 +460,7 @@
       <span class="project" id="projectName">No folder</span>
       <span class="spacer"></span>
       <button class="update-btn" id="updateBtn" data-update hidden>Update</button>
-      <button class="btn btn-sm space-btn" data-act="mode.box">Breeze Space</button>
+      <div class="mode-switch" data-on="ide" role="group" aria-label="Switch between Code and the Agent Board"><button type="button" class="msw-seg on" data-act="mode.ide" data-mode="ide" title="Code" aria-label="Code" aria-pressed="true"><svg data-i="codeXml" data-size="15"></svg></button><button type="button" class="msw-seg" data-act="view.board" data-mode="board" title="Agent Board" aria-label="Agent Board" aria-pressed="false"><span class="msw-agent"></span></button></div>
       <div class="layout-btns">
         <button class="icon-btn" id="tglSide" title="Toggle Primary Side Bar (Ctrl+B)"><svg width="16" height="16">
             <use href="#i-left-on" />
@@ -488,7 +488,6 @@
         <button class="act-btn" data-view="git" title="Checkpoints (Ctrl+Shift+G)"><svg width="20" height="20">
             <use href="#i-git" />
           </svg><span class="badge"></span></button>
-        <button class="act-btn" data-view="skills" title="Skills &amp; Plugins"><svg data-i="puzzle" data-size="20"></svg></button>
         <!-- Not a side-bar view: opens the full-page debugger (debugview.ts) -->
         <button class="act-btn" id="debugBtn" data-debug-btn title="Debug (Ctrl+Shift+D)" aria-label="Debug"><svg data-i="bug" data-size="20"></svg></button>
         <!-- Not a side-bar view either: opens the full-page Agent board (board.ts) -->
@@ -531,14 +530,6 @@
         <!-- Git -->
         <!-- The Source Control page (#scmPage, in the centre) lives there; this stays so the view switch finds its panel -->
         <div data-panel="git" class="contents hidden"></div>
-        <!-- Skills & plugins the agents load -->
-        <div data-panel="skills" class="contents hidden">
-          <div class="side-head"><span>Skills &amp; Plugins</span><span class="head-actions">
-              <button class="icon-btn" data-act="mcp.connect" title="Connect MCP server"><svg data-i="plus" data-size="14"></svg></button>
-              <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg data-i="chevronLeft" data-size="14"></svg></button>
-            </span></div>
-          <div class="side-body skills" id="skillList"></div>
-        </div>
         <div class="sash sash-v" data-sash="side"></div>
       </aside>
 
@@ -726,7 +717,7 @@
       <button class="logo logo-home" id="boxLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeSpace.png" alt=""></button>
       <span class="spacer"></span>
       <button class="update-btn" id="boxUpdateBtn" data-update hidden>Update</button>
-      <button class="btn btn-sm" data-act="mode.ide">Breeze Code</button>
+      <div class="mode-switch" data-on="box" role="group" aria-label="Switch between Code and the Agent Board"><button type="button" class="msw-seg" data-act="mode.ide" data-mode="ide" title="Code" aria-label="Code" aria-pressed="false"><svg data-i="codeXml" data-size="15"></svg></button><button type="button" class="msw-seg on" data-act="view.board" data-mode="board" title="Agent Board" aria-label="Agent Board" aria-pressed="true"><span class="msw-agent"></span></button></div>
       <button class="icon-btn box-gear" id="boxSettings" title="Settings" aria-haspopup="dialog"><svg width="18"
           height="18">
           <use href="#i-gear" />
@@ -743,6 +734,9 @@
       </div>
       <button class="box-side-row" id="boxSideSearchBtn" type="button" aria-controls="boxSideSearch"><svg data-i="search" data-size="15"></svg><span>Search</span></button>
       <label class="box-side-row box-side-search hidden" id="boxSideSearchBox"><svg data-i="search" data-size="15"></svg><input id="boxSideSearch" type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" spellcheck="false"></label>
+      <button class="box-side-row" type="button" data-ext-open="skills" aria-haspopup="dialog"><svg data-i="puzzle" data-size="15"></svg><span>Skills</span></button>
+      <button class="box-side-row" type="button" data-ext-open="plugins" aria-haspopup="dialog"><svg data-i="blocks" data-size="15"></svg><span>Plugins</span></button>
+      <button class="box-side-row" type="button" data-ext-open="mcp" aria-haspopup="dialog"><svg data-i="plug" data-size="15"></svg><span>MCP</span></button>
       <div class="box-side-list" id="boxSideList"></div>
     </aside>
     <div class="agent-tabs-bar box-tabs-bar" id="boxAgentTabsBar">
@@ -787,18 +781,32 @@
   <!-- Agent board (board.ts): drag agents into boxes; every box runs at once, and blocked edits are relayed -->
   <div class="board hidden" id="board">
     <header class="titlebar board-bar">
+      <button class="icon-btn board-side-show" id="boardSideShow" type="button" title="Show chats" aria-controls="boardSide"><svg data-i="panelLeft" data-size="16"></svg></button>
       <button class="logo logo-home" id="boardLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeCode.png" alt=""></button>
       <div class="board-roster" id="boardRoster" role="list" aria-label="Your agents. Drag one into a box."></div>
       <span class="spacer"></span>
-      <span class="board-auto" title="When on, each box shows the file its agent is editing, at the box's left."><span>Code</span><button class="switch switch-sm" id="boardCode" type="button" role="switch" aria-checked="true" aria-label="Show code"><span class="sw-knob"></span></button></span>
-      <span class="board-auto" title="When on, a request one agent makes of another is sent on its own. Off, each waits for Send."><span>Auto-relay</span><button class="switch switch-sm" id="boardAuto" type="button" role="switch" aria-checked="true" aria-label="Auto-relay"><span class="sw-knob"></span></button></span>
-      <button class="btn btn-sm board-history" id="boardHistory" type="button" title="Earlier chats in this folder. Pick one to open it in a free box." aria-haspopup="menu"><svg width="13" height="13"><use href="#i-history" /></svg><span>History</span></button>
-      <button class="btn btn-sm board-stop" id="boardStopAll" title="Stop every box and drop waiting relays"><svg data-i="stop" data-size="13"></svg><span>Stop all</span></button>
-      <button class="btn btn-sm dbg-back" id="boardBack" title="Back to the editor. The boxes keep running."><svg data-i="chevronLeft" data-size="14"></svg><span>Back to editor</span></button>
+      <!-- The chats side bar (#boardSide) replaced the History button:
+      <button class="btn btn-sm board-history" id="boardHistory" type="button" title="Earlier chats in this folder. Pick one to open it in a free box." aria-haspopup="menu"><svg width="13" height="13"><use href="#i-history" /></svg><span>History</span></button> -->
+      <!-- The Code / Agent Board switcher replaced Back to editor:
+      <button class="btn btn-sm dbg-back" id="boardBack" title="Back to the editor. The boxes keep running."><svg data-i="chevronLeft" data-size="14"></svg><span>Back to editor</span></button> -->
+      <div class="mode-switch" data-on="board" role="group" aria-label="Switch between Code and the Agent Board"><button type="button" class="msw-seg" data-act="mode.ide" data-mode="ide" title="Code" aria-label="Code" aria-pressed="false"><svg data-i="codeXml" data-size="15"></svg></button><button type="button" class="msw-seg on" data-act="view.board" data-mode="board" title="Agent Board" aria-label="Agent Board" aria-pressed="true"><span class="msw-agent"></span></button></div>
     </header>
     <div class="board-main">
       <!-- The IDE's activity bar is copied in here at start-up, with the board lit -->
       <nav class="activity dbg-rail" id="boardRail" aria-label="Views"></nav>
+      <!-- Chats, grouped by folder: a click opens one in a free box, or drag it onto a box (board.ts). -->
+      <aside class="board-side" id="boardSide" aria-label="Chats">
+        <div class="box-side-top">
+          <button class="box-side-row" id="boardSideNew" type="button" title="A new chat with your default agent, in a box of its own"><svg data-i="plus" data-size="15"></svg><span>New chat</span></button>
+          <button class="icon-btn box-side-hide" id="boardSideHide" type="button" title="Hide chats" aria-controls="boardSide"><svg data-i="panelLeft" data-size="16"></svg></button>
+        </div>
+        <button class="box-side-row" id="boardSideSearchBtn" type="button" aria-controls="boardSideSearch"><svg data-i="search" data-size="15"></svg><span>Search</span></button>
+        <label class="box-side-row box-side-search hidden" id="boardSideSearchBox"><svg data-i="search" data-size="15"></svg><input id="boardSideSearch" type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" spellcheck="false"></label>
+        <button class="box-side-row" type="button" data-ext-open="skills" aria-haspopup="dialog"><svg data-i="puzzle" data-size="15"></svg><span>Skills</span></button>
+        <button class="box-side-row" type="button" data-ext-open="plugins" aria-haspopup="dialog"><svg data-i="blocks" data-size="15"></svg><span>Plugins</span></button>
+        <button class="box-side-row" type="button" data-ext-open="mcp" aria-haspopup="dialog"><svg data-i="plug" data-size="15"></svg><span>MCP</span></button>
+        <div class="box-side-list" id="boardSideList" role="list"></div>
+      </aside>
       <div class="board-grid" id="boardGrid" aria-label="Boxes"></div>
     </div>
   </div>

@@ -155,6 +155,8 @@ contextBridge.exposeInMainWorld('breeze', {
     setFullAccess: (on: unknown) => invoke('agent:setFullAccess', on),
     usage: () => invoke('agent:usage'),
     history: () => invoke('agent:history'),
+    chatLogs: () => invoke('agent:chatLogs'),
+    chatLog: (agent: unknown, session: unknown) => invoke('agent:chatLog', agent, session),
     ask: (opts: unknown) => invoke('agent:ask', opts),
     onEvent: (cb: Listener) => listen('agent:event', cb),
   },

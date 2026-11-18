@@ -128,16 +128,34 @@ function previewInspector(): void {
   // Edit Manually: the element's text becomes editable right in the page. Enter saves (Breeze writes the change into
   // the page's source), Escape or a structure change puts it back. Only text changes: pasted formatting is
   // kept out, and each changed text node is sent with its old text so Breeze can find it in the source.
-  let edit: { el: HTMLElement; where: ReturnType<typeof chain>; nodes: Text[]; before: string[]; html: string; attr: string | null; style: string | null; leaf: boolean } | null = null;
+  let edit: { el: HTMLElement; where: ReturnType<typeof chain>; nodes: Text[]; before: string[]; html: string; attr: string | null; style: string | null; leaf: boolean; page: string; at: number[] } | null = null;
   function textNodes(el: Element): Text[] {
     const out: Text[] = [], walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     while (walk.nextNode()) out.push(walk.currentNode as Text);
     return out;
   }
+  // The page's text as it reads, and where each of `nodes` starts in it. A Markdown file's page has no tags to find
+  // in its source, so Breeze finds the words: `nth` says how many times a text showed before this one.
+  function pageText(nodes: Text[]): { page: string; at: number[] } {
+    let page = '';
+    const at = nodes.map(() => -1);
+    for (const n of textNodes(document.body)) {
+      if (n.parentElement?.closest('script,style,noscript,[data-breeze-inspector],[data-breeze-preview]')) continue;
+      const i = nodes.indexOf(n);
+      if (i >= 0) at[i] = page.length;
+      page += n.data;
+    }
+    return { page, at };
+  }
+  function nthBefore(page: string, at: number, find: string): number {
+    let n = 0;
+    for (let i = page.indexOf(find); i >= 0 && i < at && find; i = page.indexOf(find, i + find.length)) n++;
+    return n;
+  }
   function startEdit(x: number, y: number) {
     if (edit || !(target instanceof HTMLElement)) return;
     const el = target, nodes = textNodes(el);
-    edit = { el, where: chain(el), nodes, before: nodes.map(n => n.data), html: el.innerHTML, attr: el.getAttribute('contenteditable'), style: el.getAttribute('style'), leaf: !el.children.length };
+    edit = { el, where: chain(el), nodes, before: nodes.map(n => n.data), html: el.innerHTML, attr: el.getAttribute('contenteditable'), style: el.getAttribute('style'), leaf: !el.children.length, ...pageText(nodes) };
     el.style.outline = 'none'; // the dashed outline stands in for the browser's focus ring
     setPinned(true);
     box!.classList.add('editing');
@@ -164,12 +182,12 @@ function previewInspector(): void {
     const nodes = textNodes(ed.el);
     const same = nodes.length === ed.nodes.length && nodes.every((n, i) => n === ed.nodes[i]);
     if (save && same) {
-      const changes = nodes.map((n, i) => ({ from: ed.before[i], to: n.data })).filter(c => c.from !== c.to);
+      const changes = nodes.map((n, i) => ({ from: ed.before[i], to: n.data, nth: nthBefore(ed.page, ed.at[i], ed.before[i]) })).filter(c => c.from !== c.to);
       if (changes.length) parent.postMessage({ breezeInspector: 'edit', chain: ed.where, changes }, '*');
     } else if (save && ed.leaf && !ed.el.children.length) {
       // Typing reshaped a text-only element's nodes: its whole old text becomes its whole new text.
       const from = ed.before.join(''), to = ed.el.textContent ?? '';
-      if (from !== to) parent.postMessage({ breezeInspector: 'edit', chain: ed.where, changes: [{ from, to }] }, '*');
+      if (from !== to) parent.postMessage({ breezeInspector: 'edit', chain: ed.where, changes: [{ from, to, nth: nthBefore(ed.page, ed.at[0] ?? -1, from) }] }, '*');
     } else {
       if (same) nodes.forEach((n, i) => { n.data = ed.before[i]; }); else ed.el.innerHTML = ed.html;
       if (save) parent.postMessage({ breezeInspector: 'edit-failed' }, '*');

@@ -106,7 +106,8 @@ function wireComposer(c: Composer): void {
       const pct = Math.max(0, Math.min(100, Math.round(w.used)));
       return `<div class="cmp-usage-row${pct >= 80 ? ' high' : ''}"><span class="lbl">${esc(w.label)}</span><span class="cmp-ctx-bar"><i data-w="${pct}"></i></span><span class="pct">${pct}%</span>${w.resetsAt ? `<small>resets ${esc(resetText(w.resetsAt))}</small>` : ''}</div>`;
     }).join('');
-    $$<HTMLElement>('.cmp-ctx-bar i', m).forEach(i => { i.style.width = `${i.dataset.w}%`; }); // the CSP blocks inline style attributes
+    // The CSP blocks inline style attributes; the fill's colour follows what's left (breeze.css).
+    $$<HTMLElement>('.cmp-ctx-bar i', m).forEach(i => { i.style.width = `${i.dataset.w}%`; i.style.setProperty('--usage-left', String(100 - Number(i.dataset.w))); });
     const r = more.getBoundingClientRect();
     m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
     m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`;
@@ -255,17 +256,19 @@ function paintComposer(c: Composer): void {
     br.title = `On branch ${b}`;
   }
 
-  // Usage: how much of its plan's limit the agent has used, by its tightest window (the 5-hour one, the week's),
-  // as Settings → Agents shows it. Hidden for an agent with no plan limit (a local model, an API key).
+  // Usage: how much of its plan's limit the agent has used. Claude shows its 5-hour window; other agents show their
+  // tightest window (the arrow lists every one). Hidden for an agent with no plan limit (a local model, an API key).
   const meter = $('.cmp-ctx', c.meta);
   const id = composerAgent(c);
   const wins = (id && agentUsage?.limits[id]) || [];
   meter.classList.toggle('hidden', !wins.length);
   $('.cmp-ctx-more', c.meta).classList.toggle('hidden', !wins.length);
   if (wins.length) {
-    const tight = wins.reduce((a, w) => (w.used > a.used ? w : a));
+    const tight = (id === 'claude' && wins.find(w => w.label === '5-hour')) || wins.reduce((a, w) => (w.used > a.used ? w : a));
     const pct = Math.max(0, Math.min(100, Math.round(tight.used)));
-    $<HTMLElement>('.cmp-ctx-bar i', meter).style.width = `${pct}%`;
+    const fill = $<HTMLElement>('.cmp-ctx-bar i', meter);
+    fill.style.width = `${pct}%`;
+    fill.style.setProperty('--usage-left', String(100 - pct));
     $('.cmp-ctx-pct', meter).textContent = `${pct}%`;
     meter.setAttribute('aria-valuenow', String(pct));
     const name = appState.detect?.agents.find(a => a.id === id)?.name ?? 'This agent';

@@ -36,3 +36,55 @@ function splitFences(text: string): MdPart[] {
 function codeSpans(escaped: string): string {
   return escaped.replace(/(?<!`)(`+)(?!`)([^\n]*?[^`\n][^\n]*?)(?<!`)\1(?!`)/g, (_m: string, _ticks: string, code: string) => `<code>${code.trim()}</code>`);
 }
+
+/* ----- Edit Manually in a Markdown file's preview (preview.ts) ----- */
+// The page shows the Markdown rendered, so its text is found in the file by the words themselves. Each change carries
+// `nth`: how many times its old text showed in the page before it, which picks the copy in the file.
+// shortcut: words the file holds but the page doesn't show (a link's address, a comment) shift that count, and a
+// change spanning formatting ("**a** b" edited as "a b") isn't found; a source-mapped renderer would fix both.
+type MdChange = { from: string; to: string; nth?: number };
+const mdEscape = (s: string): string => s.replace(/[\\`*_[\]<]/g, c => `\\${c}`);
+// Where `find` starts each non-overlapping time it shows in `s`.
+function mdOccurrences(s: string, find: string): number[] {
+  const out: number[] = [];
+  for (let at = s.indexOf(find); at >= 0 && find; at = s.indexOf(find, at + find.length)) out.push(at);
+  return out;
+}
+// The Markdown with every change written in, or null when one can't be placed.
+function applyMdEdit(src: string, changes: MdChange[]): string | null {
+  if (!changes.length || changes.some(c => !c.from)) return null;
+  const edits: { at: number; len: number; text: string }[] = [];
+  for (const c of changes) {
+    let escaped = false, hits = mdOccurrences(src, c.from);
+    if (!hits.length) { escaped = true; hits = mdOccurrences(src, mdEscape(c.from)); }
+    const n = c.nth ?? 0;
+    const at = n < hits.length ? hits[n] : hits.length === 1 ? hits[0] : -1;
+    if (at < 0) return null;
+    if (escaped) { edits.push({ at, len: mdEscape(c.from).length, text: mdEscape(c.to) }); continue; }
+    // Only what was typed is escaped: the rest stays as the file wrote it ("snake_case" keeps its bare underscore).
+    let p = 0, e = 0;
+    while (p < c.from.length && p < c.to.length && c.from[p] === c.to[p]) p++;
+    while (e < c.from.length - p && e < c.to.length - p && c.from[c.from.length - 1 - e] === c.to[c.to.length - 1 - e]) e++;
+    edits.push({ at: at + p, len: c.from.length - p - e, text: mdEscape(c.to.slice(p, c.to.length - e)) });
+  }
+  edits.sort((a, b) => b.at - a.at);
+  let out = src;
+  for (let i = 0; i < edits.length; i++) {
+    const d = edits[i];
+    if (i && d.at + d.len > edits[i - 1].at) return null; // two changes landed on the same text
+    out = out.slice(0, d.at) + d.text + out.slice(d.at + d.len);
+  }
+  return out;
+}
+// The line (from 0) an element's text starts on in the Markdown, by as many of its first words as the file has
+// together (formatting splits them), or null.
+function mdSourceLine(src: string, text: string): number | null {
+  const words = text.replace(/\s+/g, ' ').trim().split(' ').slice(0, 12);
+  for (let k = words.length; k > 0; k--) {
+    const find = words.slice(0, k).join(' ');
+    if (find.length < 3) break;
+    const at = src.indexOf(find);
+    if (at >= 0) return src.slice(0, at).split('\n').length - 1;
+  }
+  return null;
+}

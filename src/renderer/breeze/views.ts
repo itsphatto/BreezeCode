@@ -51,6 +51,8 @@ function morphSideHead(from: HTMLElement, to: HTMLElement): void {
 }
 // `morph`: only a click on the activity bar animates the header; shortcuts and commands switch at once.
 function showView(v: string, reveal = false, morph = false): void {
+  // Skills, plugins and MCP moved to a pop-up (skills.ts): a layout saved on that old side-bar view opens Explorer.
+  if (v === 'skills') v = 'files';
   // Source Control is a full page (prs.ts) rather than a side-bar panel: it notes the view to go back to, and any other view closes it.
   if (v === 'git') openScmPage(); else closeScmPage(false);
   // The page's header is its column's (#scmLeft); the side bar's shows only while the side bar is open.
@@ -66,7 +68,6 @@ function showView(v: string, reveal = false, morph = false): void {
   if (was) morphSideHead(was, headOf(v));
   updateActIndicator();
   if (v === 'git') void refreshGit();
-  if (v === 'skills') void refreshSkills();
 }
 // Clicking the active view's icon again collapses the side bar, like VS Code. For Source Control, the page, it closes it.
 $$('.act-btn[data-view]').forEach(b => b.onclick = () => {
@@ -94,6 +95,41 @@ function enterMode(mode: WorkMode): void {
   renderBoxSide();
   SURFACES.box.prompt.focus();
 }
+/* ----- The title bars' Code / Agent Board switcher ----- */
+// One per screen (Home, the IDE, the Agent Board), each lit on its own screen's half (breeze.html); Home's on neither.
+// The Agent Board half is the default agent's logo in colour, else Breeze's own agent mark.
+function renderModeSwitch(): void {
+  const a = selectedAgent();
+  const file = a ? BRAND_ICONS[a.id] : undefined;
+  const src = `../../assets/${file ? `icons/${file}` : 'brand/Agent.png'}`;
+  for (const slot of $$<HTMLElement>('.mode-switch .msw-agent')) {
+    if (slot.dataset.src === src) continue;
+    slot.dataset.src = src;
+    slot.innerHTML = `<img src="${src}" alt="" draggable="false">`;
+  }
+  for (const b of $$<HTMLElement>('.mode-switch [data-mode="board"]')) b.title = a ? `Agent Board · ${a.name}` : 'Agent Board';
+}
+// A press slides the highlight over at once; the screen it opens has its own switcher, already lit on that half.
+document.addEventListener('pointerdown', e => {
+  const seg = (e.target as HTMLElement).closest<HTMLElement>('.mode-switch .msw-seg');
+  const sw = seg?.parentElement;
+  if (!seg || !sw || e.button !== 0) return;
+  if (seg.dataset.mode === 'board' && !rootInfo) return; // the board needs a folder: openBoard says so, nothing slides
+  sw.dataset.on = seg.dataset.mode;
+  for (const b of $$<HTMLElement>('.msw-seg', sw)) { b.classList.toggle('on', b === seg); b.setAttribute('aria-pressed', String(b === seg)); }
+});
+// Each switcher shows its own screen's half again; `keep`, the screen fading out, keeps the slide it just played
+// until the next swap.
+function resetModeSwitches(keep?: Element): void {
+  for (const sw of $$<HTMLElement>('.mode-switch')) {
+    if (keep?.contains(sw)) continue;
+    const own = sw.closest('#ide') ? 'ide' : sw.closest('#board') ? 'board' : '';
+    if (own) sw.dataset.on = own; else delete sw.dataset.on;
+    for (const b of $$<HTMLElement>('.msw-seg', sw)) { b.classList.toggle('on', b.dataset.mode === own); b.setAttribute('aria-pressed', String(b.dataset.mode === own)); }
+  }
+}
+renderModeSwitch();
+
 function renderBoxFolder(): void {
   const chip = $('#boxFolder');
   const name = rootInfo ? rootInfo.name : 'Breeze Space folder';

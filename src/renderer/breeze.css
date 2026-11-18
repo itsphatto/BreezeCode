@@ -149,14 +149,14 @@
   color-scheme: light;
   --blue: #0a62c9;
   --blue-soft: rgba(10, 98, 201, .1);
-  --bg: #fbf9f4;
-  --bg-1: #f4f1e8;
-  --bg-2: #ece8dc;
-  --bg-3: #e3ded0;
-  --line: #d8d1c0;
+  --bg: #eeeae6;
+  --bg-1: #e8e3dd;
+  --bg-2: #e0dad2;
+  --bg-3: #d9d2c9;
+  --line: #cdc5b8;
   --text: #26231e;
   --text-2: #57514a;
-  --text-3: #645d53;
+  --text-3: #5c554b;
   --ok: #137036;
   --warn: #9c4706;
   --err: #c42b1c;
@@ -164,8 +164,8 @@
   --c-planner: #6d28d9;
   --c-builder: #036496;
   /* Paper isn't see-through: popups are solid sheets, not frosted glass. */
-  --glass: rgba(251, 249, 244, .97);
-  --glass-strong: rgba(248, 245, 238, .98);
+  --glass: rgba(238, 234, 230, .97);
+  --glass-strong: rgba(234, 229, 224, .98);
   --glass-blur: none;
   --space-blur: none;
   --space-prompt-blur: none;
@@ -179,7 +179,7 @@
   --ink: 38, 35, 30;
   --blue-text: #0057b8;
   --text-soft: #3b3731;
-  --line-hi: #c7bfab;
+  --line-hi: #bdb4a3;
   --line-strong: #a89f8a;
   --code-text: #26231e;
 }
@@ -228,22 +228,22 @@
   --bg-3: color-mix(in srgb, #1c1c21 var(--bd-a), transparent);
 }
 :root[data-theme="light"][data-backdrop] {
-  --bg: color-mix(in srgb, #fbf9f4 var(--bd-a), transparent);
-  --bg-1: color-mix(in srgb, #f4f1e8 var(--bd-a), transparent);
-  --bg-2: color-mix(in srgb, #ece8dc var(--bd-a), transparent);
-  --bg-3: color-mix(in srgb, #e3ded0 var(--bd-a), transparent);
+  --bg: color-mix(in srgb, #eeeae6 var(--bd-a), transparent);
+  --bg-1: color-mix(in srgb, #e8e3dd var(--bd-a), transparent);
+  --bg-2: color-mix(in srgb, #e0dad2 var(--bd-a), transparent);
+  --bg-3: color-mix(in srgb, #d9d2c9 var(--bd-a), transparent);
 }
 /* The canvas under a picture is the theme's own solid colour; under Glass it is nothing, so the system material shows. */
 :root[data-backdrop] body { background: transparent; }
 :root[data-backdrop="glass"] { background: transparent; }
 :root[data-backdrop="image"] { background: #1d1d1f; }
 :root[data-theme="contrast"][data-backdrop="image"] { background: #000; }
-:root[data-theme="light"][data-backdrop="image"] { background: #fbf9f4; }
+:root[data-theme="light"][data-backdrop="image"] { background: #eeeae6; }
 /* The setup steps over the sky are always the plain theme, never Glass or a picture. Home takes the backdrop like the
    IDE does: its sky is hidden and its panel turns see-through. */
 :root[data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #1d1d1f; --bg-1: #232325; --bg-2: #2a2a2c; --bg-3: #323234; }
 :root[data-theme="contrast"][data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #000; --bg-1: #0b0b0d; --bg-2: #131316; --bg-3: #1c1c21; }
-:root[data-theme="light"][data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #fbf9f4; --bg-1: #f4f1e8; --bg-2: #ece8dc; --bg-3: #e3ded0; }
+:root[data-theme="light"][data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #eeeae6; --bg-1: #e8e3dd; --bg-2: #e0dad2; --bg-3: #d9d2c9; }
 :root[data-backdrop] .onboard:has(.home-step:not(.hidden)) { background: transparent; }
 :root[data-backdrop] .onboard:has(.home-step:not(.hidden)) > .ob-sky { visibility: hidden; }
 :root[data-theme="light"][data-backdrop] .onboard .ob-step.home-step { --bg: inherit; --bg-1: inherit; --bg-2: inherit; --bg-3: inherit; }
@@ -268,7 +268,7 @@
 /* Turning a backdrop on or off (applyBackdrop, settings.ts): the theme's solid colour behind every surface, faded. */
 :root { --bd-solid: #1d1d1f; }
 :root[data-theme="contrast"] { --bd-solid: #000; }
-:root[data-theme="light"] { --bd-solid: #fbf9f4; }
+:root[data-theme="light"] { --bd-solid: #eeeae6; }
 body.bd-fade::before {
   content: "";
   position: fixed;
@@ -6296,9 +6296,14 @@ textarea:not(:placeholder-shown) + .ph-rot {
   transition: width .6s var(--spring);
 }
 
-.cmp-ctx.high .cmp-ctx-bar i,
-.cmp-usage-row.high .cmp-ctx-bar i {
-  background: var(--warn);
+/* Usage fills shade by how much of the plan is left (--usage-left, 0–100, set from script): green while there's
+   plenty, through amber at half, to red as it runs out. Shared by the composer meter, its menu and Settings → Agents. */
+.cmp-ctx-bar i,
+.usage-bar i {
+  --usage-hi: clamp(0%, calc((var(--usage-left, 100) - 50) * 2%), 100%);
+  --usage-lo: clamp(0%, calc(var(--usage-left, 100) * 2%), 100%);
+  background: color-mix(in oklab, color-mix(in oklab, var(--ok) var(--usage-hi), var(--warn)) var(--usage-lo), var(--err));
+  transition: width .4s cubic-bezier(.22, 1, .36, 1), background-color .4s ease;
 }
 
 /* The meter and its arrow, one button: opens every plan window (5-hour, weekly), not just the tightest. */
@@ -8781,22 +8786,22 @@ body.vibing .ide {
 /* The light theme gives all of setup a dark palette (it sits on the sky); Home takes the light theme's own back. */
 :root[data-theme="light"] .onboard .ob-step.home-step {
   color-scheme: light;
-  --bg: #fbf9f4;
-  --bg-1: #f4f1e8;
-  --bg-2: #ece8dc;
-  --bg-3: #e3ded0;
-  --line: #d8d1c0;
+  --bg: #eeeae6;
+  --bg-1: #e8e3dd;
+  --bg-2: #e0dad2;
+  --bg-3: #d9d2c9;
+  --line: #cdc5b8;
   --text: #26231e;
   --text-2: #57514a;
-  --text-3: #645d53;
+  --text-3: #5c554b;
   --blue-text: #0057b8;
   --text-soft: #3b3731;
-  --line-hi: #c7bfab;
+  --line-hi: #bdb4a3;
   --line-strong: #a89f8a;
   --ink: 38, 35, 30;
   --hover-dim: rgba(70, 55, 30, .22); /* stronger than the dark theme's: a light page needs more to show a hover */
-  --glass: rgba(251, 249, 244, .97);
-  --glass-strong: rgba(248, 245, 238, .98);
+  --glass: rgba(238, 234, 230, .97);
+  --glass-strong: rgba(234, 229, 224, .98);
   --glass-line: rgba(70, 55, 30, .12);
   --ok: #137036;
   --warn: #9c4706;
@@ -10843,6 +10848,7 @@ body.layout-animating .box > .terminal.open {
   white-space: nowrap;
 }
 
+/* The fold arrow next to a folder's name is always shown, so it reads as a drop-down before the pointer finds it. */
 .box-side-folder .ico-svg {
   flex: none;
   opacity: 0;
@@ -11655,10 +11661,11 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 }
 
 /* ================= Agent is responding ================= */
+/* "Thinking 2.0s" with the agent's logo; it opens into the steps taken so far (agents.ts showThinking). */
 .thinking {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   padding: 2px 0;
   align-self: flex-start;
   max-width: 100%;
@@ -11666,6 +11673,75 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   font-size: 12px;
   animation: rise .33s var(--spring);
 }
+
+.thinking .think-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 6px 2px 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.thinking .think-head:hover .think-chev,
+.thinking .think-head:focus-visible .think-chev { color: var(--text); }
+
+.thinking .think-time,
+.thinking .ts-time {
+  flex-shrink: 0;
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.thinking .think-chev {
+  display: inline-flex;
+  color: var(--text-3);
+  transition: transform .18s ease;
+}
+
+.thinking.collapsed .think-chev { transform: rotate(-90deg); }
+.thinking.collapsed .think-steps { display: none; }
+
+.thinking .think-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 0 7px; /* hangs off the logo's centre */
+  padding: 2px 0 2px 14px;
+  list-style: none;
+  border-left: 1px solid var(--line);
+}
+
+.thinking .think-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  animation: rise .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.thinking .think-step .ti {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+.thinking .ts-lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thinking .think-step:not(.live) .ts-lbl { color: var(--text-3); }
+.thinking .think-step.live .ts-lbl { color: var(--text); }
 
 .thinking .lbl {
   min-width: 0;
@@ -12280,6 +12356,90 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   margin-right: 8px;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* ----- The title bars' Code / Agent Board switcher (views.ts): a pill of two icon halves. The lit half sits on a
+   thumb that slides across when the other half is pressed; the screen it opens has its own switcher, lit to match. ----- */
+.mode-switch {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 8px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-3);
+  -webkit-app-region: no-drag;
+}
+
+.mode-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 30px;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  opacity: 0;
+  transition: translate .26s cubic-bezier(.16, 1, .3, 1), opacity .15s ease;
+}
+
+.mode-switch[data-on]::before {
+  opacity: 1;
+}
+
+.mode-switch[data-on="board"]::before {
+  translate: 32px 0;
+}
+
+.msw-seg {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  transition: color .15s ease, background-color .15s ease;
+}
+
+.msw-seg:hover:not(.on) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.msw-seg.on {
+  color: var(--text);
+}
+
+.msw-seg:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+/* The default agent's logo in its own colours, a touch dimmed until its half is lit or hovered. */
+.msw-agent {
+  display: grid;
+  width: 15px;
+  height: 15px;
+}
+
+.msw-agent img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: .8;
+  transition: opacity .15s ease;
+}
+
+.msw-seg:is(.on, :hover) .msw-agent img {
+  opacity: 1;
 }
 
 /* Hovered, it shows Breeze Space's own sky behind the label: the page's gradient (.box), with stars and dust (space.ts). */
@@ -15687,8 +15847,36 @@ body.layout-animating #previewPane {
   transition: width .5s var(--spring);
 }
 
-.usage-bar.low i {
-  background: var(--err);
+
+/* Super Error Alert (Settings → Miscellaneous): a failed run glows the window's four corners red for 3 seconds,
+   pulsing in time with the siren's wail. Click-through, above everything. */
+#errAlert {
+  position: fixed;
+  inset: 0;
+  z-index: 1000000;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 0 0, rgb(239 68 68 / .55), transparent 220px),
+    radial-gradient(circle at 100% 0, rgb(239 68 68 / .55), transparent 220px),
+    radial-gradient(circle at 0 100%, rgb(239 68 68 / .55), transparent 220px),
+    radial-gradient(circle at 100% 100%, rgb(239 68 68 / .55), transparent 220px);
+  box-shadow: inset 0 0 60px 6px rgb(239 68 68 / .55);
+}
+
+#errAlert.on {
+  animation: err-alert 3s linear forwards;
+}
+
+@keyframes err-alert {
+  0%, 25%, 50%, 75% { opacity: 1; }
+  12.5%, 37.5%, 62.5%, 87.5% { opacity: .35; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #errAlert.on { animation: err-alert-still 3s step-end forwards; }
+  @keyframes err-alert-still { 0% { opacity: .8; } 100% { opacity: 0; } }
 }
 
 /* Account bar: rounded corner rectangle holding the avatar, who is signed in and the account buttons. */
@@ -16883,10 +17071,10 @@ body.layout-animating #previewPane {
 }
 
 .theme-swatch[data-swatch="light"] {
-  --sw-bg: #fbf9f4;
-  --sw-side: #f4f1e8;
-  --sw-line: #d8d1c0;
-  --sw-text: #645d53;
+  --sw-bg: #eeeae6;
+  --sw-side: #e8e3dd;
+  --sw-line: #cdc5b8;
+  --sw-text: #5c554b;
 }
 
 .theme-swatch .sw-bar {
@@ -16955,7 +17143,7 @@ body.layout-animating #previewPane {
 .theme-swatch[data-base="contrast"] { --sw-panel: rgba(0, 0, 0, .55); }
 
 .theme-swatch[data-base="light"] {
-  --sw-panel: rgba(251, 249, 244, .6);
+  --sw-panel: rgba(238, 234, 230, .6);
   --sw-line: rgba(70, 55, 30, .2);
   --sw-text: #26231e;
 }
@@ -19847,8 +20035,9 @@ input.dbg-edit.bad:focus-visible {
   transition: background .15s, border-color .15s, transform .225s var(--spring);
 }
 
-/* The global `-webkit-user-drag: none` rule would stop the chip from dragging at all. */
-.board-chip[draggable="true"] {
+/* The global `-webkit-user-drag: none` rule would stop the chip (and a chat in the board's side bar) from dragging at all. */
+.board-chip[draggable="true"],
+.board-side .box-side-chat[draggable="true"] {
   -webkit-user-drag: element;
 }
 
@@ -19902,33 +20091,73 @@ input.dbg-edit.bad:focus-visible {
   object-fit: contain;
 }
 
-.board-auto {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-2);
-  font-size: 12px;
-  -webkit-app-region: no-drag;
-}
-
-.board-stop {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  -webkit-app-region: no-drag;
-}
-
-.board-stop svg {
-  color: var(--err);
-}
-
 .board-main {
   --gap: 6px;
+  --board-side-w: 240px;
   position: relative; /* the handles between boxes (.board-sashes) are placed over the grid */
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 44px var(--board-side-w) minmax(0, 1fr);
   min-height: 0;
   padding: var(--gap) var(--gap) var(--gap) 0;
+  transition: grid-template-columns .32s cubic-bezier(.32, .72, 0, 1);
+}
+
+.board.side-closed .board-main {
+  grid-template-columns: 44px 0 minmax(0, 1fr);
+}
+
+/* ----- The chats side bar: Breeze Space's (New chat, Search, chats by folder) on the board's plain background.
+   Its rows are Space's own (.box-side-*); a chat can be dragged onto a box (board.ts). ----- */
+.board-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 8px 8px 4px;
+  overflow: hidden;
+  transition: opacity .2s ease;
+}
+
+.board-side > * {
+  min-width: calc(var(--board-side-w) - 12px);
+}
+
+.board.side-closed .board-side {
+  padding-inline: 0;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.board:not(.side-closed) .board-side-show {
+  display: none;
+}
+
+.board-side-show {
+  -webkit-app-region: no-drag;
+}
+
+.board-side :is(.box-side-row, .box-side-chat)::before {
+  inset: 2px 0;
+}
+
+.board-side :is(.box-side-chat.on, .box-side-search)::before {
+  opacity: 1;
+  transform: none;
+}
+
+.board-side .box-side-chat {
+  cursor: grab;
+}
+
+.board-side .box-side-chat:active {
+  cursor: grabbing;
+}
+
+/* A chat whose box is working shows the blue dot in place of its time. */
+.board-side .box-side-chat:not(.busy) .box-side-busy,
+.board-side .box-side-chat.busy .ago {
+  display: none;
 }
 
 /* Columns and rows come from the number of boxes (layoutBoard, board.ts): 1 fills the page, 2 split it, 3 is one tall
@@ -20041,10 +20270,42 @@ input.dbg-edit.bad:focus-visible {
   border-color: rgba(var(--ink), .22);
 }
 
-.board-box.drop-on {
-  border-color: var(--blue);
+/* Where a drag lands: one blue panel, the same ring, radius and gap from the edge wherever it goes. Over a box it would
+   fill, it covers the box; over another chat, the half it would open on (board.ts dropSideOf). It is the same element
+   all the while, so moving between the middle and either half slides it there instead of swapping one look for another.
+   The box's own border never changes, so nothing around it shifts. */
+.board-grid:not(.tiles) > .board-box {
+  position: relative; /* the panel's frame; tiles are placed absolutely already */
+}
+
+.board-box::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  z-index: 5;
+  border-radius: calc(var(--r) - 3px);
   background: var(--blue-soft);
-  box-shadow: inset 0 0 0 1px var(--blue);
+  box-shadow: inset 0 0 0 2px var(--blue);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease, inset .2s cubic-bezier(.32, .72, 0, 1);
+}
+
+.board-box.drop-on::after {
+  opacity: 1;
+}
+
+/* Hidden, it only fades: it keeps the half it was on (board.ts leaves data-drop-side), rather than sliding back. */
+.board-box:not(.drop-on)::after {
+  transition: opacity .14s ease;
+}
+
+.board-box[data-drop-side="left"]::after {
+  inset: 4px calc(50% + 2px) 4px 4px;
+}
+
+.board-box[data-drop-side="right"]::after {
+  inset: 4px 4px 4px calc(50% + 2px);
 }
 
 .board-box.shake {
@@ -20641,6 +20902,214 @@ input.dbg-edit.bad:focus-visible {
   font-family: var(--font-ui);
 }
 
+
+/* ================= Skills / Plugins / MCP pop-up (skills.ts), opened from the chats side bars ================= */
+/* Just under .scrim (55), so a skill's page or Connect MCP opens over it and closing that returns here. */
+.ext-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 54;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .45);
+  animation: extFade .18s ease;
+}
+
+.ext-scrim[hidden] {
+  display: none;
+}
+
+.ext-pop {
+  display: flex;
+  flex-direction: column;
+  width: min(820px, calc(100vw - 48px));
+  height: min(760px, calc(100vh - 64px));
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+  overflow: hidden;
+  animation: extIn .26s cubic-bezier(.32, .72, 0, 1);
+}
+
+.ext-scrim.closing {
+  animation: extFade .2s ease reverse forwards;
+}
+
+.ext-scrim.closing .ext-pop {
+  animation: extIn .2s ease reverse forwards;
+}
+
+@keyframes extFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes extIn {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.ext-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ext-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.ext-tabs button {
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.ext-tabs button:hover {
+  color: var(--text);
+}
+
+.ext-tabs button.on {
+  background: var(--bg-3);
+  color: var(--text);
+}
+
+.ext-search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 260px;
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  cursor: text;
+}
+
+.ext-search:focus-within {
+  border-color: var(--text-3);
+}
+
+.ext-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ext-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.ext-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ext-add[hidden] {
+  display: none;
+}
+
+.ext-close {
+  color: var(--text-3);
+}
+
+.ext-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 18px;
+}
+
+.ext-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ext-section .n {
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--bg-3);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+/* Roomier rows than the old side-bar list: one line for the name, one for what it does. */
+.ext-body .skill-row {
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.ext-body .skill-row + .skill-row,
+.ext-body .plugin-item + .plugin-item {
+  border-top: 1px solid var(--line);
+}
+
+.ext-body .skill-row:hover + .skill-row,
+.ext-body .skill-row:hover {
+  border-top-color: transparent;
+}
+
+.ext-body .skill-text {
+  gap: 2px;
+}
+
+.ext-body .skill-text b {
+  font-size: 13.5px;
+}
+
+.ext-body .skill-text small {
+  font-size: 12px;
+}
+
+.ext-body .plugin-row {
+  padding: 6px 4px;
+}
+
+.ext-body .plugin-skills .skill-row {
+  padding: 7px 12px 7px 28px;
+}
+
+.ext-body .side-note {
+  padding: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ext-scrim,
+  .ext-pop,
+  .ext-scrim.closing,
+  .ext-scrim.closing .ext-pop {
+    animation: none;
+  }
+}
+
 /* ================= Power saver =================
    <html data-power="saver"> (power.ts): on battery, on low-end hardware, or as Settings → General → Performance says.
    Everything here is scoped to that attribute, so a plugged-in machine draws exactly as before.
@@ -20701,4 +21170,3 @@ input.dbg-edit.bad:focus-visible {
 :root[data-power="saver"] .editor-blur-out {
   filter: none !important;
 }
-

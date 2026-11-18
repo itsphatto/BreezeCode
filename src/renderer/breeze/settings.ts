@@ -834,7 +834,12 @@ function usageHtml(agents: DetectedAgent[]): string {
 // "959.5M": Claude's count includes the cached context it re-reads every turn, so it runs into the millions.
 const tokenCount = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 // Bar widths are set from script: the page's CSP blocks inline style attributes.
-const fillUsageBars = (root: ParentNode) => $$('.usage-bar', root).forEach(b => b.style.setProperty('--left', `${b.dataset.left ?? 0}%`));
+const fillUsageBars = (root: ParentNode) => $$('.usage-bar', root).forEach(b => setUsageBar(b, b.dataset.left));
+// The width, and the fill's colour from green to red by what's left (breeze.css).
+function setUsageBar(b: HTMLElement, left = '0'): void {
+  b.style.setProperty('--left', `${left}%`);
+  b.style.setProperty('--usage-left', left);
+}
 // A changed number counts from its old value to the new one, easing in and out.
 function countTo(el: HTMLElement, from: number, to: number): void {
   const show = (n: number) => { el.textContent = el.dataset.fmt === 'tokens' ? tokenCount.format(n) : String(n); };
@@ -880,7 +885,7 @@ function patchUsage(el: HTMLElement, html: string): void {
     } else if (o.classList.contains('usage-bar')) {
       o.className = n.className;
       o.dataset.left = n.dataset.left;
-      o.style.setProperty('--left', `${n.dataset.left}%`);
+      setUsageBar(o, n.dataset.left);
     } else if (o.textContent !== n.textContent) {
       o.textContent = n.textContent;
       o.animate([{ opacity: 0, transform: 'translateY(5px)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: SPRING });
@@ -912,7 +917,7 @@ function settingsBody(tab: SettingsTab): string {
     case 'general': return `<h4>General</h4>
       ${accountHtml()}
       <h5>Preferences</h5>
-      ${settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode))}
+      ${''/* Breeze Space removed (2026-11-18), kept commented for now: settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode)) */}
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
       ${settingRow('Performance', powerNote(), segHtml('sPower', [['auto', 'Auto'], ['on', 'Always on'], ['off', 'Off']], powerInfo.mode))}
       <h5>Editor</h5>
@@ -954,6 +959,9 @@ function settingsBody(tab: SettingsTab): string {
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
         <h5>Permissions</h5>
         ${settingRow('Full access', fullAccessSub(), switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
+        <h5>Agent Board</h5>
+        ${settingRow('Code', 'Each box shows the file its agent is editing, at the box\'s left.', switchHtml('sBoardCode', boardCodeOn, 'Show code in board boxes'))}
+        ${settingRow('Auto-relay', 'A request one agent makes of another is sent on its own. Off, each waits for Send.', switchHtml('sAutoRelay', relayQueue.auto, 'Auto-relay'))}
         ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}`;
     }
     case 'misc': return `<h4>Miscellaneous</h4>
@@ -961,6 +969,8 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Vibe Code Mode', 'Play your feed while agents work.', switchHtml('sVibe', appState.vibeArmed, 'Vibe Code Mode'))}
       <h5>Feed</h5>
       <div class="social-grid ${appState.vibeArmed ? '' : 'off'}" id="sFeeds"${appState.vibeArmed ? '' : ' inert'}></div>
+      <h5>Super Error Alert</h5>
+      ${settingRow('Super Error Alert', 'When a file you run or compile fails, the window’s corners flash red and a siren sounds for 3 seconds.', switchHtml('sErrAlert', appState.superErrorAlert, 'Super Error Alert'))}
       <h5>Code</h5>
       ${settingRow('Enter code', appState.devMode ? 'Developer is unlocked.' : '', '<div class="set-code"><input class="input" id="sCode" aria-label="Code" placeholder="Code" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sCodeGo" disabled>Enter</button></div>')}`;
     case 'discord': {
@@ -1477,6 +1487,10 @@ function bindSettings(m: HTMLElement): void {
   });
   on('sAgentPicker', () => openAgentPicker());
   on('sFullAccess', () => setFullAccess(!agentFullAccess));
+  // The Agent Board's switches (board.ts), here instead of in the board's bar.
+  const flip = (el: HTMLElement, v: boolean) => { el.classList.toggle('on', v); el.setAttribute('aria-checked', String(v)); };
+  on('sBoardCode', el => { setBoardCode(!boardCodeOn); flip(el, boardCodeOn); });
+  on('sAutoRelay', el => { setAutoRelay(!relayQueue.auto); flip(el, relayQueue.auto); });
   const usageEl = pane.querySelector<HTMLElement>('#sUsage');
   // A kept list (a redraw of this section, Full access flipped) is left exactly as it is, timer and all: no fetch, so
   // nothing in it moves because of the redraw.
@@ -1499,6 +1513,14 @@ function bindSettings(m: HTMLElement): void {
   // Vibe
   // Turns on without a feed (it plays nothing until one is connected): the feeds are locked while it's off.
   on('sVibe', () => setVibeArmed(!appState.vibeArmed));
+  // Super Error Alert: flipped in place; turning it on plays the alert once so you know what you signed up for.
+  on('sErrAlert', el => {
+    appState.superErrorAlert = !appState.superErrorAlert;
+    saveApp();
+    el.classList.toggle('on', appState.superErrorAlert);
+    el.setAttribute('aria-checked', String(appState.superErrorAlert));
+    if (appState.superErrorAlert) superErrorAlert();
+  });
   const feeds = $('#sFeeds', pane);
   if (feeds) void renderFeedChoices(feeds);
   // Code: the right one unlocks Developer and jumps to it.

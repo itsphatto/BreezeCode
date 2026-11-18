@@ -40,9 +40,9 @@ test('an emptied box is cleared in main', () => {
   assert.ok(preload.includes("invoke('board:clearBox'"));
 });
 
-test('agent chips can be dragged (the global -webkit-user-drag: none is undone for them)', () => {
+test('agent chips and side-bar chats can be dragged (the global -webkit-user-drag: none is undone for them)', () => {
   const css = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze.css'), 'utf8');
-  assert.match(css, /\.board-chip\[draggable="true"\]\s*\{\s*-webkit-user-drag: element;/);
+  assert.match(css, /\.board-chip\[draggable="true"\],\s*\.board-side \.box-side-chat\[draggable="true"\]\s*\{\s*-webkit-user-drag: element;/);
 });
 
 test('clicking an empty box opens the agent picker', () => {
@@ -122,8 +122,11 @@ test('the board lays its boxes out for how many there are, and morphs between la
   assert.match(css, /:root\.board-morph::view-transition \{\s*pointer-events: none;/); // a drag goes on through it
 });
 
-test('a roster chip click and the header split button add an agent in a box of its own', () => {
+test('New chat, a roster chip click and a side-bar chat click take the whole board; only a drag splits it', () => {
   const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
-  assert.match(board, /\$\('#boardRoster'\)\.addEventListener\('click'[\s\S]{0,160}addAgent\(chip\.dataset\.agent!\)/);
-  assert.match(board, /\$\('\.board-box-split', el\)\.onclick[\s\S]{0,300}addAgent\(a\.id\)/);
+  assert.match(board, /\$\('#boardRoster'\)\.addEventListener\('click'[\s\S]{0,160}freshBoard\(chip\.dataset\.agent!\)/);
+  assert.match(board, /function newBoardChat\(\)[\s\S]{0,240}freshBoard\(agent\)/);
+  assert.match(board, /function freshBoard[\s\S]{0,400}closeBoxes\(\[\.\.\.boardBoxes\.values\(\)\]\)/);
+  assert.match(board, /reopenInBox\(e, undefined, undefined, true\)/);
+  assert.doesNotMatch(board, /board-box-split/);
 });

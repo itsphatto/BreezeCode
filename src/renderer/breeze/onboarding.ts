@@ -7,11 +7,13 @@ interface AppState {
   discord: boolean; discordDetails: boolean; devMode: boolean;
   // Friends: share what I'm doing at all, and the open folder's name with it.
   friendsShare: boolean; friendsProject: boolean;
+  // Super Error Alert (Settings → Miscellaneous): a run that fails flashes the window's corners red and sounds a siren.
+  superErrorAlert: boolean;
 }
 const savedApp = store.get<Partial<AppState>>('breeze.app', {});
 const appState: AppState = {
   onboarded: false, step: 0, name: null, termsAcceptedAt: null, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
-  discord: false, discordDetails: true, devMode: false, friendsShare: true, friendsProject: true,
+  discord: false, discordDetails: true, devMode: false, friendsShare: true, friendsProject: true, superErrorAlert: false,
   ...savedApp,
 };
 // The separate Breeze Agent workspace is now part of Breeze Space: a save from that build comes back to Space.

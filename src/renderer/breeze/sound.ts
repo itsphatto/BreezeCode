@@ -337,6 +337,43 @@ const sfx = (() => {
     };
   }
 
+  // Super Error Alert's siren (Settings → Miscellaneous): a wailing two-tone horn that rises and falls for `secs`.
+  // It is asked for on purpose, so it plays even with the click sounds muted; only a volume of 0 silences it. It is
+  // off the pentatonic scale on purpose too: an alarm is meant to clash.
+  function siren(secs = 3): void {
+    if (!volume) return;
+    if (!ctx) unlock();
+    if (!ctx || !master) return;
+    if (ctx.state !== 'running') void ctx.resume().catch(() => {});
+    const c = ctx, t0 = c.currentTime + 0.02, t1 = t0 + secs;
+    const out = c.createGain();
+    out.gain.setValueAtTime(0.0001, t0);
+    out.gain.exponentialRampToValueAtTime(0.16, t0 + 0.08);
+    out.gain.setValueAtTime(0.16, t1 - 0.25);
+    out.gain.exponentialRampToValueAtTime(0.0001, t1);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 3200;
+    out.connect(lp).connect(master);
+    // The wail: each horn's pitch swings between 650 Hz and 1350 Hz, up and down every 0.75 s.
+    const lfo = c.createOscillator(), depth = c.createGain();
+    lfo.type = 'triangle';
+    lfo.frequency.value = 1 / 0.75;
+    depth.gain.value = 350;
+    lfo.connect(depth);
+    const horns = [['sawtooth', 1000, 0.5], ['square', 1006, 0.25]] as const;
+    const oscs = horns.map(([type, f, v]) => {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type;
+      o.frequency.value = f;
+      depth.connect(o.frequency);
+      g.gain.value = v;
+      o.connect(g).connect(out);
+      return o;
+    });
+    for (const o of [lfo, ...oscs]) { o.start(t0); o.stop(t1 + 0.05); }
+  }
+
   // The menu item mutes; the slider in Settings → General sets the level (0 is silent).
   function toggle(): void {
     unlock();
@@ -463,6 +500,6 @@ const sfx = (() => {
     if (row && !row.contains(e.relatedTarget as Node | null)) play('rowHover');
   });
 
-  return { play, chargeHum, toggle, setVolume, get on() { return on; }, get volume() { return on ? volume : 0; } };
+  return { play, chargeHum, siren, toggle, setVolume, get on() { return on; }, get volume() { return on ? volume : 0; } };
 })();
 

@@ -21,6 +21,7 @@ import { isDocFile, docFileToText, textToDocFile, blankDocFile, officeMedia } fr
 import * as syncEngine from './sync';
 import { TeamCoordinator, claudeDenyArgs, opencodeDenyRules } from './team';
 import { BoardCoordinator } from './board';
+import { listChatLogs, readChatLog } from './agentlogs';
 import { parseMentions, shortName } from './mentions';
 import { LspManager, SERVERS, lspInstalls, findOnPath } from './lsp';
 import { Kernels } from './kernel';
@@ -1988,7 +1989,7 @@ handle('win:reload', () => win?.webContents.reload());
 handle('win:devtools', () => win?.webContents.toggleDevTools());
 handle('win:quit', () => app.quit());
 // The window's own background follows Settings → Appearance.
-const THEME_BG: Record<string, string> = { dark: '#1d1d1f', contrast: '#000000', light: '#fbf9f4' };
+const THEME_BG: Record<string, string> = { dark: '#1d1d1f', contrast: '#000000', light: '#eeeae6' };
 let themeBg = THEME_BG.dark, glassOn = false, themeName = 'dark';
 // The system's frosted material is tinted light or dark by the OS theme; while Glass is on it follows Breeze's theme.
 const tintGlass = () => { nativeTheme.themeSource = glassOn ? (themeName === 'light' ? 'light' : 'dark') : 'system'; };
@@ -2646,6 +2647,10 @@ async function agentHistory() {
 }
 let historyJob: Promise<Loose> | null = null;
 handle('agent:history', () => (historyJob ??= agentHistory().finally(() => { historyJob = null; })));
+// Chats from Claude Code's and Codex's own logs (agentlogs.ts), for the Agent Board's side bar.
+let chatLogsJob: Promise<Loose> | null = null;
+handle('agent:chatLogs', () => (chatLogsJob ??= listChatLogs().finally(() => { chatLogsJob = null; })));
+handle('agent:chatLog', (_e, agent, session) => readChatLog(agent, session));
 handle('agent:stop', (_e, runId) => stopRun(runId));
 
 /* ----- Agent teams: one prompt split between several agents, each owning its own files ----- */
@@ -2865,8 +2870,10 @@ async function runAntigravity(runId: number, run: Run, { mode, prompt, session, 
     runs.delete(runId);
   }
 }
-// The CLI name for a Breeze effort level: Codex and Claude Code call the top level "xhigh", Breeze shows "Extra".
-const EFFORT_ARGS: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', extra: 'xhigh' };
+// The CLI name for a Breeze effort level: Codex and Claude Code call "Extra" "xhigh"; "Max" is "max" (Claude Code,
+// OpenCode, agy). Codex has nothing above xhigh, so its Max is xhigh (codexEffort).
+const EFFORT_ARGS: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', extra: 'xhigh', max: 'max' };
+const codexEffort = (effort: string) => (effort === 'max' ? 'xhigh' : effort);
 const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerCase()] || null;
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
@@ -2884,7 +2891,7 @@ function cliArgs(agent: string, mode: string, prompt: string, session: string | 
   if (model && SAFE_MODEL.test(model)) args.push('-m', model);
   const effort = effortArg(pick?.effort ?? st.codexEffort);
   // Unquoted: Codex reads a -c value that is not valid TOML as a plain string, and quotes can't pass the npm shim's shell.
-  if (effort) args.push('-c', `model_reasoning_effort=${effort}`);
+  if (effort) args.push('-c', `model_reasoning_effort=${codexEffort(effort)}`);
   // Breeze's own tools. A question waits for the user, so its time limit is a day, not Codex's usual minute.
   if (breezeUrl) args.push('-c', `mcp_servers.${BREEZE_MCP}.url=${breezeUrl}`, '-c', `mcp_servers.${BREEZE_MCP}.tool_timeout_sec=86400`);
   if (session) args.push('resume', session);
@@ -4721,7 +4728,7 @@ function codexCommitMsg(base: string, prompt: string, model?: string, effort?: s
   // `-s read-only` (no writes, no network from commands) is the most restrictive mode `codex exec` has, for questions too: it has no
   // switch to turn its file-reading tools off.
   const args = ['exec', '--json', '-s', 'read-only', '--skip-git-repo-check', '-m', targetModel];
-  if (effortArg(effort) && /^(o1|o3|o4)/i.test(targetModel)) args.push('-c', `model_reasoning_effort=${effortArg(effort)}`);
+  if (effortArg(effort) && /^(o1|o3|o4)/i.test(targetModel)) args.push('-c', `model_reasoning_effort=${codexEffort(effortArg(effort)!)}`);
   let message = '';
   let failed = '';
   const onLine = (l: string) => {
