@@ -324,6 +324,12 @@ let bgOpacity = clamp(Math.round(Number(store.get<number>('breeze.bgOpacity', BG
 const BG_BLUR_MAX = 40;
 let bgBlur = clamp(Math.round(Number(store.get<number>('breeze.bgBlur', 0)) || 0), 0, BG_BLUR_MAX);
 let bgSize = ''; // "1920 × 1080" once the picture has loaded
+// Glass's opacity knob (percent): the least share of each surface that stays solid. null: the theme's own (GLASS_RANGE).
+let glassFloor: number | null = store.get<number | null>('breeze.glassOpacity', null);
+if (glassFloor !== null) glassFloor = clamp(Math.round(Number(glassFloor)) || 34, 10, 90);
+let bdShownUrl = ''; // the picture on screen now, so a new one fades in rather than popping
+// Loads and decodes a picture before it is shown, so it fades in whole instead of appearing after the fade.
+const loadPicture = (url: string) => { const img = new Image(); img.src = url; return img.decode().catch(() => undefined); };
 // The picture, its opacity and its blur (px) as the CSS variables the backdrop layer reads; none without a picture on.
 function applyBackdropLook(): void {
   const root = document.documentElement.style;
@@ -331,7 +337,13 @@ function applyBackdropLook(): void {
     root.setProperty('--bd-img', `url("${bgImage.url.replace(/"/g, '%22')}")`);
     root.setProperty('--bd-o', String(bgOpacity / 100));
     root.setProperty('--bd-blur', `${bgBlur}px`);
+    // A new picture (changed, or coming over from Glass) fades in; from no backdrop the bd-fade sheet already does it.
+    if (bgImage.url !== bdShownUrl && !document.body.classList.contains('bd-fade') && !motionOff()) {
+      document.documentElement.animate([{ opacity: 0 }, { opacity: bgOpacity / 100 }], { pseudoElement: '::before', duration: 450, easing: 'ease' });
+    }
+    bdShownUrl = bgImage.url;
   } else {
+    bdShownUrl = '';
     for (const v of ['--bd-img', '--bd-o', '--bd-blur']) root.removeProperty(v);
   }
 }
@@ -384,9 +396,13 @@ function applyBackdrop(fade = false): void {
 }
 function setBackdrop(next: Backdrop): void {
   const fade = (backdrop === 'none') !== (next === 'none');
+  // Picture to Glass: no sheet runs between them, so the picture fades out before the window turns to Glass.
+  const fadeOut = backdrop === 'image' && next !== 'image' && !fade && !motionOff();
   backdrop = next;
   store.set('breeze.backdrop', next);
-  applyBackdrop(fade);
+  if (!fadeOut) { applyBackdrop(fade); return; }
+  const out = document.documentElement.animate([{ opacity: bgOpacity / 100 }, { opacity: 0 }], { pseudoElement: '::before', duration: 260, easing: 'ease', fill: 'forwards' });
+  void out.finished.catch(() => undefined).then(() => { if (backdrop === next) applyBackdrop(false); out.cancel(); });
 }
 /* ----- Glass stays readable over whatever is behind the window -----
    A dark theme's light text is lost over a white window, and the light theme's dark ink over a dark one. So while
@@ -403,6 +419,13 @@ const GLASS_RANGE = { dark: [.34, .86], light: [.52, .9] } as const; // the leas
 const GLASS_TARGET = { dark: 62, light: 197 }; // the surface brightness (0–255) that --text-2 reads on at 4.5:1
 const GLASS_LEFT_MIN = .05; // a spot showing less than this much of the backdrop can't be read: its last value stands
 const GLASS_COLS = 8, GLASS_ROWS = 6, GLASS_EASE_MS = 200;
+// The shares Glass may use: the opacity knob (glassFloor) moves the least, never past the most.
+const glassRange = (key: keyof typeof GLASS_RANGE): [number, number] => {
+  const [min, max] = GLASS_RANGE[key];
+  return [glassFloor === null ? min : Math.min(glassFloor / 100, max), max];
+};
+// The knob as shown: the one set, else the theme's own least.
+const glassOpacityNow = () => Math.round(glassRange(themeKey())[0] * 100);
 let glassA = clamp(Number(store.get<number>('breeze.glassA', 0)) || 0, 0, .9); // the shares last used, kept for the next launch
 let glassBox = clamp(Number(store.get<number>('breeze.glassBox', 0)) || 0, 0, .9);
 const glassSeen: (number | undefined)[] = []; // the brightness behind each point, when last it could be told
@@ -524,8 +547,9 @@ function startGlassTune(): void {
     for (const v of ['--bd-a', '--bd-box']) document.documentElement.style.removeProperty(v);
     return;
   }
-  const [min, max] = GLASS_RANGE[themeKey()];
-  if (glassA) { const a = clamp(glassA, min, max); setGlassA(a, clamp(glassBox, a, max), false); }
+  const [min, max] = glassRange(themeKey());
+  const a = clamp(glassA || min, min, max);
+  setGlassA(a, clamp(glassBox || a, a, max), false);
   glassTimer = window.setTimeout(tuneGlass, 600);
 }
 // The page is mid-change: a screen swap, a dialog or panel fading or sliding, a view transition, or the shares easing.
@@ -563,7 +587,7 @@ async function tuneGlass(): Promise<void> {
     const { cam } = shot, W = cam.ctx.canvas.width, H = cam.ctx.canvas.height, R = 3;
     cam.ctx.drawImage(cam.video, 0, 0, W, H);
     const px = cam.ctx.getImageData(0, 0, W, H).data;
-    const key = themeKey(), light = key === 'light', [min, max] = GLASS_RANGE[key], target = GLASS_TARGET[key];
+    const key = themeKey(), light = key === 'light', [min, max] = glassRange(key), target = GLASS_TARGET[key];
     // The title bar and the status bar, and four rows between. At each point, the surface's own brightness in a patch
     // around it: text and icons are the brighter pixels on a dark theme (the darker on the light one), so the value a
     // fifth of the way up from the dark end (or down from the light one) is the surface without them. The middle
@@ -636,15 +660,17 @@ function themePickerHtml(): string {
   const cards = THEMES.map(themeCardHtml).join('') + BACKDROPS.map(backdropCardHtml).join('');
   // Glass is a switch under the themes, not a card. It and a picture are alternatives: turning one on turns the other off.
   const glass = settingRow('Glass', 'See-through, frosted window. Windows 10, 11 and macOS.', switchHtml('sGlass', backdrop === 'glass', 'Glass'));
-  // The picture's sliders go grey and still until Custom background is on (like Discord's options under its switch).
-  const pictureOn = backdrop === 'image' && !!bgImage;
+  // The sliders go grey and still until Custom background or Glass is on (like Discord's options under its switch).
+  // Under Glass the opacity knob sets how solid the panels stay; Glass's blur is the system's own, so that one stays off.
+  const pictureOn = backdrop === 'image' && !!bgImage, glassOn = backdrop === 'glass';
+  const dim = (on: boolean, row: string) => `<div class="set-dim ${on ? '' : 'off'}"${on ? '' : ' inert'}>${row}</div>`;
+  const [oMin, oMax] = glassOn ? [10, Math.round(GLASS_RANGE[themeKey()][1] * 100)] : [BG_OPACITY_MIN, BG_OPACITY_MAX];
+  const oVal = glassOn ? glassOpacityNow() : bgOpacity, oOn = pictureOn || glassOn;
   const options = `<div class="set-bd">${glass}
       ${settingRow('Background picture', bgImage ? `${esc(bgImage.name)}${bgSize ? ` · ${bgSize}` : ''}` : 'Best at 1920 × 1080. Any picture fills the window.',
         `<span class="set-btns"><button class="btn btn-sm" id="sBgPick">${bgImage ? 'Change' : 'Choose'}</button>${bgImage ? '<button class="btn btn-sm" id="sBgClear">Remove</button>' : ''}</span>`)}
-      <div class="set-dim ${pictureOn ? '' : 'off'}"${pictureOn ? '' : ' inert'}>
-      ${settingRow('Picture opacity', 'How strongly the picture shows through.', `<div class="set-volume set-font-size"><input type="range" id="sBgOpacity" min="${BG_OPACITY_MIN}" max="${BG_OPACITY_MAX}" step="1" value="${bgOpacity}" aria-label="Picture opacity"${pictureOn ? '' : ' disabled'}><span class="set-volume-val" id="sBgOpacityVal">${bgOpacity}%</span></div>`)}
-      ${settingRow('Picture blur', 'Softens the picture behind the panels.', `<div class="set-volume set-font-size"><input type="range" id="sBgBlur" min="0" max="${BG_BLUR_MAX}" step="1" value="${bgBlur}" aria-label="Picture blur"${pictureOn ? '' : ' disabled'}><span class="set-volume-val" id="sBgBlurVal">${bgBlur}px</span></div>`)}
-      </div>
+      ${dim(oOn, settingRow(glassOn ? 'Glass opacity' : 'Picture opacity', glassOn ? 'How solid the panels stay over the desktop.' : 'How strongly the picture shows through.', `<div class="set-volume set-font-size"><input type="range" id="sBgOpacity" min="${oMin}" max="${oMax}" step="1" value="${oVal}" aria-label="${glassOn ? 'Glass' : 'Picture'} opacity"${oOn ? '' : ' disabled'}><span class="set-volume-val" id="sBgOpacityVal">${oVal}%</span></div>`))}
+      ${dim(pictureOn, settingRow('Picture blur', glassOn ? 'Glass’s own blur is set by Windows or macOS.' : 'Softens the picture behind the panels.', `<div class="set-volume set-font-size"><input type="range" id="sBgBlur" min="0" max="${BG_BLUR_MAX}" step="1" value="${bgBlur}" aria-label="Picture blur"${pictureOn ? '' : ' disabled'}><span class="set-volume-val" id="sBgBlurVal">${bgBlur}px</span></div>`))}
     </div>`;
   return `<div class="set-themes">${cards}</div>${options}`;
 }
@@ -667,6 +693,7 @@ function bindBackdropSettings(pane: HTMLElement): void {
   const choosePicture = async (): Promise<boolean> => {
     const pick = await api.win.pickBackdrop();
     if (!pick) return false;
+    await loadPicture(pick.url);
     bgImage = pick; bgSize = '';
     store.set('breeze.bgImage', pick);
     setBackdrop('image');
@@ -704,7 +731,15 @@ function bindBackdropSettings(pane: HTMLElement): void {
     slider.oninput = () => show(+slider.value);
     slider.addEventListener('wheel', e => { e.preventDefault(); show(get() + (e.deltaY < 0 || e.deltaX > 0 ? 2 : -2)); }, { passive: false });
   };
-  bdSlider('sBgOpacity', BG_OPACITY_MIN, BG_OPACITY_MAX, '%', () => bgOpacity, v => { bgOpacity = v; store.set('breeze.bgOpacity', v); });
+  if (backdrop === 'glass') {
+    // Tuning starts over from the new least (a share tuned earlier would otherwise hold above it).
+    bdSlider('sBgOpacity', 10, Math.round(GLASS_RANGE[themeKey()][1] * 100), '%', glassOpacityNow, v => {
+      if (v === glassOpacityNow()) return; // the first paint of the knob, or no change: tuning carries on
+      glassFloor = v; store.set('breeze.glassOpacity', v);
+      glassA = 0; glassBox = 0;
+      startGlassTune();
+    });
+  } else bdSlider('sBgOpacity', BG_OPACITY_MIN, BG_OPACITY_MAX, '%', () => bgOpacity, v => { bgOpacity = v; store.set('breeze.bgOpacity', v); });
   bdSlider('sBgBlur', 0, BG_BLUR_MAX, 'px', () => bgBlur, v => { bgBlur = v; store.set('breeze.bgBlur', v); });
   // The pictures on the Custom background card and the panel's swatch show the chosen picture.
   const sw = pane.querySelector<HTMLElement>('[data-swatch="image"]');

@@ -106,6 +106,7 @@
   --glass-line: rgba(255, 255, 255, .1);
   --glass-blur: blur(22px) saturate(160%);
   --space-blur: blur(1px) saturate(160%); /* Breeze Space's prompt and terminal, over its stars */
+  --space-prompt-blur: blur(14px) saturate(160%); /* the prompt frosts the stars and rain behind it */
   --settings-blur: blur(10px) saturate(160%);
   /* Ink is the colour of hover washes and hairlines, as an "r, g, b" triple for rgba(var(--ink), alpha):
      white over the dark themes, black over the light one. */
@@ -161,6 +162,7 @@
   --glass-strong: rgba(248, 245, 238, .98);
   --glass-blur: none;
   --space-blur: none;
+  --space-prompt-blur: none;
   --settings-blur: none;
   --glass-line: rgba(70, 55, 30, .12);
   /* Fibre grain: brown noise at a few percent, tiled over the big surfaces (see "paper grain" below). */
@@ -5310,6 +5312,11 @@ body.resizing-h .term-body {
   text-align: left;
 }
 
+/* In Breeze Space your message frosts the stars and rain behind it, like the prompt. */
+#box .msg.user .body {
+  backdrop-filter: var(--space-prompt-blur);
+}
+
 .msg ol {
   margin: 4px 0 0;
   padding-left: 18px;
@@ -6174,11 +6181,16 @@ textarea:not(:placeholder-shown) + .ph-rot {
   background: var(--blue);
   color: var(--on-blue);
   cursor: pointer;
-  transition: background-color .15s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
+  transition: background-color .35s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
 }
 
 .composer-box.cmp :is(#send, #boxSend, #homeAskSend, .cmp-send):hover {
   filter: brightness(1.08);
+}
+
+/* Stop: the blue morphs to red while the agent works. Needs the send rule's weight, which beats #send.stop. */
+.composer-box.cmp :is(#send, #boxSend, #homeAskSend, .cmp-send).stop {
+  background: var(--err);
 }
 
 .composer-box.cmp :is(#send, #boxSend, #homeAskSend, .cmp-send) .ico-svg {
@@ -6271,8 +6283,86 @@ textarea:not(:placeholder-shown) + .ph-rot {
   transition: width .4s cubic-bezier(.22, 1, .36, 1);
 }
 
-.cmp-ctx.high .cmp-ctx-bar i {
+.cmp-ctx.high .cmp-ctx-bar i,
+.cmp-usage-row.high .cmp-ctx-bar i {
   background: var(--warn);
+}
+
+/* The meter and its arrow, one button: opens every plan window (5-hour, weekly), not just the tightest. */
+.cmp-ctx-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin: -3px -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.cmp-ctx-more:hover,
+.cmp-ctx-more.open {
+  background: var(--hover-dim);
+  color: var(--text);
+}
+
+.cmp-ctx-more > svg {
+  transition: transform .2s ease;
+}
+
+.cmp-ctx-more.open > svg {
+  transform: rotate(180deg);
+}
+
+.cmp-usage-menu {
+  min-width: 260px;
+  padding: 12px 14px;
+  font-size: 12px;
+}
+
+.cmp-usage-head {
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cmp-usage-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 34px;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cmp-usage-row + .cmp-usage-row {
+  margin-top: 10px;
+}
+
+.cmp-usage-row .cmp-ctx-bar {
+  width: auto;
+}
+
+.cmp-usage-row .lbl {
+  color: var(--text-2);
+}
+
+.cmp-usage-row .pct {
+  color: var(--text);
+  font-weight: 600;
+  text-align: right;
+}
+
+.cmp-usage-row small {
+  grid-column: 2 / -1;
+  color: var(--text-3);
+  font-size: 11px;
 }
 
 /* Queued messages (Ctrl+Enter), above the prompt until the agent finishes. */
@@ -9752,6 +9842,7 @@ body.vibing .ide {
   border-radius: 3px 3px 0 0;
   overflow: hidden;
   cursor: default;
+  transform-origin: 0 100%; /* another range: a bar glides from its old place and size (renderDashChart) */
 }
 
 .ad-bars.anim .ad-bar {
@@ -9779,6 +9870,25 @@ body.vibing .ide {
   --shade: calc(.4 + .6 * var(--lvl, 1));
   filter: brightness(var(--shade));
   transition: filter .45s ease, height .45s cubic-bezier(.65, 0, .35, 1);
+}
+
+/* A usage number's changed character rolling up like a clock's (rollText, setup.ts): a window one line tall over the
+   old character stacked on the new, slid up by half. */
+.ad-roll {
+  display: inline-block;
+  height: 1lh;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+.ad-roll > span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ad-roll > span > span {
+  height: 1lh;
 }
 
 /* Even digits, so a number scrambling (setup.ts) keeps its width. */
@@ -10807,7 +10917,7 @@ body.layout-animating .box > .terminal.open {
   border-radius: 16px;
   background: var(--glass);
   border-color: var(--glass-line);
-  backdrop-filter: var(--space-blur);
+  backdrop-filter: var(--space-prompt-blur);
 }
 
 /* The shadow lifts the prompt while you're typing in it. !important to beat the plain composer's flat focus. */
@@ -11465,12 +11575,9 @@ body.layout-animating .box > .terminal.open {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 2px 0;
   align-self: flex-start;
   max-width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg-2);
   color: var(--text-2);
   font-size: 12px;
   animation: rise .22s cubic-bezier(.2, .8, .2, 1);
@@ -11512,7 +11619,6 @@ body.layout-animating .box > .terminal.open {
 
 .box-chat .thinking {
   font-size: 13px;
-  padding: 8px 14px;
 }
 
 @keyframes dot {
@@ -14128,6 +14234,37 @@ body.layout-animating #previewPane {
     margin-block: calc(var(--pad-bot) - 40px) calc(var(--pad-bot) * -1);
   }
 
+  /* Settings' side tab, the same way. Its padding is 18px above, 12px at the sides, 24px below, and its 2px flex gap
+     is taken off each layer's inner margin. */
+  .set-nav {
+    mask-image: linear-gradient(to bottom, transparent calc(var(--fade-top) * 12px), #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent calc(100% - var(--fade-bot) * 12px));
+    animation: setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0 48px, calc(100% - 48px) 100%;
+  }
+
+  .set-nav::before,
+  .set-nav::after {
+    content: "";
+    position: sticky;
+    z-index: 4;
+    display: block;
+    flex: none;
+    height: 40px;
+    margin-inline: -12px;
+    pointer-events: none;
+  }
+
+  .set-nav::before {
+    top: -18px;
+    margin-block: -18px -24px;
+  }
+
+  .set-nav::after {
+    bottom: -24px;
+    margin-block: -18px -24px;
+  }
+
   /* The same for the side lists (Explorer, Search, Skills & Plugins), which also keep the side panels' fade-in,
      and for the Source Control list, which has none. */
   #tree,
@@ -14185,8 +14322,8 @@ body.layout-animating #previewPane {
     margin-block: -28px -12px;
   }
 
-  /* And for Breeze Space's conversation and its terminal's output. */
-  .box-main,
+  /* And for Breeze Space's terminal output. Not its conversation: a mask there would stop your messages' blur
+     reaching the sky behind (a masked parent is all a backdrop-filter sees); its blurred edge layers below stay. */
   #box > .terminal .term-body {
     mask-image: linear-gradient(to bottom, transparent calc(var(--fade-top) * 12px), #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent calc(100% - var(--fade-bot) * 12px));
     animation: setFadeTop linear both, setFadeBot linear both;
@@ -14225,7 +14362,7 @@ body.layout-animating #previewPane {
     margin: -34px -14px -6px;
   }
 
-  :is(.set-main, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body)::before {
+  :is(.set-main, .set-nav, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body)::before {
     mask-image: linear-gradient(#000, transparent);
     opacity: 0;
     backdrop-filter: url(#squeeze-top) blur(4px);
@@ -14234,13 +14371,20 @@ body.layout-animating #previewPane {
     animation-range: 0 48px;
   }
 
-  :is(.set-main, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body)::after {
+  :is(.set-main, .set-nav, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body)::after {
     mask-image: linear-gradient(transparent, #000);
     opacity: 0;
     backdrop-filter: url(#squeeze-bot) blur(4px);
     animation: edgeLayerBot linear both;
     animation-timeline: scroll();
     animation-range: calc(100% - 48px) 100%;
+  }
+
+  /* Breeze Space's conversation has no mask (see above) to hide the rows the squeeze pulls away, so its copy showed
+     displaced over the sharp rows. Blur alone keeps the copy where the rows are. */
+  .box-main::before,
+  .box-main::after {
+    backdrop-filter: blur(4px);
   }
 
   /* Under a dialog the layers go (the plain fade stays): its blur hides them, and the page under a dialog is drawn
@@ -20298,6 +20442,7 @@ input.dbg-edit.bad:focus-visible {
 :root[data-power="saver"] {
   --glass-blur: none;
   --space-blur: none;
+  --space-prompt-blur: none;
   --settings-blur: none;
 }
 :root[data-power="saver"]:not([data-theme="light"]),
