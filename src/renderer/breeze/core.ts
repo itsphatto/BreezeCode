@@ -513,6 +513,10 @@ function toast(text: string): void {
   sfx.play('ping');
   setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 200); }, 2600);
 }
+// Springs for el.animate(), which can't read a CSS variable: the same curves as --spring and --spring-bounce in
+// breeze.css (test/springs.test.js keeps them in step).
+const SPRING = 'linear(0, .024, .084, .169, .268, .372, .476, .575, .665, .746, .816, .875, .923, .962, .991, 1.013, 1.029, 1.039, 1.044, 1.046, 1.045, 1.043, 1.039, 1.035, 1.03, 1.025, 1.021, 1.016, 1.012, 1.009, 1.006, 1.004, 1.002, 1.001, 1, .999, .998, .998, .998, .998, 1)';
+const SPRING_BOUNCE = 'linear(0, .037, .13, .259, .404, .552, .691, .814, .917, .998, 1.057, 1.096, 1.118, 1.126, 1.123, 1.112, 1.097, 1.079, 1.06, 1.042, 1.026, 1.013, 1.002, .994, .989, .985, .984, .984, .985, .987, .99, .992, .994, .996, .998, 1, 1.001, 1.001, 1.002, 1.002, 1)';
 // Changes a label's text with a quick fade-in, and lets its box grow or shrink to the new width instead of jumping.
 function swapText(el: HTMLElement, text: string): void {
   if (el.textContent === text) return;
@@ -520,14 +524,14 @@ function swapText(el: HTMLElement, text: string): void {
   const from = el.getBoundingClientRect().width;
   el.textContent = text;
   el.getAnimations().forEach(a => { if (a.id === 'swap') a.cancel(); });
-  const fade = el.animate([{ opacity: 0, filter: 'blur(3px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  const fade = el.animate([{ opacity: 0, filter: 'blur(3px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 360, easing: SPRING });
   fade.id = 'swap';
   const to = el.getBoundingClientRect().width;
   if (Math.abs(from - to) < 1 || getComputedStyle(el).display === 'inline') return;
   const { overflow, whiteSpace } = el.style;
   el.style.overflow = 'hidden';
   el.style.whiteSpace = 'nowrap';
-  const size = el.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration: 300, easing: 'cubic-bezier(.32, .72, 0, 1)' });
+  const size = el.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration: 450, easing: SPRING });
   size.id = 'swap';
   const done = () => { el.style.overflow = overflow; el.style.whiteSpace = whiteSpace; };
   size.onfinish = done; size.oncancel = done;

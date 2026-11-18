@@ -156,7 +156,7 @@ function setBoxSide(open: boolean): void {
   clearTimeout(boxSideAnim);
   box.classList.toggle('side-anim', play);
   if (!play) return;
-  const ms = 360, easing = 'cubic-bezier(.32, .72, 0, 1)', now = to.getBoundingClientRect();
+  const ms = 540, easing = SPRING, now = to.getBoundingClientRect();
   boxSideAnim = setTimeout(() => box.classList.remove('side-anim'), ms + 40);
   side.animate([{ width: widthWas, paddingLeft: padWas, paddingRight: padWas }, {}], { duration: ms, easing });
   side.animate(open ? [{ opacity: fadeWas }, { opacity: 1, offset: .65 }, {}] : [{ opacity: fadeWas }, { opacity: fadeWas, offset: .2 }, { opacity: 0 }], { duration: ms });
@@ -266,7 +266,7 @@ function renderBoxSide(): void {
   for (const el of $$<HTMLElement>('[data-chat], [data-folder]', list)) {
     const from = before.get(el.dataset.chat ?? `f:${el.dataset.folder}`);
     const dy = from === undefined ? 0 : from - el.getBoundingClientRect().top;
-    if (Math.abs(dy) > 1) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    if (Math.abs(dy) > 1) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 480, easing: SPRING });
   }
 }
 $('#boxSideList').addEventListener('click', ev => {
@@ -361,7 +361,7 @@ function renderAttachments(s: Surface): void {
       if (chip) {
         chip.classList.add('leaving');
         if (isLast) s.attachmentsEl.classList.add('collapsing');
-        await new Promise(r => setTimeout(r, 270));
+        await new Promise(r => setTimeout(r, isLast ? 420 : 270)); // the last one waits for the row to fold up
       }
 
       attachmentsMap[s.name] = (attachmentsMap[s.name] || []).filter(x => x.id !== id);

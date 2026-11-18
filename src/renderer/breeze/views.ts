@@ -44,7 +44,7 @@ function morphSideHead(from: HTMLElement, to: HTMLElement): void {
     actions.prepend(ghost);
     const w = `${ghost.offsetWidth}px`;
     ghost.animate([{ opacity: 1, transform: 'none', width: w, minWidth: w }, { opacity: 0, transform: 'scale(.4)', width: '0px', minWidth: '0px', paddingInline: '0px' }],
-      { duration: 220, easing: 'cubic-bezier(.23, 1, .32, 1)', fill: 'forwards' }).onfinish = () => ghost.remove();
+      { duration: 220, easing: SPRING, fill: 'forwards' }).onfinish = () => ghost.remove();
   }
   $('.side-head > span:first-child', to).animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }],
     { duration: 160, easing: 'cubic-bezier(.23, 1, .32, 1)' });

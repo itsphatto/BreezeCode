@@ -264,7 +264,7 @@ async function popOutTerminal(): Promise<void> {
     t.classList.add('open');
     if (document.documentElement.classList.contains('own-win-controls')) $('#termToggle').append(popupWinControls(d));
     closeBlankTerms();
-    t.animate([{ opacity: 0, transform: 'translateY(8px) scale(.97)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 340, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+    t.animate([{ opacity: 0, transform: 'translateY(8px) scale(.97)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 510, easing: SPRING });
     w.focus();
     termInput.focus();
   });

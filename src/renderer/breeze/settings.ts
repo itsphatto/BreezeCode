@@ -267,7 +267,7 @@ function bindSyntaxSettings(pane: HTMLElement): void {
   // the picker is dragged (that repaints every move).
   const showSlots = (morph: boolean) => {
     const was = synShown, now = current();
-    const ease = { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' };
+    const ease = { duration: 480, easing: SPRING };
     buttons.forEach((b, i) => {
       const sw = $('.set-syn-sw', b), code = $('code', b);
       sw.style.setProperty('--c', now[i]);
@@ -782,7 +782,7 @@ function bindBackdropSettings(pane: HTMLElement): void {
     const look = getComputedStyle(sw).backgroundImage;
     if (swLook && swLook !== look && !motionOff()) {
       sw.animate([{ backgroundImage: swLook }, { backgroundImage: look }], { duration: 450, easing: 'ease' });
-      if (!swLook.includes('url(')) $('#sBgClear', pane)?.animate([{ opacity: 0, transform: 'scale(.92)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+      if (!swLook.includes('url(')) $('#sBgClear', pane)?.animate([{ opacity: 0, transform: 'scale(.92)' }, { opacity: 1, transform: 'none' }], { duration: 390, easing: SPRING });
     }
     swLook = look;
   }
@@ -883,7 +883,7 @@ function patchUsage(el: HTMLElement, html: string): void {
       o.style.setProperty('--left', `${n.dataset.left}%`);
     } else if (o.textContent !== n.textContent) {
       o.textContent = n.textContent;
-      o.animate([{ opacity: 0, transform: 'translateY(5px)' }, { opacity: 1, transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.32, .72, 0, 1)' });
+      o.animate([{ opacity: 0, transform: 'translateY(5px)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: SPRING });
     }
   }
 }
@@ -1280,7 +1280,7 @@ function flowNavPill(nav: HTMLElement, from: DOMRect | undefined): void {
   pill.className = 'set-pill';
   Object.assign(pill.style, { left: `${(to.left - box.left) / k}px`, width: `${to.width / k}px`, top: `${top(to)}px`, bottom: `${bottom(to)}px` });
   nav.append(pill);
-  const ms = 440, lead = 'cubic-bezier(.22, 1, .36, 1)', trail = 'cubic-bezier(.65, 0, .35, 1)', down = to.top > from.top;
+  const ms = 660, lead = SPRING, trail = 'cubic-bezier(.65, 0, .35, 1)', down = to.top > from.top;
   pill.animate({ top: [`${top(from)}px`, `${top(to)}px`] }, { duration: ms, easing: down ? trail : lead });
   pill.animate({ bottom: [`${bottom(from)}px`, `${bottom(to)}px`] }, { duration: ms, easing: down ? lead : trail }).onfinish = () => pill.remove();
   el.animate([{ background: 'transparent' }, { background: 'transparent' }], { duration: ms });
@@ -1328,7 +1328,7 @@ function bindSettings(m: HTMLElement): void {
     for (const [k, els] of rowText()) {
       els.forEach((el, i) => {
         if (el && wasText.has(k) && wasText.get(k)![i] !== el.textContent) {
-          el.animate([{ opacity: 0, filter: 'blur(2px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+          el.animate([{ opacity: 0, filter: 'blur(2px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 330, easing: SPRING });
         }
       });
     }
@@ -1356,11 +1356,11 @@ function bindSettings(m: HTMLElement): void {
     justSwitched = false;
     $('.set-user', pane)?.animate(
       [{ opacity: 0, transform: 'translateY(8px) scale(.98)', filter: 'blur(3px)' }, { opacity: 1, transform: 'none', filter: 'none' }],
-      { duration: 380, easing: 'cubic-bezier(.32, .72, 0, 1)' });
+      { duration: 570, easing: SPRING });
     $('.set-active', pane)?.animate(
-      [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1.08)', offset: .6 }, { transform: 'scale(1)' }],
-      { duration: 420, delay: 120, easing: 'cubic-bezier(.32, .72, 0, 1)', fill: 'backwards' });
-    $$('[data-switch-acct]', pane).forEach(b => b.animate([{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 300, delay: 120, easing: 'ease-out', fill: 'backwards' }));
+      [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1)' }],
+      { duration: 630, delay: 120, easing: SPRING_BOUNCE, fill: 'backwards' });
+    $$('[data-switch-acct]', pane).forEach(b => b.animate([{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 450, delay: 120, easing: SPRING, fill: 'backwards' }));
   }
   // A rebuilt switch starts where the old knob was (mid-drag or mid-slide too) and slides on with its own CSS
   // transition, so it moves exactly as fast as a switch that was never rebuilt (the composer's Full access).
@@ -1543,10 +1543,10 @@ function bindSettings(m: HTMLElement): void {
     oldArt.classList.add('dc-art-old');
     oldArt.setAttribute('aria-hidden', 'true');
     art.append(oldArt);
-    const ease = 'cubic-bezier(.32, .72, 0, 1)';
+    const ease = SPRING;
     oldArt.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.9)' }], { duration: 260, easing: ease, fill: 'forwards' }).onfinish = () => oldArt.remove();
-    art.querySelector('.dc-art')?.animate([{ opacity: 0, transform: 'scale(.9)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 360, easing: ease });
-    art.querySelector('.dc-badge')?.animate([{ opacity: 0, transform: 'scale(.3)' }, { opacity: 1, transform: 'scale(1.12)', offset: .65 }, { transform: 'none' }], { duration: 380, delay: 140, easing: ease, fill: 'backwards' });
+    art.querySelector('.dc-art')?.animate([{ opacity: 0, transform: 'scale(.9)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 540, easing: ease });
+    art.querySelector('.dc-badge')?.animate([{ opacity: 0, transform: 'scale(.3)' }, { opacity: 1, transform: 'none' }], { duration: 570, delay: 140, easing: SPRING_BOUNCE, fill: 'backwards' });
   });
   // The preview's elapsed time counts up like Discord's, from when Breeze started; it stops once the tab is gone.
   const since = pane.querySelector<HTMLElement>('[data-dc-since]');

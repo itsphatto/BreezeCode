@@ -121,6 +121,11 @@
   --err-text: #f87171; /* error words and icons; --err is for marks and fills */
   --on-blue: #f5f5f7; /* words and icons on blue and danger fills, in every theme */
   --danger-fill: #c42b1c; /* deeper than --err, so its white label reads 5.2:1 */
+  /* Motion: everything that moves or resizes settles on a damped spring, sampled into linear() since cubic-bezier
+     can only overshoot once. --spring is bounce .3; --spring-bounce (.45) is for pops. The curve already holds its
+     settle, so durations stay as they were. Same curves as SPRING in core.ts and :root in launch.css. */
+  --spring: linear(0, .024, .084, .169, .268, .372, .476, .575, .665, .746, .816, .875, .923, .962, .991, 1.013, 1.029, 1.039, 1.044, 1.046, 1.045, 1.043, 1.039, 1.035, 1.03, 1.025, 1.021, 1.016, 1.012, 1.009, 1.006, 1.004, 1.002, 1.001, 1, .999, .998, .998, .998, .998, 1);
+  --spring-bounce: linear(0, .037, .13, .259, .404, .552, .691, .814, .917, .998, 1.057, 1.096, 1.118, 1.126, 1.123, 1.112, 1.097, 1.079, 1.06, 1.042, 1.026, 1.013, 1.002, .994, .989, .985, .984, .984, .985, .987, .99, .992, .994, .996, .998, 1, 1.001, 1.001, 1.002, 1.002, 1);
 }
 
 /* ---------- appearance (Settings → Appearance; theme.ts sets data-theme on <html>) ---------- */
@@ -837,7 +842,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 .ob-step {
   width: min(560px, calc(100vw - 32px));
   text-align: center;
-  animation: rise .35s cubic-bezier(.2, .8, .2, 1);
+  animation: rise .525s var(--spring);
   padding: 40px 0 56px;
 }
 
@@ -881,7 +886,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
-  transition: box-shadow .3s cubic-bezier(.2, .8, .2, 1), transform .3s cubic-bezier(.2, .8, .2, 1), opacity .25s ease;
+  transition: box-shadow .3s cubic-bezier(.2, .8, .2, 1), transform .45s var(--spring), opacity .25s ease;
 }
 
 /* Every other button in setup (sign-in, Continue, Copy...) wears the same white look. Home keeps its own. */
@@ -916,8 +921,8 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 .ob-start:active,
 .ob-step[data-step="0"] .ob-start:active {
   transform: scale(.97);
-  transition-duration: .12s;
-  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  transition-duration: .18s;
+  transition-timing-function: var(--spring);
 }
 
 .ob-start:focus-visible {
@@ -945,7 +950,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   height: 6px;
   border-radius: 3px;
   background: var(--line);
-  transition: width .3s cubic-bezier(.2, .8, .2, 1), background .3s;
+  transition: width .45s var(--spring), background .3s;
 }
 
 .ob-dots span.on {
@@ -1092,7 +1097,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   font-size: 15px;
   pointer-events: none;
   transform-origin: left top;
-  transition: transform .16s ease;
+  transition: transform .24s var(--spring);
 }
 
 .ob-field input:focus + label,
@@ -1348,7 +1353,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   stroke: #8d93a0;
   stroke-width: 1.5;
   transform: translate3d(0, 0, 0);
-  transition: all .2s ease;
+  transition: all .3s var(--spring);
 }
 
 .ob-terms .check path {
@@ -1650,7 +1655,7 @@ textarea:focus-visible {
 }
 
 .swirl {
-  animation: swirl 1s ease;
+  animation: swirl 1s var(--spring-bounce);
 }
 
 .agent-list {
@@ -1747,7 +1752,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 4px;
   text-decoration: none !important;
-  transition: color .15s ease, transform .12s cubic-bezier(.16, 1, .3, 1);
+  transition: color .15s ease, transform .18s var(--spring);
 }
 
 .agent-opt .get:active {
@@ -1766,7 +1771,7 @@ textarea:focus-visible {
 :is(.agent-opt .get .get-label, .agent-opt .get:not(:has(.get-label)), .home-link .get-label, .ob-link, .ob-terms a, .home-recent .recent-open .nm, .set-profile-edit, .dbg-link) {
   padding-bottom: 2px;
   background: linear-gradient(var(--blue), var(--blue)) 0 100% / 0 2px no-repeat;
-  transition: background-size .35s cubic-bezier(.16, 1, .3, 1), color .15s ease, transform .12s cubic-bezier(.16, 1, .3, 1);
+  transition: background-size .525s var(--spring), color .15s ease, transform .18s var(--spring);
 }
 
 :is(.agent-opt .get:hover .get-label, .agent-opt .get:not(:has(.get-label)):hover, .home-link:hover .get-label, .ob-link:hover, .ob-terms a:is(:hover, :focus-visible), .home-recent .recent-open:hover .nm, .set-profile-edit:hover, .dbg-link:hover) {
@@ -1793,7 +1798,7 @@ textarea:focus-visible {
   display: grid;
   grid-template-rows: 45px 1fr 24px;
   height: 100vh;
-  transition: filter .6s ease, opacity .6s ease, transform .6s cubic-bezier(.2, .8, .2, 1);
+  transition: filter .6s ease, opacity .6s ease, transform .6s var(--spring);
 }
 
 .titlebar {
@@ -2072,7 +2077,7 @@ textarea:focus-visible {
   min-width: 260px;
   padding: 4px;
   font-size: 13px;
-  animation: menuIn .14s cubic-bezier(.2, .8, .2, 1);
+  animation: menuIn .21s var(--spring);
   transform-origin: top left;
 }
 
@@ -2144,7 +2149,7 @@ textarea:focus-visible {
   pointer-events: none;
 }
 .menu.kb-slide::before {
-  transition: top .16s cubic-bezier(.2, .8, .2, 1), height .16s cubic-bezier(.2, .8, .2, 1), opacity .12s ease;
+  transition: top .24s var(--spring), height .24s var(--spring), opacity .12s ease;
 }
 .menu.kb-out::before {
   opacity: 0;
@@ -2163,7 +2168,7 @@ textarea:focus-visible {
   pointer-events: none;
   opacity: 0;
   scale: .94;
-  transition: opacity .16s ease, scale .22s cubic-bezier(.2, .8, .2, 1);
+  transition: opacity .16s ease, scale .33s var(--spring);
 }
 
 .hover-glide.on {
@@ -2172,9 +2177,9 @@ textarea:focus-visible {
 }
 
 .hover-glide.glide {
-  transition: opacity .16s ease, scale .22s cubic-bezier(.2, .8, .2, 1),
-    top .22s cubic-bezier(.2, .8, .2, 1), height .22s cubic-bezier(.2, .8, .2, 1),
-    left .22s cubic-bezier(.2, .8, .2, 1), width .22s cubic-bezier(.2, .8, .2, 1);
+  transition: opacity .16s ease, scale .33s var(--spring),
+    top .33s var(--spring), height .33s var(--spring),
+    left .33s var(--spring), width .33s var(--spring);
 }
 
 .menu > .hover-glide {
@@ -2372,7 +2377,7 @@ textarea:focus-visible {
 
 /* Settling on a step eases; dragging follows the pointer straight. */
 .menu-slider:not(.dragging) :is(.ms-fill, .ms-thumb) {
-  transition: width .18s cubic-bezier(.2, .8, .2, 1), left .18s cubic-bezier(.2, .8, .2, 1), opacity .18s ease;
+  transition: width .27s var(--spring), left .27s var(--spring), opacity .18s ease;
 }
 
 /* ---------- layout ---------- */
@@ -2388,7 +2393,7 @@ textarea:focus-visible {
   display: grid;
   grid-template-columns: 44px var(--side-w) minmax(0, 1fr) var(--agents-w);
   min-height: 0;
-  transition: grid-template-columns .22s cubic-bezier(.2, .8, .2, 1);
+  transition: grid-template-columns .33s var(--spring);
 }
 
 .main.no-side {
@@ -2501,7 +2506,13 @@ body.resizing-h iframe {
   z-index: 2;
   opacity: 0;
   transform: translateY(14px);
-  transition: transform .22s cubic-bezier(.2, .8, .2, 1), opacity .15s ease;
+  transition: transform .33s var(--spring), opacity .15s ease;
+}
+
+/* The debugger's and board's copies only ever sit at their own page's icon; they get there by sliding over from the
+   last page in the page swap (page-marker), so they don't also glide in from the top. */
+.dbg-rail .act-indicator {
+  transition: none;
 }
 
 .act-btn {
@@ -2531,7 +2542,7 @@ body.resizing-h iframe {
 
 /* The gear turns while its menu is open and turns back when it closes. */
 :is(#settingsBtn, #homeSettings) svg {
-  transition: transform .5s cubic-bezier(.3, 1.3, .5, 1);
+  transition: transform .5s var(--spring-bounce);
 }
 
 :is(#settingsBtn, #homeSettings).open {
@@ -2703,7 +2714,7 @@ body.resizing-h iframe {
 
 .skill-group-head .ico-svg {
   flex: none;
-  transition: transform .42s cubic-bezier(.32, .72, 0, 1);
+  transition: transform .63s var(--spring);
 }
 
 .skill-group.open > .skill-group-head .ico-svg {
@@ -2723,7 +2734,7 @@ body.resizing-h iframe {
   grid-template-rows: 0fr;
   opacity: 0;
   visibility: hidden;
-  transition: grid-template-rows .42s cubic-bezier(.4, 0, .2, 1), opacity .3s ease, visibility 0s .42s;
+  transition: grid-template-rows .63s var(--spring), opacity .3s ease, visibility 0s .42s;
 }
 
 .skill-group.open > .skill-group-body,
@@ -2732,7 +2743,7 @@ body.resizing-h iframe {
   opacity: 1;
   /* inherit, not visible: visible would show the rows through anything hiding the app (the launch on a reload). */
   visibility: inherit;
-  transition: grid-template-rows .56s cubic-bezier(.32, .72, 0, 1), opacity .42s ease .06s, visibility 0s;
+  transition: grid-template-rows .56s var(--spring), opacity .42s ease .06s, visibility 0s;
 }
 
 .skill-group-body > div,
@@ -2841,7 +2852,7 @@ body.resizing-h iframe {
 .plugin-name .ico-svg {
   flex: none;
   color: var(--text-3);
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: transform .3s var(--spring);
 }
 
 .plugin-item.open .plugin-name .ico-svg {
@@ -2904,12 +2915,12 @@ body.resizing-h iframe {
 
 /* Command sits left of URL, so each slides in from its own side. */
 .mcp-form.switched [data-mcp-for="stdio"] {
-  animation: mcp-slide .24s cubic-bezier(.2, .8, .2, 1) both;
+  animation: mcp-slide .36s var(--spring) both;
   --from: -16px;
 }
 
 .mcp-form.switched [data-mcp-for="http"] {
-  animation: mcp-slide .24s cubic-bezier(.2, .8, .2, 1) both;
+  animation: mcp-slide .36s var(--spring) both;
   --from: 16px;
 }
 
@@ -3141,7 +3152,7 @@ button svg,
 .side-foot svg,
 .signin-btns .btn img {
   transform-origin: center center;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.15s ease, color 0.15s ease;
+  transition: transform .3s var(--spring-bounce), opacity 0.15s ease, color 0.15s ease;
 }
 
 button:hover svg,
@@ -3178,7 +3189,7 @@ button:active svg,
 .signin-btns .btn:active img,
 svg.ico-svg:active {
   transform: scale(0.86);
-  transition: transform 0.08s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform .12s var(--spring);
 }
 
 .tree-item .ico {
@@ -3201,7 +3212,7 @@ svg.ico-svg:active {
   display: grid;
   place-items: center;
   color: var(--text-3);
-  transition: transform .18s cubic-bezier(.2, .8, .2, 1);
+  transition: transform .27s var(--spring);
   transform: rotate(180deg);
 }
 
@@ -3282,7 +3293,7 @@ svg.ico-svg:active {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--preview-w);
   min-height: 0;
-  transition: grid-template-columns .22s cubic-bezier(.2, .8, .2, 1);
+  transition: grid-template-columns .33s var(--spring);
 }
 
 .work.no-preview {
@@ -3360,7 +3371,7 @@ body.preview-full #winControls {
   flex-shrink: 0;
   touch-action: none;
   box-sizing: border-box;
-  transition: transform .18s cubic-bezier(.16, 1, .3, 1),
+  transition: transform .27s var(--spring),
               background .15s ease,
               color .15s ease,
               border-color .15s ease;
@@ -3380,13 +3391,13 @@ body.preview-full #winControls {
   transform: scale(0.85) translateY(2px) !important;
   pointer-events: none !important;
   overflow: hidden !important;
-  transition: width .18s cubic-bezier(.16, 1, .3, 1),
-              max-width .18s cubic-bezier(.16, 1, .3, 1),
-              padding .18s cubic-bezier(.16, 1, .3, 1),
-              margin .18s cubic-bezier(.16, 1, .3, 1),
+  transition: width .27s var(--spring),
+              max-width .27s var(--spring),
+              padding .27s var(--spring),
+              margin .27s var(--spring),
               opacity .15s ease-out,
               filter .15s ease-out,
-              transform .18s cubic-bezier(.16, 1, .3, 1) !important;
+              transform .27s var(--spring) !important;
 }
 
 .tab:hover {
@@ -3456,13 +3467,13 @@ body.preview-full #winControls {
   margin: -4px 0 0 -4px;
   border-radius: 50%;
   background: currentColor;
-  transition: transform .2s cubic-bezier(.16, 1, .3, 1), opacity .15s ease;
+  transition: transform .3s var(--spring), opacity .15s ease;
 }
 
 .tab.dirty .x .ico-svg {
   opacity: 0;
   transform: scale(.4) rotate(-90deg);
-  transition: transform .22s cubic-bezier(.16, 1, .3, 1), opacity .15s ease;
+  transition: transform .33s var(--spring), opacity .15s ease;
 }
 
 .tab.dirty .x:hover::before {
@@ -3576,7 +3587,7 @@ body.preview-full #winControls {
 
 .split-drop-hint.on::after {
   transform: translate(-50%, -50%);
-  transition: transform .22s cubic-bezier(.16, 1, .3, 1);
+  transition: transform .33s var(--spring);
 }
 
 .editor-row>.editor {
@@ -3600,11 +3611,11 @@ body.preview-full #winControls {
 
 /* Opening: the split grows from the right edge while its content slides right to left. */
 .split.opening {
-  animation: splitIn .34s cubic-bezier(.2, .8, .2, 1) both;
+  animation: splitIn .51s var(--spring) both;
 }
 
 .split.closing {
-  animation: splitIn .26s cubic-bezier(.4, 0, .6, 1) reverse both;
+  animation: splitIn .26s var(--spring) reverse both;
   pointer-events: none;
 }
 
@@ -3734,7 +3745,7 @@ body.preview-full #winControls {
   border-radius: 50%;
   background: var(--text-3);
   opacity: 0;
-  transition: opacity .12s ease, background-color .12s ease, transform .12s ease;
+  transition: opacity .12s ease, background-color .12s ease, transform .18s var(--spring);
 }
 
 .gutter>div>div>div:hover .mark-dot::after {
@@ -4263,7 +4274,7 @@ body.preview-full #winControls {
   pointer-events: none !important;
   transition: filter .18s cubic-bezier(.16, 1, .3, 1),
               opacity .18s ease-out,
-              transform .18s cubic-bezier(.16, 1, .3, 1) !important;
+              transform .27s var(--spring) !important;
 }
 
 @keyframes editorEmptyIn {
@@ -4280,11 +4291,11 @@ body.preview-full #winControls {
 }
 
 .editor-empty.enter {
-  animation: editorEmptyIn .28s cubic-bezier(.16, 1, .3, 1) both;
+  animation: editorEmptyIn .42s var(--spring) both;
 }
 
 .editor-empty.enter > div {
-  animation: editorEmptyContentIn .3s cubic-bezier(.16, 1, .3, 1) both;
+  animation: editorEmptyContentIn .45s var(--spring) both;
 }
 
 @keyframes editorEmptyContentIn {
@@ -4364,7 +4375,7 @@ body.preview-full #winControls {
   margin: auto;
   opacity: 1;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
-  animation: imgOpenIn .28s cubic-bezier(.16, 1, .3, 1) both;
+  animation: imgOpenIn .42s var(--spring) both;
 }
 
 .editor-empty .img-stage video {
@@ -4373,7 +4384,7 @@ body.preview-full #winControls {
   border-radius: 6px;
   background: #000;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
-  animation: imgOpenIn .28s cubic-bezier(.16, 1, .3, 1) both;
+  animation: imgOpenIn .42s var(--spring) both;
 }
 
 .editor-empty .pdf-frame {
@@ -4382,7 +4393,7 @@ body.preview-full #winControls {
   width: 100%;
   border: 0;
   background: var(--bg-1);
-  animation: imgOpenIn .28s cubic-bezier(.16, 1, .3, 1) both;
+  animation: imgOpenIn .42s var(--spring) both;
 }
 
 .img-stage.fit :is(img, video) {
@@ -4466,7 +4477,7 @@ body.preview-full #winControls {
 }
 
 .find-toggle svg {
-  transition: transform .15s ease;
+  transition: transform .225s var(--spring);
 }
 
 .find-toggle[aria-expanded="true"] svg {
@@ -4719,8 +4730,8 @@ body.preview-full #winControls {
   overflow: hidden;
   white-space: nowrap;
   transition: background .2s ease, color .2s ease, border-color .2s ease,
-              padding .22s cubic-bezier(.16, 1, .3, 1),
-              min-width .22s cubic-bezier(.16, 1, .3, 1),
+              padding .33s var(--spring),
+              min-width .33s var(--spring),
               font-weight .2s ease;
 }
 
@@ -4764,7 +4775,7 @@ body.preview-full #winControls {
 }
 
 .term-tab.enter {
-  animation: termTabEnter .22s cubic-bezier(.16, 1, .3, 1) both;
+  animation: termTabEnter .33s var(--spring) both;
 }
 
 @keyframes termTabEnter {
@@ -4795,14 +4806,14 @@ body.preview-full #winControls {
   filter: blur(3px);
   transform: scale(0.82) translateY(2px);
   pointer-events: none !important;
-  transition: width .2s cubic-bezier(.16, 1, .3, 1),
-              min-width .2s cubic-bezier(.16, 1, .3, 1),
-              max-width .2s cubic-bezier(.16, 1, .3, 1),
-              padding .2s cubic-bezier(.16, 1, .3, 1),
-              margin .2s cubic-bezier(.16, 1, .3, 1),
+  transition: width .3s var(--spring),
+              min-width .3s var(--spring),
+              max-width .3s var(--spring),
+              padding .3s var(--spring),
+              margin .3s var(--spring),
               opacity .15s ease-out,
               filter .15s ease-out,
-              transform .2s cubic-bezier(.16, 1, .3, 1) !important;
+              transform .3s var(--spring) !important;
 }
 
 /* Terminal and debugger tabs are one control: the same hover and the same selected state. */
@@ -4828,9 +4839,9 @@ body.preview-full #winControls {
   background: var(--text-3);
   opacity: 0.5;
   transition: background .2s ease, opacity .2s ease,
-              width .22s cubic-bezier(.16, 1, .3, 1),
-              margin .22s cubic-bezier(.16, 1, .3, 1),
-              transform .22s cubic-bezier(.16, 1, .3, 1);
+              width .33s var(--spring),
+              margin .33s var(--spring),
+              transform .33s var(--spring);
 }
 
 .term-tab.busy .term-tab-dot {
@@ -4864,7 +4875,7 @@ body.preview-full #winControls {
   opacity: 0;
   transform: scale(0.85);
   transition: opacity .15s cubic-bezier(.16, 1, .3, 1),
-              transform .15s cubic-bezier(.16, 1, .3, 1),
+              transform .225s var(--spring),
               background .12s ease,
               color .12s ease;
 }
@@ -4872,11 +4883,11 @@ body.preview-full #winControls {
 .term-tab-close,
 .home-recent .recent-forget {
   transition: opacity .15s cubic-bezier(.16, 1, .3, 1),
-              transform .15s cubic-bezier(.16, 1, .3, 1),
+              transform .225s var(--spring),
               background .12s ease,
               color .12s ease,
-              width .22s cubic-bezier(.16, 1, .3, 1),
-              margin .22s cubic-bezier(.16, 1, .3, 1);
+              width .33s var(--spring),
+              margin .33s var(--spring);
 }
 
 .term-tab-close .tab-close-icon,
@@ -4912,7 +4923,7 @@ body.preview-full #winControls {
   color: var(--text-2);
   border-top: 1px solid var(--line);
   cursor: text;
-  transition: height .22s cubic-bezier(.2, .8, .2, 1), padding .22s;
+  transition: height .33s var(--spring), padding .33s var(--spring);
 }
 
 body.resizing-h .term-body {
@@ -5197,7 +5208,7 @@ body.resizing-h .term-body {
   display: block;
   height: 100%;
   background: var(--text-3);
-  transition: width .4s cubic-bezier(.2, .8, .2, 1);
+  transition: width .6s var(--spring);
 }
 
 .status {
@@ -5260,7 +5271,7 @@ body.resizing-h .term-body {
   flex-direction: column;
   gap: 4px;
   width: 100%;
-  animation: msgEntrance 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: msgEntrance .3s var(--spring) both;
 }
 
 .msg .meta {
@@ -5471,7 +5482,7 @@ body.resizing-h .term-body {
   background: var(--blue-soft);
   opacity: 0;
   pointer-events: none;
-  transition: transform .22s cubic-bezier(.16, 1, .3, 1), height .22s cubic-bezier(.16, 1, .3, 1), opacity .15s ease;
+  transition: transform .33s var(--spring), height .33s var(--spring), opacity .15s ease;
 }
 
 .q-slide.on {
@@ -5568,7 +5579,7 @@ body.resizing-h .term-body {
   border-radius: 50%;
   background: var(--on-blue);
   transform: scale(0);
-  transition: transform .2s cubic-bezier(.34, 1.56, .64, 1);
+  transition: transform .3s var(--spring-bounce);
 }
 
 .q-opts[role="group"] .q-radio::after {
@@ -5812,7 +5823,7 @@ button.t-row:focus-visible {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px;
-  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .27s var(--spring);
 }
 
 .composer-box:focus-within {
@@ -5874,7 +5885,7 @@ textarea.ph-rotating::placeholder {
   text-overflow: ellipsis;
   pointer-events: none;
   user-select: none;
-  transition: opacity .2s ease, filter .2s ease, transform .2s cubic-bezier(.22, 1, .36, 1);
+  transition: opacity .2s ease, filter .2s ease, transform .3s var(--spring);
 }
 
 textarea:not(.ph-rotating) + .ph-rot {
@@ -6010,7 +6021,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
 }
 
 :is(#send, #boxSend) {
-  transition: background-color .15s ease, border-color .15s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
+  transition: background-color .15s ease, border-color .15s ease, opacity .25s ease, transform .45s var(--spring);
 }
 
 /* The IDE composer's send button is one text line tall, so it lines up with the prompt. */
@@ -6131,7 +6142,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
 .cmp :is(.cmp-perm, .cmp-model, .prompt-model) > svg:last-child {
   flex-shrink: 0;
   color: var(--text-3);
-  transition: transform .15s ease;
+  transition: transform .225s var(--spring);
 }
 
 .cmp :is(.cmp-perm, .cmp-model, .prompt-model).open > svg:last-child {
@@ -6183,7 +6194,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   background: var(--blue);
   color: var(--on-blue);
   cursor: pointer;
-  transition: background-color .35s ease, opacity .25s ease, transform .3s cubic-bezier(.2, .8, .2, 1);
+  transition: background-color .35s ease, opacity .25s ease, transform .45s var(--spring);
 }
 
 .composer-box.cmp :is(#send, #boxSend, #homeAskSend, .cmp-send):hover {
@@ -6282,7 +6293,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   height: 100%;
   border-radius: inherit;
   background: var(--ok);
-  transition: width .4s cubic-bezier(.22, 1, .36, 1);
+  transition: width .6s var(--spring);
 }
 
 .cmp-ctx.high .cmp-ctx-bar i,
@@ -6314,7 +6325,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
 }
 
 .cmp-ctx-more > svg {
-  transition: transform .2s ease;
+  transition: transform .3s var(--spring);
 }
 
 .cmp-ctx-more.open > svg {
@@ -6767,7 +6778,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
 }
 
 .settings-shell {
-  transition: transform .32s cubic-bezier(.32, .72, 0, 1);
+  transition: transform .48s var(--spring);
 }
 
 .scrim.under .settings-shell {
@@ -6787,21 +6798,21 @@ textarea:not(:placeholder-shown) + .ph-rot {
    will-change keeps the shrinking panel on its own layer, so it is scaled rather than redrawn each frame. */
 .scrim.closing .modal {
   will-change: transform, opacity;
-  animation: settingsRoll .36s cubic-bezier(.55, 0, .25, 1) both, settingsFade .36s both;
+  animation: settingsRoll .54s var(--spring) both, settingsFade .36s both;
 }
 
 /* Opened by a button (growFrom puts the transform origin on it): out of the button and back into it. */
 .modal.grow-from {
-  animation: growOut .46s cubic-bezier(.32, .72, 0, 1);
+  animation: growOut .69s var(--spring);
 }
 
 .scrim.closing .modal.grow-from {
-  animation: growBack .32s cubic-bezier(.55, 0, .25, 1) both;
+  animation: growBack .32s var(--spring) both;
 }
 
 /* Its parts are gone before it gets small, so they never show squeezed inside the shrinking panel. */
 .scrim.closing .modal.grow-from .stagger-item {
-  animation: staggerRowOut .12s ease-in forwards;
+  animation: staggerRowOut .12s var(--spring) forwards;
   animation-delay: 0s;
 }
 
@@ -6851,7 +6862,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
 }
 
 .scrim.closing .settings-modal .stagger-item {
-  animation: staggerRowOut .2s cubic-bezier(.32, .72, 0, 1) both;
+  animation: staggerRowOut .2s var(--spring) both;
   animation-delay: calc(max(0, 10 - min(var(--i, 0), 10)) * 8ms);
 }
 
@@ -6868,7 +6879,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   padding: 20px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(var(--ink), .05);
   backdrop-filter: var(--glass-blur);
-  animation: modalGrow .5s cubic-bezier(.32, .72, 0, 1);
+  animation: modalGrow .5s var(--spring);
 }
 
 /* Sign-in (from Home, not onboarding) wears Home's own panel: the same background, edge and buttons, in every theme. */
@@ -6964,7 +6975,7 @@ body.vibing .ide {
   border-radius: 22px;
   box-shadow: 0 30px 90px rgba(0, 0, 0, .6);
   backdrop-filter: var(--glass-blur);
-  animation: modalIn .5s cubic-bezier(.2, .8, .2, 1);
+  animation: modalIn .5s var(--spring);
   color: inherit;
   margin: auto;
 }
@@ -7115,7 +7126,7 @@ body.vibing .ide {
   border: 1px solid rgba(34, 197, 94, .35);
   color: #bbf7d0;
   font-weight: 600;
-  animation: pop .35s cubic-bezier(.3, 1.5, .5, 1);
+  animation: pop .525s var(--spring-bounce);
 }
 
 .vibe-ready.failed {
@@ -7206,11 +7217,11 @@ body.vibing .ide {
   border-radius: 10px;
   padding: 8px 14px;
   z-index: 80;
-  animation: toastIn .25s cubic-bezier(.2, .8, .2, 1);
+  animation: toastIn .375s var(--spring);
 }
 
 .toast.out {
-  animation: toastOut .2s forwards;
+  animation: toastOut .2s var(--spring) forwards;
 }
 
 @keyframes rise {
@@ -7250,11 +7261,6 @@ body.vibing .ide {
     opacity: 0;
   }
 
-  60% {
-    transform: rotate(300deg) scale(1.15);
-    opacity: 1;
-  }
-
   100% {
     transform: rotate(360deg) scale(1);
   }
@@ -7266,7 +7272,7 @@ body.vibing .ide {
 }
 
 .ob-intro>* {
-  animation: rise .55s cubic-bezier(.2, .8, .2, 1) backwards;
+  animation: rise .55s var(--spring) backwards;
 }
 
 .ob-intro>h1 {
@@ -7321,7 +7327,7 @@ body.vibing .ide {
 .switch-track,
 .chat-file-chip,
 .get {
-  transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .18s ease, transform .12s cubic-bezier(.16, 1, .3, 1), opacity .15s ease;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .18s ease, transform .18s var(--spring), opacity .15s ease;
 }
 
 .btn:active:not(:disabled),
@@ -7349,7 +7355,7 @@ body.vibing .ide {
 /* A pressed checkpoint keeps its graph line and dot still; only the text dips. */
 .commit .msgline {
   transform-origin: left center;
-  transition: transform .12s cubic-bezier(.16, 1, .3, 1), opacity .12s ease;
+  transition: transform .18s var(--spring), opacity .12s ease;
 }
 
 .commit:active .msgline {
@@ -7404,24 +7410,24 @@ body.vibing .ide {
 
 .tab::after {
   transform: scaleX(0);
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: transform .3s var(--spring);
 }
 
 .tab.enter {
-  animation: tabIn .2s cubic-bezier(.2, .8, .2, 1);
+  animation: tabIn .3s var(--spring);
 }
 
 .tree-item.enter {
-  animation: treeRowIn .2s cubic-bezier(.16, 1, .3, 1) both;
+  animation: treeRowIn .3s var(--spring) both;
 }
 
 .tree-item.leaving {
-  animation: treeRowOut .14s cubic-bezier(.2, .8, .2, 1) both !important;
+  animation: treeRowOut .14s var(--spring) both !important;
   pointer-events: none;
 }
 
 .findbar:not(.hidden) {
-  animation: dropIn .16s cubic-bezier(.2, .8, .2, 1);
+  animation: dropIn .24s var(--spring);
 }
 
 [data-panel]:not(.hidden)>.side-body,
@@ -7449,7 +7455,7 @@ body.vibing .ide {
 .run-edits,
 .run-done,
 .resolved {
-  animation: rise .22s cubic-bezier(.2, .8, .2, 1);
+  animation: rise .33s var(--spring);
 }
 
 /* ================= Onboarding: setup fits one screen ================= */
@@ -7504,7 +7510,7 @@ body.vibing .ide {
   color: var(--err);
   font-size: 11.5px;
   margin-top: 6px;
-  animation: rise .2s;
+  animation: rise .3s var(--spring);
 }
 
 .agent-opt.missing.api {
@@ -7524,7 +7530,7 @@ body.vibing .ide {
   color: #fcd34d;
   font-size: 12.5px;
   text-align: left;
-  animation: rise .2s;
+  animation: rise .3s var(--spring);
 }
 
 
@@ -7536,7 +7542,7 @@ body.vibing .ide {
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: 10px;
-  animation: pop .3s cubic-bezier(.3, 1.5, .5, 1);
+  animation: pop .45s var(--spring-bounce);
 }
 
 .device-code span {
@@ -7704,7 +7710,7 @@ body.vibing .ide {
 
 :is(#scmGenMsg, .improve-prompt) svg {
   color: #a78bfa;
-  transition: color .15s ease, transform .3s cubic-bezier(.3, .7, .2, 1), opacity .2s ease, filter .3s ease;
+  transition: color .15s ease, transform .45s var(--spring), opacity .2s ease, filter .3s ease;
 }
 
 :is(#scmGenMsg, .improve-prompt):hover svg {
@@ -7722,7 +7728,7 @@ body.vibing .ide {
   scale: .3;
   filter: blur(2px);
   animation-play-state: paused; /* stands still while unseen, and keeps its angle as it fades out */
-  transition: scale .3s cubic-bezier(.3, .7, .2, 1), opacity .2s ease, filter .3s ease;
+  transition: scale .45s var(--spring), opacity .2s ease, filter .3s ease;
 }
 
 :is(#scmGenMsg, .improve-prompt).busy svg {
@@ -7791,7 +7797,7 @@ body.vibing .ide {
 
 .scm-head .chev {
   transform: rotate(270deg);
-  transition: transform .18s cubic-bezier(.16, 1, .3, 1), color .25s cubic-bezier(.16, 1, .3, 1);
+  transition: transform .27s var(--spring), color .25s cubic-bezier(.16, 1, .3, 1);
 }
 
 .scm-sec.closed .scm-head .chev,
@@ -7814,7 +7820,7 @@ body.vibing .ide {
   opacity: 0;
   pointer-events: none;
   transform: translateX(6px) scale(0.96);
-  transition: opacity .28s cubic-bezier(.16, 1, .3, 1), transform .28s cubic-bezier(.16, 1, .3, 1);
+  transition: opacity .28s cubic-bezier(.16, 1, .3, 1), transform .42s var(--spring);
 }
 
 .scm-head:hover .acts {
@@ -7932,7 +7938,7 @@ body.vibing .ide {
   opacity: 0;
   pointer-events: none;
   transform: translateX(6px) scale(0.96);
-  transition: max-width .28s cubic-bezier(.16, 1, .3, 1), margin-right .28s cubic-bezier(.16, 1, .3, 1), opacity .28s cubic-bezier(.16, 1, .3, 1), transform .28s cubic-bezier(.16, 1, .3, 1);
+  transition: max-width .42s var(--spring), margin-right .42s var(--spring), opacity .28s cubic-bezier(.16, 1, .3, 1), transform .42s var(--spring);
 }
 
 .scm-row:hover .acts {
@@ -7955,7 +7961,7 @@ body.vibing .ide {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: color .15s ease, background-color .15s ease, transform .12s cubic-bezier(.16, 1, .3, 1);
+  transition: color .15s ease, background-color .15s ease, transform .18s var(--spring);
   transform: none;
 }
 
@@ -8537,7 +8543,7 @@ body.vibing .ide {
 }
 
 .re-view .ico-svg {
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: transform .3s var(--spring);
 }
 
 .run-edits.open .re-view .ico-svg {
@@ -8885,7 +8891,7 @@ body.vibing .ide {
 .home-clone {
   width: min(40em, 100%);
   margin: 0 auto 2.5em;
-  animation: dropIn .18s cubic-bezier(.2, .8, .2, 1);
+  animation: dropIn .27s var(--spring);
 }
 
 .clone-field {
@@ -9185,8 +9191,8 @@ body.vibing .ide {
 :root.contrib-morph #homeContribGraph { view-transition-name: contrib-graph; }
 
 :root.contrib-morph::view-transition-group(contrib-graph) {
-  animation-duration: .34s;
-  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+  animation-duration: .51s;
+  animation-timing-function: var(--spring);
 }
 
 :root.contrib-morph::view-transition-old(contrib-graph),
@@ -9782,8 +9788,8 @@ body.vibing .ide {
   border-radius: inherit;
   background: var(--k-cacheRead);
   transform-origin: left;
-  animation: growX .8s cubic-bezier(.16, 1, .3, 1) both;
-  transition: width .45s cubic-bezier(.65, 0, .35, 1); /* a refresh with new numbers slides it (renderDashLimits) */
+  animation: growX .8s var(--spring) both;
+  transition: width .675s var(--spring); /* a refresh with new numbers slides it (renderDashLimits) */
 }
 
 .ad-limit.warm .ad-meter i { background: var(--warn); }
@@ -9844,7 +9850,7 @@ body.vibing .ide {
   flex: 1;
   flex-direction: column-reverse;
   height: 3px;
-  transition: height .45s cubic-bezier(.65, 0, .35, 1);
+  transition: height .675s var(--spring);
   min-width: 0;
   border-radius: 3px 3px 0 0;
   overflow: hidden;
@@ -9853,7 +9859,7 @@ body.vibing .ide {
 }
 
 .ad-bars.anim .ad-bar {
-  animation: ad-rise .7s cubic-bezier(.65, 0, .35, 1) both;
+  animation: ad-rise .7s var(--spring) both;
   animation-delay: calc(var(--i, 0) * 35ms);
 }
 
@@ -9876,7 +9882,7 @@ body.vibing .ide {
   flex: none;
   --shade: calc(.4 + .6 * var(--lvl, 1));
   filter: brightness(var(--shade));
-  transition: filter .45s ease, height .45s cubic-bezier(.65, 0, .35, 1);
+  transition: filter .45s ease, height .675s var(--spring);
 }
 
 /* A usage number's changed character rolling up like a clock's (rollText, setup.ts): a window one line tall over the
@@ -9967,7 +9973,7 @@ body.vibing .ide {
 }
 
 .ad-tip:not(.hidden) {
-  animation: ad-tip-in .25s cubic-bezier(.16, 1, .3, 1);
+  animation: ad-tip-in .375s var(--spring);
 }
 
 /* The app tooltip's entrance (.breeze-tooltip). */
@@ -10070,7 +10076,7 @@ body.vibing .ide {
   /* chats side bar · conversation · the file the agent is editing · terminal */
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   height: 100vh;
-  transition: filter .6s ease, opacity .6s ease, transform .6s cubic-bezier(.2, .8, .2, 1);
+  transition: filter .6s ease, opacity .6s ease, transform .6s var(--spring);
   background: radial-gradient(900px 420px at 50% -12%, rgba(0, 122, 255, .16), transparent 70%), var(--bg);
 }
 
@@ -10256,7 +10262,7 @@ body.vibe-side .vibe-panel {
 
 /* Visible from the first frame of opening (only closing waits to hide), so its input can take the cursor straight away. */
 body.layout-animating .box > .terminal.open {
-  transition: width .28s cubic-bezier(.16, 1, .3, 1), margin .28s cubic-bezier(.16, 1, .3, 1), opacity .28s cubic-bezier(.16, 1, .3, 1), border-color .28s ease;
+  transition: width .42s var(--spring), margin .42s var(--spring), opacity .28s cubic-bezier(.16, 1, .3, 1), border-color .28s ease;
 }
 
 /* ---------- Home → Friends: requests by email, and what friends are building ---------- */
@@ -10503,7 +10509,7 @@ body.layout-animating .box > .terminal.open {
   position: relative;
   z-index: 1;
   overflow: clip; /* not hidden: a line scrolled into view while it opens must not scroll the panel itself */
-  transition: width .24s cubic-bezier(.23, 1, .32, 1), opacity .18s ease, visibility .24s;
+  transition: width .36s var(--spring), opacity .18s ease, visibility .24s;
 }
 
 /* Its contents keep their width while the panel opens and closes around them, so the code doesn't reflow. */
@@ -10840,7 +10846,7 @@ body.layout-animating .box > .terminal.open {
 .box-side-folder .ico-svg {
   flex: none;
   opacity: 0;
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1), opacity .15s ease;
+  transition: transform .3s var(--spring), opacity .15s ease;
 }
 
 .box-side-folder:hover .ico-svg,
@@ -10923,7 +10929,7 @@ body.layout-animating .box > .terminal.open {
 }
 
 .box-gear svg {
-  transition: transform .5s cubic-bezier(.3, 1.3, .5, 1);
+  transition: transform .5s var(--spring-bounce);
 }
 
 .box-gear.open svg {
@@ -11163,7 +11169,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   font: 12px/1.5 var(--font-code);
   white-space: pre-wrap;
   pointer-events: none;
-  animation: lspHoverIn .18s cubic-bezier(.2, .8, .2, 1);
+  animation: lspHoverIn .27s var(--spring);
 }
 
 /* Explain with Agents: the card at a right-click on selected code (explain.ts). */
@@ -11178,7 +11184,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   color: var(--text-2);
   font-size: 12.5px;
   line-height: 1.55;
-  animation: lspHoverIn .18s cubic-bezier(.2, .8, .2, 1);
+  animation: lspHoverIn .27s var(--spring);
 }
 .explain-card.hidden { display: none; }
 .explain-head {
@@ -11255,7 +11261,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   overflow: auto;
   padding: 4px;
   font: 12.5px var(--font-code);
-  animation: menuIn .12s cubic-bezier(.2, .8, .2, 1);
+  animation: menuIn .18s var(--spring);
 }
 
 .suggest div {
@@ -11410,7 +11416,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
    slides shut, and unfolding is the same grow played backwards. No fade: the label stays opaque, clipped as it closes.
    An even ease-in-out: a strong ease-out did nearly all the fold in its first frame, so it read as a snap. */
 .tabs .tab-run {
-  transition: padding .32s cubic-bezier(.65, 0, .35, 1), border-color .32s cubic-bezier(.65, 0, .35, 1), background .15s ease;
+  transition: padding .48s var(--spring), border-color .32s cubic-bezier(.65, 0, .35, 1), background .15s ease;
 }
 
 /* max-width just above "Preview" (~45px), so the whole fold is visible width change rather than dead time. */
@@ -11421,11 +11427,11 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   white-space: nowrap;
   vertical-align: bottom;
   transform-origin: left center;
-  transition: max-width .32s cubic-bezier(.65, 0, .35, 1), transform .32s cubic-bezier(.65, 0, .35, 1);
+  transition: max-width .48s var(--spring), transform .48s var(--spring);
 }
 
 .tabs .tab-run .ico-svg {
-  transition: margin .32s cubic-bezier(.65, 0, .35, 1);
+  transition: margin .48s var(--spring);
 }
 
 .tabs .tab-run.compact {
@@ -11612,11 +11618,11 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   font-size: 10px;
   text-align: center;
   letter-spacing: 0;
-  animation: pop .25s cubic-bezier(.3, 1.6, .5, 1);
+  animation: pop .375s var(--spring-bounce);
 }
 
 .agent.enter {
-  animation: cardIn .32s cubic-bezier(.2, .8, .2, 1) both;
+  animation: cardIn .48s var(--spring) both;
 }
 
 @keyframes cardIn {
@@ -11640,7 +11646,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   color: var(--text-2);
   font-size: 11.5px;
   text-align: center;
-  animation: rise .22s cubic-bezier(.2, .8, .2, 1);
+  animation: rise .33s var(--spring);
 }
 
 .team-line b {
@@ -11658,7 +11664,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   max-width: 100%;
   color: var(--text-2);
   font-size: 12px;
-  animation: rise .22s cubic-bezier(.2, .8, .2, 1);
+  animation: rise .33s var(--spring);
 }
 
 .thinking .lbl {
@@ -11808,7 +11814,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   flex-shrink: 0;
   transform: rotate(270deg);
   color: var(--text-3);
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: transform .3s var(--spring);
 }
 
 .dd-btn.open .dd-chev {
@@ -11847,7 +11853,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 
 /* Closing: the menu fades and lifts back toward its button, then closeMenu() removes it. */
 .menu.closing {
-  animation: menuOut .12s cubic-bezier(.4, 0, 1, 1) forwards;
+  animation: menuOut .12s var(--spring) forwards;
   pointer-events: none;
 }
 
@@ -11867,13 +11873,13 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 .menu.from-button,
 .menu.from-button.stagger,
 .menu.from-button.stagger.up {
-  animation: menuFromButton .34s cubic-bezier(.32, .72, 0, 1) backwards;
+  animation: menuFromButton .51s var(--spring) backwards;
 }
 
 .menu.from-button.closing,
 .menu.from-button.stagger.closing,
 .menu.from-button.stagger.up.closing {
-  animation: menuIntoButton .2s cubic-bezier(.55, 0, .25, 1) forwards;
+  animation: menuIntoButton .2s var(--spring) forwards;
 }
 
 @keyframes menuFromButton {
@@ -11906,11 +11912,11 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 /* Staggered menus (the agent switcher): the panel settles in with a soft spring and its rows follow one after another,
    Apple-style; leaving, the rows go first, bottom up, and the panel fades a beat later. */
 .menu.stagger {
-  animation: staggerPanelIn .42s cubic-bezier(.32, .72, 0, 1) backwards;
+  animation: staggerPanelIn .63s var(--spring) backwards;
 }
 
 .menu.stagger > * {
-  animation: staggerRowIn .3s cubic-bezier(.32, .72, 0, 1) backwards;
+  animation: staggerRowIn .45s var(--spring) backwards;
   animation-delay: calc(40ms + min(var(--i, 0), 8) * 22ms);
 }
 
@@ -11925,7 +11931,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 }
 
 .menu.stagger.up.closing > * {
-  animation: staggerRowOutUp .14s ease-in forwards;
+  animation: staggerRowOutUp .14s var(--spring) forwards;
   animation-delay: calc(min(var(--i, 0), 6) * 10ms);
 }
 
@@ -11978,21 +11984,21 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 
 /* Modals: the same rhythm for the parts inside the panel (staggerIn sets --i). */
 .stagger-item {
-  animation: staggerRowIn .34s cubic-bezier(.32, .72, 0, 1) backwards;
+  animation: staggerRowIn .51s var(--spring) backwards;
   animation-delay: calc(70ms + min(var(--i, 0), 10) * 30ms);
 }
 
 .scrim.closing .stagger-item {
-  animation: staggerRowOut .16s ease-in forwards;
+  animation: staggerRowOut .16s var(--spring) forwards;
   animation-delay: calc(max(0, 6 - var(--i, 0)) * 12ms);
 }
 
 .menu.stagger.closing {
-  animation: staggerPanelOut .24s cubic-bezier(.4, 0, .6, 1) 30ms forwards;
+  animation: staggerPanelOut .24s var(--spring) 30ms forwards;
 }
 
 .menu.stagger.closing > * {
-  animation: staggerRowOut .14s ease-in forwards;
+  animation: staggerRowOut .14s var(--spring) forwards;
   animation-delay: calc(max(0, 6 - var(--i, 0)) * 10ms);
 }
 
@@ -12081,7 +12087,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 }
 
 .screen-in {
-  animation: screenIn .42s cubic-bezier(.2, .8, .2, 1) both;
+  animation: screenIn .63s var(--spring) both;
 }
 
 .screen-out {
@@ -12089,7 +12095,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   inset: 0;
   z-index: 30;
   pointer-events: none;
-  animation: screenOut .26s cubic-bezier(.4, 0, 1, 1) forwards;
+  animation: screenOut .26s var(--spring) forwards;
 }
 
 /* No blur: blurring a whole screen every frame is what made these stutter on slower machines. */
@@ -12115,7 +12121,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 }
 
 .screen-soft-in > :is(.main, .dbg-main) {
-  animation: screenSoftShift .3s cubic-bezier(.2, .8, .2, 1) both;
+  animation: screenSoftShift .45s var(--spring) both;
 }
 
 .screen-out.screen-soft {
@@ -12158,8 +12164,76 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 :root.page-morph::view-transition-group(page-bar),
 :root.page-morph::view-transition-group(page-logo),
 :root.page-morph::view-transition-group(page-rail) {
-  animation-duration: .32s;
-  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+  animation-duration: .48s;
+  animation-timing-function: var(--spring);
+}
+
+/* The work areas morph too: each panel's box springs into the one in the same place on the other page (side bar ↔
+   call stack, editor ↔ source or the board's boxes, agents ↔ variables, terminal ↔ output), what's in it swapping
+   inside, clipped at its own size as on the Source Control page. A panel the other page lacks fades where it is.
+   The blue marker on the rail is its own piece, so it slides to the new page's icon instead of fading with the rail. */
+:root.page-morph .page-vt :is(.main:not(.scm-page) > #sidebar, .main.scm-page #scmLeft, #dbgLeft) {
+  view-transition-name: page-left;
+}
+
+:root.page-morph .page-vt :is(#work, #dbgCenter, #boardGrid) {
+  view-transition-name: page-center;
+}
+
+:root.page-morph .page-vt :is(#agents, #dbgRight) {
+  view-transition-name: page-right;
+}
+
+:root.page-morph .page-vt :is(#terminal, #dbgBottom) {
+  view-transition-name: page-bottom;
+}
+
+:root.page-morph .page-vt .activity > .act-indicator {
+  view-transition-name: page-marker;
+}
+
+:root.page-morph::view-transition-group(page-left),
+:root.page-morph::view-transition-group(page-center),
+:root.page-morph::view-transition-group(page-right),
+:root.page-morph::view-transition-group(page-bottom),
+:root.page-morph::view-transition-group(page-marker) {
+  animation-duration: .48s;
+  animation-timing-function: var(--spring);
+}
+
+:root.page-morph::view-transition-group(page-left),
+:root.page-morph::view-transition-group(page-center),
+:root.page-morph::view-transition-group(page-right),
+:root.page-morph::view-transition-group(page-bottom) {
+  overflow: clip;
+  border-radius: var(--r);
+}
+
+:root.page-morph::view-transition-old(page-left),
+:root.page-morph::view-transition-new(page-left),
+:root.page-morph::view-transition-old(page-center),
+:root.page-morph::view-transition-new(page-center),
+:root.page-morph::view-transition-old(page-right),
+:root.page-morph::view-transition-new(page-right),
+:root.page-morph::view-transition-old(page-bottom),
+:root.page-morph::view-transition-new(page-bottom) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+
+:root.page-morph::view-transition-old(page-left),
+:root.page-morph::view-transition-old(page-center),
+:root.page-morph::view-transition-old(page-right),
+:root.page-morph::view-transition-old(page-bottom) {
+  animation: fadeOut .14s ease-in both;
+}
+
+:root.page-morph::view-transition-new(page-left),
+:root.page-morph::view-transition-new(page-center),
+:root.page-morph::view-transition-new(page-right),
+:root.page-morph::view-transition-new(page-bottom) {
+  animation: fade .2s ease-out .06s both;
 }
 
 :root.page-morph::view-transition-old(root) {
@@ -12172,7 +12246,11 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 
 /* Under Glass or a picture two see-through pages stacked mid-fade let less of the backdrop through (as above): the
    work area swaps at once, and the bars still morph. */
-:root[data-backdrop].page-morph::view-transition-old(root) {
+:root[data-backdrop].page-morph::view-transition-old(root),
+:root[data-backdrop].page-morph::view-transition-old(page-left),
+:root[data-backdrop].page-morph::view-transition-old(page-center),
+:root[data-backdrop].page-morph::view-transition-old(page-right),
+:root[data-backdrop].page-morph::view-transition-old(page-bottom) {
   display: none;
 }
 
@@ -12187,7 +12265,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 }
 
 .box.screen-in .box-composer {
-  animation: rise .5s .08s cubic-bezier(.2, .8, .2, 1) both;
+  animation: rise .5s .08s var(--spring) both;
 }
 
 .box.screen-in .box-chat {
@@ -12246,7 +12324,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   .box :is(.btn, .icon-btn, .pill-btn, .avatars, .chat-file-chip, .chat-img-wrap, #boxSend),
   .space-btn {
     transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .18s ease, opacity .2s ease,
-      transform .12s cubic-bezier(.16, 1, .3, 1), scale .18s cubic-bezier(.23, 1, .32, 1), translate .18s cubic-bezier(.23, 1, .32, 1);
+      transform .18s var(--spring), scale .27s var(--spring), translate .27s var(--spring);
   }
 
   .box :is(.btn, .pill-btn, .chat-file-chip):hover:not(:disabled),
@@ -12265,7 +12343,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 
   .box-chat .empty :is(img, h4),
   .box-chat .empty .empty-who {
-    transition: scale .18s cubic-bezier(.23, 1, .32, 1), opacity .2s ease, color .15s ease;
+    transition: scale .27s var(--spring), opacity .2s ease, color .15s ease;
   }
 
   .box-chat .empty img:hover {
@@ -12465,7 +12543,7 @@ body:is(.resizing, .resizing-h) .sash-line.on {
    eases open or shut, and the panel's contents keep their full width meanwhile, so they're uncovered or cut off at the
    edge rather than rewrapping. */
 body.layout-animating .center.term-side {
-  transition: grid-template-columns .28s cubic-bezier(.16, 1, .3, 1);
+  transition: grid-template-columns .42s var(--spring);
 }
 
 body.layout-animating .center.term-side > .terminal > :is(.term-head, .term-body) {
@@ -12550,8 +12628,8 @@ body.term-popout .term-win-controls .win-btn::before {
 
 ::view-transition-group(term-panel),
 ::view-transition-group(term-work) {
-  animation-duration: .4s;
-  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+  animation-duration: .6s;
+  animation-timing-function: var(--spring);
 }
 
 ::view-transition-old(term-panel),
@@ -12566,11 +12644,11 @@ body.term-popout .term-win-controls .win-btn::before {
 
 /* Out to its own window: the panel lifts away. Back from it: it settles into place. */
 ::view-transition-old(term-panel):only-child {
-  animation: term-pop-out .26s cubic-bezier(.4, 0, 1, 1) both;
+  animation: term-pop-out .26s var(--spring) both;
 }
 
 ::view-transition-new(term-panel):only-child {
-  animation: term-pop-in .38s cubic-bezier(.16, 1, .3, 1) both;
+  animation: term-pop-in .57s var(--spring) both;
 }
 
 @keyframes term-pop-out {
@@ -12622,7 +12700,7 @@ body.term-popout .term-win-controls .win-btn::before {
   background: var(--blue);
   pointer-events: none;
   z-index: 1;
-  transition: transform .32s cubic-bezier(.2, .8, .2, 1), width .32s cubic-bezier(.2, .8, .2, 1);
+  transition: transform .48s var(--spring), width .48s var(--spring);
 }
 
 /* Feed picker: one row per feed, logo · name and status · button. */
@@ -12739,18 +12817,13 @@ body.term-popout .term-win-controls .win-btn::before {
 
 /* Vibe Mode: the ready card pops when the agent finishes. */
 .vibe-ready.ping {
-  animation: readyPing .6s cubic-bezier(.2, .8, .2, 1);
+  animation: readyPing .6s var(--spring-bounce);
 }
 
 @keyframes readyPing {
   0% {
     transform: translateY(10px) scale(.96);
     opacity: 0;
-  }
-
-  60% {
-    transform: translateY(-2px) scale(1.02);
-    opacity: 1;
   }
 
   100% {
@@ -12770,7 +12843,7 @@ body.term-popout .term-win-controls .win-btn::before {
 /*drag and drop file & rearrange*/
 .tree-item {
   position: relative;
-  transition: background .14s ease, transform .14s ease, opacity .14s ease;
+  transition: background .14s ease, transform .21s var(--spring), opacity .14s ease;
 }
 .tree-item.drop-over,
 .tree-item.drop-into {
@@ -12790,7 +12863,7 @@ body.term-popout .term-win-controls .win-btn::before {
   border-radius: 2px;
   z-index: 10;
   pointer-events: none;
-  animation: dropLineIn .12s cubic-bezier(.2, .8, .2, 1);
+  animation: dropLineIn .18s var(--spring);
 }
 .tree-item.drop-line-above::before {
   top: -1px;
@@ -12808,7 +12881,7 @@ body.term-popout .term-win-controls .win-btn::before {
   background: var(--blue);
   z-index: 11;
   pointer-events: none;
-  animation: dropDotIn .14s cubic-bezier(.175, .885, .32, 1.275);
+  animation: dropDotIn .21s var(--spring-bounce);
 }
 .tree-item.drop-line-above::after {
   top: -3px;
@@ -12930,7 +13003,7 @@ body.term-popout .term-win-controls .win-btn::before {
 }
 
 .br-del.holding::before {
-  animation: holdFill 5s ease-in-out forwards;
+  animation: holdFill 5s var(--spring) forwards;
 }
 
 .br-del .ico-svg {
@@ -12957,7 +13030,7 @@ body.term-popout .term-win-controls .win-btn::before {
    sets it back down. */
 .set-acct-ctl .br-del .ico-svg path:is(:nth-child(1), :nth-child(3)) {
   transform-origin: 21px 6px;
-  transition: transform .28s cubic-bezier(.34, 1.56, .64, 1);
+  transition: transform .42s var(--spring-bounce);
 }
 
 .set-acct-ctl .br-del:is(:hover, :focus-visible) .ico-svg path:is(:nth-child(1), :nth-child(3)) {
@@ -13012,7 +13085,7 @@ button.pill, .pill-btn {
   line-height: inherit;
   padding: 3px 10px;
   border-radius: 8px;
-  transition: all .15s ease;
+  transition: all .225s var(--spring);
   user-select: none;
 }
 button.pill:hover, .pill-btn:hover {
@@ -13030,7 +13103,7 @@ button.pill:active, .pill-btn:active {
 
 /* The settings "Active" badge eases into the same white hover as the agent pill. */
 .set-ctl .pill.blue {
-  transition: all .15s ease;
+  transition: all .225s var(--spring);
 }
 
 .set-acct-ctl> :first-child {
@@ -13060,22 +13133,22 @@ button.pill:active, .pill-btn:active {
 /* Its look is the composer dropdown's (.cmp :is(.cmp-perm, .cmp-model, .prompt-model)); only the chip's own parts live here. */
 .prompt-model {
   overflow: hidden; /* squeezed chips clip their text instead of running into the next chip */
-  animation: promptModelIn .28s cubic-bezier(.22, 1, .36, 1) both;
+  animation: promptModelIn .42s var(--spring) both;
 }
 .prompt-model b { font-weight: 600; color: var(--text); flex-shrink: 0; }
 /* Squeezed, the model name gives way first, then the effort; the agent's name and the arrow always show. */
 .prompt-model .pm-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 100; }
 .prompt-model .dd-eff { color: var(--text-3); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
-.prompt-model.leaving { animation: promptModelOut .26s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; transform-origin: left center; }
+.prompt-model.leaving { animation: promptModelOut .26s var(--spring) both; pointer-events: none; transform-origin: left center; }
 @keyframes promptModelIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
 @keyframes promptModelOut { to { opacity: 0; transform: scale(.82) translateX(-8px); filter: blur(4px); } }
 
 /* Composer attachments */
 .composer-attachments { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
-.attachment-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px 3px 3px; font-size: 11px; color: var(--text-2); max-width: 240px; box-sizing: border-box; overflow: hidden; animation: chipSpringIn .24s cubic-bezier(.175, .885, .32, 1.275) both; cursor: pointer; transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease; }
+.attachment-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px 3px 3px; font-size: 11px; color: var(--text-2); max-width: 240px; box-sizing: border-box; overflow: hidden; animation: chipSpringIn .36s var(--spring-bounce) both; cursor: pointer; transition: transform .225s var(--spring), border-color .15s ease, background .15s ease, box-shadow .15s ease; }
 .attachment-chip.folder-chip { border-color: rgba(245, 158, 11, .3); }
 .attachment-chip.folder-chip:hover { border-color: rgba(245, 158, 11, .6); }
-.attachment-thumb { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; border: 1px solid var(--line); background: #1d1d1f; flex-shrink: 0; cursor: pointer; transition: transform .15s ease; }
+.attachment-thumb { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; border: 1px solid var(--line); background: #1d1d1f; flex-shrink: 0; cursor: pointer; transition: transform .225s var(--spring); }
 .attachment-thumb:hover { transform: scale(1.04); }
 .attachment-thumb.attachment-icon { display: inline-flex; align-items: center; justify-content: center; background: var(--bg-3); color: var(--text-2); font-size: 13px; }
 .attachment-thumb.folder-icon { color: #f59e0b; background: #2b1d0c; background: rgba(245, 158, 11, .12); }
@@ -13167,7 +13240,7 @@ button.pill:active, .pill-btn:active {
   background: var(--blue-soft) !important;
   outline: none !important;
   transform: scale(1.03) translateY(-1px);
-  transition: background .4s ease, box-shadow .6s ease, transform .4s ease !important;
+  transition: background .4s ease, box-shadow .6s ease, transform .6s var(--spring) !important;
 }
 
 .agent-tab-new.agent-drop-over {
@@ -13175,11 +13248,10 @@ button.pill:active, .pill-btn:active {
   color: var(--blue) !important;
   outline: none !important;
   transform: scale(1.04);
-  transition: background .4s ease, box-shadow .6s ease, transform .4s ease !important;
+  transition: background .4s ease, box-shadow .6s ease, transform .6s var(--spring) !important;
 }
 @keyframes chipSpringIn {
   0% { opacity: 0; transform: scale(0.65) translateY(6px); }
-  70% { transform: scale(1.04) translateY(-1px); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 .attachment-chip.leaving {
@@ -13224,7 +13296,7 @@ button.pill:active, .pill-btn:active {
   padding-bottom: 0 !important;
   margin-bottom: 0 !important;
   border-bottom-color: transparent !important;
-  transition: opacity .22s ease, max-height .28s cubic-bezier(.22, 1, .36, 1), padding .28s ease, margin .28s ease, border-color .22s ease !important;
+  transition: opacity .22s ease, max-height .42s var(--spring), padding .42s var(--spring), margin .42s var(--spring), border-color .22s ease !important;
   overflow: hidden !important;
 }
 
@@ -13237,7 +13309,7 @@ body.layout-animating .agents,
 body.layout-animating .terminal,
 body.layout-animating .term-body,
 body.layout-animating #previewPane {
-  transition: all .28s cubic-bezier(.16, 1, .3, 1);
+  transition: all .42s var(--spring);
 }
 
 /* Explorer tree undo highlight */
@@ -13266,11 +13338,11 @@ body.layout-animating #previewPane {
 
 /* Chat attachments */
 .msg-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; margin-bottom: 6px; }
-.chat-file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 11px; font-family: var(--mono); color: var(--text-1); cursor: pointer; transition: background .15s, border-color .15s, transform .12s; }
+.chat-file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 11px; font-family: var(--mono); color: var(--text-1); cursor: pointer; transition: background .15s, border-color .15s, transform .18s var(--spring); }
 .chat-file-chip .ico { display: flex; align-items: center; }
 .chat-file-chip.folder .ico { color: #f59e0b; }
 .chat-file-chip.file .ico { color: var(--blue); }
-.chat-img-wrap { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); cursor: pointer; background: var(--bg-1); display: inline-block; max-width: 280px; max-height: 220px; transition: border-color .15s, transform .15s; }
+.chat-img-wrap { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); cursor: pointer; background: var(--bg-1); display: inline-block; max-width: 280px; max-height: 220px; transition: border-color .15s, transform .225s var(--spring); }
 .chat-img-wrap:hover { border-color: var(--blue); transform: scale(1.01); }
 .chat-img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; }
 
@@ -13279,7 +13351,7 @@ body.layout-animating #previewPane {
 /* The image viewer has no dialog panel behind the picture. */
 .modal:has(> .img-modal-view) { width: auto; max-width: none; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; }
 .img-modal-img { cursor: zoom-out; }
-.img-modal-img { max-width: 85vw; max-height: 75vh; object-fit: contain; border-radius: 8px; display: block; animation: imgOpenIn .28s cubic-bezier(.16, 1, .3, 1) both; }
+.img-modal-img { max-width: 85vw; max-height: 75vh; object-fit: contain; border-radius: 8px; display: block; animation: imgOpenIn .42s var(--spring) both; }
 
 /* ================= AGENT MULTI-TAB SYSTEM ================= */
 .agents .side-head {
@@ -13326,7 +13398,7 @@ body.layout-animating #previewPane {
   line-height: inherit;
   cursor: pointer;
   user-select: none;
-  transition: all .15s ease;
+  transition: all .225s var(--spring);
 }
 
 /* The one chip a very tight bar still keeps shrinks its name (with an ellipsis) rather than being cut off.
@@ -13335,7 +13407,7 @@ body.layout-animating #previewPane {
   flex-shrink: 1;
   min-width: 0;
   /* Not "all": a size that animated would lag the fit (and hand fitAgentBar a stale measurement). */
-  transition: color .15s ease, background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease, opacity .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .225s var(--spring), opacity .15s ease;
 }
 
 .agent-bar .agent-chip[data-agent] .chip-name {
@@ -13388,11 +13460,11 @@ body.layout-animating #previewPane {
 }
 
 .agent-chip.agent-swap .pill-logo {
-  animation: agentLogoIn .34s cubic-bezier(.34, 1.56, .64, 1) both;
+  animation: agentLogoIn .51s var(--spring-bounce) both;
 }
 
 .agent-chip.agent-swap .chip-name {
-  animation: agentNameIn .26s cubic-bezier(.16, 1, .3, 1) .03s both;
+  animation: agentNameIn .39s var(--spring) .03s both;
 }
 
 /* Under the prompt, when it names an agent that is not installed. */
@@ -13481,11 +13553,11 @@ body.layout-animating #previewPane {
   box-sizing: border-box;
   overflow: hidden;
   position: relative;
-  transition: min-width .2s cubic-bezier(.16, 1, .3, 1),
-              max-width .2s cubic-bezier(.16, 1, .3, 1),
-              padding .2s cubic-bezier(.16, 1, .3, 1),
+  transition: min-width .3s var(--spring),
+              max-width .3s var(--spring),
+              padding .3s var(--spring),
               opacity .16s ease-out,
-              transform .12s cubic-bezier(.16, 1, .3, 1),
+              transform .18s var(--spring),
               background .15s ease,
               color .15s ease,
               border-color .15s ease,
@@ -13534,11 +13606,11 @@ body.layout-animating #previewPane {
   background: var(--blue);
   pointer-events: none;
   z-index: 2;
-  transition: transform .32s cubic-bezier(.2, .8, .2, 1), width .32s cubic-bezier(.2, .8, .2, 1), opacity .15s ease;
+  transition: transform .48s var(--spring), width .48s var(--spring), opacity .15s ease;
 }
 
 .agent-tab.enter {
-  animation: agentTabEnter .2s cubic-bezier(.16, 1, .3, 1) both;
+  animation: agentTabEnter .3s var(--spring) both;
 }
 
 @keyframes agentTabIn {
@@ -13559,13 +13631,13 @@ body.layout-animating #previewPane {
 .agent-tab.leaving {
   border-width: 0 !important;
   filter: blur(4px) !important;
-  transition: width .18s cubic-bezier(.16, 1, .3, 1),
-              max-width .18s cubic-bezier(.16, 1, .3, 1),
-              padding .18s cubic-bezier(.16, 1, .3, 1),
-              margin .18s cubic-bezier(.16, 1, .3, 1),
+  transition: width .27s var(--spring),
+              max-width .27s var(--spring),
+              padding .27s var(--spring),
+              margin .27s var(--spring),
               opacity .15s ease-out,
               filter .15s ease-out,
-              transform .18s cubic-bezier(.16, 1, .3, 1) !important;
+              transform .27s var(--spring) !important;
   min-width: 0 !important;
   max-width: 0 !important;
   width: 0 !important;
@@ -13634,11 +13706,11 @@ body.layout-animating #previewPane {
 /* One chat left: the X folds away like the lone terminal tab's (width and scale). */
 .agent-tab .tab-close {
   transition: opacity .15s cubic-bezier(.16, 1, .3, 1),
-              transform .15s cubic-bezier(.16, 1, .3, 1),
+              transform .225s var(--spring),
               background .12s ease,
               color .12s ease,
-              width .22s cubic-bezier(.16, 1, .3, 1),
-              margin .22s cubic-bezier(.16, 1, .3, 1);
+              width .33s var(--spring),
+              margin .33s var(--spring);
 }
 
 .agent-tab.single .tab-close {
@@ -13824,10 +13896,6 @@ body.layout-animating #previewPane {
     opacity: 0.25;
     transform: scale(0.92) translateY(2px);
   }
-  50% {
-    opacity: 0.85;
-    transform: scale(1.02) translateY(-1px);
-  }
   100% {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -13835,7 +13903,7 @@ body.layout-animating #previewPane {
 }
 
 .dd-btn.model-swap {
-  animation: modelSwap .25s cubic-bezier(.16, 1, .3, 1) both;
+  animation: modelSwap .375s var(--spring-bounce) both;
 }
 
 /* Custom Tooltip UI (Alternate text) */
@@ -13862,7 +13930,7 @@ body.layout-animating #previewPane {
   transform: translateY(6px) scale(0.94);
   visibility: hidden;
   transition: opacity .35s cubic-bezier(.16, 1, .3, 1),
-              transform .35s cubic-bezier(.16, 1, .3, 1),
+              transform .525s var(--spring),
               visibility 0s linear .35s;
   will-change: transform, opacity;
 }
@@ -13871,7 +13939,7 @@ body.layout-animating #previewPane {
   transform: translateY(0) scale(1);
   visibility: visible;
   transition: opacity .4s cubic-bezier(.16, 1, .3, 1),
-              transform .4s cubic-bezier(.16, 1, .3, 1),
+              transform .6s var(--spring),
               visibility 0s linear 0s;
 }
 
@@ -14059,7 +14127,7 @@ body.layout-animating #previewPane {
   color: var(--text);
   text-align: left;
   cursor: pointer;
-  transition: background-color .15s ease, border-color .15s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
+  transition: background-color .15s ease, border-color .15s ease, transform .225s var(--spring);
 }
 
 .set-hit:hover,
@@ -14174,7 +14242,7 @@ body.layout-animating #previewPane {
   opacity: 0;
   transform: scaleX(.55);
   transform-origin: left center;
-  transition: opacity .26s cubic-bezier(.16, 1, .3, 1), transform .34s cubic-bezier(.16, 1, .3, 1);
+  transition: opacity .26s cubic-bezier(.16, 1, .3, 1), transform .51s var(--spring);
 }
 
 .set-nav .set-item:hover,
@@ -14205,7 +14273,7 @@ body.layout-animating #previewPane {
 .home-nav button svg,
 .set-nav-img {
   flex: none;
-  transition: color .22s ease, transform .22s ease;
+  transition: color .22s ease, transform .33s var(--spring);
 }
 
 /* Discord's logo is a white PNG, used as a mask so it takes the text colour like the line icons beside it. */
@@ -14238,24 +14306,24 @@ body.layout-animating #previewPane {
 
 /* Each settings section's icon has its own hover motion, played while the icon is enlarged.
    The gear turns with a transition so it spins back when the pointer leaves; Help and Discord just grow. */
-.set-nav .set-item[data-set-tab="general"] svg { transition: transform .45s cubic-bezier(.3, .7, .2, 1), color .22s ease; }
+.set-nav .set-item[data-set-tab="general"] svg { transition: transform .675s var(--spring), color .22s ease; }
 .set-nav .set-item[data-set-tab="general"]:hover svg { transform: rotate(180deg) scale(1.14); }
 .set-nav .set-item[data-set-tab="agents"]:hover svg { animation: navPromptType .5s ease-out both; }
 .set-nav .set-item[data-set-tab="vibe"]:hover svg { animation: navPhoneBuzz .5s ease-in-out both; }
 .set-nav .set-item[data-set-tab="help"] svg,
-.set-nav .set-item[data-set-tab="discord"] .set-nav-img { transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), color .22s ease, opacity .22s ease; }
+.set-nav .set-item[data-set-tab="discord"] .set-nav-img { transition: transform .33s var(--spring-bounce), color .22s ease, opacity .22s ease; }
 .set-nav .set-item[data-set-tab="help"]:hover svg,
 .set-nav .set-item[data-set-tab="discord"]:hover .set-nav-img { transform: scale(1.22); }
 .set-nav .set-item[data-set-tab="appearance"]:hover svg { animation: navPaletteTilt .5s ease-out both; }
-.set-nav .set-item[data-set-tab="appearance"]:hover svg circle { transform-box: fill-box; transform-origin: center; animation: navPaintPop .36s cubic-bezier(.34, 1.56, .64, 1) both; }
+.set-nav .set-item[data-set-tab="appearance"]:hover svg circle { transform-box: fill-box; transform-origin: center; animation: navPaintPop .54s var(--spring-bounce) both; }
 .set-nav .set-item[data-set-tab="appearance"]:hover svg circle:nth-of-type(2) { animation-delay: 70ms; }
 .set-nav .set-item[data-set-tab="appearance"]:hover svg circle:nth-of-type(3) { animation-delay: 140ms; }
 .set-nav .set-item[data-set-tab="appearance"]:hover svg circle:nth-of-type(4) { animation-delay: 210ms; }
-.set-nav .set-item[data-set-tab="controls"]:hover svg { animation: navKeysGrow .5s ease-out both; }
-.set-nav .set-item[data-set-tab="controls"]:hover svg path { animation: navKeysTap .5s ease-in-out both; }
+.set-nav .set-item[data-set-tab="controls"]:hover svg { animation: navKeysGrow .5s var(--spring) both; }
+.set-nav .set-item[data-set-tab="controls"]:hover svg path { animation: navKeysTap .5s var(--spring) both; }
 /* Miscellaneous: its three dots hop one after another, left to right (the icon draws them middle, right, left).
    Keyed to .hop, not :hover, so the hop finishes after the pointer leaves; settings.ts adds it and takes it off. */
-.set-nav .set-item[data-set-tab="misc"].hop svg circle { animation: navDotHop .42s ease-in-out both; }
+.set-nav .set-item[data-set-tab="misc"].hop svg circle { animation: navDotHop .63s var(--spring) both; }
 .set-nav .set-item[data-set-tab="misc"].hop svg circle:nth-child(1) { animation-delay: 80ms; }
 .set-nav .set-item[data-set-tab="misc"].hop svg circle:nth-child(2) { animation-delay: 160ms; }
 
@@ -14624,7 +14692,7 @@ body.layout-animating #previewPane {
 
 .set-pane,
 .set-dash {
-  animation: setPaneFadeIn .22s cubic-bezier(.16, 1, .3, 1);
+  animation: setPaneFadeIn .33s var(--spring);
 }
 
 /* Home's agent page, shown under Settings → Agents: as wide as the pane, without the page's own padding. */
@@ -14946,7 +15014,7 @@ body.layout-animating #previewPane {
   cursor: pointer;
   outline-offset: 2px;
   touch-action: none;
-  transition: --complete .32s cubic-bezier(.65, 0, .35, 1), outline .2s ease;
+  transition: --complete .48s var(--spring), outline .2s ease;
 }
 
 .switch.on {
@@ -14972,7 +15040,7 @@ body.layout-animating #previewPane {
   border-radius: 6px;
   background: #f5f5f7;
   box-shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 0 0 .5px rgba(0, 0, 0, .08);
-  transition: scale .2s cubic-bezier(.34, 1.56, .64, 1);
+  transition: scale .3s var(--spring-bounce);
 }
 
 .switch:focus-visible {
@@ -15092,7 +15160,7 @@ body.layout-animating #previewPane {
   box-shadow: none;
   outline-offset: 2px;
   /* tap: hold the bubble up first, then slide; a dropped drag just settles. settings.ts SETTLE_TAP/DROP cover these. */
-  transition: --complete .32s cubic-bezier(.65, 0, .35, 1) .1s, outline var(--transition) var(--ease);
+  transition: --complete .48s var(--spring) .1s, outline var(--transition) var(--ease);
 
   &.switch-sm {
     zoom: .25;
@@ -15103,7 +15171,7 @@ body.layout-animating #previewPane {
   }
 
   &[data-dropped] {
-    transition: --complete .22s ease-out, outline var(--transition) var(--ease);
+    transition: --complete .33s var(--spring), outline var(--transition) var(--ease);
   }
 
   &:is(:active, [data-pressed]) {
@@ -15422,7 +15490,7 @@ body.layout-animating #previewPane {
   cursor: pointer;
   min-width: 0;
   position: relative;
-  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .225s var(--spring);
 }
 
 .set-agent:active:not(:disabled) {
@@ -15533,7 +15601,7 @@ body.layout-animating #previewPane {
 
 /* Arrived after the page opened: the agents rise in one after another (usageArrive sets --i). */
 .usage-agent.usage-in {
-  animation: rise .4s cubic-bezier(.32, .72, 0, 1) backwards;
+  animation: rise .6s var(--spring) backwards;
   animation-delay: calc(var(--i, 0) * 60ms);
 }
 
@@ -15616,7 +15684,7 @@ body.layout-animating #previewPane {
   height: 100%;
   border-radius: inherit;
   background: var(--blue);
-  transition: width .5s cubic-bezier(.32, .72, 0, 1);
+  transition: width .5s var(--spring);
 }
 
 .usage-bar.low i {
@@ -15902,7 +15970,7 @@ body.layout-animating #previewPane {
 
 .attachment-del {
   border-radius: 4px;
-  transition: color .15s ease, background-color .15s ease, transform .12s ease;
+  transition: color .15s ease, background-color .15s ease, transform .18s var(--spring);
 }
 
 /* ---------- removing a remembered account ---------- */
@@ -15927,14 +15995,14 @@ body.layout-animating #previewPane {
   font: 500 11.5px var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color .18s ease, color .18s ease, opacity .15s ease, padding .22s cubic-bezier(.2, .8, .2, 1);
+  transition: background-color .18s ease, color .18s ease, opacity .15s ease, padding .33s var(--spring);
 }
 
 .rm-x {
   display: inline-grid;
   place-items: center;
   width: 10px;
-  transition: opacity .14s ease, transform .22s cubic-bezier(.2, .8, .2, 1), width .22s cubic-bezier(.2, .8, .2, 1);
+  transition: opacity .14s ease, transform .33s var(--spring), width .33s var(--spring);
 }
 
 .rm-label {
@@ -15943,7 +16011,7 @@ body.layout-animating #previewPane {
   overflow: hidden;
   opacity: 0;
   transform: translateX(4px);
-  transition: max-width .24s cubic-bezier(.2, .8, .2, 1), opacity .18s ease .05s, transform .24s cubic-bezier(.2, .8, .2, 1);
+  transition: max-width .36s var(--spring), opacity .18s ease .05s, transform .36s var(--spring);
 }
 
 .acct-remove.armed,
@@ -16041,7 +16109,7 @@ body.layout-animating #previewPane {
   display: none;
   opacity: 0;
   transform: scale(.5) rotate(-90deg);
-  transition: opacity .18s ease, transform .24s cubic-bezier(.34, 1.56, .64, 1), display .24s allow-discrete;
+  transition: opacity .18s ease, transform .36s var(--spring-bounce), display .24s allow-discrete;
 }
 
 .tabs .tab-list.shown {
@@ -16066,7 +16134,7 @@ body.layout-animating #previewPane {
 }
 
 .tabs .tab-list svg {
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: transform .3s var(--spring);
 }
 
 /* ---------- feed sign-in: the site in a rounded frame over the whole app, blurred behind ---------- */
@@ -16096,11 +16164,11 @@ body.layout-animating #previewPane {
   background: var(--bg-1);
   box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
   overflow: hidden;
-  animation: modalIn .34s cubic-bezier(.32, .72, 0, 1);
+  animation: modalIn .51s var(--spring);
 }
 
 .feed-connect.closing .feed-connect-frame {
-  animation: sink .24s cubic-bezier(.4, 0, .6, 1) forwards;
+  animation: sink .24s var(--spring) forwards;
 }
 
 .feed-connect-head {
@@ -16219,7 +16287,7 @@ body.layout-animating #previewPane {
   background: var(--bg-2);
   color: var(--text-2);
   font-size: 11.5px;
-  animation: rise .22s cubic-bezier(.2, .8, .2, 1);
+  animation: rise .33s var(--spring);
 }
 
 .team-claim-member {
@@ -16516,7 +16584,7 @@ body.layout-animating #previewPane {
 /* Every gear grows and turns half a turn while its button is hovered (like Settings › General), and turns back
    when the pointer leaves. An open settings gear already rests at half a turn, so hovering it only grows it. */
 :is(svg[data-icon="gear"], svg:has(> use[href="#i-gear"])) {
-  transition: transform .45s cubic-bezier(.3, .7, .2, 1), color .22s ease;
+  transition: transform .675s var(--spring), color .22s ease;
 }
 
 :is(button, a, [role="button"]):hover > :is(svg[data-icon="gear"], svg:has(> use[href="#i-gear"])) {
@@ -16743,7 +16811,7 @@ body.layout-animating #previewPane {
   color: var(--text);
   text-align: left;
   cursor: pointer;
-  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .15s cubic-bezier(.2, .8, .2, 1);
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .225s var(--spring);
 }
 
 .set-theme:active {
@@ -16921,7 +16989,7 @@ body.layout-animating #previewPane {
 /* Opening Appearance: each picture's code lines grow from the left, line by line, one card after another. */
 .set-themes.grow .theme-swatch b {
   transform-origin: left center;
-  animation: growX .55s cubic-bezier(.2, .8, .2, 1) both;
+  animation: growX .55s var(--spring) both;
   animation-delay: calc(180ms + var(--card, 0) * 90ms + var(--line, 0) * 55ms);
 }
 
@@ -17690,7 +17758,7 @@ input.dbg-edit.bad:focus-visible {
 
 /* Switching tabs slides the new pane in from the side its tab sits on. */
 .dbg-pane.slide-in {
-  animation: dbg-pane-in .18s cubic-bezier(.2, .8, .2, 1);
+  animation: dbg-pane-in .27s var(--spring);
 }
 
 #dbgOutputPane {
@@ -18177,8 +18245,8 @@ input.dbg-edit.bad:focus-visible {
 ::view-transition-group(scm-work),
 ::view-transition-group(scm-page),
 ::view-transition-group(scm-side) {
-  animation-duration: .32s;
-  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+  animation-duration: .48s;
+  animation-timing-function: var(--spring);
 }
 
 /* The side bar's column closes to nothing: its picture is cut off by the narrowing box, not squeezed. */
@@ -18211,8 +18279,8 @@ input.dbg-edit.bad:focus-visible {
 
 ::view-transition-group(scm-head) {
   overflow: clip;
-  animation-duration: .32s;
-  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+  animation-duration: .48s;
+  animation-timing-function: var(--spring);
 }
 
 ::view-transition-old(scm-head) {
@@ -18245,8 +18313,8 @@ input.dbg-edit.bad:focus-visible {
 
 /* Changing folder (morphFolder, buffers.ts): rows at the same path in both folders glide to their new place. */
 :root.folder-morph::view-transition-group(*) {
-  animation-duration: .32s;
-  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+  animation-duration: .48s;
+  animation-timing-function: var(--spring);
 }
 
 /* Nothing travels; the rows only cross-fade. */
@@ -18624,7 +18692,7 @@ input.dbg-edit.bad:focus-visible {
   flex: none;
   display: inline-flex;
   transform: rotate(270deg);
-  transition: transform .18s cubic-bezier(.16, 1, .3, 1);
+  transition: transform .27s var(--spring);
 }
 
 .pr-commit:not(.open) .pr-commit-head .chev,
@@ -18982,7 +19050,7 @@ input.dbg-edit.bad:focus-visible {
   height: 100%;
   border-radius: 2px;
   background: var(--blue);
-  transition: width .25s ease;
+  transition: width .375s var(--spring);
 }
 
 .cf-prog.all {
@@ -19648,12 +19716,12 @@ input.dbg-edit.bad:focus-visible {
   border-radius: 12px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
   backdrop-filter: var(--glass-blur);
-  animation: dropIn .16s cubic-bezier(.2, .8, .2, 1);
+  animation: dropIn .24s var(--spring);
 }
 
 .color-picker.closing {
   pointer-events: none;
-  animation: menuOut .14s ease-in forwards;
+  animation: menuOut .14s var(--spring) forwards;
 }
 
 .cp-sv {
@@ -19776,7 +19844,7 @@ input.dbg-edit.bad:focus-visible {
   font-size: 12.5px;
   cursor: grab;
   user-select: none;
-  transition: background .15s, border-color .15s, transform .15s;
+  transition: background .15s, border-color .15s, transform .225s var(--spring);
 }
 
 /* The global `-webkit-user-drag: none` rule would stop the chip from dragging at all. */
@@ -19901,8 +19969,8 @@ input.dbg-edit.bad:focus-visible {
 :root.board-morph::view-transition-group(*) {
   overflow: clip;
   border-radius: var(--r);
-  animation-duration: .36s;
-  animation-timing-function: cubic-bezier(.16, 1, .3, 1);
+  animation-duration: .54s;
+  animation-timing-function: var(--spring);
 }
 
 :root.board-morph::view-transition-old(*),
@@ -19914,11 +19982,11 @@ input.dbg-edit.bad:focus-visible {
 }
 
 :root.board-morph::view-transition-new(*):only-child {
-  animation: board-box-in .34s cubic-bezier(.16, 1, .3, 1) both;
+  animation: board-box-in .51s var(--spring) both;
 }
 
 :root.board-morph::view-transition-old(*):only-child {
-  animation: board-box-out .2s ease-in both;
+  animation: board-box-out .2s var(--spring) both;
 }
 
 @keyframes board-box-in {
@@ -19980,7 +20048,7 @@ input.dbg-edit.bad:focus-visible {
 }
 
 .board-box.shake {
-  animation: board-shake .4s ease;
+  animation: board-shake .6s var(--spring);
 }
 
 @keyframes board-shake {

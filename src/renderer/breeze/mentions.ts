@@ -232,7 +232,7 @@ function renderPromptModels(kit: PromptKit = IDE_KIT): void {
       const toH = composer.getBoundingClientRect().height;
       if (Math.abs(toH - fromH) < 1) return;
       const frame = { boxSizing: 'border-box', overflow: 'hidden' };
-      composer.animate([{ ...frame, height: `${fromH}px` }, { ...frame, height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+      composer.animate([{ ...frame, height: `${fromH}px` }, { ...frame, height: `${toH}px` }], { duration: 300, easing: SPRING });
     };
     el.addEventListener('animationend', done, { once: true });
     setTimeout(done, 400);
@@ -295,7 +295,7 @@ function animatePromptHeight(kit: PromptKit, fromH: number): void {
   kit.anim?.cancel(); // read the end height without it (the start was read with it)
   const toH = ta.offsetHeight;
   if (Math.abs(toH - fromH) < 1) return;
-  kit.anim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  kit.anim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 300, easing: SPRING });
 }
 /* ----- Grow: when a panel is squeezed or widened and text rewraps, blocks ease to their new height instead of
    jumping (the commit box going from one line to two, a note gaining a line). Only height animates: widths keep
@@ -340,7 +340,7 @@ const growRO = new ResizeObserver(entries => {
   for (const p of sized) {
     if (Math.abs(p.to - p.from) < 1 || !p.onScreen || budget <= 0) { growState.set(p.el, { w: p.w, h: p.to }); continue; }
     budget--;
-    const anim = p.el.animate([{ ...frame, height: `${p.from}px` }, { ...frame, height: `${p.to}px` }], { duration: 220, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    const anim = p.el.animate([{ ...frame, height: `${p.from}px` }, { ...frame, height: `${p.to}px` }], { duration: 330, easing: SPRING });
     growState.set(p.el, { w: p.w, h: p.to, anim });
   }
 });
@@ -413,7 +413,7 @@ function syncBoxPromptHl(grow = false): void {
     boxPromptAnim?.cancel();
     fitBoxPrompt();
     const toH = ta.offsetHeight;
-    if (Math.abs(toH - fromH) >= 1) boxPromptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    if (Math.abs(toH - fromH) >= 1) boxPromptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 300, easing: SPRING });
   }
   boxPromptHl.innerHTML = mentionHtml(ta.value, false) + (ta.value.endsWith('\n') ? ' ' : '');
   boxPromptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`;

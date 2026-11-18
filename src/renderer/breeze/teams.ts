@@ -674,7 +674,7 @@ function endQuestion(card: Element | null | undefined, how: string): void {
   const to = box.offsetHeight;
   if (!from || from === to || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   box.style.overflow = 'hidden';
-  box.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 350, easing: 'cubic-bezier(.32, .72, 0, 1)' }).onfinish = () => box.style.overflow = '';
+  box.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 525, easing: SPRING }).onfinish = () => box.style.overflow = '';
   done.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'cubic-bezier(.2, .8, .2, 1)' });
 }
 

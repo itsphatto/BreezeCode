@@ -43,8 +43,8 @@ function slideSelected(el: HTMLElement | null, from: DOMRect | undefined): void 
   const on = getComputedStyle(el);
   const plainRow = [...list.children].find(c => c !== el && c.classList.contains(el.classList[0]) && !c.classList.contains('missing'));
   const plain = plainRow ? getComputedStyle(plainRow) : null;
-  const ease = 'cubic-bezier(.32, .72, 0, 1)';
-  const ms = 340;
+  const ease = SPRING;
+  const ms = 510;
   const glide = document.createElement('div');
   glide.className = 'select-glide';
   Object.assign(glide.style, {
@@ -190,7 +190,7 @@ function morphTooltip(el: HTMLElement, text: string): void {
   el.textContent = text;
   const to = el.getBoundingClientRect();
   el.getAnimations().forEach(a => { if (a.id === 'tip') a.cancel(); });
-  const size = el.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], { duration: 260, easing: 'cubic-bezier(.32, .72, 0, 1)' });
+  const size = el.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], { duration: 390, easing: SPRING });
   size.id = 'tip';
   const fade = el.animate([{ color: 'transparent', filter: 'blur(2px)' }, { color: '#f5f5f7', filter: 'blur(0)' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
   fade.id = 'tip';

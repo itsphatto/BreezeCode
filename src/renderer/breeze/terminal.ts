@@ -172,7 +172,7 @@ function closeTermSession(id: number, e?: MouseEvent): void {
 
   // The closed terminal's output fades and sinks away first, then the next one fades up in its place.
   const shown = wasActive && pane && pane.offsetParent !== null;
-  const out = shown ? pane.animate([{ opacity: 1, transform: 'none', filter: 'blur(0)' }, { opacity: 0, transform: 'translateY(6px)', filter: 'blur(2px)' }], { duration: 170, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' }) : null;
+  const out = shown ? pane.animate([{ opacity: 1, transform: 'none', filter: 'blur(0)' }, { opacity: 0, transform: 'translateY(6px)', filter: 'blur(2px)' }], { duration: 170, easing: SPRING, fill: 'forwards' }) : null;
   let done = false;
   const finish = () => {
     if (done) return;
@@ -184,7 +184,7 @@ function closeTermSession(id: number, e?: MouseEvent): void {
     } else if (wasActive) {
       const next = termSessions[Math.min(idx, termSessions.length - 1)];
       activateTermSession(next.id);
-      if (shown) next.paneEl?.animate([{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+      if (shown) next.paneEl?.animate([{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }], { duration: 330, easing: SPRING });
     }
   };
   if (out) { out.finished.then(finish, finish); setTimeout(finish, 260); } else finish(); // a hidden window pauses animations
@@ -200,7 +200,7 @@ function closeBlankTerms(): void {
   for (const s of termSessions.filter(s => s !== activeTermSession && termBlank(s))) closeTermSession(s.id);
 }
 
-const TERM_TAB_ANIM_MS = 220;
+const TERM_TAB_ANIM_MS = 330;
 // Same X as the agent tabs' close button
 const TAB_CLOSE_SVG = '<svg class="tab-close-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 

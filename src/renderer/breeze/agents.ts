@@ -544,7 +544,7 @@ function closeAgentTab(s: Surface, tid: string): void {
       finalize();
     };
     tabEl.addEventListener('transitionend', onEnd, { once: true });
-    setTimeout(onEnd, 220);
+    setTimeout(onEnd, 330);
   } else {
     finalize();
   }
@@ -773,12 +773,12 @@ function blurSwap(el: HTMLElement, text: string): void {
   el.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); });
   // Power saver: the same swap as a plain fade; a blur is re-filtered on every frame of it.
   const soft = powerSaver() ? 'blur(0)' : 'blur(6px)';
-  const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: soft, transform: 'translateY(-3px)' }], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: soft, transform: 'translateY(-3px)' }], { duration: 220, easing: SPRING, fill: 'forwards' });
   out.id = 'blurSwap';
   out.onfinish = () => {
     el.textContent = text;
     out.cancel();
-    const into = el.animate([{ opacity: 0, filter: soft, transform: 'translateY(3px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    const into = el.animate([{ opacity: 0, filter: soft, transform: 'translateY(3px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 420, easing: SPRING });
     into.id = 'blurSwap';
   };
 }
