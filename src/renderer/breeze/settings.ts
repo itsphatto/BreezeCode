@@ -875,7 +875,7 @@ function settingsBody(tab: SettingsTab): string {
     case 'general': return `<h4>General</h4>
       ${accountHtml()}
       <h5>Preferences</h5>
-      ${settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode))}
+      ${''/* Breeze Space removed (2026-11-18), kept commented for now: settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode)) */}
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
       ${settingRow('Performance', powerNote(), segHtml('sPower', [['auto', 'Auto'], ['on', 'Always on'], ['off', 'Off']], powerInfo.mode))}
       <h5>Editor</h5>

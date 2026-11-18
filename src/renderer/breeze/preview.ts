@@ -140,7 +140,7 @@ frame.addEventListener('load', sendPreviewInspect);
 // A right click in hover mode posts the element under it; Breeze offers to edit it right in the page, show it in the
 // source, or ask the agent about it. A click or Escape in the page posts 'dismiss' (Breeze sees no clicks in there).
 type InspectedEl = { tag: string; id: string; classes: string[]; text: string; index: number };
-type InspectedChange = { from: string; to: string };
+type InspectedChange = { from: string; to: string; nth?: number };
 // The page sends the element and its ancestors, innermost first, so Breeze can fall back to one the source really has.
 const inspectedChain = (v: unknown): InspectedEl[] | null =>
   Array.isArray(v) && v.length && v.every(x => typeof x?.tag === 'string') ? v as InspectedEl[] : null;
@@ -157,7 +157,7 @@ addEventListener('message', e => {
   else if (kind === 'edit-failed') { toast('Only text changes can be saved from the preview'); void reloadPreview(); }
   else if (kind === 'edit') {
     const chain = inspectedChain(d?.chain);
-    const changes = Array.isArray(d?.changes) && d.changes.every(c => typeof c?.from === 'string' && typeof c?.to === 'string') ? d.changes as InspectedChange[] : null;
+    const changes = Array.isArray(d?.changes) && d.changes.every(c => typeof c?.from === 'string' && typeof c?.to === 'string' && (c.nth === undefined || Number.isInteger(c.nth))) ? d.changes as InspectedChange[] : null;
     if (chain && changes) queuePreviewEdit(() => saveInspectedEdit(chain, changes));
   } else if (kind === 'menu' && typeof d?.seq === 'number' && typeof d.x === 'number' && typeof d.y === 'number' && typeof d.el?.tag === 'string') {
     const el = d.el, chain = inspectedChain(d.chain) ?? [el], seq = d.seq, x = d.x, y = d.y, r = frame.getBoundingClientRect();
@@ -173,8 +173,10 @@ addEventListener('message', e => {
   }
 });
 // The page makes the element's text editable where the right click was; focus has to move into the frame first.
+// A Markdown file's rendered page edits the same way; the words are written back into the Markdown (applyMdEdit).
+const isMdPage = (p: string | null): boolean => !!p && /\.(md|markdown)$/i.test(p);
 function editInPreview(x: number, y: number): void {
-  if (!previewPath || !/\.html?$/i.test(previewPath)) { toast('Editing in the preview works on HTML pages'); return; }
+  if (!previewPath || !/\.(html?|md|markdown)$/i.test(previewPath)) { toast('Editing in the preview works on HTML and Markdown pages'); return; }
   frame.focus();
   frame.contentWindow?.postMessage({ breezeInspector: 'edit', x, y }, '*');
 }
@@ -290,9 +292,9 @@ function queuePreviewEdit(run: () => Promise<void>): void {
 }
 async function saveInspectedEdit(chain: InspectedEl[], changes: InspectedChange[]): Promise<void> {
   const path = previewPath;
-  if (!path || !/\.html?$/i.test(path)) return;
+  if (!path || !/\.(html?|md|markdown)$/i.test(path)) return;
   const src = await readPreviewSource(path);
-  const next = src && applyInspectedEdit(src.text, chain, changes);
+  const next = src && (isMdPage(path) ? applyMdEdit(src.text, changes) : applyInspectedEdit(src.text, chain, changes));
   if (!src || next == null) { toast(`Couldn't find that text in ${baseName(path)}`); void reloadPreview(); return; }
   if (!(await writePreviewSource(path, src, next, false))) { void reloadPreview(); return; }
   previewUndo.push({ path, before: src.text, after: next });
@@ -315,8 +317,12 @@ async function stepPreviewEdit(undo: boolean): Promise<void> {
 async function showInspectedSource(chain: InspectedEl[]): Promise<void> {
   const path = previewPath;
   if (!path) return;
-  const b = /\.html?$/i.test(path) ? await loadBuffer(path) : null;
-  const at = b ? findInspectedSource(b.text, chain) : null;
+  const b = /\.(html?|md|markdown)$/i.test(path) ? await loadBuffer(path) : null;
+  let at: Spot | null = null;
+  if (b && isMdPage(path)) {
+    const line = mdSourceLine(b.text, chain[0].text ?? '');
+    at = line == null ? null : { line, col: 0, len: 0 };
+  } else if (b) at = findInspectedSource(b.text, chain);
   if (b && !at) toast(`Couldn't find that ${chain[0].tag} in ${baseName(path)}`);
   openFile(path, at ?? undefined);
 }

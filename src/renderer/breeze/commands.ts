@@ -197,7 +197,8 @@ const commands: Record<string, () => unknown> = {
   'sync.pull': confirmPull,
   'sync.open': () => openCloudWorkspaces(),
   'mode.ide': () => enterMode('ide'),
-  'mode.box': () => enterMode('box'),
+  // Breeze Space removed (2026-11-18), kept commented for now: 'mode.box': () => enterMode('box'),
+  'mode.box': () => openBoard(), // old bindings and saved settings land on the Agent Board
   'help.about': showAbout,
 };
 function showAbout(): void {
@@ -463,7 +464,9 @@ const MENUS: Menu[] = [
       { sep: true },
       { label: 'Home', act: 'app.home' },
       { label: 'Breeze Code', act: 'mode.ide', checked: () => appState.mode === 'ide' },
-      { label: 'Breeze Space', act: 'mode.box', checked: () => appState.mode === 'box' },
+      // Breeze Space removed (2026-11-18), kept commented for now:
+      // { label: 'Breeze Space', act: 'mode.box', checked: () => appState.mode === 'box' },
+      { label: 'Agent Board', act: 'view.board' },
       { sep: true },
       { label: 'Sync Workspace', act: 'sync.run', enabled: () => !!user && !!rootInfo },
       { label: 'Open Cloud Workspace', act: 'sync.open', enabled: () => !!user },

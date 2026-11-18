@@ -12159,6 +12159,92 @@ body.layout-animating .box > .terminal.open {
   white-space: nowrap;
 }
 
+/* ----- The title bars' Code / Agent Board switcher (views.ts): a pill of two icon halves. The lit half sits on a
+   thumb that slides across when the other half is pressed; the screen it opens has its own switcher, lit to match. ----- */
+.mode-switch {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 8px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-3);
+  -webkit-app-region: no-drag;
+}
+
+.mode-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 30px;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  opacity: 0;
+  transition: translate .26s cubic-bezier(.16, 1, .3, 1), opacity .15s ease;
+}
+
+.mode-switch[data-on]::before {
+  opacity: 1;
+}
+
+.mode-switch[data-on="board"]::before {
+  translate: 32px 0;
+}
+
+.msw-seg {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  transition: color .15s ease, background-color .15s ease;
+}
+
+.msw-seg:hover:not(.on) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.msw-seg.on {
+  color: var(--text);
+}
+
+.msw-seg:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+/* The default agent's logo in black and white: grey, a little contrast so marks inside it (Codex's prompt) still read,
+   dimmed like the line icon until its half is lit. */
+.msw-agent {
+  display: grid;
+  width: 15px;
+  height: 15px;
+}
+
+.msw-agent img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: grayscale(1) contrast(1.15);
+  opacity: .62;
+  transition: opacity .15s ease;
+}
+
+.msw-seg:is(.on, :hover) .msw-agent img {
+  opacity: 1;
+}
+
 /* Hovered, it shows Breeze Space's own sky behind the label: the page's gradient (.box), with stars and dust (space.ts). */
 .space-btn::before,
 .space-btn-sky {
@@ -19816,11 +19902,71 @@ input.dbg-edit.bad:focus-visible {
 
 .board-main {
   --gap: 6px;
+  --board-side-w: 240px;
   position: relative; /* the handles between boxes (.board-sashes) are placed over the grid */
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 44px var(--board-side-w) minmax(0, 1fr);
   min-height: 0;
   padding: var(--gap) var(--gap) var(--gap) 0;
+  transition: grid-template-columns .32s cubic-bezier(.32, .72, 0, 1);
+}
+
+.board.side-closed .board-main {
+  grid-template-columns: 44px 0 minmax(0, 1fr);
+}
+
+/* ----- The chats side bar: Breeze Space's (New chat, Search, chats by folder) on the board's plain background.
+   Its rows are Space's own (.box-side-*); a chat can be dragged onto a box (board.ts). ----- */
+.board-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 8px 8px 4px;
+  overflow: hidden;
+  transition: opacity .2s ease;
+}
+
+.board-side > * {
+  min-width: calc(var(--board-side-w) - 12px);
+}
+
+.board.side-closed .board-side {
+  padding-inline: 0;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.board:not(.side-closed) .board-side-show {
+  display: none;
+}
+
+.board-side-show {
+  -webkit-app-region: no-drag;
+}
+
+.board-side :is(.box-side-row, .box-side-chat)::before {
+  inset: 2px 0;
+}
+
+.board-side :is(.box-side-chat.on, .box-side-search)::before {
+  opacity: 1;
+  transform: none;
+}
+
+.board-side .box-side-chat {
+  cursor: grab;
+}
+
+.board-side .box-side-chat:active {
+  cursor: grabbing;
+}
+
+/* A chat whose box is working shows the blue dot in place of its time. */
+.board-side .box-side-chat:not(.busy) .box-side-busy,
+.board-side .box-side-chat.busy .ago {
+  display: none;
 }
 
 /* Columns and rows come from the number of boxes (layoutBoard, board.ts): 1 fills the page, 2 split it, 3 is one tall

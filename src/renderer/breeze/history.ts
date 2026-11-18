@@ -26,6 +26,8 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   const list = [entry, ...old.filter(e => e.id !== id)].filter(e => (bytes += e.html.length) < HISTORY_BYTES).slice(0, HISTORY_MAX);
   store.set(historyKey(s), list);
   if (s.name === 'box') renderBoxSide();
+  // The Agent Board's side bar lists this folder's chats (and Space's old ones).
+  else if (typeof renderBoardSide === 'function' && boardPageShowing()) renderBoardSide();
 }
 
 function archiveChat(s: Surface): void {
