@@ -658,25 +658,81 @@ function thinkingLabel(k: AgentKey, agentId?: string | null): string {
   return msgSurface.name === 'box' || !task ? `${who} is thinking` : `${who} · ${task}`;
 }
 
+/* While an agent works, a "Thinking 2.0s" header (with that agent's logo) opens into the steps it has gone through,
+   each with how long it took. Tool calls are listed there too. The open/closed choice is remembered. */
+const THINK_OPEN_KEY = 'breeze.thinkOpen';
+const thinkOpen = (): boolean => { try { return localStorage.getItem(THINK_OPEN_KEY) !== '0'; } catch { return true; } };
+const thinkStarts = new WeakMap<HTMLElement, { start: number; step: number }>();
+const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+
+// "Claude is planning the steps" → "Planning the steps"; "Claude · Writing code" → "Writing code".
+function stepText(label: string, who: string): string {
+  let s = label;
+  for (const pre of [`${who} is `, `${who} · `]) if (s.startsWith(pre)) s = s.slice(pre.length);
+  if (s === 'thinking') return '';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function tickThinking(el: HTMLElement): void {
+  const st = thinkStarts.get(el);
+  if (!st) return;
+  const now = Date.now();
+  const time = $('.think-time', el);
+  if (time) time.textContent = secs(now - st.start);
+  const live = el.querySelector<HTMLElement>('.think-step.live .ts-time');
+  if (live) live.textContent = secs(now - st.step);
+}
+
+function thinkStep(el: HTMLElement, icon: string, text: string): void {
+  const list = $('.think-steps', el);
+  const st = thinkStarts.get(el);
+  if (!list || !st || !text) return;
+  const prev = list.lastElementChild as HTMLElement | null;
+  if (prev?.classList.contains('live') && $('.ts-lbl', prev)?.textContent === text) return;
+  const now = Date.now();
+  if (prev?.classList.contains('live')) {
+    prev.classList.remove('live');
+    const t = $('.ts-time', prev);
+    if (t) t.textContent = secs(now - st.step);
+  }
+  st.step = now;
+  list.insertAdjacentHTML('beforeend', `<li class="think-step live"><span class="ti">${svgIcon(icon, 13)}</span><span class="ts-lbl">${esc(text)}</span><span class="ts-time">0.0s</span></li>`);
+}
+
 function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabState, agentId?: string | null): void {
   const t = tab || getActiveTab(msgSurface);
   let el = t.panel.querySelector<HTMLElement>('.thinking');
+  const { name, letter, tint } = speaker(k, agentId);
   if (!el) {
     el = document.createElement('div');
     el.className = 'thinking';
+    if (!thinkOpen()) el.classList.add('collapsed');
     el.setAttribute('role', 'status');
-    el.innerHTML = '<span class="avatar mini"></span><span class="lbl"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+    el.innerHTML = `<button type="button" class="think-head" aria-expanded="${thinkOpen()}"><span class="avatar mini"></span><span class="lbl">Thinking</span><span class="think-time">0.0s</span><span class="think-chev" aria-hidden="true">${svgIcon('chevronDown', 12)}</span></button><ol class="think-steps"></ol>`;
     t.panel.appendChild(el);
+    const now = Date.now();
+    thinkStarts.set(el, { start: now, step: now });
+    const box = el;
+    const timer = setInterval(() => { if (!box.isConnected) { clearInterval(timer); return; } tickThinking(box); }, 100);
     sfx.play('think');
     humWhileThinking();
-    if (t.id === activeTabId[t.surfaceName]) scrollChat(SURFACES[t.surfaceName]);
   }
-  const { letter, tint } = speaker(k, agentId);
   const avatar = $('.avatar', el);
   if (avatar) avatar.outerHTML = brandMark('avatar mini', tint, letter);
-  const lbl = $('.lbl', el);
-  if (lbl) swapText(lbl, label);
+  const head = $('.think-head', el);
+  if (head) head.title = `${name} is thinking`;
+  thinkStep(el, 'dot', stepText(label, name));
+  if (t.id === activeTabId[t.surfaceName]) scrollChat(SURFACES[t.surfaceName]);
 }
+
+document.addEventListener('click', e => {
+  const head = (e.target as HTMLElement).closest<HTMLElement>('.thinking .think-head');
+  const el = head?.parentElement;
+  if (!head || !el) return;
+  const open = el.classList.toggle('collapsed') === false;
+  head.setAttribute('aria-expanded', String(open));
+  try { localStorage.setItem(THINK_OPEN_KEY, open ? '1' : '0'); } catch { /* private window: just this time */ }
+});
 
 // A quiet murmur every couple of seconds for as long as any agent is still thinking (or writing a commit message).
 let thinkingHum: TimeoutId | undefined;
@@ -908,6 +964,8 @@ document.addEventListener('click', e => {
 const TOOL_ICON: Record<string, string> = { read: 'eye', edit: 'pencil', run: 'terminal', search: 'search', web: 'globe', todo: 'todo', agent: 'diamond', tool: 'dot', note: 'info' };
 function toolLine(kind: string, label: string, tab?: AgentTabState): void {
   sfx.play('tool');
+  const thinking = (tab || getActiveTab(msgSurface)).panel.querySelector<HTMLElement>('.thinking');
+  if (thinking) thinkStep(thinking, TOOL_ICON[kind] ?? 'dot', label);
   addMsg(`<div class="tool-line ${kind}"><span class="ti">${svgIcon(TOOL_ICON[kind] ?? 'dot', 14)}</span><span class="tl">${esc(label)}</span></div>`, tab);
 }
 
