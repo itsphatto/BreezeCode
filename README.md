@@ -29,8 +29,6 @@ and you see every file it reads, every edit and every command while it works.
 
 <img src="docs/screenshots/hero.jpg" alt="Breeze Code with app.js open. Claude is editing it in the agents panel on the right, and the files it is working on are tagged Builder in the explorer" width="100%">
 
-<sub>Claude adding a search box to a small project. The files it's editing are tagged in the explorer, and each step shows in the chat.</sub>
-
 </div>
 
 <br>
