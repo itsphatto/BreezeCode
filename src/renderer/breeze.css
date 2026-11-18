@@ -9469,7 +9469,7 @@ body.vibing .ide {
   position: sticky;
   bottom: 0;
   z-index: 5;
-  padding: 1.1em 0 12px;
+  padding: 1.1em 0 28px;
   background: linear-gradient(transparent, var(--bg-1) .8em);
 }
 
@@ -13960,6 +13960,28 @@ body.layout-animating #previewPane {
   display: inline-block;
   background: var(--blue);
   animation: tabDotBreathe 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* The agent asked something (a question, a command to OK, a plan): the dot flashes until it is answered. */
+.agent-tab.needs-you .tab-status {
+  display: inline-block;
+  background: var(--blue);
+  animation: needsYouFlash 1s steps(1, end) infinite;
+}
+
+.needs-you-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--blue);
+  animation: needsYouFlash 1s steps(1, end) infinite;
+}
+
+@keyframes needsYouFlash {
+  0% { opacity: 1; box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 30%, transparent); }
+  50% { opacity: .2; box-shadow: none; }
 }
 
 /* A visible pulse with a ring that spreads out: scaling a 6px dot by 5% read as a frozen dot. */
@@ -20154,6 +20176,11 @@ input.dbg-edit.bad:focus-visible {
   cursor: grabbing;
 }
 
+/* The flashing "needs you" dot shows only on a chat whose box is working out of sight and asked something. */
+.board-side .box-side-chat:not(.needs-you) .needs-you-dot {
+  display: none;
+}
+
 /* A chat whose box is working shows the blue dot in place of its time. */
 .board-side .box-side-chat:not(.busy) .box-side-busy,
 .board-side .box-side-chat.busy .ago {
@@ -20540,8 +20567,8 @@ input.dbg-edit.bad:focus-visible {
   }
 }
 
-/* The box agent's plan limit, beside its model: amber when it is nearly used up. */
-.board-box-limit {
+/* How full the box's chat is (its context window), beside its model: amber from 80%. */
+.board-box-ctx {
   flex: none;
   padding: 1px 6px;
   border-radius: 6px;
@@ -20552,8 +20579,78 @@ input.dbg-edit.bad:focus-visible {
   cursor: default;
 }
 
-.board-box-limit.low {
+.board-box-ctx.low {
   color: var(--warn);
+}
+
+/* The side panel shows one view at a time (board.ts paintBoardLive): the file the agent is editing, the box's
+   terminal or a preview of the project's page. Terminal and preview keep the panel open when there's no code. */
+.board-box.live-on .board-live.closed {
+  width: var(--live-w);
+  opacity: 1;
+  visibility: visible;
+  border-left-color: var(--line);
+}
+
+.board-live:not([data-view="code"]) > :is(.box-live-head, .box-live-body),
+.board-live:not([data-view="term"]) > .board-term,
+.board-live:not([data-view="preview"]) > .board-preview {
+  display: none;
+}
+
+.board-term,
+.board-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.board-side-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.board-preview .preview-bar {
+  height: auto;
+  background: none;
+}
+
+/* The terminal fills the panel; the IDE's own sets its height from the layout. */
+.board-term-body {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  border-top: 0;
+  transition: none;
+}
+
+.board-preview .preview-frame {
+  flex: 1;
+  min-height: 0;
+}
+
+.board-preview .bp-empty {
+  min-height: 0;
+}
+
+/* Fullscreen (preview.ts): the pane moves to <body> and covers the window, under menus (70) and toasts (80). */
+body > .board-preview.full {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  width: auto;
+  background: var(--bg);
+}
+
+.board-box-term[aria-pressed="true"],
+.board-box-preview[aria-pressed="true"] {
+  color: var(--blue-text);
 }
 
 .board-box-code[aria-pressed="true"] {
@@ -21148,7 +21245,7 @@ input.dbg-edit.bad:focus-visible {
 :root[data-power="saver"] .feed-connect { background: rgba(0, 0, 0, .7); }
 :root[data-power="saver"] .drag-file-ghost { background: var(--bg-3); }
 /* Kept turning: they say "working" or "type here", and cost a few pixels each. */
-:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .composer-box.busy::after, .agent-tab.running .tab-status) {
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot) {
   animation-iteration-count: infinite !important;
 }
 /* The welcome and launch sky's drifting light repaints the whole window behind everything. */

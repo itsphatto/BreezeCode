@@ -724,7 +724,7 @@ async function typeOut(b: EditorBuffer, after: string): Promise<boolean> {
     if (++frames % 3 === 0) sfx.play('key');
     await sleepMs(16);
   }
-  if (running && previewPath && /\.(html?|css|js|md|markdown)$/i.test(b.path)) autoReloadPreview();
+  if (idePreview.running && idePreview.path && /\.(html?|css|js|md|markdown)$/i.test(b.path)) autoReloadPreview();
   return true;
 }
 // Replaces the buffer's text as saved on disk, keeping the person's caret where it was.

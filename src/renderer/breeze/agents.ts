@@ -184,6 +184,17 @@ const createdTabIds = new Set<string>();
 function tabBusy(t: AgentTabState): boolean {
   return t.runId != null || (t.agentTeam?.pending ?? 0) > 0 || agenticTabBusy(t); // an agentic task in it: agentmode.ts
 }
+// The chat is waiting on the person: a question, a command to OK or a plan to approve that nobody has answered yet.
+// A run that ended leaves its command and question cards behind, so only a plan card counts once nothing is running.
+function tabNeedsYou(t: AgentTabState): boolean {
+  if (t.panel.querySelector('.card.plan:not(.question) [data-live]')) return true;
+  return tabBusy(t) && !!t.panel.querySelector('.card [data-live]');
+}
+// Repaints the tab strip (and Breeze Space's side bar) so a chat's "needs you" dot comes and goes.
+function refreshNeedsYou(tab: AgentTabState): void {
+  if (isBoardSurface(tab.surfaceName)) { if (typeof paintBoardTabRow === 'function') paintBoardTabRow(tab); return; }
+  if (surfaceTabs[tab.surfaceName]?.includes(tab)) renderAgentTabs(SURFACES[tab.surfaceName]);
+}
 function hasAnyActiveRun(): boolean {
   for (const list of Object.values(surfaceTabs)) {
     if (list.some(tabBusy)) return true;
@@ -303,12 +314,13 @@ function renderAgentTabs(s: Surface): void {
   list.forEach(t => {
     const isActive = t.id === curId;
     const isRunning = tabBusy(t);
+    const needsYou = tabNeedsYou(t);
     let el = tabsList.querySelector<HTMLElement>(`[data-agent-tab="${t.id}"]`);
 
     if (!el) {
       const newEl = document.createElement('div');
       newEl.dataset.agentTab = t.id;
-      newEl.className = `agent-tab ${isActive ? 'active' : ''} ${isRunning ? 'running' : 'idle'} ${isMulti ? 'closable' : 'single'}`;
+      newEl.className = `agent-tab ${isActive ? 'active' : ''} ${isRunning ? 'running' : 'idle'} ${isMulti ? 'closable' : 'single'}${needsYou ? ' needs-you' : ''}`;
       newEl.innerHTML = `
         <span class="tab-status" aria-hidden="true"></span>
         <span class="tab-title">${esc(t.title)}</span>
@@ -356,6 +368,7 @@ function renderAgentTabs(s: Surface): void {
       el.classList.toggle('active', isActive);
       el.classList.toggle('running', isRunning);
       el.classList.toggle('idle', !isRunning);
+      el.classList.toggle('needs-you', needsYou);
       el.classList.remove('unread');
       el.classList.toggle('closable', isMulti);
       el.classList.toggle('single', !isMulti);
@@ -367,7 +380,7 @@ function renderAgentTabs(s: Surface): void {
       }
       const statusSpan = el.querySelector<HTMLElement>('.tab-status');
       if (statusSpan) {
-        statusSpan.title = isRunning ? 'Working' : '';
+        statusSpan.title = needsYou ? 'Needs you' : isRunning ? 'Working' : '';
       }
       // Moved only when out of place: moving it would take focus from a name being typed in it.
       const want = prev ? prev.nextElementSibling : tabsList.firstElementChild;

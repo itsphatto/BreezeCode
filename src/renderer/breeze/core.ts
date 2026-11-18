@@ -33,7 +33,7 @@ interface TestFailure { name: string; error: string; file?: string; line?: numbe
 // An agent's question for the user (the 'question' event) and what its card sends back; null means skipped.
 interface AskOption { label: string; description?: string; }
 interface AskReply { picked: string[]; other: string; }
-interface AgentEvent { t: 'session' | 'approve' | 'question' | 'question-end' | 'image' | 'tests' | 'draft' | 'opening' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done' | 'relay' | 'written' | 'refused'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; written?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; from?: string; to?: string; diff?: string; note?: string; question?: string; options?: AskOption[]; multiSelect?: boolean; plan?: string; name?: string; caption?: string; runner?: string; passed?: number; failed?: number; skippedCount?: number; failures?: TestFailure[]; }
+interface AgentEvent { t: 'session' | 'approve' | 'question' | 'question-end' | 'image' | 'tests' | 'draft' | 'opening' | 'text' | 'plan' | 'tool' | 'file' | 'note' | 'error' | 'done' | 'auth' | 'auth-required' | 'crossing' | 'team-done' | 'relay' | 'written' | 'refused' | 'ctx'; id?: string; model?: string; text?: string; kind?: string; label?: string; path?: string; hint?: string; ok?: boolean; stopped?: boolean; cost?: number; ms?: number; tokens?: number; url?: string; command?: string; agent?: string; owner?: string; blocked?: boolean; created?: boolean; written?: boolean; error?: string; teamId?: string; changed?: string[]; notes?: Record<string, Record<string, string>>; skipped?: string[]; from?: string; to?: string; diff?: string; note?: string; question?: string; options?: AskOption[]; multiSelect?: boolean; plan?: string; name?: string; caption?: string; runner?: string; passed?: number; failed?: number; skippedCount?: number; failures?: TestFailure[]; used?: number; window?: number; }
 // Agent teams: one prompt, several agents building in parallel (main process: team.js).
 // Skills view (main/skills.js): a skill is a folder with a SKILL.md; `id` is that folder.
 interface AgentSkill { id: string; file: string; folder: string; name: string; description: string; agent: string; scope: 'user' | 'plugin' | 'synced' | 'builtin'; removable: boolean; plugin?: string; agents?: string[]; }
@@ -299,7 +299,7 @@ interface BreezeApi {
   };
   term: {
     cwd(): Promise<string>;
-    run(command: string): Promise<{ id?: number; cwd?: string; error?: string }>;
+    run(command: string, cwd?: string): Promise<{ id?: number; cwd?: string; error?: string }>;
     kill(id: number): Promise<void>;
     write(id: number, text: string): Promise<void>;
     complete(word: string): Promise<Completion[]>;

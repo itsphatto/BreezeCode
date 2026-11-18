@@ -22,14 +22,26 @@ interface BoardBox {
   live: LivePane;          // the file its agent is editing, at its left while the bar's Code switch is on (paintBoardLive)
   liveHidden?: boolean;    // the person closed that panel; the header's code button opens it again
   liveFrac?: number;       // its width as a share of the box, once dragged (paintLiveWidth)
+  side?: BoxSide;          // the side panel shows its terminal or a page preview instead of the code (paintBoardLive)
+  term?: BoxTerminal;      // made the first time its terminal opens
+  preview?: PreviewView;   // made the first time its preview opens
+  ctx?: BoxContext;        // how full its chat's context window was after the last request (paintBoxContext)
 }
+type BoxSide = 'term' | 'preview';
+interface BoxContext { used: number; window: number }
 const boxBusy = (b: BoardBox) => tabBusy(b.tab) || !!b.starting;
 const stoppedRuns = new Set<number>(); // runs the person stopped: their late relays and replies are dropped
 // `order`: the boxes' order on the page, when a chat dropped on a box's side put one out of number order.
-interface BoardSaved { boxes: Record<string, { agent: string; historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number }>; order?: string[] }
+interface BoardSaved { boxes: Record<string, { agent: string; historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number; side?: BoxSide; ctx?: BoxContext }>; order?: string[] }
 
 const BOARD_MAX = 8;
 const boardBoxes = new Map<string, BoardBox>();
+// Boxes taken off the board while their agent was still working (New chat, or another chat opened alone): they keep
+// running out of sight, keep their key (so main's ownership and relays stay theirs), and close once their run ends.
+// Clicking the chat in the side bar puts the box back on the board.
+const parkedBoxes = new Map<string, BoardBox>();
+const allBoardBoxes = () => [...boardBoxes.values(), ...parkedBoxes.values()];
+const anyBox = (key: string) => boardBoxes.get(key) ?? parkedBoxes.get(key);
 const boardGrid = $('#boardGrid');
 // swapScreen lights the board button the moment the page is chosen; #board's own classes lag behind the cross-fade.
 const boardPageShowing = () => $('#boardBtn').classList.contains('on');
@@ -126,7 +138,7 @@ $('#boardRoster').addEventListener('keydown', e => {
 /* ----- The grid: only the filled boxes, laid out for how many there are (boardlayout.ts) ----- */
 // No agent yet: one empty box fills the page. While a chip is dragged, an empty spot opens where it would land.
 const allBoxKeys = () => Array.from({ length: BOARD_MAX }, (_, i) => `box${i + 1}`);
-const firstFreeKey = () => allBoxKeys().find(k => !boardBoxes.has(k));
+const firstFreeKey = () => allBoxKeys().find(k => !boardBoxes.has(k) && !parkedBoxes.has(k));
 let boardDragging = false;
 function endBoardDrag(): void {
   boardGrid.classList.remove('dragging');
@@ -176,21 +188,98 @@ function renderBoard(): void {
 // It takes up to half the box (breeze.css sizes it by the box's width). Settings → Agents → Agent Board → Code turns the panel on or off for every box (remembered); each box's code button hides its own.
 const CODE_KEY = 'breeze.board.code';
 let boardCodeOn = store.get<boolean>(CODE_KEY, true);
+// The same panel shows the box's own terminal or a preview of the project's page instead, while one of the header's
+// buttons for them is on (box.side); turning it off brings the code back (or closes the panel, with no code to show).
 function paintBoardLive(): void {
   for (const b of boardBoxes.values()) {
     const has = !!b.live.path;
     const was = b.el.classList.contains('live-on');
-    const on = boardCodeOn && has && !b.liveHidden;
+    const code = !b.side && boardCodeOn && has && !b.liveHidden;
+    const on = code || !!b.side;
     b.el.classList.toggle('live-on', on);
+    $('.board-live', b.el).dataset.view = b.side ?? 'code';
     const btn = $('.board-box-code', b.el);
     btn.classList.toggle('hidden', !boardCodeOn || !has);
-    btn.setAttribute('aria-pressed', String(on));
-    const label = on ? 'Hide the file the agent is editing' : 'Show the file the agent is editing';
+    btn.setAttribute('aria-pressed', String(code));
+    const label = code ? 'Hide the file the agent is editing' : 'Show the file the agent is editing';
     btn.title = label;
     btn.setAttribute('aria-label', label);
-    if (on && !was) requestAnimationFrame(() => b.live.reveal());
+    for (const [cls, view, name] of [['.board-box-term', 'term', 'a terminal'], ['.board-box-preview', 'preview', 'a preview of the page']] as const) {
+      const v = $(cls, b.el), lit = b.side === view;
+      v.setAttribute('aria-pressed', String(lit));
+      v.title = lit ? `Hide ${name}` : `Show ${name} beside the chat`;
+      v.setAttribute('aria-label', v.title);
+    }
+    if (code && !was) requestAnimationFrame(() => b.live.reveal());
   }
 }
+// The header's code, terminal and preview buttons pick what the side panel shows; the one already showing closes it.
+function showBoxSide(box: BoardBox, view: BoxSide | 'code'): void {
+  const showing = box.el.classList.contains('live-on') ? (box.side ?? 'code') : null;
+  if (showing === view) {
+    // Off: a terminal or preview hands the panel back to the code, unless that was hidden.
+    if (view === 'code') box.liveHidden = true;
+    box.side = undefined;
+  } else if (view === 'code') {
+    box.side = undefined;
+    box.liveHidden = false;
+  } else {
+    box.side = view;
+    openBoxSide(box, view);
+  }
+  paintBoardLive();
+  saveBoard();
+  if (box.side === 'term') requestAnimationFrame(() => box.term?.focus());
+}
+// Makes the box's terminal or preview the first time it is shown; a preview starts on the project's page.
+function openBoxSide(box: BoardBox, view: BoxSide): void {
+  const pane = $('.board-live', box.el);
+  if (view === 'term' && !box.term) {
+    box.term = new BoxTerminal(rootInfo?.root ?? '');
+    pane.append(box.term.root);
+  }
+  if (view === 'preview' && !box.preview) {
+    const root = $('.board-preview', pane);
+    const preview = box.preview = new PreviewView({
+      root,
+      frame: $<HTMLIFrameElement>('.preview-frame', root),
+      url: $('.url', root),
+      urlText: $('.bp-url-text', root),
+      inspect: $<HTMLButtonElement>('.bp-inspect', root),
+      full: $<HTMLButtonElement>('.bp-full', root),
+      empty: $('.bp-empty', root),
+      hint: $('.bp-hint', root),
+    }, {
+      target: () => boxPreviewTarget(box),
+      ask: text => {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        insertAtPrompt(box.surface.prompt, text);
+      },
+      openSource: (path, at) => {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        leaveBoard();
+        openFile(path, at);
+      },
+      detachFull: true,
+    });
+    $('.bp-reload', root).onclick = () => void (preview.running ? preview.reload() : preview.start());
+    preview.render();
+    void preview.start();
+  }
+}
+// The page a box previews: the page its agent last touched, else the project's index.html, else the first page found
+// (an index.html in a folder before any other).
+async function boxPreviewTarget(box: BoardBox): Promise<string | null> {
+  const touched = box.live.path?.replaceAll('\\', '/') ?? null;
+  if (touched && /\.html?$/i.test(touched)) return touched;
+  const top = (dirCache.get('') ?? []).find(e => !e.dir && /^index\.html?$/i.test(e.name))?.name;
+  if (top) return top;
+  const pages = (await api.fs.listFiles().catch(() => [] as string[])).filter(p => /\.html?$/i.test(p));
+  const rank = (p: string) => (/(^|\/)index\.html?$/i.test(p) ? 0 : 1000) + p.split('/').length;
+  return pages.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))[0] ?? null;
+}
+// Pages update as they change on disk: the agent's writes, a save in the editor, a command in the terminal.
+api.fs.onChange(paths => { for (const b of boardBoxes.values()) b.preview?.changed(paths); });
 function setBoardCode(on: boolean): void {
   boardCodeOn = on;
   store.set(CODE_KEY, on);
@@ -198,8 +287,8 @@ function setBoardCode(on: boolean): void {
   paintBoardLive();
 }
 paintBoardLive();
-function boardLiveFile(key: string, path: string): void { boardBoxes.get(key)?.live.file(path); }
-function boardLiveDraft(key: string, path: string, text: string, phase?: string): void { boardBoxes.get(key)?.live.draft(path, text, phase); }
+function boardLiveFile(key: string, path: string): void { anyBox(key)?.live.file(path); }
+function boardLiveDraft(key: string, path: string, text: string, phase?: string): void { anyBox(key)?.live.draft(path, text, phase); }
 // Grid lines for each box; on a page too narrow for them side by side, two to a row with rows to scroll to.
 // With room for them, the boxes are tiles placed by boardTiles, with a handle in each gap to drag them wider or taller
 // (any number of boxes). Too narrow, the scrolling grid of boardLayout, without handles.
@@ -356,30 +445,55 @@ function morphBoard(change: () => void): void {
 
 // New chat, an agent clicked in the roster and a chat picked in the side bar each take the whole board: the boxes there
 // have their chats filed away and close first (a working one is asked about). Dragging is how boxes go side by side.
+// A working box is not stopped: it is parked (parkedBoxes) and carries on out of sight.
 function closeBoxes(boxes: BoardBox[]): void {
   for (const b of boxes) {
     if (b.el.classList.contains('box-max')) toggleMaxBox(null);
-    if (boxBusy(b)) stopBox(b);
+    if (boxBusy(b)) { parkBox(b); continue; }
     dropRelaysFor(b.key);
     background(api.board.clearBox(b.key));
     removeBox(b);
   }
 }
-const workingBoxes = (except?: BoardBox) => [...boardBoxes.values()].filter(b => b !== except && boxBusy(b)).length;
+function parkBox(b: BoardBox): void {
+  archiveChatTab(b.surface, b.tab);
+  b.el.remove();
+  boardBoxes.delete(b.key);
+  boardOrder = boardOrder.filter(k => k !== b.key);
+  parkedBoxes.set(b.key, b);
+}
+function unparkBox(b: BoardBox): void {
+  parkedBoxes.delete(b.key);
+  boardBoxes.set(b.key, b);
+  b.scrollPending = true;
+  paintBox(b);
+}
+// A parked box whose run has ended closes, its chat filed in the side bar (unless a relay started it again).
+function finishParked(b: BoardBox): void {
+  if (parkedBoxes.get(b.key) !== b || boxBusy(b)) return;
+  parkedBoxes.delete(b.key);
+  dropRelaysFor(b.key);
+  background(api.board.clearBox(b.key));
+  removeBox(b);
+  renderBoardStatus();
+}
+const workingBoxes = (except?: BoardBox) => allBoardBoxes().filter(b => b !== except && boxBusy(b)).length;
+// The keys left once the board is cleared: working boxes keep theirs while they run in the background.
+const freeKeysAfterClear = () => allBoxKeys().filter(k => !parkedBoxes.has(k) && !(boardBoxes.has(k) && boxBusy(boardBoxes.get(k)!)));
+const BOARD_ALL_BUSY = `${BOARD_MAX} chats are still working. Wait for one to finish, or stop one first.`;
 function freshBoard(agent: string): void {
-  background(confirmStopBoxes(workingBoxes(), 'Start a new chat?', 'The chats on the board close and are kept in the side bar.', 'New chat').then(ok => {
-    if (!ok) return;
-    morphBoard(() => {
-      closeBoxes([...boardBoxes.values()]);
-      const key = firstFreeKey() as string;
-      fillBox(key, agent);
-      renderBoard();
-      saveBoard();
-      renderBoardStatus();
-      boardBoxes.get(key)?.surface.prompt.focus();
-    });
-    sfx.play('send');
-  }));
+  const key = freeKeysAfterClear()[0];
+  if (!key) { toast(BOARD_ALL_BUSY); return; }
+  morphBoard(() => {
+    closeBoxes([...boardBoxes.values()]);
+    fillBox(key, agent);
+    renderBoard();
+    saveBoard();
+    renderBoardStatus();
+    renderBoardSide();
+    boardBoxes.get(key)?.surface.prompt.focus();
+  });
+  sfx.play('send');
 }
 function emptyBoxEl(key: string): HTMLElement {
   const el = document.createElement('div');
@@ -488,7 +602,7 @@ function dropAgent(key: string, agent: string): void {
 
 /* ----- A filled box: header, chat, prompt ----- */
 // `entry`: a chat from another list (an old Breeze Space chat), shown as it was; it is filed in this folder from then on.
-function fillBox(key: string, agent: string, saved?: { historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number; entry?: ChatEntry }): BoardBox {
+function fillBox(key: string, agent: string, saved?: { historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number; side?: BoxSide; ctx?: BoxContext; entry?: ChatEntry }): BoardBox {
   const el = document.createElement('section');
   el.className = 'board-box filled';
   el.dataset.box = key;
@@ -497,11 +611,13 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
       ${brandMark('board-box-logo', agent, agentNameOf(agent)[0] ?? '?')}
       <b class="board-box-name"></b>
       <button class="board-box-model" type="button" title="Model and effort" aria-haspopup="menu"><span class="bbm-label"></span><svg data-i="chevronDown" data-size="11"></svg></button>
-      <span class="board-box-limit hidden"></span>
+      <span class="board-box-ctx hidden" role="meter" aria-valuemin="0" aria-valuemax="100"></span>
       <span class="board-dot" role="status"></span>
       <span class="flex-1"></span>
       <button class="board-owns" type="button" title="Files this box owns"></button>
       <button class="icon-btn toggle board-box-code hidden" type="button" title="Hide the file the agent is editing" aria-label="Hide the file the agent is editing" aria-pressed="true"><svg data-i="code" data-size="14"></svg></button>
+      <button class="icon-btn toggle board-box-term" type="button" aria-pressed="false"><svg data-i="terminal" data-size="14"></svg></button>
+      <button class="icon-btn toggle board-box-preview" type="button" aria-pressed="false"><svg data-i="globe" data-size="14"></svg></button>
       <button class="icon-btn board-box-close" type="button" title="Empty this box" aria-label="Empty this box"><svg data-i="x" data-size="14"></svg></button>
     </header>
     <div class="board-box-body">
@@ -515,7 +631,19 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     </div><div class="cmp-meta"><span class="cmp-folder"><svg data-i="folder" data-size="13"></svg><span class="cmp-folder-name">No folder</span></span><span class="cmp-env" title="Agents run on this computer"><svg data-i="monitor" data-size="13"></svg><span>Local</span></span><span class="cmp-branch hidden"><svg data-i="gitBranch" data-size="13"></svg><span class="cmp-branch-name"></span></span><span class="flex-1"></span><span class="cmp-ctx hidden" role="meter" aria-label="Context used" aria-valuemin="0" aria-valuemax="100"><span class="cmp-ctx-bar"><i></i></span><span class="cmp-ctx-pct"></span></span></div></div>
     </div>
     <div class="board-live-sash" role="separator" aria-orientation="vertical" aria-label="Resize the code view" title="Drag to resize · double-click to reset"></div>
-    <aside class="box-live board-live closed" aria-label="File the agent is editing"><div class="box-live-head"></div><div class="box-live-body"></div></aside>
+    <aside class="box-live board-live closed" aria-label="Side panel"><div class="box-live-head"></div><div class="box-live-body"></div>
+      <div class="board-preview">
+        <div class="board-side-bar preview-bar">
+          <span class="preview-label">Preview</span>
+          <span class="url" role="button" tabindex="0" aria-haspopup="menu" title="Switch page"><span class="bp-url-text">Not running</span></span>
+          <button class="icon-btn toggle bp-inspect" type="button" title="Inspect on Hover" aria-pressed="false"><svg data-i="mouse" data-size="14"></svg></button>
+          <button class="icon-btn toggle bp-full" type="button" title="Fullscreen" aria-pressed="false"><svg data-i="maximize" data-size="13"></svg></button>
+          <button class="icon-btn bp-reload" type="button" title="Reload Preview"><svg data-i="refresh" data-size="13"></svg></button>
+        </div>
+        <div class="empty bp-empty"><div><svg data-i="play" data-size="36"></svg><h4>Nothing to preview yet</h4><div class="bp-hint">Add an <b>index.html</b> to preview it here.</div></div></div>
+        <iframe class="preview-frame hidden" title="Preview"></iframe>
+      </div>
+    </aside>
     </div>`;
   paintIcons(el);
   const s: Surface = {
@@ -544,9 +672,12 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
   if (eff) box.effort = eff;
   const frac = saved?.liveFrac ?? store.get<number>(LIVE_FRAC_KEY, 0);
   if (typeof frac === 'number' && frac > 0 && frac < 1) box.liveFrac = frac;
+  if (saved?.side === 'term' || saved?.side === 'preview') box.side = saved.side;
+  if (typeof saved?.ctx?.used === 'number' && typeof saved.ctx.window === 'number' && saved.ctx.window > 0) box.ctx = { used: saved.ctx.used, window: saved.ctx.window };
   paintLiveWidth(box);
   boardBoxes.set(key, box);
   wireBox(box);
+  if (box.side) openBoxSide(box, box.side);
   paintBox(box);
   renderBoard();
   return box;
@@ -576,7 +707,9 @@ function wireBox(box: BoardBox): void {
   s.prompt.addEventListener('input', () => syncPromptHl(kit));
   syncPromptHl(kit);
   $('.board-box-close', el).onclick = () => void emptyBox(box.key);
-  $('.board-box-code', el).onclick = () => { box.liveHidden = !box.liveHidden; paintBoardLive(); };
+  $('.board-box-code', el).onclick = () => showBoxSide(box, 'code');
+  $('.board-box-term', el).onclick = () => showBoxSide(box, 'term');
+  $('.board-box-preview', el).onclick = () => showBoxSide(box, 'preview');
   wireLiveSash(box);
   $('.board-owns', el).onclick = e => ownsMenu(box, e.currentTarget as HTMLElement);
   $('.board-box-model', el).onclick = e => {
@@ -613,7 +746,7 @@ function paintBox(box: BoardBox): void {
   $('.board-box-name', box.el).textContent = boxName(box);
   paintBoardSideRow(box);
   paintBoxModel(box);
-  paintBoxLimit(box);
+  paintBoxContext(box);
   const dot = $('.board-dot', box.el);
   dot.dataset.status = box.status;
   dot.title = { idle: 'Idle', working: 'Working', waiting: 'Waiting on a teammate', done: 'Done', failed: 'Failed' }[box.status];
@@ -653,7 +786,7 @@ function boxModelTarget(box: BoardBox): ModelTarget {
 }
 // What board:run sends for a box: only what it picked itself, so an untouched box follows the agent's settings.
 function boardPickOf(key: string): { model?: string; effort?: string } {
-  const b = boardBoxes.get(key);
+  const b = anyBox(key);
   if (!b) return {};
   const model = b.model ? boxModelOf(b) : '';
   return { ...(model ? { model } : {}), ...(b.effort ? { effort: b.effort } : {}) };
@@ -667,33 +800,27 @@ function paintBoxModel(box: BoardBox): void {
   btn.classList.toggle('no-model', !model);
   btn.setAttribute('aria-label', model ? `${agentShortName(ag!)} model: ${model}. Change model or effort` : 'Model and effort');
 }
-// The plan limit of the box's agent, from the numbers Settings → Agents → Usage shows: its tightest window
-// ("72% left"), every window and when it resets in the tooltip. A local model has none.
-function paintBoxLimit(box: BoardBox): void {
-  const el = $('.board-box-limit', box.el);
-  const ag = boxAgent(box), wins = agentUsage?.limits[box.agent] ?? [];
-  el.classList.toggle('hidden', !ag || (!wins.length && !ag.api));
-  if (!ag || (!wins.length && !ag.api)) return;
-  if (!wins.length) {
-    el.textContent = 'No limit';
-    el.classList.remove('low');
-    el.title = 'No plan limit: it runs on this computer';
-    return;
-  }
-  // Claude shows its 5-hour window, as the composer does; others their tightest.
-  const tight = (box.agent === 'claude' && wins.find(w => w.label === '5-hour')) || wins.reduce((a, w) => (w.used > a.used ? w : a));
-  const left = Math.max(0, Math.round(100 - tight.used));
-  el.textContent = `${left}% left`;
-  el.classList.toggle('low', left <= 10);
-  el.title = wins.map(w => `${w.label}: ${Math.max(0, Math.round(100 - w.used))}% left${w.resetsAt ? ` · resets ${resetText(w.resetsAt)}` : ''}`).join('\n');
+// How full the box's chat is: the share of its model's context window the last request used (a `ctx` event from main,
+// for Claude and Codex). Amber from 80%, when the agent will soon compact or forget the start of the chat.
+function paintBoxContext(box: BoardBox): void {
+  const el = $('.board-box-ctx', box.el), c = box.ctx;
+  el.classList.toggle('hidden', !c);
+  if (!c) return;
+  const pct = Math.max(0, Math.min(100, Math.round((c.used / c.window) * 100)));
+  el.textContent = `${pct}% context`;
+  el.classList.toggle('low', pct >= 80);
+  el.setAttribute('aria-valuenow', String(pct));
+  const k = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+  el.title = `Context window: ${k(c.used)} of ${k(c.window)} tokens used`;
+  el.setAttribute('aria-label', el.title);
 }
 // Fresh numbers when the board opens (at most every 30 s) and after each run, when they have moved.
 let boardUsageAt = 0;
+// (The prompts' usage line shows them; the header shows the context.)
 function refreshBoardLimits(force = false): void {
-  for (const b of boardBoxes.values()) paintBoxLimit(b);
   if (!force && Date.now() - boardUsageAt < 30_000) return;
   boardUsageAt = Date.now();
-  background(api.agent.usage().then(u => { agentUsage = u; for (const b of boardBoxes.values()) paintBoxLimit(b); if (typeof refreshComposers === 'function') refreshComposers(); }));
+  background(api.agent.usage().then(u => { agentUsage = u; if (typeof refreshComposers === 'function') refreshComposers(); }));
 }
 // A model or effort changed somewhere (renderAgentBar): every box's header and prompt chip show it.
 function renderBoardModels(): void {
@@ -744,6 +871,8 @@ function stopBox(box: BoardBox): void {
 // `archive`: file its chat in this folder's history first (not when the folder already changed under it).
 function removeBox(box: BoardBox, archive = true): void {
   if (archive) archiveChatTab(box.surface, box.tab);
+  box.term?.dispose();
+  box.preview?.dispose();
   box.el.remove();
   boardBoxes.delete(box.key);
   boardOrder = boardOrder.filter(k => k !== box.key);
@@ -785,6 +914,21 @@ function boardHistoryMenu(anchor: HTMLElement): void {
 // `alone`: a click in the side bar. The chat takes the whole board and the other boxes close (see freshBoard).
 // ('confirmed': the same, once any working box has been asked about; the boxes close in the same morph it opens in.)
 function reopenInBox(e: ChatEntry, into?: string, place?: { by: string; side: DropSide }, alone: boolean | 'confirmed' = false): void {
+  // Still working in the background: its box comes back to the board as it is.
+  const parked = [...parkedBoxes.values()].find(b => b.tab.historyId === e.id);
+  if (parked) {
+    morphBoard(() => {
+      if (alone) closeBoxes([...boardBoxes.values()]);
+      unparkBox(parked);
+      if (place && place.by !== parked.key) placeBox(parked.key, place.by, place.side);
+      renderBoard();
+      saveBoard();
+      renderBoardStatus();
+      renderBoardSide();
+    });
+    requestAnimationFrame(() => { scrollRestoredChats(); parked.surface.prompt.focus(); });
+    return;
+  }
   const open = [...boardBoxes.values()].find(b => b.tab.historyId === e.id);
   if (open && (!alone || boardBoxes.size === 1)) { open.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); open.surface.prompt.focus(); return; }
   if (e.log && !e.html && !open) {
@@ -800,18 +944,14 @@ function reopenInBox(e: ChatEntry, into?: string, place?: { by: string; side: Dr
     }));
     return;
   }
-  if (alone === true) {
-    background(confirmStopBoxes(workingBoxes(open), 'Open this chat?', 'The other chats on the board close and are kept in the side bar.', 'Open chat').then(ok => {
-      if (!ok) return;
-      if (!open) { reopenInBox(e, undefined, undefined, 'confirmed'); return; }
-      // Already in a box: that one stays and takes the page.
-      morphBoard(() => { closeBoxes([...boardBoxes.values()].filter(b => b !== open)); renderBoard(); saveBoard(); renderBoardStatus(); });
-      open.surface.prompt.focus();
-    }));
+  // Already in a box: that one stays and takes the page. The others close; working ones carry on in the background.
+  if (alone && open) {
+    morphBoard(() => { closeBoxes([...boardBoxes.values()].filter(b => b !== open)); renderBoard(); saveBoard(); renderBoardStatus(); renderBoardSide(); });
+    open.surface.prompt.focus();
     return;
   }
-  const key = alone ? allBoxKeys()[0] : into ?? firstFreeKey();
-  if (!key) { toast(`The board is full: empty a box first (${BOARD_MAX} at most)`); return; }
+  const key = alone ? freeKeysAfterClear()[0] : into ?? firstFreeKey();
+  if (!key) { toast(alone ? BOARD_ALL_BUSY : `The board is full: empty a box first (${BOARD_MAX} at most)`); return; }
   const was = alone ? undefined : boardBoxes.get(key);
   if (was && boxBusy(was)) { refuseDrop(was); return; }
   const found = foundAgents();
@@ -881,7 +1021,7 @@ async function logChatHtml(e: ChatEntry): Promise<string> {
 }
 // The list an entry is kept in: this folder's, or Space's.
 const sideStore = (id: string): Surface => (chatHistory(SURFACES.ide).some(e => e.id === id) ? SURFACES.ide : SURFACES.box);
-const boxWithChat = (id: string) => [...boardBoxes.values()].find(b => b.tab.historyId === id);
+const boxWithChat = (id: string) => allBoardBoxes().find(b => b.tab.historyId === id);
 function setBoardSide(open: boolean): void {
   store.set('breeze.board.side', open);
   $('#board').classList.toggle('side-closed', !open);
@@ -907,8 +1047,9 @@ function renderBoardSide(): void {
     const folded = !q && boardSideFolded.has(folder);
     const rows = chats.map(e => {
       const box = boxWithChat(e.id);
-      return `<button class="box-side-chat${box ? ' on' : ''}${box && boxBusy(box) ? ' busy' : ''}" type="button" role="listitem" draggable="true" data-chat="${escAttr(e.id)}" title="${escAttr(`${e.title}${e.log ? `\nFrom ${LOG_AGENT[e.log.agent] ?? e.log.agent}` : ''}\nClick to open it in a box, or drag it onto the board`)}">
-        <span class="nm">${esc(e.title)}</span><span class="box-side-busy" aria-label="Working"></span><span class="ago">${esc(timeAgo(e.at))}</span></button>`;
+      const away = !!box && parkedBoxes.get(box.key) === box;
+      return `<button class="box-side-chat${box && !away ? ' on' : ''}${box && boxBusy(box) ? ' busy' : ''}${away && tabNeedsYou(box.tab) ? ' needs-you' : ''}" type="button" role="listitem" draggable="true" data-chat="${escAttr(e.id)}" title="${escAttr(`${e.title}${e.log ? `\nFrom ${LOG_AGENT[e.log.agent] ?? e.log.agent}` : ''}\nClick to open it in a box, or drag it onto the board`)}">
+        <span class="needs-you-dot" title="Needs you" aria-label="Needs you"></span><span class="nm">${esc(e.title)}</span><span class="box-side-busy" aria-label="Working"></span><span class="ago">${esc(timeAgo(e.at))}</span></button>`;
     }).join('');
     return `<div class="box-side-group${folded ? ' folded' : ''}">
       <button class="box-side-folder" type="button" data-folder="${escAttr(folder)}" aria-expanded="${!folded}" title="${escAttr(folder || 'Chats from before folders were kept')}">
@@ -922,6 +1063,13 @@ function paintBoardSideRow(box: BoardBox): void {
   const id = box.tab.historyId;
   const row = id ? $('#boardSideList').querySelector<HTMLElement>(`[data-chat="${CSS.escape(id)}"]`) : null;
   row?.classList.toggle('busy', boxBusy(box));
+  // Out of sight and waiting on an answer: the row's blue dot flashes until the chat is opened and answered.
+  row?.classList.toggle('needs-you', parkedBoxes.get(box.key) === box && tabNeedsYou(box.tab));
+}
+// agents.ts's refreshNeedsYou, for a chat in a box.
+function paintBoardTabRow(tab: AgentTabState): void {
+  const box = allBoardBoxes().find(b => b.tab === tab);
+  if (box) paintBoardSideRow(box);
 }
 function newBoardChat(): void {
   const agent = selectedAgent()?.id ?? foundAgents()[0]?.id;
@@ -1041,11 +1189,15 @@ function ownsMenu(box: BoardBox, btn: HTMLElement): void {
 }
 
 /* ----- Run events: status, the last text (for relay replies), and the relays themselves ----- */
-const boxForRun = (runId: number) => [...boardBoxes.values()].find(b => b.runIds.has(runId));
+const boxForRun = (runId: number) => allBoardBoxes().find(b => b.runIds.has(runId));
 api.agent.onEvent((runId, ev) => {
   const box = boxForRun(runId);
   if (!box || boardFolder !== (rootInfo?.root ?? null)) return; // the folder changed: main stopped these runs
   const stopped = stoppedRuns.has(runId);
+  if (ev.t === 'ctx') {
+    if (typeof ev.used === 'number' && typeof ev.window === 'number' && ev.window > 0) { box.ctx = { used: ev.used, window: ev.window }; paintBoxContext(box); }
+    return;
+  }
   if (ev.t === 'text') box.lastText = ev.text ?? '';
   else if (ev.t === 'file' || ev.t === 'written') refreshOwnersSoon();
   else if (ev.t === 'relay') { if (!stopped && !echoesAnswer(relayRuns.get(runId), ev.to ?? '')) onRelay(box, ev); }
@@ -1053,7 +1205,7 @@ api.agent.onEvent((runId, ev) => {
     box.status = ev.ok ? 'done' : ev.stopped || stopped ? 'idle' : 'failed';
     refreshOwnersSoon();
     // After the chat's own done handler has run (tab.runId is free again).
-    setTimeout(() => { paintBox(box); onBoxIdle(box, runId, stopped || !!ev.stopped); saveBoard(); refreshBoardLimits(true); }, 0);
+    setTimeout(() => { paintBox(box); onBoxIdle(box, runId, stopped || !!ev.stopped); finishParked(box); saveBoard(); refreshBoardLimits(true); }, 0);
     return;
   }
   paintBox(box);
@@ -1065,14 +1217,15 @@ function saveBoard(): void {
   const boxes: BoardSaved['boxes'] = {};
   for (const b of boardBoxes.values()) {
     archiveChatTab(b.surface, b.tab);
-    boxes[b.key] = { agent: b.agent, historyId: b.tab.historyId, sessions: b.tab.sessions, model: b.model, effort: b.effort, liveFrac: b.liveFrac };
+    boxes[b.key] = { agent: b.agent, historyId: b.tab.historyId, sessions: b.tab.sessions, model: b.model, effort: b.effort, liveFrac: b.liveFrac, side: b.side, ctx: b.ctx };
   }
   store.set(boardStoreKey(), { boxes, ...(boardOrder.length ? { order: boardOrder } : {}) } satisfies BoardSaved);
 }
 function loadBoard(): void {
   // The boxes on screen belong to `boardFolder`; their chats were filed there as they finished.
   const sameFolder = boardFolder === (rootInfo?.root ?? null);
-  for (const b of [...boardBoxes.values()]) { if (boxBusy(b)) stopBox(b); removeBox(b, sameFolder); }
+  for (const b of allBoardBoxes()) { if (boxBusy(b)) stopBox(b); removeBox(b, sameFolder); }
+  parkedBoxes.clear();
   resetRelays();
   boardGrid.innerHTML = '';
   boardOwners = {};
@@ -1087,7 +1240,7 @@ function loadBoard(): void {
 /* ----- Status bar: "Agent board — 2 working · Open" while the page is hidden ----- */
 function renderBoardStatus(): void {
   let pill = document.getElementById('boardStatus');
-  const working = [...boardBoxes.values()].filter(b => tabBusy(b.tab)).length;
+  const working = allBoardBoxes().filter(b => tabBusy(b.tab)).length;
   if (!working || boardPageShowing()) { pill?.remove(); return; }
   if (!pill) {
     pill = document.createElement('button');
@@ -1107,24 +1260,24 @@ const relayRuns = new Map<number, Relay>();          // run id -> the relay that
 const relayCards = new Map<string, HTMLElement>();   // relay id -> its card in the receiving box
 // A new key, so Auto-relay starts on again for everyone (the old 'breeze.board.auto' could hold an off from the bar's switch).
 const AUTO_KEY = 'breeze.board.autoRelay';
-const boxLabel = (key: string) => { const b = boardBoxes.get(key); return b ? boxName(b) : `Box ${boxNumber(key)}`; };
+const boxLabel = (key: string) => { const b = anyBox(key); return b ? boxName(b) : `Box ${boxNumber(key)}`; };
 const boxBadge = (key: string) => {
-  const b = boardBoxes.get(key);
+  const b = anyBox(key);
   return `<span class="agent-tag">${b ? brandMark('agent-tag-logo', b.agent, agentNameOf(b.agent)[0] ?? '?') : ''}<b>${esc(boxLabel(key))}</b></span>`;
 };
-const boxIdle = (key: string) => { const b = boardBoxes.get(key); return !!b && !boxBusy(b); };
+const boxIdle = (key: string) => { const b = anyBox(key); return !!b && !boxBusy(b); };
 const relayId = () => `rl_${crypto.randomUUID().slice(0, 8)}`;
 
 // Waiting on a teammate's answer to a relay, or on the person's answer to a question in this box.
 function boardWaiting(key: string): boolean {
-  return (openAsks.get(key)?.size ?? 0) > 0 || !!boardBoxes.get(key)?.tab.panel.querySelector('.card.question [data-live]');
+  return (openAsks.get(key)?.size ?? 0) > 0 || !!anyBox(key)?.tab.panel.querySelector('.card.question [data-live]');
 }
 function personSpokeIn(key: string): void { relayQueue.personSpoke(key); }
 
 // Main's crossing on a board run: "Claude · 1 tried to edit api.ts (Codex · 2's). Breeze put it back and asked Codex."
 function boardCrossingCard(ev: AgentEvent, tab: AgentTabState): void {
   const who = boxLabel(ev.agent ?? boxKeyOf(tab.surfaceName));
-  const ownerBox = ev.owner ? boardBoxes.get(ev.owner) : undefined;
+  const ownerBox = ev.owner ? anyBox(ev.owner) : undefined;
   const owner = ev.owner ? boxLabel(ev.owner) : 'a teammate';
   const ownerShort = ownerBox ? agentNameOf(ownerBox.agent) : owner;
   const at = `<code>${esc(ev.path ?? '')}</code> (${esc(owner)}'s)`;
@@ -1140,7 +1293,7 @@ function boardCrossingCard(ev: AgentEvent, tab: AgentTabState): void {
 function onRelay(from: BoardBox, ev: AgentEvent): void {
   const to = ev.to ?? '';
   const r: Relay = { id: relayId(), from: from.key, to, kind: 'ask', path: ev.path, diff: ev.diff, note: ev.note };
-  if (!boardBoxes.has(to)) {
+  if (!anyBox(to)) {
     const el = addMsg(`<div class="card relay"><h5>${svgIcon('arrowRight', 14)} ${esc(boxLabel(to))} is empty</h5><p>Nobody can make this change for ${esc(boxName(from))}.</p><div class="row" data-live><button class="btn btn-sm" data-relay-drop>Drop</button></div></div>`, from.tab);
     el.querySelector<HTMLElement>('[data-relay-drop]')!.onclick = () => el.remove();
     return;
@@ -1155,7 +1308,7 @@ function onRelay(from: BoardBox, ev: AgentEvent): void {
 
 // `sent`: the person pressed Send on it (it goes even with Auto-relay off).
 function deliver(r: Relay, sent = false): void {
-  const target = boardBoxes.get(r.to);
+  const target = anyBox(r.to);
   if (!target) { closeAsk(r); return; }
   const outcome = relayQueue.push(r, boxIdle, sent);
   if (outcome === 'start') { void startRelay(r); return; }
@@ -1193,7 +1346,7 @@ function incomingCard(r: Relay, target: BoardBox): HTMLElement {
 }
 
 async function startRelay(r: Relay): Promise<void> {
-  const target = boardBoxes.get(r.to);
+  const target = anyBox(r.to);
   if (!target || boardFolder !== (rootInfo?.root ?? null)) { closeAsk(r); return; }
   if (boxBusy(target)) { deliver(r); return; } // it got busy meanwhile: wait for it
   const card = incomingCard(r, target);
@@ -1209,7 +1362,7 @@ async function startRelay(r: Relay): Promise<void> {
 function closeAsk(r: Relay): void {
   if (r.kind !== 'ask') return;
   openAsks.get(r.from)?.delete(r.id);
-  const b = boardBoxes.get(r.from);
+  const b = anyBox(r.from);
   if (b) paintBox(b);
 }
 
@@ -1223,10 +1376,10 @@ function onBoxIdle(box: BoardBox, runId: number, stopped = false): void {
     if (wait) wait.textContent = stopped ? 'Stopped.' : box.status === 'failed' ? 'Couldn’t finish.' : answered.kind === 'ask' ? 'Answered.' : '';
     if (answered.kind === 'ask') {
       closeAsk(answered);
-      const asker = boardBoxes.get(answered.from);
+      const asker = anyBox(answered.from);
       if (stopped && asker) {
         addMsg(`<div class="card relay"><h5>${svgIcon('stop', 14)} ${esc(boxName(box))} was stopped</h5><p>It didn't finish the change you asked for.</p></div>`, asker.tab);
-      } else if (boardBoxes.has(answered.from)) {
+      } else if (anyBox(answered.from)) {
         const text = box.lastText.trim().slice(-2000) || (box.status === 'failed' ? `${boxName(box)} couldn't finish.` : 'Done.');
         deliver({ id: relayId(), from: box.key, to: answered.from, kind: 'reply', note: text });
       }
@@ -1242,7 +1395,7 @@ function dropRelaysFor(key: string): void {
   const told = new Set<string>();
   const tell = (r: Relay) => {
     closeAsk(r);
-    const asker = r.kind === 'ask' && r.to === key ? boardBoxes.get(r.from) : undefined;
+    const asker = r.kind === 'ask' && r.to === key ? anyBox(r.from) : undefined;
     if (!asker || told.has(asker.key)) return;
     told.add(asker.key);
     addMsg(`<div class="card relay"><h5>${svgIcon('x', 14)} ${esc(boxLabel(key))} was emptied</h5><p>Nobody will make the change you asked it for.</p></div>`, asker.tab);

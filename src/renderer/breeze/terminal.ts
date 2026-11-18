@@ -930,3 +930,155 @@ $('#terminal').addEventListener('click', e => {
 });
 $('#termToggle').addEventListener('click', e => { if (!(e.target as HTMLElement).closest('button, .term-tabs, .term-tab')) run('term.toggle'); });
 
+
+/* ----- A terminal of its own: an Agent board box's side panel (board.ts) ----- */
+// The IDE terminal's look and output (colours, links, error locations), with its own folder, history and program.
+// Its commands run in its own folder (term:run's cwd), so a "cd" here leaves the IDE terminal where it was.
+const boxTerms = new Map<number, BoxTerminal>(); // running program id -> its terminal
+class BoxTerminal {
+  readonly root: HTMLElement;
+  private out: HTMLElement;
+  private ps: HTMLElement;
+  private input: HTMLInputElement;
+  cwd: string;
+  proc: number | null = null;
+  private history: string[] = [];
+  private hIdx = 0;
+  private pending: { el: HTMLElement; text: string } | null = null;
+  private scrollRaf = 0;
+
+  constructor(cwd: string) {
+    this.cwd = cwd;
+    this.root = document.createElement('div');
+    this.root.className = 'board-term';
+    this.root.innerHTML = `<div class="board-side-bar"><span class="preview-label">Terminal</span><span class="flex-1"></span>
+        <button class="icon-btn board-term-stop hidden" type="button" title="Stop (Ctrl+C)" aria-label="Stop the running program">${svgIcon('stop', 12)}</button>
+        <button class="icon-btn board-term-clear" type="button" title="Clear" aria-label="Clear the terminal">${svgIcon('trash', 13)}</button></div>
+      <div class="term-body board-term-body"><div class="term-out-pane"></div>
+        <div class="term-line"><span class="ps"></span><span class="term-field"><input class="raw-input" spellcheck="false" autocomplete="off" aria-label="Command"></span></div></div>`;
+    this.out = $('.term-out-pane', this.root);
+    this.ps = $('.ps', this.root);
+    this.input = $<HTMLInputElement>('input', this.root);
+    this.renderPs();
+    const body = $('.board-term-body', this.root);
+    body.addEventListener('mouseup', () => { if (!getSelection()?.toString()) this.input.focus(); });
+    body.addEventListener('click', e => {
+      const a = (e.target as HTMLElement).closest<HTMLElement>('.term-ref');
+      if (a) openFile(a.dataset.path as string, { line: Number(a.dataset.line), col: Number(a.dataset.col) });
+    });
+    $('.board-term-clear', this.root).onclick = () => { this.out.innerHTML = ''; this.input.focus(); };
+    $('.board-term-stop', this.root).onclick = () => this.kill();
+    this.input.addEventListener('keydown', e => {
+      if (e.key === 'c' && e.ctrlKey && this.proc != null && this.input.selectionStart === this.input.selectionEnd) { e.preventDefault(); this.kill(); return; }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.hIdx = clamp(this.hIdx + (e.key === 'ArrowUp' ? -1 : 1), 0, this.history.length);
+        this.input.value = this.history[this.hIdx] ?? '';
+        return;
+      }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const cmd = this.input.value;
+      this.input.value = '';
+      void this.run(cmd);
+    });
+  }
+
+  focus(): void { this.input.focus({ preventScroll: true }); }
+  private renderPs(): void {
+    this.ps.innerHTML = createPromptHtml(this.cwd);
+    this.ps.classList.toggle('busy', this.proc != null);
+    $('.board-term-stop', this.root).classList.toggle('hidden', this.proc == null);
+  }
+  private append(el: HTMLElement): void {
+    this.out.appendChild(el);
+    while (this.out.childNodes.length > 3000) this.out.firstChild?.remove();
+    cancelAnimationFrame(this.scrollRaf);
+    this.scrollRaf = requestAnimationFrame(() => { const b = $('.board-term-body', this.root); b.scrollTop = b.scrollHeight; });
+  }
+  private write(text: string, cls = ''): HTMLElement {
+    const span = document.createElement('span');
+    if (cls) span.className = cls;
+    setAnsiHtml(span, text);
+    this.pending = null;
+    this.append(span);
+    return span;
+  }
+  // Finished lines get their error locations as links; the unfinished last line stays plain until it ends.
+  private linked(text: string): void {
+    const refs = rootInfo ? parseErrorRefs(text, this.cwd, rootInfo.root) : [];
+    const span = document.createElement('span');
+    let at = 0;
+    for (const r of refs) {
+      if (r.start < at) continue;
+      if (r.start > at) { const c = document.createElement('span'); setAnsiHtml(c, text.slice(at, r.start)); span.append(c); }
+      const a = document.createElement('a');
+      a.className = 'term-ref';
+      a.textContent = cleanOut(text.slice(r.start, r.end));
+      a.dataset.path = r.path; a.dataset.line = String(r.line); a.dataset.col = String(r.col);
+      span.append(a);
+      at = r.end;
+    }
+    if (at < text.length) { const c = document.createElement('span'); setAnsiHtml(c, text.slice(at)); span.append(c); }
+    this.append(span);
+  }
+  output(chunk: string): void {
+    const full = (this.pending?.text ?? '') + chunk;
+    this.pending?.el.remove();
+    this.pending = null;
+    const nl = full.lastIndexOf('\n');
+    if (nl >= 0) this.linked(full.slice(0, nl + 1));
+    const rest = full.slice(nl + 1);
+    if (rest) this.pending = { el: this.write(rest), text: rest };
+  }
+  exited(code: number | null): void {
+    if (this.pending) { const rest = this.pending.text; this.pending.el.remove(); this.pending = null; this.linked(rest); }
+    if (code) {
+      const div = document.createElement('div');
+      div.className = 'term-exit-err';
+      div.textContent = `✕ process failed with exit code ${code}`;
+      this.append(div);
+    }
+    this.proc = null;
+    this.renderPs();
+  }
+  async run(cmd: string): Promise<void> {
+    // A program waiting for input gets the line.
+    if (this.proc != null) { background(api.term.write(this.proc, cmd + '\n')); this.write(cmd + '\n', 'cmd'); return; }
+    const prompt = document.createElement('span');
+    prompt.className = 'ps term-prompt-line';
+    prompt.innerHTML = createPromptHtml(this.cwd);
+    this.append(prompt);
+    const line = document.createElement('span');
+    line.className = 'cmd';
+    line.innerHTML = `${formatCommandSyntax(cmd)}\n`;
+    this.append(line);
+    if (!cmd.trim()) return;
+    if (this.history.at(-1) !== cmd) this.history.push(cmd);
+    if (this.history.length > 200) this.history.shift();
+    this.hIdx = this.history.length;
+    if (/^\s*(?:cls|clear)\s*$/i.test(cmd)) { this.out.innerHTML = ''; return; }
+    const r = await api.term.run(cmd, this.cwd).catch((err: unknown) => ({ error: errMsg(err) }) as { id?: number; cwd?: string; error?: string });
+    if (r.error) this.write(r.error + '\n', 'err');
+    if (r.cwd) this.cwd = r.cwd;
+    if (r.id != null) { this.proc = r.id; boxTerms.set(r.id, this); }
+    this.renderPs();
+  }
+  kill(): void {
+    if (this.proc == null) return;
+    background(api.term.kill(this.proc));
+    this.write('^C\n');
+  }
+  // Its box was emptied: what it was running stops with it.
+  dispose(): void {
+    if (this.proc != null) { boxTerms.delete(this.proc); background(api.term.kill(this.proc)); }
+    this.root.remove();
+  }
+}
+api.term.onData((id, chunk) => boxTerms.get(id)?.output(chunk));
+api.term.onExit((id, code) => {
+  const t = boxTerms.get(id);
+  if (!t) return;
+  boxTerms.delete(id);
+  t.exited(code);
+});

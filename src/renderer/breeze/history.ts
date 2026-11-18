@@ -272,6 +272,7 @@ function renderBoxSide(): void {
   const entries = chatHistory(SURFACES.box).filter(e => !q || matches(e));
   const activeId = surfaceTabs.box.find(t => t.id === activeTabId.box)?.historyId;
   const busy = new Set(surfaceTabs.box.filter(t => tabBusy(t) && t.historyId).map(t => t.historyId));
+  const asking = new Set(surfaceTabs.box.filter(t => t.historyId && tabNeedsYou(t)).map(t => t.historyId));
   // Groups keep the order of their newest chat; chats from before folders were kept go under "Breeze Space".
   const groups = new Map<string, ChatEntry[]>();
   for (const e of entries) {
@@ -288,7 +289,7 @@ function renderBoxSide(): void {
     const folded = !q && boxSideFolded.has(folder);
     const name = folderName(folder) || 'Breeze Space';
     const rows = chats.map(e => `<button class="box-side-chat${e.id === activeId ? ' on' : ''}" type="button" data-chat="${escAttr(e.id)}" title="${escAttr(e.title)}">
-        <span class="nm">${esc(e.title)}</span>${busy.has(e.id) ? '<span class="box-side-busy" aria-label="Working"></span>' : `<span class="ago">${esc(timeAgo(e.at))}</span>`}</button>`).join('');
+        ${asking.has(e.id) ? '<span class="needs-you-dot" title="Needs you" aria-label="Needs you"></span>' : ''}<span class="nm">${esc(e.title)}</span>${busy.has(e.id) ? '<span class="box-side-busy" aria-label="Working"></span>' : `<span class="ago">${esc(timeAgo(e.at))}</span>`}</button>`).join('');
     return `<div class="box-side-group${folded ? ' folded' : ''}">
       <button class="box-side-folder" type="button" data-folder="${escAttr(folder)}" aria-expanded="${!folded}" title="${escAttr(folder || 'Chats with no folder open')}">
         <span class="nm">${esc(name)}</span>${svgIcon('chevronDown', 12)}</button>

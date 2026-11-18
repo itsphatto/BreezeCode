@@ -179,6 +179,7 @@ api.agentTask.onEvent(msg => {
     const r = tab.run ?? taskRunFor(tab, 0, t.agent, 'planner');
     AGENT_EVENTS[msg.ev.t]?.(r, msg.ev, tab);
     saveChat(tab);
+    refreshNeedsYou(tab);
     if (msg.ev.t === 'question' && (appState.mode !== 'box' || activeTabId.box !== tab.id)) toast('An agentic task needs your answer in Breeze Space');
   } else if (msg.type === 'run-start') {
     const t = agTasks.get(msg.taskId);

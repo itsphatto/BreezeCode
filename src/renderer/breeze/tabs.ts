@@ -49,7 +49,7 @@ function setActive(path: string | null): void {
   if (changed) queueDiscord();
   if (changed) renderToolStatus();
   if (changed) fadeInEditor();
-  if (running && path && /\.(html?|css|js|md|markdown)$/i.test(path)) $('#urlText').title = path;
+  if (idePreview.running && path && /\.(html?|css|js|md|markdown)$/i.test(path)) $('#urlText').title = path;
 }
 // Switching files cross-fades: ghostEditor (just before the switch) leaves an opaque copy of what was on screen where
 // it was, and fadeInEditor (just after) fades one layer only, so the two files never show through each other. New
@@ -164,7 +164,7 @@ function renderTabs(): void {
   if (growNew) growTabRun(growNew); // after the fit, so it grows to its folded or unfolded size
   placeTabInk();
   markCutTabNames();
-  if (!running) renderPreviewEmpty();
+  if (!idePreview.running) renderPreviewEmpty();
   renderSplit();
 }
 // Run / Preview is sticky at the right edge, so on a narrow editor it would cover the file name. Tabs shrink to make
@@ -548,7 +548,7 @@ async function saveFile(path: string | null = active): Promise<boolean> {
   b.saved = text;
   b.disk = undefined;
   renderTabs(); renderTree(); flushSession();
-  if (running) autoReloadPreview();
+  if (idePreview.running) autoReloadPreview();
   return true;
 }
 // An untitled file has nowhere to go yet, so saving it (or running it) asks where first, in the Windows Save dialog

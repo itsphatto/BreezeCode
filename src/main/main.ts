@@ -1231,11 +1231,14 @@ async function spawnCommand(command: string, cwd: string, send: (text: string) =
   child.on('close', onExit);
   return child;
 }
-handle('term:run', async (_e, command) => {
-  const cd = changeDir(command, termCwd);
-  if (cd) { if (cd.cwd) termCwd = cd.cwd; return cd; }
+// `cwd`: a terminal with a folder of its own (an Agent board box's); its "cd" is answered with the new folder and
+// leaves the main terminal's where it was.
+handle('term:run', async (_e, command, cwd) => {
+  const own = typeof cwd === 'string' && cwd && fs.existsSync(cwd) && fs.statSync(cwd).isDirectory() ? cwd : null;
+  const cd = changeDir(command, own ?? termCwd);
+  if (cd) { if (cd.cwd && !own) termCwd = cd.cwd; return cd; }
   const id = nextTermId++;
-  const child = await spawnCommand(command, termCwd,
+  const child = await spawnCommand(command, own ?? termCwd,
     chunk => win?.webContents.send('term:data', id, chunk),
     code => { terms.delete(id); win?.webContents.send('term:exit', id, code); });
   terms.set(id, child);
@@ -2407,6 +2410,24 @@ function codexLimits() {
       .map(w => limitWindow(windowLabel(w.window_minutes), w.used_percent, w.resets_at));
   } catch { return []; }
 }
+// How full a Codex chat's context window is, from its session log (rollout-*-<thread id>.jsonl, in the last few days'
+// folders): the last request's tokens out of the model's window, as Codex's own status line counts them.
+function codexContext(thread: string): { used: number; window: number } | null {
+  try {
+    const base = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
+    for (let back = 0; back < 3; back++) {
+      const d = new Date(Date.now() - back * 86_400_000);
+      const dir = path.join(base, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
+      const name = fs.existsSync(dir) && fs.readdirSync(dir).find(n => n.endsWith(`${thread}.jsonl`));
+      if (!name) continue;
+      const line = fs.readFileSync(path.join(dir, name), 'utf8').split('\n').reverse().find(l => l.includes('"token_count"') && l.includes('"last_token_usage"'));
+      const info = line && JSON.parse(line).payload?.info;
+      const used = info?.last_token_usage?.total_tokens, window = info?.model_context_window;
+      return typeof used === 'number' && typeof window === 'number' && window > 0 ? { used, window } : null;
+    }
+  } catch { /* no log, or one being written: no number this turn */ }
+  return null;
+}
 // Live numbers, the ones Codex's /status shows, asked for with the ChatGPT sign-in Codex saved on this computer (sent
 // only to OpenAI), so they show without running Codex. At most once a minute; null when it can't (signed in with an API
 // key, a token Codex hasn't refreshed, offline), and the last session log's numbers stand in.
@@ -2878,7 +2899,7 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose }
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number }
 // `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
@@ -3048,11 +3069,29 @@ function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): vo
   ctx.tokens = (ctx.tokens || 0) + (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0);
   ctx.final = { t: 'done', ok: true, tokens: ctx.tokens };
 }
+// How full the chat's context window is: the last request's whole prompt (cached parts too) and its reply, out of the
+// model's window. A 1M-token model says so in its id; the result names the real window and corrects it.
+const claudeWindow = (model: unknown) => (/\[1m\]|-1m\b/i.test(String(model ?? '')) ? 1_000_000 : 200_000);
+function claudeContextUse(runId: number, d: Loose, ctx: StreamCtx): void {
+  const u = d.message?.usage;
+  if (!u) return;
+  const used = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0);
+  if (!used || used === ctx.ctxUsed) return;
+  ctx.ctxUsed = used;
+  ctx.ctxWindow ??= claudeWindow(d.message?.model);
+  emit(runId, { t: 'ctx', used, window: ctx.ctxWindow });
+}
+function claudeContextWindow(runId: number, d: Loose, ctx: StreamCtx): void {
+  const wins = Object.values<Loose>(d.modelUsage || {}).map(m => Number(m?.contextWindow) || 0).filter(n => n > 0);
+  if (!wins.length) return;
+  ctx.ctxWindow = Math.max(...wins);
+  if (ctx.ctxUsed) emit(runId, { t: 'ctx', used: ctx.ctxUsed, window: ctx.ctxWindow });
+}
 function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
-  else if (d.type === 'assistant') for (const c of d.message?.content || []) claudeContent(runId, c, ctx);
+  else if (d.type === 'assistant') { claudeContextUse(runId, d, ctx); for (const c of d.message?.content || []) claudeContent(runId, c, ctx); }
   else if (d.type === 'user') claudeToolResults(runId, d, ctx);
-  else if (d.type === 'result') claudeResult(runId, d, ctx, mode);
+  else if (d.type === 'result') { claudeContextWindow(runId, d, ctx); claudeResult(runId, d, ctx, mode); }
   else if (d.type === 'rate_limit_event' && d.rate_limit_info?.unifiedWindows) saveState({ claudeLimits: d.rate_limit_info.unifiedWindows });
 }
 
@@ -3210,7 +3249,7 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
   error: (runId, it) => { if (it.message && !/^Model metadata for/i.test(it.message)) emit(runId, { t: 'note', text: it.message }); },
 };
 function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
-  if (d.type === 'thread.started') emit(runId, { t: 'session', id: d.thread_id });
+  if (d.type === 'thread.started') { ctx.session = d.thread_id; emit(runId, { t: 'session', id: d.thread_id }); }
   else if (d.type === 'item.started' && d.item?.type === 'command_execution' && d.item.id) shellEvent(runId, String(d.item.id), String(d.item.command ?? ''));
   else if (d.type === 'item.completed' && d.item) CODEX_ITEMS[d.item.type]?.(runId, d.item, ctx);
   else if (d.type === 'error') ctx.lastError = codexError(d.message || '');
@@ -3224,6 +3263,8 @@ function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void
   } else if (d.type === 'turn.completed') {
     ctx.done = true;
     if (mode === 'plan' && ctx.lastText) emit(runId, { t: 'plan', text: ctx.lastText });
+    const ctxUse = ctx.session ? codexContext(ctx.session) : null;
+    if (ctxUse) emit(runId, { t: 'ctx', ...ctxUse });
     emit(runId, { t: 'done', ok: true, tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0) });
   }
 }

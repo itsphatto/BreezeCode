@@ -101,7 +101,7 @@ contextBridge.exposeInMainWorld('breeze', {
   },
   term: {
     cwd: () => invoke('term:cwd'),
-    run: (command: unknown) => invoke('term:run', command),
+    run: (command: unknown, cwd?: unknown) => invoke('term:run', command, cwd),
     write: (id: unknown, text: unknown) => invoke('term:write', id, text),
     kill: (id: unknown) => invoke('term:kill', id),
     complete: (word: unknown) => invoke('term:complete', word),

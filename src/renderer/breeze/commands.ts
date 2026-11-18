@@ -131,7 +131,7 @@ const commands: Record<string, () => unknown> = {
     if (debugState === 'paused') return api.debug.continue();
     if (debugPageShowing()) return debugState === 'stopped' ? startDebugging() : undefined;
     if (runnable(active)) return run('run.file');
-    return running && previewPath === previewTarget() ? reloadPreview() : startPreview();
+    return idePreview.running && idePreview.path === previewTarget() ? reloadPreview() : startPreview();
   },
   'run.reload': reloadPreview,
   'run.stop': () => { if (term.runId != null) killCommand(); else { stopPreview(); toast('Preview stopped'); } },
@@ -425,8 +425,8 @@ const MENUS: Menu[] = [
     name: 'Run', items: [
       { label: 'Run File', act: 'run.file', enabled: () => runnable(active) },
       { label: 'Start Preview / Run File', act: 'run.start', key: 'F5' },
-      { label: 'Reload Preview', act: 'run.reload', key: 'Ctrl+F5', enabled: () => running },
-      { label: 'Stop Preview', act: 'run.stop', key: 'Shift+F5', enabled: () => running || term.runId != null },
+      { label: 'Reload Preview', act: 'run.reload', key: 'Ctrl+F5', enabled: () => idePreview.running },
+      { label: 'Stop Preview', act: 'run.stop', key: 'Shift+F5', enabled: () => idePreview.running || term.runId != null },
       { sep: true },
       { label: 'Start Debugging', act: 'debug.start', key: 'Ctrl+Shift+D' },
       { label: 'Open Debug View', act: 'debug.open' },

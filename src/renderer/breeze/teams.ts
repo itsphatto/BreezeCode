@@ -336,7 +336,7 @@ function finishTeamMember(r: Run, ev: AgentEvent, tab: AgentTabState, team: Agen
   if (!hasAnyActiveRun()) vibeDone(allOk);
   const s = SURFACES[tab.surfaceName];
   if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
-  if (lastRunFiles.length && running) autoReloadPreview();
+  if (lastRunFiles.length && idePreview.running) autoReloadPreview();
 }
 
 // team-done comes once on every member's run: the first one shows the summary and ends the team.
@@ -497,6 +497,7 @@ function approveCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   $$<HTMLElement>('[data-ask]', el).forEach(b => b.onclick = () => {
     const answer = b.dataset.ask === 'once' || b.dataset.ask === 'all' ? b.dataset.ask : 'deny';
     $('[data-live]', el).outerHTML = `<div class="resolved">${answer === 'deny' ? '✕ Not run' : '✓ Allowed'}</div>`;
+    refreshNeedsYou(tab);
     setAgent(r.phase, 'working', 'Working on your request', r.tools);
     background(api.agent.answer(id, answer));
   });
@@ -628,9 +629,10 @@ function testsCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 // The card's answer goes back to the waiting agent, and the card stops taking clicks.
 function sendReply(r: Run, el: HTMLElement, id: string, reply: AskReply | null, how: string, tab: AgentTabState): void {
   endQuestion(el, how);
+  refreshNeedsYou(tab);
   setAgent(r.phase, 'working', 'Working on your request', r.tools);
   saveChat(tab);
-  const box = isBoardSurface(tab.surfaceName) ? boardBoxes.get(boxKeyOf(tab.surfaceName)) : undefined;
+  const box = isBoardSurface(tab.surfaceName) ? anyBox(boxKeyOf(tab.surfaceName)) : undefined;
   if (box) paintBox(box); // its box stops showing "waiting"
   background(api.agent.reply(id, reply));
 }
@@ -752,6 +754,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   'team-done': (r, ev, tab) => onTeamDone(r, ev, tab),
 };
 
+const NEEDS_YOU_EVENTS = new Set<AgentEvent['t']>(['question', 'approve', 'question-end', 'done', 'error']);
 function handleAgentEvent(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const team = tab.agentTeam?.runs.has(r.id) ? tab.agentTeam : undefined;
   if (!r.replied && ev.t !== 'session' && ev.t !== 'done' && ev.t !== 'team-done') onFirstReply(r, tab);
@@ -762,6 +765,8 @@ function handleAgentEvent(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   } finally {
     labelAgent = prev;
   }
+  // A question, command or plan card came or went: the chat's "needs you" dot follows.
+  if (NEEDS_YOU_EVENTS.has(ev.t)) refreshNeedsYou(tab);
 }
 
 const earlyEvents: [number, AgentEvent][] = [];
@@ -875,6 +880,7 @@ function showPlan(r: Run, tab: AgentTabState): void {
   $$('[data-plan]', el).forEach(b => b.onclick = () => {
     const ok = b.dataset.plan === 'ok';
     $('[data-live]', el).outerHTML = `<div class="resolved">${ok ? '✓ Approved' : '✎ Asked for changes'}</div>`;
+    refreshNeedsYou(tab);
     saveChat(tab);
     if (ok) {
       sfx.play('approve');
@@ -941,6 +947,6 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   }
   addMsg(`<div class="run-done">${svgIcon('check', 14)}<span>${bits.length ? bits.join(' · ') : 'Done'}</span></div>`, tab);
   if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
-  if (r.files.size && running) autoReloadPreview();
+  if (r.files.size && idePreview.running) autoReloadPreview();
 }
 
