@@ -178,7 +178,32 @@ function pruneBoxTabs(): void {
   const s = SURFACES.box;
   for (const t of [...surfaceTabs.box]) if (t.id !== activeTabId.box && !tabBusy(t)) closeAgentTab(s, t.id);
 }
+/* A chat belongs to the project it began in. Opened from another project's group, that project is opened first, so the
+   chat stays filed under it and its agent carries on in its own folder, never in whichever one happens to be open. */
+// A folder path written one way, whichever slashes and case it came with, so two spellings of one folder match.
+const folderKey = (p: string) => p.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+const chatInOpenFolder = (e: ChatEntry) => !e.folder || (!!rootInfo && folderKey(e.folder) === folderKey(rootInfo.root));
+// `working`: Agent Board boxes still running here, which stop with the folder, so that is asked first.
+// True once the chat's project is the open one; false when the switch was cancelled or failed.
+async function openChatFolder(e: ChatEntry, working = 0): Promise<boolean> {
+  const name = folderName(e.folder);
+  if (working && !(await new Promise<boolean>(res => {
+    const finish = settleOnce(res);
+    openModal(`<h3>Open ${esc(name)}?</h3>
+      <p class="sub">This chat belongs to ${esc(name)}. ${working} ${working === 1 ? 'box is' : 'boxes are'} still working here and will stop.</p>
+      <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="chatFolderGo">Open ${esc(name)}</button></div>`, m => {
+      $('#chatFolderGo', m).onclick = () => { modalOnClose = null; closeModal(); finish(true); };
+    }, () => finish(false));
+  }))) return false;
+  await openRecentFolder(e.folder as string);
+  return chatInOpenFolder(e);
+}
+
 function openBoxChat(e: ChatEntry): void {
+  if (!chatInOpenFolder(e)) {
+    background(openChatFolder(e).then(ok => { if (ok) { renderBoxFolder(); openBoxChat(e); } }));
+    return;
+  }
   const s = SURFACES.box;
   const open = surfaceTabs.box.find(t => t.historyId === e.id);
   if (open) switchAgentTab(s, open.id);

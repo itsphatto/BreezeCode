@@ -771,6 +771,15 @@ function reopenInBox(e: ChatEntry, into?: string, place?: { by: string; side: Dr
     background(logChatHtml(e).then(html => { if (html) reopenInBox({ ...e, html }, into, place); else toast('That chat could not be read'); }));
     return;
   }
+  // Another project's chat opens on that project's board (history.ts), not in a box working on this one.
+  if (!chatInOpenFolder(e)) {
+    background(openChatFolder(e, [...boardBoxes.values()].filter(boxBusy).length).then(ok => {
+      if (!ok) return;
+      if (boardPageShowing()) openBoard(); // the board now shows that folder's boxes
+      reopenInBox(e);
+    }));
+    return;
+  }
   const key = into ?? firstFreeKey();
   if (!key) { toast(`The board is full: empty a box first (${BOARD_MAX} at most)`); return; }
   const was = boardBoxes.get(key);
@@ -817,8 +826,6 @@ function boardSideEntries(): ChatEntry[] {
 const LOG_NAMES_KEY = 'breeze.board.logNames', LOG_HIDDEN_KEY = 'breeze.board.logHidden';
 let boardLogs: ChatEntry[] = [];
 const LOG_AGENT: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
-// A log's folder written as the open folder is, so its chats group with this folder's.
-const folderKey = (p: string) => p.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
 function loadBoardLogs(): void {
   if (typeof api.agent.chatLogs !== 'function') return;
   background(api.agent.chatLogs().then(list => {

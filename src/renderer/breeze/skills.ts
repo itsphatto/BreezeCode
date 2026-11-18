@@ -8,19 +8,6 @@ const SKILL_TAGS: Record<string, [string, string]> = {
 };
 let skillData: SkillList | null = null;
 const openPlugins = new Set<string>();
-// Groups ("skills", "claude:plugins", "claude:mcp") start open; these are the ones folded shut.
-const foldedSkillGroups = new Set<string>();
-let skillsIntroDone = false;
-
-// A drop-down group: open by default, folds on a click. An empty one stays shut and can't be opened.
-function skillGroupHtml(key: string, title: string, count: number, rows: string): string {
-  const open = count > 0 && !foldedSkillGroups.has(key);
-  return `<div class="skill-group${open ? ' open' : ''}${count ? '' : ' no-items'}">
-    <button class="skill-group-head" type="button" data-skill-group="${escAttr(key)}" aria-expanded="${open}"${count ? '' : ' disabled'}>
-      ${svgIcon('chevronRight', 12)}<span>${esc(title)}</span><span class="n">${count}</span></button>
-    <div class="skill-group-body"><div>${rows}</div></div>
-  </div>`;
-}
 
 function skillRowHtml(s: AgentSkill): string {
   const tag = SKILL_TAGS[s.scope];
@@ -60,23 +47,57 @@ function mcpRowHtml(m: McpServer, mine: boolean, builtIn = false): string {
   return `<div class="skill-row mcp-row" title="${escAttr(m.detail)}">
     <span class="skill-text"><b>${esc(m.name)}</b><small>${esc(m.detail || (m.type === 'http' ? 'URL' : 'Command'))}</small></span>${end}</div>`;
 }
-function mcpGroupHtml(): string {
-  const own = mcpData?.builtIn ?? [], mine = mcpData?.breeze ?? [], theirs = mcpData?.claude ?? [];
-  const rows = own.map(m => mcpRowHtml(m, false, true)).join('') + mine.map(m => mcpRowHtml(m, true)).join('') + theirs.map(m => mcpRowHtml(m, false)).join('');
-  return skillGroupHtml('claude:mcp', 'MCP servers', own.length + mine.length + theirs.length, rows);
+/* ---- The pop-up: Skills / Plugins / MCP tabs, a search, and the list (opened from the chats side bars) ---- */
+type ExtTab = 'skills' | 'plugins' | 'mcp';
+const EXT_TABS: [ExtTab, string][] = [['skills', 'Skills'], ['plugins', 'Plugins'], ['mcp', 'MCP']];
+let extTab: ExtTab = 'skills';
+let extQuery = '';
+
+document.body.insertAdjacentHTML('beforeend', `<div class="ext-scrim" id="extPop" hidden>
+  <div class="ext-pop" role="dialog" aria-modal="true" aria-label="Skills, plugins and MCP servers">
+    <div class="ext-head">
+      <div class="ext-tabs" role="tablist">${EXT_TABS.map(([k, l]) => `<button type="button" role="tab" data-ext-tab="${k}">${l}</button>`).join('')}</div>
+      <label class="ext-search">${svgIcon('search', 14)}<input id="extSearch" type="search" placeholder="Search" aria-label="Search" spellcheck="false" autocomplete="off"></label>
+      <button class="btn btn-sm ext-add" id="extAdd" type="button" title="Connect MCP server">${svgIcon('plus', 14)}<span>Add</span></button>
+      <button class="icon-btn ext-close" id="extClose" type="button" title="Close (Esc)" aria-label="Close">${svgIcon('x', 16)}</button>
+    </div>
+    <div class="ext-body" id="extBody"></div>
+  </div>
+</div>`);
+const extPop = $('#extPop'), extBody = $('#extBody'), extSearch = $<HTMLInputElement>('#extSearch');
+const extOpen = () => !extPop.hidden && !extPop.classList.contains('closing');
+
+const extMatches = (...text: (string | undefined)[]) => !extQuery || text.some(t => t?.toLowerCase().includes(extQuery));
+function extSection(title: string, count: number, rows: string, empty: string): string {
+  return `<div class="ext-section"><span>${esc(title)}</span><span class="n">${count}</span></div>${rows || `<p class="side-note">${esc(extQuery ? 'Nothing matches your search.' : empty)}</p>`}`;
 }
 
 function renderSkills(): void {
-  const box = $('#skillList');
-  if (!skillData) { box.innerHTML = '<p class="side-note">Looking for skills…</p>'; return; }
-  const { skills, plugins } = skillData;
-  box.innerHTML = skillGroupHtml('skills', 'Skills', skills.length, skills.map(skillRowHtml).join(''))
-    + skillGroupHtml('claude:plugins', 'Plugins', plugins.length, plugins.map(pluginHtml).join('')) + mcpGroupHtml();
-  // The first time the list fills in, its headings and rows come in one after another (the app's stagger, ui.ts);
-  // later redraws (a plugin switched, a skill removed) just appear.
-  if (!skillsIntroDone) { skillsIntroDone = true; staggerIn(box.querySelectorAll('.skill-group-head, .skill-group-body > div > *')); }
-  $$<HTMLElement>('[data-skill-del]', box).forEach(b => holdToDelete(b, () => { const k = allSkills().find(x => x.id === b.dataset.skillDel); if (k) void removeSkill(k); }));
-  $$<HTMLElement>('[data-mcp-del]', box).forEach(b => holdToDelete(b, () => {
+  if (extPop.hidden) return;
+  $$<HTMLButtonElement>('[data-ext-tab]', extPop).forEach(b => {
+    const on = b.dataset.extTab === extTab;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  $('#extAdd').hidden = extTab !== 'mcp';
+  if (!skillData) { extBody.innerHTML = '<p class="side-note">Looking for skills…</p>'; return; }
+  let html = '';
+  if (extTab === 'skills') {
+    const list = skillData.skills.filter(k => extMatches(k.name, k.description));
+    html = extSection('Your skills', list.length, list.map(skillRowHtml).join(''), 'No skills yet.');
+  } else if (extTab === 'plugins') {
+    const list = skillData.plugins.filter(p => extMatches(p.name, p.description, ...p.skills.map(k => k.name)));
+    html = extSection('Claude Code plugins', list.length, list.map(pluginHtml).join(''), 'No plugins installed.');
+  } else {
+    const own = (mcpData?.builtIn ?? []).filter(m => extMatches(m.name, m.detail));
+    const mine = (mcpData?.breeze ?? []).filter(m => extMatches(m.name, m.detail));
+    const theirs = (mcpData?.claude ?? []).filter(m => extMatches(m.name, m.detail));
+    const rows = own.map(m => mcpRowHtml(m, false, true)).join('') + mine.map(m => mcpRowHtml(m, true)).join('') + theirs.map(m => mcpRowHtml(m, false)).join('');
+    html = extSection('MCP servers', own.length + mine.length + theirs.length, rows, 'No MCP servers. Add one to give Claude Code its tools.');
+  }
+  extBody.innerHTML = html;
+  $$<HTMLElement>('[data-skill-del]', extBody).forEach(b => holdToDelete(b, () => { const k = allSkills().find(x => x.id === b.dataset.skillDel); if (k) void removeSkill(k); }));
+  $$<HTMLElement>('[data-mcp-del]', extBody).forEach(b => holdToDelete(b, () => {
     const name = b.dataset.mcpDel as string;
     background(api.mcp.remove(name).then(() => { toast(`Disconnected ${name}`); return refreshSkills(); }));
   }));
@@ -85,10 +106,42 @@ function renderSkills(): void {
 async function refreshSkills(): Promise<void> {
   try {
     [skillData, mcpData] = await Promise.all([api.skills.list(), api.mcp.list().catch(() => ({ breeze: [], claude: [] }))]);
-  } catch (e) { $('#skillList').innerHTML = `<p class="side-note">Couldn't read the skills: ${esc(errMsg(e))}</p>`; return; }
+  } catch (e) { extBody.innerHTML = `<p class="side-note">Couldn't read the skills: ${esc(errMsg(e))}</p>`; return; }
   setSlashSkills(skillData); // the prompts' "/" menu follows what's here
   renderSkills();
 }
+
+function openExtensions(tab: ExtTab): void {
+  extTab = tab;
+  if (!extOpen()) {
+    extQuery = '';
+    extSearch.value = '';
+    extPop.classList.remove('closing');
+    extPop.hidden = false;
+  }
+  renderSkills();
+  extSearch.focus();
+  void refreshSkills();
+}
+function closeExtensions(): void {
+  if (!extOpen()) return;
+  extPop.classList.add('closing');
+  setTimeout(() => { if (extPop.classList.contains('closing')) { extPop.hidden = true; extPop.classList.remove('closing'); } }, 200);
+}
+$$<HTMLElement>('[data-ext-open]').forEach(b => b.onclick = () => openExtensions(b.dataset.extOpen as ExtTab));
+$$<HTMLButtonElement>('[data-ext-tab]', extPop).forEach(b => b.onclick = () => { extTab = b.dataset.extTab as ExtTab; renderSkills(); });
+extSearch.oninput = () => { extQuery = extSearch.value.trim().toLowerCase(); renderSkills(); };
+$('#extClose').onclick = closeExtensions;
+$('#extAdd').onclick = () => connectMcp();
+extPop.addEventListener('mousedown', e => { if (e.target === extPop) closeExtensions(); });
+// Capture, so a dialog opened over the pop-up (a skill, Connect MCP) takes Esc first and the pop-up stays.
+window.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !extOpen() || $$('#modalRoot .scrim:not(.closing)').length) return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeExtensions();
+}, true);
+commands['skills.open'] = () => openExtensions('skills');
 
 // Connect an MCP server: a command Breeze starts (with optional env vars) or a URL (with optional headers).
 function connectMcp(): void {
@@ -127,7 +180,6 @@ function connectMcp(): void {
         const s = await api.mcp.add({ name: val('name').trim(), type, command: val('command'), env: val('env'), url: val('url'), headers: val('headers') });
         closeModal();
         toast(`Connected ${s.name}. Claude Code gets it from the next run.`);
-        foldedSkillGroups.delete('claude:mcp');
         await refreshSkills();
       } catch (err) { $('#mcpError', m).textContent = errMsg(err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
     };
@@ -167,7 +219,7 @@ async function removeSkill(s: AgentSkill): Promise<void> {
   await refreshSkills();
 }
 
-$('#skillList').addEventListener('click', e => {
+extBody.addEventListener('click', e => {
   const t = e.target as HTMLElement;
   const find = (id?: string) => allSkills().find(s => s.id === id);
   const sw = t.closest<HTMLButtonElement>('[data-plugin]');
@@ -190,17 +242,7 @@ $('#skillList').addEventListener('click', e => {
     }).catch(err => { show(!on); toast(`Couldn't change ${id}: ${errMsg(err)}`); }));
     return;
   }
-  // Groups and plugins fold in place, so the body and chevron animate.
-  const group = t.closest<HTMLButtonElement>('[data-skill-group]');
-  if (group) {
-    if (group.disabled) return;
-    const key = group.dataset.skillGroup as string;
-    const open = foldedSkillGroups.has(key);
-    if (open) foldedSkillGroups.delete(key); else foldedSkillGroups.add(key);
-    group.parentElement?.classList.toggle('open', open);
-    group.setAttribute('aria-expanded', String(open));
-    return;
-  }
+  // Plugins fold in place, so the body and chevron animate.
   const plug = t.closest<HTMLElement>('[data-plugin-open]');
   if (plug) {
     const id = plug.dataset.pluginOpen as string;
@@ -214,7 +256,7 @@ $('#skillList').addEventListener('click', e => {
   const s = row && find(row.dataset.skill);
   if (s) void viewSkill(s);
 });
-$('#skillList').addEventListener('keydown', e => {
+extBody.addEventListener('keydown', e => {
   const row = (e.target as HTMLElement).closest<HTMLElement>('.skill-row');
   if (!row || (e.key !== 'Enter' && e.key !== ' ')) return;
   e.preventDefault();
@@ -222,4 +264,3 @@ $('#skillList').addEventListener('keydown', e => {
 });
 commands['skills.refresh'] = () => void refreshSkills();
 
-renderSkills();

@@ -51,6 +51,8 @@ function morphSideHead(from: HTMLElement, to: HTMLElement): void {
 }
 // `morph`: only a click on the activity bar animates the header; shortcuts and commands switch at once.
 function showView(v: string, reveal = false, morph = false): void {
+  // Skills, plugins and MCP moved to a pop-up (skills.ts): a layout saved on that old side-bar view opens Explorer.
+  if (v === 'skills') v = 'files';
   // Source Control is a full page (prs.ts) rather than a side-bar panel: it notes the view to go back to, and any other view closes it.
   if (v === 'git') openScmPage(); else closeScmPage(false);
   // The page's header is its column's (#scmLeft); the side bar's shows only while the side bar is open.
@@ -66,7 +68,6 @@ function showView(v: string, reveal = false, morph = false): void {
   if (was) morphSideHead(was, headOf(v));
   updateActIndicator();
   if (v === 'git') void refreshGit();
-  if (v === 'skills') void refreshSkills();
 }
 // Clicking the active view's icon again collapses the side bar, like VS Code. For Source Control, the page, it closes it.
 $$('.act-btn[data-view]').forEach(b => b.onclick = () => {

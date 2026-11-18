@@ -488,7 +488,6 @@
         <button class="act-btn" data-view="git" title="Checkpoints (Ctrl+Shift+G)"><svg width="20" height="20">
             <use href="#i-git" />
           </svg><span class="badge"></span></button>
-        <button class="act-btn" data-view="skills" title="Skills &amp; Plugins"><svg data-i="puzzle" data-size="20"></svg></button>
         <!-- Not a side-bar view: opens the full-page debugger (debugview.ts) -->
         <button class="act-btn" id="debugBtn" data-debug-btn title="Debug (Ctrl+Shift+D)" aria-label="Debug"><svg data-i="bug" data-size="20"></svg></button>
         <!-- Not a side-bar view either: opens the full-page Agent board (board.ts) -->
@@ -531,14 +530,6 @@
         <!-- Git -->
         <!-- The Source Control page (#scmPage, in the centre) lives there; this stays so the view switch finds its panel -->
         <div data-panel="git" class="contents hidden"></div>
-        <!-- Skills & plugins the agents load -->
-        <div data-panel="skills" class="contents hidden">
-          <div class="side-head"><span>Skills &amp; Plugins</span><span class="head-actions">
-              <button class="icon-btn" data-act="mcp.connect" title="Connect MCP server"><svg data-i="plus" data-size="14"></svg></button>
-              <button class="icon-btn" data-act="view.toggleSide" title="Hide Side Bar"><svg data-i="chevronLeft" data-size="14"></svg></button>
-            </span></div>
-          <div class="side-body skills" id="skillList"></div>
-        </div>
         <div class="sash sash-v" data-sash="side"></div>
       </aside>
 
@@ -743,6 +734,9 @@
       </div>
       <button class="box-side-row" id="boxSideSearchBtn" type="button" aria-controls="boxSideSearch"><svg data-i="search" data-size="15"></svg><span>Search</span></button>
       <label class="box-side-row box-side-search hidden" id="boxSideSearchBox"><svg data-i="search" data-size="15"></svg><input id="boxSideSearch" type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" spellcheck="false"></label>
+      <button class="box-side-row" type="button" data-ext-open="skills" aria-haspopup="dialog"><svg data-i="puzzle" data-size="15"></svg><span>Skills</span></button>
+      <button class="box-side-row" type="button" data-ext-open="plugins" aria-haspopup="dialog"><svg data-i="blocks" data-size="15"></svg><span>Plugins</span></button>
+      <button class="box-side-row" type="button" data-ext-open="mcp" aria-haspopup="dialog"><svg data-i="plug" data-size="15"></svg><span>MCP</span></button>
       <div class="box-side-list" id="boxSideList"></div>
     </aside>
     <div class="agent-tabs-bar box-tabs-bar" id="boxAgentTabsBar">
@@ -808,6 +802,9 @@
         </div>
         <button class="box-side-row" id="boardSideSearchBtn" type="button" aria-controls="boardSideSearch"><svg data-i="search" data-size="15"></svg><span>Search</span></button>
         <label class="box-side-row box-side-search hidden" id="boardSideSearchBox"><svg data-i="search" data-size="15"></svg><input id="boardSideSearch" type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" spellcheck="false"></label>
+        <button class="box-side-row" type="button" data-ext-open="skills" aria-haspopup="dialog"><svg data-i="puzzle" data-size="15"></svg><span>Skills</span></button>
+        <button class="box-side-row" type="button" data-ext-open="plugins" aria-haspopup="dialog"><svg data-i="blocks" data-size="15"></svg><span>Plugins</span></button>
+        <button class="box-side-row" type="button" data-ext-open="mcp" aria-haspopup="dialog"><svg data-i="plug" data-size="15"></svg><span>MCP</span></button>
         <div class="box-side-list" id="boardSideList" role="list"></div>
       </aside>
       <div class="board-grid" id="boardGrid" aria-label="Boxes"></div>

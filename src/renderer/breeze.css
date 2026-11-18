@@ -10840,15 +10840,10 @@ body.layout-animating .box > .terminal.open {
   white-space: nowrap;
 }
 
+/* The fold arrow next to a folder's name is always shown, so it reads as a drop-down before the pointer finds it. */
 .box-side-folder .ico-svg {
   flex: none;
-  opacity: 0;
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1), opacity .15s ease;
-}
-
-.box-side-folder:hover .ico-svg,
-.box-side-group.folded .ico-svg {
-  opacity: 1;
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
 }
 
 .box-side-group.folded .box-side-folder .ico-svg {
@@ -20829,6 +20824,214 @@ input.dbg-edit.bad:focus-visible {
   font-family: var(--font-ui);
 }
 
+
+/* ================= Skills / Plugins / MCP pop-up (skills.ts), opened from the chats side bars ================= */
+/* Just under .scrim (55), so a skill's page or Connect MCP opens over it and closing that returns here. */
+.ext-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 54;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .45);
+  animation: extFade .18s ease;
+}
+
+.ext-scrim[hidden] {
+  display: none;
+}
+
+.ext-pop {
+  display: flex;
+  flex-direction: column;
+  width: min(820px, calc(100vw - 48px));
+  height: min(760px, calc(100vh - 64px));
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+  overflow: hidden;
+  animation: extIn .26s cubic-bezier(.32, .72, 0, 1);
+}
+
+.ext-scrim.closing {
+  animation: extFade .2s ease reverse forwards;
+}
+
+.ext-scrim.closing .ext-pop {
+  animation: extIn .2s ease reverse forwards;
+}
+
+@keyframes extFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes extIn {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.ext-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ext-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.ext-tabs button {
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.ext-tabs button:hover {
+  color: var(--text);
+}
+
+.ext-tabs button.on {
+  background: var(--bg-3);
+  color: var(--text);
+}
+
+.ext-search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 260px;
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  cursor: text;
+}
+
+.ext-search:focus-within {
+  border-color: var(--text-3);
+}
+
+.ext-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ext-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.ext-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ext-add[hidden] {
+  display: none;
+}
+
+.ext-close {
+  color: var(--text-3);
+}
+
+.ext-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 18px;
+}
+
+.ext-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ext-section .n {
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--bg-3);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+/* Roomier rows than the old side-bar list: one line for the name, one for what it does. */
+.ext-body .skill-row {
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.ext-body .skill-row + .skill-row,
+.ext-body .plugin-item + .plugin-item {
+  border-top: 1px solid var(--line);
+}
+
+.ext-body .skill-row:hover + .skill-row,
+.ext-body .skill-row:hover {
+  border-top-color: transparent;
+}
+
+.ext-body .skill-text {
+  gap: 2px;
+}
+
+.ext-body .skill-text b {
+  font-size: 13.5px;
+}
+
+.ext-body .skill-text small {
+  font-size: 12px;
+}
+
+.ext-body .plugin-row {
+  padding: 6px 4px;
+}
+
+.ext-body .plugin-skills .skill-row {
+  padding: 7px 12px 7px 28px;
+}
+
+.ext-body .side-note {
+  padding: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ext-scrim,
+  .ext-pop,
+  .ext-scrim.closing,
+  .ext-scrim.closing .ext-pop {
+    animation: none;
+  }
+}
+
 /* ================= Power saver =================
    <html data-power="saver"> (power.ts): on battery, on low-end hardware, or as Settings → General → Performance says.
    Everything here is scoped to that attribute, so a plugged-in machine draws exactly as before.
@@ -20889,4 +21092,3 @@ input.dbg-edit.bad:focus-visible {
 :root[data-power="saver"] .editor-blur-out {
   filter: none !important;
 }
-
