@@ -143,14 +143,14 @@
   color-scheme: light;
   --blue: #0a62c9;
   --blue-soft: rgba(10, 98, 201, .1);
-  --bg: #fbf9f4;
-  --bg-1: #f4f1e8;
-  --bg-2: #ece8dc;
-  --bg-3: #e3ded0;
-  --line: #d8d1c0;
+  --bg: #eeeae6;
+  --bg-1: #e8e3dd;
+  --bg-2: #e0dad2;
+  --bg-3: #d9d2c9;
+  --line: #cdc5b8;
   --text: #26231e;
   --text-2: #57514a;
-  --text-3: #645d53;
+  --text-3: #5c554b;
   --ok: #137036;
   --warn: #9c4706;
   --err: #c42b1c;
@@ -158,8 +158,8 @@
   --c-planner: #6d28d9;
   --c-builder: #036496;
   /* Paper isn't see-through: popups are solid sheets, not frosted glass. */
-  --glass: rgba(251, 249, 244, .97);
-  --glass-strong: rgba(248, 245, 238, .98);
+  --glass: rgba(238, 234, 230, .97);
+  --glass-strong: rgba(234, 229, 224, .98);
   --glass-blur: none;
   --space-blur: none;
   --space-prompt-blur: none;
@@ -172,7 +172,7 @@
   --ink: 38, 35, 30;
   --blue-text: #0057b8;
   --text-soft: #3b3731;
-  --line-hi: #c7bfab;
+  --line-hi: #bdb4a3;
   --line-strong: #a89f8a;
   --code-text: #26231e;
 }
@@ -221,22 +221,22 @@
   --bg-3: color-mix(in srgb, #1c1c21 var(--bd-a), transparent);
 }
 :root[data-theme="light"][data-backdrop] {
-  --bg: color-mix(in srgb, #fbf9f4 var(--bd-a), transparent);
-  --bg-1: color-mix(in srgb, #f4f1e8 var(--bd-a), transparent);
-  --bg-2: color-mix(in srgb, #ece8dc var(--bd-a), transparent);
-  --bg-3: color-mix(in srgb, #e3ded0 var(--bd-a), transparent);
+  --bg: color-mix(in srgb, #eeeae6 var(--bd-a), transparent);
+  --bg-1: color-mix(in srgb, #e8e3dd var(--bd-a), transparent);
+  --bg-2: color-mix(in srgb, #e0dad2 var(--bd-a), transparent);
+  --bg-3: color-mix(in srgb, #d9d2c9 var(--bd-a), transparent);
 }
 /* The canvas under a picture is the theme's own solid colour; under Glass it is nothing, so the system material shows. */
 :root[data-backdrop] body { background: transparent; }
 :root[data-backdrop="glass"] { background: transparent; }
 :root[data-backdrop="image"] { background: #1d1d1f; }
 :root[data-theme="contrast"][data-backdrop="image"] { background: #000; }
-:root[data-theme="light"][data-backdrop="image"] { background: #fbf9f4; }
+:root[data-theme="light"][data-backdrop="image"] { background: #eeeae6; }
 /* The setup steps over the sky are always the plain theme, never Glass or a picture. Home takes the backdrop like the
    IDE does: its sky is hidden and its panel turns see-through. */
 :root[data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #1d1d1f; --bg-1: #232325; --bg-2: #2a2a2c; --bg-3: #323234; }
 :root[data-theme="contrast"][data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #000; --bg-1: #0b0b0d; --bg-2: #131316; --bg-3: #1c1c21; }
-:root[data-theme="light"][data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #fbf9f4; --bg-1: #f4f1e8; --bg-2: #ece8dc; --bg-3: #e3ded0; }
+:root[data-theme="light"][data-backdrop] .onboard:not(:has(.home-step:not(.hidden))) { --bg: #eeeae6; --bg-1: #e8e3dd; --bg-2: #e0dad2; --bg-3: #d9d2c9; }
 :root[data-backdrop] .onboard:has(.home-step:not(.hidden)) { background: transparent; }
 :root[data-backdrop] .onboard:has(.home-step:not(.hidden)) > .ob-sky { visibility: hidden; }
 :root[data-theme="light"][data-backdrop] .onboard .ob-step.home-step { --bg: inherit; --bg-1: inherit; --bg-2: inherit; --bg-3: inherit; }
@@ -261,7 +261,7 @@
 /* Turning a backdrop on or off (applyBackdrop, settings.ts): the theme's solid colour behind every surface, faded. */
 :root { --bd-solid: #1d1d1f; }
 :root[data-theme="contrast"] { --bd-solid: #000; }
-:root[data-theme="light"] { --bd-solid: #fbf9f4; }
+:root[data-theme="light"] { --bd-solid: #eeeae6; }
 body.bd-fade::before {
   content: "";
   position: fixed;
@@ -8771,22 +8771,22 @@ body.vibing .ide {
 /* The light theme gives all of setup a dark palette (it sits on the sky); Home takes the light theme's own back. */
 :root[data-theme="light"] .onboard .ob-step.home-step {
   color-scheme: light;
-  --bg: #fbf9f4;
-  --bg-1: #f4f1e8;
-  --bg-2: #ece8dc;
-  --bg-3: #e3ded0;
-  --line: #d8d1c0;
+  --bg: #eeeae6;
+  --bg-1: #e8e3dd;
+  --bg-2: #e0dad2;
+  --bg-3: #d9d2c9;
+  --line: #cdc5b8;
   --text: #26231e;
   --text-2: #57514a;
-  --text-3: #645d53;
+  --text-3: #5c554b;
   --blue-text: #0057b8;
   --text-soft: #3b3731;
-  --line-hi: #c7bfab;
+  --line-hi: #bdb4a3;
   --line-strong: #a89f8a;
   --ink: 38, 35, 30;
   --hover-dim: rgba(70, 55, 30, .22); /* stronger than the dark theme's: a light page needs more to show a hover */
-  --glass: rgba(251, 249, 244, .97);
-  --glass-strong: rgba(248, 245, 238, .98);
+  --glass: rgba(238, 234, 230, .97);
+  --glass-strong: rgba(234, 229, 224, .98);
   --glass-line: rgba(70, 55, 30, .12);
   --ok: #137036;
   --warn: #9c4706;
@@ -11574,10 +11574,11 @@ body.layout-animating .box > .terminal.open {
 }
 
 /* ================= Agent is responding ================= */
+/* "Thinking 2.0s" with the agent's logo; it opens into the steps taken so far (agents.ts showThinking). */
 .thinking {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   padding: 2px 0;
   align-self: flex-start;
   max-width: 100%;
@@ -11585,6 +11586,75 @@ body.layout-animating .box > .terminal.open {
   font-size: 12px;
   animation: rise .22s cubic-bezier(.2, .8, .2, 1);
 }
+
+.thinking .think-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 6px 2px 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.thinking .think-head:hover .think-chev,
+.thinking .think-head:focus-visible .think-chev { color: var(--text); }
+
+.thinking .think-time,
+.thinking .ts-time {
+  flex-shrink: 0;
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.thinking .think-chev {
+  display: inline-flex;
+  color: var(--text-3);
+  transition: transform .18s ease;
+}
+
+.thinking.collapsed .think-chev { transform: rotate(-90deg); }
+.thinking.collapsed .think-steps { display: none; }
+
+.thinking .think-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 0 7px; /* hangs off the logo's centre */
+  padding: 2px 0 2px 14px;
+  list-style: none;
+  border-left: 1px solid var(--line);
+}
+
+.thinking .think-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  animation: rise .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.thinking .think-step .ti {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+.thinking .ts-lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thinking .think-step:not(.live) .ts-lbl { color: var(--text-3); }
+.thinking .think-step.live .ts-lbl { color: var(--text); }
 
 .thinking .lbl {
   min-width: 0;
@@ -16706,10 +16776,10 @@ body.layout-animating #previewPane {
 }
 
 .theme-swatch[data-swatch="light"] {
-  --sw-bg: #fbf9f4;
-  --sw-side: #f4f1e8;
-  --sw-line: #d8d1c0;
-  --sw-text: #645d53;
+  --sw-bg: #eeeae6;
+  --sw-side: #e8e3dd;
+  --sw-line: #cdc5b8;
+  --sw-text: #5c554b;
 }
 
 .theme-swatch .sw-bar {
@@ -16777,7 +16847,7 @@ body.layout-animating #previewPane {
 .theme-swatch[data-base="contrast"] { --sw-panel: rgba(0, 0, 0, .55); }
 
 .theme-swatch[data-base="light"] {
-  --sw-panel: rgba(251, 249, 244, .6);
+  --sw-panel: rgba(238, 234, 230, .6);
   --sw-line: rgba(70, 55, 30, .2);
   --sw-text: #26231e;
 }
