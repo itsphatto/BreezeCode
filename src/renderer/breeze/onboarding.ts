@@ -5,8 +5,6 @@ interface AppState {
   user: User | null; agent: string | null; detect: Detection | null;
   vibeArmed: boolean; vibeSites: string[]; vibeSite: string | null; mode: WorkMode;
   discord: boolean; discordDetails: boolean; devMode: boolean;
-  // Agentic tasks in Breeze Space: keep running in the tray when the window closes, and start with the system.
-  agentTray: boolean; agentStartup: boolean;
   // Friends: share what I'm doing at all, and the open folder's name with it.
   friendsShare: boolean; friendsProject: boolean;
 }
@@ -14,7 +12,6 @@ const savedApp = store.get<Partial<AppState>>('breeze.app', {});
 const appState: AppState = {
   onboarded: false, step: 0, name: null, termsAcceptedAt: null, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
   discord: false, discordDetails: true, devMode: false, friendsShare: true, friendsProject: true,
-  agentTray: true, agentStartup: false,
   ...savedApp,
 };
 // The separate Breeze Agent workspace is now part of Breeze Space: a save from that build comes back to Space.

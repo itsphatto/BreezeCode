@@ -1484,7 +1484,7 @@ function swapScreen(to: string): void {
       prev.classList.remove('screen-out', 'screen-soft');
       prev.classList.add('hidden');
     };
-    const onEnd = (e: AnimationEvent) => { if (e.target === prev && !e.pseudoElement && ['screenOut', 'screenSoftOut'].includes(e.animationName)) done(); };
+    const onEnd = (e: AnimationEvent) => { if (e.target === prev && !e.pseudoElement && ['screenOut', 'fadeOut'].includes(e.animationName)) done(); };
     prev.addEventListener('animationend', onEnd);
     swapTimer = setTimeout(done, 900);
   });

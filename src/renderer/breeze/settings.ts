@@ -838,10 +838,6 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode))}
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
       ${settingRow('Performance', powerNote(), segHtml('sPower', [['auto', 'Auto'], ['on', 'Always on'], ['off', 'Off']], powerInfo.mode))}
-      <h5>Agentic tasks</h5>
-      ${settingRow('Keep running in tray', 'While a task runs or a schedule waits, closing the window hides Breeze to the tray so it keeps going. With no tasks, closing quits as usual.', switchHtml('sAgentTray', appState.agentTray, 'Keep running in tray'))}
-      <div class="set-dim ${appState.agentTray ? '' : 'off'}"${appState.agentTray ? '' : ' inert'}>
-      ${settingRow('Start with your computer', 'Opens Breeze hidden in the tray when you sign in, so schedules run on time.', switchHtml('sAgentStartup', appState.agentStartup, 'Start with your computer'))}</div>
       <h5>Editor</h5>
       ${settingRow('Auto save', 'Off, a second after you stop typing, or when you switch tabs or windows.', segHtml('sAutoSave', [['off', 'Off'], ['delay', 'After delay'], ['focus', 'On focus change']], autoSave))}
       <h5>Layout</h5>
@@ -881,10 +877,7 @@ function settingsBody(tab: SettingsTab): string {
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
         <h5>Permissions</h5>
         ${settingRow('Full access', fullAccessSub(), switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
-        ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}
-        <h5>Agentic task memory</h5>
-        <p class="set-sub">Short facts agentic tasks keep about you and each project, on this computer only. A project’s facts never reach another project.</p>
-        <div class="agent-mem-list" id="sAgentMemory"></div>`;
+        ${agents.some(a => a.found) ? `<h5>Usage</h5><div class="usage-list" id="sUsage">${usageHtml(usageAgents())}</div>` : ''}`;
     }
     case 'misc': return `<h4>Miscellaneous</h4>
       <h5>Vibe Code Mode</h5>
@@ -1447,10 +1440,6 @@ function bindSettings(m: HTMLElement): void {
     codeIn.oninput = () => { $<HTMLButtonElement>('#sCodeGo', pane).disabled = !codeIn.value.trim(); };
   }
   on('sClassicSwitch', () => { setClassicSwitch(!classicSwitch); refreshSettings(); });
-  on('sAgentTray', () => { appState.agentTray = !appState.agentTray; saveApp(); applyAgentTray(); refreshSettings(); });
-  on('sAgentStartup', () => { appState.agentStartup = !appState.agentStartup; saveApp(); applyAgentTray(); refreshSettings(); });
-  const memEl = $('#sAgentMemory', pane);
-  if (memEl) void renderAgentMemory(memEl);
   on('sDevOff', () => { appState.devMode = false; saveApp(); applyDevMode(); settingsTab = 'misc'; refreshSettings(); });
   // Friends
   on('sFriendsShare', () => { appState.friendsShare = !appState.friendsShare; saveApp(); queueFriendsPresence(); refreshSettings(); });
