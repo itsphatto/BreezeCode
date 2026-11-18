@@ -249,6 +249,8 @@ function renderBoxSide(): void {
     list.innerHTML = `<div class="box-side-empty">${q ? 'No chats match' : 'Your chats show up here'}</div>`;
     return;
   }
+  // Where each chat and folder sits now, so a chat that moves (the newest jumps to the top) slides to its new place.
+  const before = new Map($$<HTMLElement>('[data-chat], [data-folder]', list).map(el => [el.dataset.chat ?? `f:${el.dataset.folder}`, el.getBoundingClientRect().top]));
   list.innerHTML = [...groups].map(([folder, chats]) => {
     const folded = !q && boxSideFolded.has(folder);
     const name = folderName(folder) || 'Breeze Space';
@@ -260,6 +262,12 @@ function renderBoxSide(): void {
       <div class="box-side-chats">${rows}</div>
     </div>`;
   }).join('');
+  if (motionOff() || !before.size) return;
+  for (const el of $$<HTMLElement>('[data-chat], [data-folder]', list)) {
+    const from = before.get(el.dataset.chat ?? `f:${el.dataset.folder}`);
+    const dy = from === undefined ? 0 : from - el.getBoundingClientRect().top;
+    if (Math.abs(dy) > 1) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
 }
 $('#boxSideList').addEventListener('click', ev => {
   const t = ev.target as HTMLElement;

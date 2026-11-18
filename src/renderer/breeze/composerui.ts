@@ -87,6 +87,31 @@ function wireComposer(c: Composer): void {
     { label: 'Full access', icon: svgIcon('shield', 14), key: 'run anything', checked: () => agentFullAccess, run: () => { setFullAccess(true); refreshComposers(); } },
     { label: 'Project only', icon: svgIcon('shieldCheck', 14), key: 'this folder', checked: () => !agentFullAccess, run: () => { setFullAccess(false); refreshComposers(); } },
   ]);
+  // The usage meter's arrow opens a bar for every plan window (the 5-hour one, the week's), not just the tightest.
+  // The bar, the % and the arrow are one button, so the whole meter is the hitbox.
+  const meterEl = $('.cmp-ctx', c.meta);
+  meterEl.insertAdjacentHTML('beforebegin', `<button type="button" class="cmp-ctx-more hidden" aria-label="Show all usage limits" aria-haspopup="menu"></button>`);
+  const more = $<HTMLButtonElement>('.cmp-ctx-more', c.meta);
+  more.append(meterEl);
+  more.insertAdjacentHTML('beforeend', svgIcon('chevronDown', 12));
+  more.onclick = () => {
+    const id = composerAgent(c);
+    const wins = (id && agentUsage?.limits[id]) || [];
+    if (!wins.length) return;
+    composerMenu(more, [{ label: 'Usage limits', enabled: () => false }]);
+    const m = $('#menuRoot .menu');
+    if (!m || !more.classList.contains('open')) return; // the click closed it
+    const name = appState.detect?.agents.find(a => a.id === id)?.name ?? 'Agent';
+    m.classList.add('cmp-usage-menu');
+    m.innerHTML = `<div class="cmp-usage-head">${esc(name)} usage</div>` + wins.map(w => {
+      const pct = Math.max(0, Math.min(100, Math.round(w.used)));
+      return `<div class="cmp-usage-row${pct >= 80 ? ' high' : ''}"><span class="lbl">${esc(w.label)}</span><span class="cmp-ctx-bar"><i data-w="${pct}"></i></span><span class="pct">${pct}%</span>${w.resetsAt ? `<small>resets ${esc(resetText(w.resetsAt))}</small>` : ''}</div>`;
+    }).join('');
+    $$<HTMLElement>('.cmp-ctx-bar i', m).forEach(i => { i.style.width = `${i.dataset.w}%`; }); // the CSP blocks inline style attributes
+    const r = more.getBoundingClientRect();
+    m.style.left = `${Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))}px`;
+    m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`;
+  };
   const mic = $<HTMLButtonElement>('.cmp-mic', c.box);
   // Voice typing is Windows' own; elsewhere the system's dictation already types into the box.
   mic.hidden = !/Windows/.test(navigator.userAgent);
@@ -237,6 +262,7 @@ function paintComposer(c: Composer): void {
   const id = composerAgent(c);
   const wins = (id && agentUsage?.limits[id]) || [];
   meter.classList.toggle('hidden', !wins.length);
+  $('.cmp-ctx-more', c.meta).classList.toggle('hidden', !wins.length);
   if (wins.length) {
     const tight = wins.reduce((a, w) => (w.used > a.used ? w : a));
     const pct = Math.max(0, Math.min(100, Math.round(tight.used)));

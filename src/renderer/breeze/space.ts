@@ -108,7 +108,11 @@ function startSpace(): void {
     const dt = last ? t - last : 16.7;
     const k = Math.min(3, dt / 16.7); // in 60fps frames, so a slow frame doesn't slow the climb
     last = t;
-    spaceSpeed += (target - spaceSpeed) * (1 - Math.exp(-dt / 450)); // eases into the new speed over about a second
+    if (target === SPACE_BUSY) {
+      // Ease-in to the streak: starts slow and gathers speed (cubic over ~1.4s), picking up from wherever it is now.
+      const p = Math.min(1, Math.cbrt(Math.max(0, warp)) + dt / 1400);
+      spaceSpeed = SPACE_IDLE + (SPACE_BUSY - SPACE_IDLE) * p ** 3;
+    } else spaceSpeed += (target - spaceSpeed) * (1 - Math.exp(-dt / 450)); // settles back over about a second
     paintSpace(ctx, w, h, stars, dust, t, spaceSpeed, k, warp);
     // Not on the light theme's paper, nor in power saver's still picture; streaking, they fade out with the warp.
     if (!powerSaver() && document.documentElement.dataset.theme !== 'light') {

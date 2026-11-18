@@ -902,7 +902,7 @@ function dashBlocks(): Map<string, HTMLElement> {
 function dashTexts(): Map<string, HTMLElement> {
   const out = new Map<string, HTMLElement>(), count = new Map<string, number>();
   for (const el of $$<HTMLElement>('*', $('.agent-dash'))) {
-    if (!Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim())) continue;
+    if (el.closest('.ad-roll') || (!el.dataset.to && !Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim()))) continue;
     if (el.closest('#adBars, #adX, #adTip') || !dashShown(el)) continue;
     const block = el.closest<HTMLElement>(DASH_BLOCKS);
     const scope = block ? dashBlockKey(block) : `#${el.closest('[id]')?.id}`;
@@ -944,6 +944,8 @@ function playDash(shot: DashShot | null): void {
     const was = shot.texts.get(k), now = el.textContent ?? '';
     if (was === undefined) el.animate(DASH_GROW, { duration: 300, easing: 'cubic-bezier(.23, 1, .32, 1)' });
     else if (was === now) continue;
+    // The usage card's numbers roll like a clock's; the chart's scramble.
+    else if (!el.children.length && /\d/.test(now) && el.closest('.ad-usage')) rollText(el, was);
     else if (!el.children.length && /\d/.test(now) && shape(was) === shape(now)) scrambleText(el);
     else el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease' });
   }
@@ -962,6 +964,25 @@ function scrambleText(el: HTMLElement): void {
     else delete el.dataset.to;
   };
   scrambling.set(el, requestAnimationFrame(tick));
+}
+// Each character that changed rolls up like a clock's digit: the old one slides up and out as the new one comes up from
+// below, right to left a beat apart. Matched from the right, so "959.5M" → "1B" rolls the "M" into the "B".
+function rollText(el: HTMLElement, from: string): void {
+  const to = el.textContent ?? '';
+  if (motionOff()) return;
+  el.dataset.to = to;
+  const off = from.length - to.length;
+  el.innerHTML = [...to].map((ch, i) => {
+    const old = from[i + off] ?? '';
+    return old === ch ? esc(ch) : `<span class="ad-roll"><span><span>${esc(old) || '&nbsp;'}</span><span>${esc(ch)}</span></span></span>`;
+  }).join('');
+  const cols = $$<HTMLElement>('.ad-roll > span', el);
+  let left = cols.length;
+  cols.forEach((c, k) => {
+    const a = c.animate([{ transform: 'none' }, { transform: 'translateY(-50%)' }], { duration: 520, delay: (cols.length - 1 - k) * 45, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' });
+    // Redrawn meanwhile (the rolls are gone): the new text stands.
+    a.onfinish = a.oncancel = () => { if (--left === 0 && el.dataset.to === to) { if (el.querySelector('.ad-roll')) el.textContent = to; delete el.dataset.to; } };
+  });
 }
 function renderAgentDash(): void {
   const agents = dashAgents();
@@ -1109,7 +1130,13 @@ function renderDashChart(a: DetectedAgent | null): void {
   // The same number of days as drawn: the bars stay and ease to their new heights (a CSS transition); another number
   // draws them afresh, rising in. A bar has a segment for every kind, an unused one at no height, so each can morph.
   const morph = bars.children.length === days.length;
+  // Another range (7d, 14d, 30d): the bars are made afresh, and each day still shown glides from its old place and size,
+  // its date with it; days new to the chart grow up from the axis. The first draw rises in instead.
+  const flip = !morph && bars.children.length > 0 && dashOnScreen() && !motionOff();
+  const wasBars = new Map(flip ? Array.from(bars.children as HTMLCollectionOf<HTMLElement>, c => [c.dataset.day, c.getBoundingClientRect()]) : []);
+  const wasX = new Map(flip ? $$<HTMLElement>('#adX span').filter(s => s.textContent).map(s => [s.textContent, s.getBoundingClientRect()]) : []);
   if (!morph) {
+    if (flip) bars.classList.remove('anim'); // or every new bar plays its rise
     bars.textContent = '';
     for (let i = 0; i < days.length; i++) {
       const col = document.createElement('div');
@@ -1133,6 +1160,19 @@ function renderDashChart(a: DetectedAgent | null): void {
   // one for two weeks, every fifth for a month.
   const every = days.length <= 7 ? 1 : days.length <= 14 ? 2 : 5;
   swapHtml($('#adX'), days.map((d, i) => `<span>${(days.length - 1 - i) % every === 0 ? esc(dashDayLabel(d)) : ''}</span>`).join(''));
+  if (flip) {
+    const glide = { duration: 450, easing: DASH_EASE };
+    for (const col of Array.from(bars.children as HTMLCollectionOf<HTMLElement>)) {
+      const o = wasBars.get(col.dataset.day), r = col.getBoundingClientRect();
+      if (!o) { col.animate([{ opacity: 0, transform: 'scaleY(0)' }, { opacity: 1, transform: 'none' }], glide); continue; }
+      col.animate([{ transform: `translateX(${o.left - r.left}px) scale(${o.width / (r.width || 1)}, ${o.height / (r.height || 1)})` }, { transform: 'none' }], glide);
+    }
+    for (const s of $$<HTMLElement>('#adX span')) {
+      const o = s.textContent && wasX.get(s.textContent);
+      if (o) s.animate([{ transform: `translateX(${o.left - s.getBoundingClientRect().left}px)` }, { transform: 'none' }], glide);
+      else if (s.textContent) s.animate(DASH_GROW, glide);
+    }
+  }
   // The legend shows only kinds this agent has, with their totals; an agent whose tokens aren't split by kind has
   // just the total (a "Tokens" entry would only repeat it).
   let sums = DASH_KINDS.map(([k, label]) => [k, label, days.reduce((n, d) => n + (h?.days[d]?.[k] ?? 0), 0)] as const).filter(([, , n]) => n > 0);
@@ -1144,7 +1184,7 @@ function renderDashChart(a: DetectedAgent | null): void {
   if (drawn !== dashDrawn && dashOnScreen()) {
     dashDrawn = drawn;
     // Morphing bars keep their axes and legend; what changes on them animates on its own (playDash).
-    if (!morph) replayAnim([bars, $('#adY'), $('#adX'), $('#adLegend')]);
+    if (!morph && !flip) replayAnim([bars, $('#adY'), $('#adX'), $('#adLegend')]);
   }
 }
 function showDashTip(bar: HTMLElement): void {
@@ -1155,6 +1195,10 @@ function showDashTip(bar: HTMLElement): void {
   // Already showing another bar's: it slides and resizes from there and its text blurs in, like the app tooltip
   // (morphTooltip). Measured before the last morph is dropped, so a quick sweep across bars carries on from mid-way.
   const from = tip.classList.contains('hidden') ? null : tip.getBoundingClientRect();
+  // The rows shown now, by label (the day by its place), so a number that carries over scrambles to its new value.
+  const tipKey = (row: Element) => (row.matches('.ad-tip-day') ? 'day' : Array.from(row.childNodes).find(n => n.nodeType === Node.TEXT_NODE)?.textContent ?? row.className);
+  const tipNum = (row: Element) => (row.matches('.ad-tip-day') ? row as HTMLElement : row.querySelector<HTMLElement>('b'));
+  const wasRows = new Map(from ? Array.from(tip.children, r => [tipKey(r), tipNum(r) ? dashText(tipNum(r)!) : '']) : []);
   tip.getAnimations().forEach(a => { if (a.id === 'tip') a.cancel(); });
   const rows = DASH_KINDS.filter(([k]) => (day?.[k] ?? 0) > 0).map(([k, label]) => `<div><i data-k="${k}"></i>${esc(label)}<b>${compact(day![k] ?? 0)}</b></div>`).join('');
   const cost = h?.priced && day ? `<div class="ad-tip-cost">Est. cost<b>≈ ${money(day.cost ?? 0)}</b></div>` : '';
@@ -1169,7 +1213,11 @@ function showDashTip(bar: HTMLElement): void {
   const ease = 'cubic-bezier(.32, .72, 0, 1)';
   tip.animate([{ transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`, width: `${from.width}px`, height: `${from.height}px` },
     { transform: 'none', width: `${to.width}px`, height: `${to.height}px` }], { duration: 260, easing: ease }).id = 'tip';
-  for (const row of Array.from(tip.children)) row.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  for (const row of Array.from(tip.children)) {
+    const num = tipNum(row), was = wasRows.get(tipKey(row));
+    if (was !== undefined && num) { if (was !== num.textContent) scrambleText(num); }
+    else row.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
 }
 function pickDashAgent(id: string): void {
   if (!id || id === dashAgent) return;
