@@ -626,8 +626,7 @@ function paintBoxLimit(box: BoardBox): void {
     el.title = 'No plan limit: it runs on this computer';
     return;
   }
-  // Claude shows its 5-hour window, as the composer does; others their tightest.
-  const tight = (box.agent === 'claude' && wins.find(w => w.label === '5-hour')) || wins.reduce((a, w) => (w.used > a.used ? w : a));
+  const tight = wins.reduce((a, w) => (w.used > a.used ? w : a));
   const left = Math.max(0, Math.round(100 - tight.used));
   el.textContent = `${left}% left`;
   el.classList.toggle('low', left <= 10);

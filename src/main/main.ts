@@ -1988,7 +1988,7 @@ handle('win:reload', () => win?.webContents.reload());
 handle('win:devtools', () => win?.webContents.toggleDevTools());
 handle('win:quit', () => app.quit());
 // The window's own background follows Settings → Appearance.
-const THEME_BG: Record<string, string> = { dark: '#1d1d1f', contrast: '#000000', light: '#eeeae6' };
+const THEME_BG: Record<string, string> = { dark: '#1d1d1f', contrast: '#000000', light: '#fbf9f4' };
 let themeBg = THEME_BG.dark, glassOn = false, themeName = 'dark';
 // The system's frosted material is tinted light or dark by the OS theme; while Glass is on it follows Breeze's theme.
 const tintGlass = () => { nativeTheme.themeSource = glassOn ? (themeName === 'light' ? 'light' : 'dark') : 'system'; };

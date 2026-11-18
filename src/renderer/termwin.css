@@ -71,12 +71,12 @@
 }
 
 :root[data-theme="light"] {
-  --bg: #eeeae6;
-  --bar: #eeeae6;
-  --line: #cdc5b8;
+  --bg: #fbf9f4;
+  --bar: #fbf9f4;
+  --line: #d8d1c0;
   --text: #26231e;
   --text-2: #57514a;
-  --text-3: #5c554b;
+  --text-3: #645d53;
   --hover: rgba(0, 0, 0, .07);
   --caret: #26231e;
   --sel: rgba(0, 122, 255, .22);
@@ -107,7 +107,7 @@
   --bar: transparent;
 }
 :root[data-backdrop="glass"][data-theme="contrast"] { --bg: color-mix(in srgb, #000 var(--bd-a), transparent); }
-:root[data-backdrop="glass"][data-theme="light"] { --bg: color-mix(in srgb, #eeeae6 var(--bd-a), transparent); }
+:root[data-backdrop="glass"][data-theme="light"] { --bg: color-mix(in srgb, #fbf9f4 var(--bd-a), transparent); }
 
 * {
   box-sizing: border-box;

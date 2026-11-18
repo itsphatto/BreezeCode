@@ -257,15 +257,15 @@ function paintComposer(c: Composer): void {
     br.title = `On branch ${b}`;
   }
 
-  // Usage: how much of its plan's limit the agent has used. Claude shows its 5-hour window; other agents show their
-  // tightest window (the arrow lists every one). Hidden for an agent with no plan limit (a local model, an API key).
+  // Usage: how much of its plan's limit the agent has used, by its tightest window (the 5-hour one, the week's),
+  // as Settings → Agents shows it. Hidden for an agent with no plan limit (a local model, an API key).
   const meter = $('.cmp-ctx', c.meta);
   const id = composerAgent(c);
   const wins = (id && agentUsage?.limits[id]) || [];
   meter.classList.toggle('hidden', !wins.length);
   $('.cmp-ctx-more', c.meta).classList.toggle('hidden', !wins.length);
   if (wins.length) {
-    const tight = (id === 'claude' && wins.find(w => w.label === '5-hour')) || wins.reduce((a, w) => (w.used > a.used ? w : a));
+    const tight = wins.reduce((a, w) => (w.used > a.used ? w : a));
     const pct = Math.max(0, Math.min(100, Math.round(tight.used)));
     const fill = $<HTMLElement>('.cmp-ctx-bar i', meter);
     fill.style.width = `${pct}%`;
