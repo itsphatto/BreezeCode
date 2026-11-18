@@ -638,6 +638,7 @@ function applyDataStyles(root: Element): void {
 function setSavedHtml(el: Element, html: string): void {
   el.innerHTML = html.replaceAll(' style="', ' data-style="');
   applyDataStyles(el);
+  upgradeRunDone(el);
 }
 // Terminal output with its ANSI colours (the 256-colour and true-colour ones arrive as data-style).
 function setAnsiHtml(el: HTMLElement, raw: string): void {

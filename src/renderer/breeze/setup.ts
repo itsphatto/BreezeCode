@@ -1502,6 +1502,27 @@ function swapScreen(to: string): void {
   if (!next.classList.contains('hidden') && !next.classList.contains('screen-out') && !next.classList.contains('screen-prep')) return; // already showing
   next.classList.remove('hidden', 'screen-out', 'screen-in', 'screen-soft-in', 'screen-soft');
   queueDiscord();
+  // Into or out of the debugger or the board: one window changing page, not a page reloading. A view transition
+  // (.page-morph, breeze.css) holds the title and activity bars still and morphs them, and only the work area fades.
+  // The new page is laid out unseen first (screen-prep) for the caller to fill in, and swapped in once the old look is
+  // captured. Each page names its bars only while it is the one showing, or the names would clash.
+  const root = document.documentElement;
+  if (debugSwap && prev && document.startViewTransition && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches
+    && ![...root.classList].some(c => c.endsWith('-morph') || c === 'scm-fade')) {
+    next.classList.add('screen-prep');
+    prev.classList.add('page-vt');
+    root.classList.add('page-morph');
+    const done = () => { root.classList.remove('page-morph'); for (const el of screens) el.classList.remove('page-vt'); };
+    document.startViewTransition(() => {
+      if (seq !== swapSeq) return; // switched again before it played
+      prev.classList.remove('page-vt', 'screen-out', 'screen-soft');
+      prev.classList.add('hidden');
+      next.classList.remove('screen-prep');
+      next.classList.add('page-vt');
+      if (next.id === 'ide') terminalBack();
+    }).finished.then(done, done);
+    return;
+  }
   // The new screen is laid out and painted unseen first (the caller fills it in right after this), and the swap only
   // plays once frames come steadily, so a slow machine doesn't stutter through it.
   next.classList.add('screen-prep');
