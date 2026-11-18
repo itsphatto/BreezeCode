@@ -20193,41 +20193,42 @@ input.dbg-edit.bad:focus-visible {
   border-color: rgba(var(--ink), .22);
 }
 
-.board-box.drop-on {
-  border-color: var(--blue);
-  background: var(--blue-soft);
-  box-shadow: inset 0 0 0 1px var(--blue);
+/* Where a drag lands: one blue panel, the same ring, radius and gap from the edge wherever it goes. Over a box it would
+   fill, it covers the box; over another chat, the half it would open on (board.ts dropSideOf). It is the same element
+   all the while, so moving between the middle and either half slides it there instead of swapping one look for another.
+   The box's own border never changes, so nothing around it shifts. */
+.board-grid:not(.tiles) > .board-box {
+  position: relative; /* the panel's frame; tiles are placed absolutely already */
 }
 
-/* A chat dragged over another chat: the half it would open on lights up instead of the whole box (board.ts). */
-.board-box.drop-on[data-drop-side] {
-  border-color: var(--line);
-  background: var(--bg-1);
-  box-shadow: none;
-}
-
-.board-grid:not(.tiles) > .board-box.drop-on[data-drop-side] {
-  position: relative; /* tiles are placed absolutely already */
-}
-
-.board-box.drop-on[data-drop-side]::after {
+.board-box::after {
   content: '';
   position: absolute;
   inset: 4px;
   z-index: 5;
-  border-radius: 8px;
+  border-radius: calc(var(--r) - 3px);
   background: var(--blue-soft);
   box-shadow: inset 0 0 0 2px var(--blue);
+  opacity: 0;
   pointer-events: none;
-  transition: inset .18s cubic-bezier(.32, .72, 0, 1);
+  transition: opacity .14s ease, inset .2s cubic-bezier(.32, .72, 0, 1);
 }
 
-.board-box.drop-on[data-drop-side="left"]::after {
-  inset: 4px 50% 4px 4px;
+.board-box.drop-on::after {
+  opacity: 1;
 }
 
-.board-box.drop-on[data-drop-side="right"]::after {
-  inset: 4px 4px 4px 50%;
+/* Hidden, it only fades: it keeps the half it was on (board.ts leaves data-drop-side), rather than sliding back. */
+.board-box:not(.drop-on)::after {
+  transition: opacity .14s ease;
+}
+
+.board-box[data-drop-side="left"]::after {
+  inset: 4px calc(50% + 2px) 4px 4px;
+}
+
+.board-box[data-drop-side="right"]::after {
+  inset: 4px 4px 4px calc(50% + 2px);
 }
 
 .board-box.shake {

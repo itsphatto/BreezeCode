@@ -187,16 +187,21 @@ const chatInOpenFolder = (e: ChatEntry) => !e.folder || (!!rootInfo && folderKey
 // True once the chat's project is the open one; false when the switch was cancelled or failed.
 async function openChatFolder(e: ChatEntry, working = 0): Promise<boolean> {
   const name = folderName(e.folder);
-  if (working && !(await new Promise<boolean>(res => {
-    const finish = settleOnce(res);
-    openModal(`<h3>Open ${esc(name)}?</h3>
-      <p class="sub">This chat belongs to ${esc(name)}. ${working} ${working === 1 ? 'box is' : 'boxes are'} still working here and will stop.</p>
-      <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="chatFolderGo">Open ${esc(name)}</button></div>`, m => {
-      $('#chatFolderGo', m).onclick = () => { modalOnClose = null; closeModal(); finish(true); };
-    }, () => finish(false));
-  }))) return false;
+  if (!(await confirmStopBoxes(working, `Open ${name}?`, `This chat belongs to ${name}.`, `Open ${name}`))) return false;
   await openRecentFolder(e.folder as string);
   return chatInOpenFolder(e);
+}
+// Asked before Agent Board boxes still working are closed (their runs stop); true at once when none are.
+function confirmStopBoxes(working: number, title: string, lead: string, go: string): Promise<boolean> {
+  if (!working) return Promise.resolve(true);
+  return new Promise<boolean>(res => {
+    const finish = settleOnce(res);
+    openModal(`<h3>${esc(title)}</h3>
+      <p class="sub">${esc(lead)} ${working} ${working === 1 ? 'box is' : 'boxes are'} still working and will stop.</p>
+      <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="stopBoxesGo">${esc(go)}</button></div>`, m => {
+      $('#stopBoxesGo', m).onclick = () => { modalOnClose = null; closeModal(); finish(true); };
+    }, () => finish(false));
+  });
 }
 
 function openBoxChat(e: ChatEntry): void {
