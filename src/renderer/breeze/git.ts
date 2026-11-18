@@ -60,7 +60,7 @@ function renderBranch(): void {
   // The debugger's copy of the activity bar (debugview.ts) shows the same badge.
   $$('.act-btn:is([data-view=git], [data-rail-view=git]) .badge').forEach(badge => {
     // Popped from here, not by CSS: a CSS animation replays each time its screen is shown again.
-    if (badge.classList.contains('hidden') && (n || inN)) badge.animate([{ transform: 'scale(.6)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 250, easing: 'cubic-bezier(.3, 1.6, .5, 1)' });
+    if (badge.classList.contains('hidden') && (n || inN)) badge.animate([{ transform: 'scale(.6)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 375, easing: SPRING_BOUNCE });
     badge.textContent = n ? (n > 99 ? '99+' : String(n)) : inN ? `↓${inN > 99 ? '99+' : inN}` : '';
     badge.classList.toggle('hidden', !n && !inN);
     badge.classList.toggle('incoming', !n && !!inN);
@@ -215,7 +215,7 @@ function fitScmMsgEased(msg: HTMLTextAreaElement): void {
   autoResizeScmMsg(msg);
   const toH = msg.offsetHeight;
   if (Math.abs(toH - fromH) < 1) return;
-  scmMsgAnim = msg.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 200, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  scmMsgAnim = msg.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 300, easing: SPRING });
 }
 
 function currentActiveAgent(): DetectedAgent | null {
@@ -390,23 +390,23 @@ function morphScmSync(was: ScmSync | null, easing: string): void {
   if (!now) { btn.inert = true; row.append(btn); } // the old button itself, put back to fold away
   btn.getAnimations().forEach(a => a.cancel());
   const pad = parseFloat(getComputedStyle(btn).paddingLeft);
-  const morph = btn.animate([scmSyncFrame(from, full, gap, pad), scmSyncFrame(to, full, gap, pad)], { duration: 340, easing, fill: now ? 'none' : 'forwards' });
+  const morph = btn.animate([scmSyncFrame(from, full, gap, pad), scmSyncFrame(to, full, gap, pad)], { duration: 510, easing, fill: now ? 'none' : 'forwards' });
   if (now) return;
   morph.onfinish = () => btn.remove();
-  setTimeout(() => btn.remove(), 400); // a hidden window runs no animations
+  setTimeout(() => btn.remove(), 560); // a hidden window runs no animations
 }
 function playScm(shot: ScmShot | null): void {
   if (!shot) return;
   const host = $('#scm'), hr = host.getBoundingClientRect(), now = scmBlocks();
-  const ease = 'cubic-bezier(.2, .8, .2, 1)';
+  const ease = SPRING;
   // `translate` and `scale` rather than `transform`, which the rows pin with !important (breeze.css) and so beats any animation.
   const grow: Keyframe[] = [{ opacity: 0, scale: '.96', filter: 'blur(2px)' }, { opacity: 1, scale: '1', filter: 'blur(0)' }];
   for (const [k, b] of now) {
     const was = shot.blocks.get(k);
-    if (!was) { b.animate(grow, { duration: 300, easing: ease }); continue; }
+    if (!was) { b.animate(grow, { duration: 450, easing: ease }); continue; }
     if (!was.sig || was.sig === scmSig(b)) continue; // unchanged: no animation, even if it moved
     const r = b.getBoundingClientRect(), dx = was.r.left - r.left, dy = was.r.top - r.top;
-    if (Math.abs(dx) > .5 || Math.abs(dy) > .5) b.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }], { duration: 340, easing: ease });
+    if (Math.abs(dx) > .5 || Math.abs(dy) > .5) b.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }], { duration: 510, easing: ease });
   }
   // The old element itself (redrawing detached it), put back where it was over the new panel while it goes.
   for (const [k, was] of shot.blocks) {
@@ -415,7 +415,7 @@ function playScm(shot: ScmShot | null): void {
     ghost.setAttribute('aria-hidden', 'true');
     Object.assign(ghost.style, { position: 'absolute', left: `${was.r.left - hr.left + host.scrollLeft}px`, top: `${was.r.top - hr.top + host.scrollTop}px`, width: `${was.r.width}px`, height: `${was.r.height}px`, margin: '0', pointerEvents: 'none', zIndex: '1' });
     host.append(ghost);
-    ghost.animate([...grow].reverse(), { duration: 220, easing: 'ease-in', fill: 'forwards' }).onfinish = () => ghost.remove();
+    ghost.animate([...grow].reverse(), { duration: 220, easing: SPRING, fill: 'forwards' }).onfinish = () => ghost.remove();
   }
   morphScmSync(shot.sync, ease);
   const btn = document.querySelector<HTMLElement>('#scm [data-act="git.commit"]');
@@ -504,7 +504,7 @@ function toggleScmSection(head: HTMLElement): void {
     list.style.opacity = '1';
     list.style.transform = 'translateY(0)';
     const _reflow = list.offsetHeight;
-    list.style.transition = 'max-height .22s cubic-bezier(.16, 1, .3, 1), opacity .18s ease, transform .22s cubic-bezier(.16, 1, .3, 1)';
+    list.style.transition = 'max-height .33s var(--spring), opacity .18s ease, transform .33s var(--spring)';
     list.style.maxHeight = '0px';
     list.style.opacity = '0';
     list.style.transform = 'translateY(-4px)';
@@ -517,7 +517,7 @@ function toggleScmSection(head: HTMLElement): void {
       list.style.transform = '';
       list.style.transition = '';
     };
-    setTimeout(cleanup, 230);
+    setTimeout(cleanup, 340);
   } else {
     scmCollapsed.delete(key);
     sec.classList.remove('closed');
@@ -528,7 +528,7 @@ function toggleScmSection(head: HTMLElement): void {
     list.style.transform = 'translateY(-4px)';
     const _reflow = list.offsetHeight;
     const targetH = list.scrollHeight;
-    list.style.transition = 'max-height .22s cubic-bezier(.16, 1, .3, 1), opacity .22s ease, transform .22s cubic-bezier(.16, 1, .3, 1)';
+    list.style.transition = 'max-height .33s var(--spring), opacity .22s ease, transform .33s var(--spring)';
     list.style.maxHeight = targetH + 'px';
     list.style.opacity = '1';
     list.style.transform = 'translateY(0)';
@@ -540,7 +540,7 @@ function toggleScmSection(head: HTMLElement): void {
       list.style.transform = '';
       list.style.transition = '';
     };
-    setTimeout(cleanup, 230);
+    setTimeout(cleanup, 340);
   }
   store.set('breeze.scmCollapsed', [...scmCollapsed]);
 }
@@ -780,12 +780,12 @@ function commitDetailHtml(c: GitCommit, d?: GitCommitDetail): string {
 const commitRow = (hash: string) => $(`#scm .commit[data-commit="${hash}"]`);
 // Details open and close by sliding their height (one compositor-friendly Web Animation, not a max-height guess),
 // with the card inside fading a beat behind, so the rows below glide instead of jumping.
-const DETAIL_EASE = 'cubic-bezier(.32, .72, 0, 1)';
+const DETAIL_EASE = SPRING;
 const isDetailEl = (el: Element | null): el is HTMLElement => !!el && (el.classList.contains('commit-detail-row') || el.classList.contains('commit-detail'));
 function slideDetailHeight(el: HTMLElement, from: number, to: number, done?: () => void): void {
   el.getAnimations().forEach(a => a.cancel());
   el.style.overflow = 'hidden';
-  const a = el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 300, easing: DETAIL_EASE, fill: done ? 'forwards' : 'none' });
+  const a = el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 450, easing: DETAIL_EASE, fill: done ? 'forwards' : 'none' });
   a.onfinish = () => { if (done) done(); else el.style.overflow = ''; };
 }
 function closeCommitDetail(hash: string, instant = false): void {
@@ -796,7 +796,7 @@ function closeCommitDetail(hash: string, instant = false): void {
   if (instant) { d.remove(); return; }
   d.dataset.closing = '1';
   const card = d.querySelector('.commit-detail') ?? d;
-  card.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px) scale(.985)' }], { duration: 180, easing: 'ease-out', fill: 'forwards' });
+  card.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px) scale(.985)' }], { duration: 180, easing: SPRING, fill: 'forwards' });
   slideDetailHeight(d, d.getBoundingClientRect().height, 0, () => d.remove());
 }
 function placeCommitDetail(hash: string): void {
@@ -824,14 +824,14 @@ function placeCommitDetail(hash: string): void {
     const to = old.getBoundingClientRect().height;
     if (Math.abs(to - from) > 1) slideDetailHeight(old, from, to);
     card.querySelectorAll<HTMLElement>('.file, .commit-actions').forEach((el, i) =>
-      el.animate([{ opacity: 0, transform: 'translateY(-3px)' }, { opacity: 1, transform: 'none' }], { duration: 220, delay: i * 25, easing: DETAIL_EASE, fill: 'backwards' }));
+      el.animate([{ opacity: 0, transform: 'translateY(-3px)' }, { opacity: 1, transform: 'none' }], { duration: 330, delay: i * 25, easing: DETAIL_EASE, fill: 'backwards' }));
   } else {
     if (isDetailEl(old)) old.remove();
     row.after(fresh);
     slideDetailHeight(fresh, 0, fresh.getBoundingClientRect().height);
     (fresh.querySelector('.commit-detail') ?? fresh).animate(
       [{ opacity: 0, transform: 'translateY(-6px) scale(.985)' }, { opacity: 1, transform: 'none' }],
-      { duration: 280, delay: 40, easing: DETAIL_EASE, fill: 'backwards' });
+      { duration: 420, delay: 40, easing: DETAIL_EASE, fill: 'backwards' });
   }
   row.classList.add('on');
 }

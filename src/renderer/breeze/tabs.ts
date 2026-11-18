@@ -195,7 +195,7 @@ function fitTabRunBtn(): void {
 // Grow, not pop: the button's width opens from nothing (or closes to nothing) and the tabs beside it make room as it
 // does, with no scaling or overshoot.
 // An even ease-in-out: a strong ease-out opened most of the width in the first frame, so the grow read as a pop.
-const TAB_RUN_GROW = { duration: 320, easing: 'cubic-bezier(.65, 0, .35, 1)' };
+const TAB_RUN_GROW = { duration: 480, easing: SPRING };
 function tabRunBox(btn: HTMLElement): Keyframe {
   const cs = getComputedStyle(btn);
   return { width: `${btn.getBoundingClientRect().width}px`, paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, borderLeftWidth: cs.borderLeftWidth, borderRightWidth: cs.borderRightWidth };
@@ -217,7 +217,7 @@ function narrowAway(strip: HTMLElement, btn: HTMLElement): void {
   strip.insertBefore(btn, strip.querySelector('.tab-split'));
   const out = btn.animate([{ ...tabRunBox(btn), overflow: 'hidden', boxSizing: 'border-box' }, { ...TAB_RUN_SHUT, overflow: 'hidden', boxSizing: 'border-box' }], { ...TAB_RUN_GROW, fill: 'forwards' });
   out.onfinish = () => { btn.remove(); placeTabInk(true); };
-  setTimeout(() => { btn.remove(); placeTabInk(true); }, 400); // a hidden window runs no animations
+  setTimeout(() => { btn.remove(); placeTabInk(true); }, 560); // a hidden window runs no animations
   followTabRunFold();
 }
 // While the button folds or unfolds the tabs beside it resize, so the line under the open tab follows each frame.
@@ -402,7 +402,7 @@ let justDragged = false;
 const middle = (el: Element) => { const r = el.getBoundingClientRect(); return r.left + r.width / 2; };
 function slideFrom(el: Element, fromLeft: number): void {
   const dx = fromLeft - el.getBoundingClientRect().left;
-  if (dx) el.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: 160, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  if (dx) el.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: 240, easing: SPRING });
 }
 // Moves `other` to the far side of the dragged tab, keeping the dragged tab under the pointer.
 function swapTab(d: TabDrag, other: Element, clientX: number): void {
@@ -438,7 +438,7 @@ function dragTabEnd(e: PointerEvent): void {
   const rest = e.clientX - d.startX;
   setActive(d.path);
   const landed = $$('#tabs [data-tab]').find(t => t.dataset.tab === d.path);
-  if (landed && rest) landed.animate([{ transform: `translateX(${rest}px)` }, { transform: 'none' }], { duration: 160, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  if (landed && rest) landed.animate([{ transform: `translateX(${rest}px)` }, { transform: 'none' }], { duration: 240, easing: SPRING });
 
   const dropEl = document.elementFromPoint(e.clientX, e.clientY);
   if (dropEl?.closest('#agents, #box')) {

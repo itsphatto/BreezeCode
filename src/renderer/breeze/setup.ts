@@ -64,7 +64,7 @@ function connectFeed(site: SocialSite): Promise<boolean> {
   $('[data-fc-done]', scrim).onclick = close;
   scrim.onmousedown = e => { if (e.target === scrim) close(); };
   // The view is placed once the frame has finished growing in, so it lands on the frame's final box.
-  const opened = new Promise<void>(r => setTimeout(r, 320));
+  const opened = new Promise<void>(r => setTimeout(r, 520));
   return opened.then(() => api.vibe.connect(site.id, rect())).catch(() => false).finally(() => {
     removeEventListener('resize', place);
     document.removeEventListener('keydown', onKey, true);
@@ -590,7 +590,7 @@ function fitAgentBar(): void {
   const restCount = rest ? nowFolded.size : 0;
   // Not while the window itself resizes (layout.ts): the chips just take their places as the screen grows.
   if (bar.offsetParent && !document.documentElement.classList.contains('win-resizing')) {
-    const grow = { duration: 260, easing: 'cubic-bezier(.175, .885, .32, 1.275)' };
+    const grow = { duration: 390, easing: SPRING_BOUNCE };
     for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
       if (agentBarFolded.has(c.dataset.agent as string)) c.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
     }
@@ -599,7 +599,7 @@ function fitAgentBar(): void {
       if (from && r && !agentBarFolded.has(id)) shrinkOut(bar, from, r);
     }
     if (rest && !agentBarRest) rest.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
-    else if (rest && restCount !== agentBarRest) rest.animate([{ transform: 'scale(1.12)' }, { transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    else if (rest && restCount !== agentBarRest) rest.animate([{ transform: 'scale(1.12)' }, { transform: 'none' }], { duration: 330, easing: SPRING });
   }
   agentBarFolded = nowFolded;
   agentBarRest = restCount;
@@ -616,7 +616,7 @@ function shrinkOut(bar: HTMLElement, chip: HTMLElement, r: DOMRect): void {
   const b = bar.getBoundingClientRect();
   Object.assign(ghost.style, { position: 'absolute', left: `${r.left - b.left + bar.scrollLeft}px`, top: `${r.top - b.top + bar.scrollTop}px`, width: `${r.width}px`, height: `${r.height}px`, margin: '0', pointerEvents: 'none' });
   bar.append(ghost);
-  ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 200, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' }).onfinish = () => ghost.remove();
+  ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 200, easing: SPRING, fill: 'forwards' }).onfinish = () => ghost.remove();
   setTimeout(() => ghost.remove(), 300); // a hidden window doesn't run animations, so a timer makes sure it goes
 }
 function layoutAgentBar(bar: HTMLElement): void {
@@ -684,7 +684,7 @@ function renderAgentBar(): void {
     for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
       const x = before.get(c.dataset.agent);
       const dx = x == null ? 0 : x - c.getBoundingClientRect().left;
-      if (dx) c.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+      if (dx) c.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: 480, easing: SPRING });
     }
   }
   const model = a?.api && a.version ? ' · ' + a.version : '';
@@ -886,7 +886,7 @@ function refreshAgentDash(): void {
 // A token count not read yet: the app's loading bar (.skel-row) in its place.
 const DASH_SKEL = '<span class="skel-row ad-skel" role="img" aria-label="Loading"></span>';
 const DASH_BLOCKS = '.ad-tab, .ad-facts > div, .ad-limit, .ad-legend > span, .ad-empty';
-const DASH_EASE = 'cubic-bezier(.65, 0, .35, 1)';
+const DASH_EASE = SPRING;
 const DASH_GROW: Keyframe[] = [{ opacity: 0, transform: 'scale(.96)', filter: 'blur(2px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }];
 type DashShot = { blocks: Map<string, { r: DOMRect; bg: string; bd: string; fg: string }>; texts: Map<string, string> };
 function dashBlockKey(el: HTMLElement): string {
@@ -930,9 +930,9 @@ function playDash(shot: DashShot | null): void {
   const grown = new Set<HTMLElement>();
   for (const [k, el] of dashBlocks()) {
     const was = shot.blocks.get(k);
-    if (!was) { grown.add(el); el.animate(DASH_GROW, { duration: 300, easing: 'cubic-bezier(.23, 1, .32, 1)' }); continue; }
+    if (!was) { grown.add(el); el.animate(DASH_GROW, { duration: 450, easing: SPRING }); continue; }
     const r = el.getBoundingClientRect(), dx = was.r.left - r.left, dy = was.r.top - r.top;
-    if (Math.abs(dx) > .5 || Math.abs(dy) > .5) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 450, easing: DASH_EASE });
+    if (Math.abs(dx) > .5 || Math.abs(dy) > .5) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 675, easing: DASH_EASE });
     const cs = getComputedStyle(el);
     if (was.bg !== cs.backgroundColor || was.bd !== cs.borderColor || was.fg !== cs.color) {
       el.animate([{ backgroundColor: was.bg, borderColor: was.bd, color: was.fg }, { backgroundColor: cs.backgroundColor, borderColor: cs.borderColor, color: cs.color }], { duration: 220, easing: 'ease' });
@@ -944,7 +944,7 @@ function playDash(shot: DashShot | null): void {
     const block = el.closest<HTMLElement>(DASH_BLOCKS);
     if (block && grown.has(block)) continue;
     const was = shot.texts.get(k), now = el.textContent ?? '';
-    if (was === undefined) el.animate(DASH_GROW, { duration: 300, easing: 'cubic-bezier(.23, 1, .32, 1)' });
+    if (was === undefined) el.animate(DASH_GROW, { duration: 450, easing: SPRING });
     else if (was === now) continue;
     // The usage card's numbers roll like a clock's; the chart's scramble.
     else if (!el.children.length && /\d/.test(now) && el.closest('.ad-usage')) rollText(el, was);
@@ -981,7 +981,7 @@ function rollText(el: HTMLElement, from: string): void {
   const cols = $$<HTMLElement>('.ad-roll > span', el);
   let left = cols.length;
   cols.forEach((c, k) => {
-    const a = c.animate([{ transform: 'none' }, { transform: 'translateY(-50%)' }], { duration: 520, delay: (cols.length - 1 - k) * 45, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' });
+    const a = c.animate([{ transform: 'none' }, { transform: 'translateY(-50%)' }], { duration: 520, delay: (cols.length - 1 - k) * 45, easing: SPRING, fill: 'both' });
     // Redrawn meanwhile (the rolls are gone): the new text stands.
     a.onfinish = a.oncancel = () => { if (--left === 0 && el.dataset.to === to) { if (el.querySelector('.ad-roll')) el.textContent = to; delete el.dataset.to; } };
   });
@@ -1163,7 +1163,7 @@ function renderDashChart(a: DetectedAgent | null): void {
   const every = days.length <= 7 ? 1 : days.length <= 14 ? 2 : 5;
   swapHtml($('#adX'), days.map((d, i) => `<span>${(days.length - 1 - i) % every === 0 ? esc(dashDayLabel(d)) : ''}</span>`).join(''));
   if (flip) {
-    const glide = { duration: 450, easing: DASH_EASE };
+    const glide = { duration: 675, easing: DASH_EASE };
     for (const col of Array.from(bars.children as HTMLCollectionOf<HTMLElement>)) {
       const o = wasBars.get(col.dataset.day), r = col.getBoundingClientRect();
       if (!o) { col.animate([{ opacity: 0, transform: 'scaleY(0)' }, { opacity: 1, transform: 'none' }], glide); continue; }
@@ -1212,9 +1212,9 @@ function showDashTip(bar: HTMLElement): void {
   tip.style.top = `${Math.max(8, Math.min(br.top - cr.top, cr.height - tip.offsetHeight - 8))}px`;
   if (!from) return;
   const to = tip.getBoundingClientRect();
-  const ease = 'cubic-bezier(.32, .72, 0, 1)';
+  const ease = SPRING;
   tip.animate([{ transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`, width: `${from.width}px`, height: `${from.height}px` },
-    { transform: 'none', width: `${to.width}px`, height: `${to.height}px` }], { duration: 260, easing: ease }).id = 'tip';
+    { transform: 'none', width: `${to.width}px`, height: `${to.height}px` }], { duration: 390, easing: ease }).id = 'tip';
   for (const row of Array.from(tip.children)) {
     const num = tipNum(row), was = wasRows.get(tipKey(row));
     if (was !== undefined && num) { if (was !== num.textContent) scrambleText(num); }
@@ -1246,7 +1246,7 @@ const hideDashTip = () => {
     const tip = $('#adTip');
     if (tip.classList.contains('hidden') || dashTipOut) return;
     dashTipOut = tip.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(6px) scale(.94)' }],
-      { duration: 150, easing: 'cubic-bezier(.4, 0, 1, 1)' });
+      { duration: 150, easing: SPRING });
     dashTipOut.onfinish = () => { tip.classList.add('hidden'); dashTipOut = null; };
   }, 70);
 };

@@ -63,7 +63,7 @@ $$('[data-next]').forEach(b => b.onclick = () => goStep(step + 1));
    its spots on any change, going back everything else just fades. ----- */
 const OB_SOFT = 'cubic-bezier(.16, 1, .3, 1)';
 const OB_CURVE = 'cubic-bezier(.22, .72, .2, 1)'; // softer off the mark than OB_SOFT, or the curve is over before it's seen
-const OB_MOVE = 'cubic-bezier(0.77, 0, 0.175, 1)'; // moving or reshaping on screen: eases in and out, like the launch morph
+const OB_MOVE = SPRING; // moving or reshaping on screen
 const stepEl = (n: number) => $(`.ob-step[data-step="${n}"]`);
 const stepLogo = (n: number) => stepEl(n).querySelector<HTMLImageElement>('.ob-logo, .ob-icon');
 const motionOff = () => document.documentElement.classList.contains('win-jump');
@@ -77,7 +77,7 @@ function stopObMotion(): void {
   $('#onboard').classList.remove('ob-flying');
 }
 const obAnim = (el: Element, frames: Keyframe[], options: KeyframeAnimationOptions) => { obAnims.push(el.animate(frames, { fill: 'backwards', ...options })); };
-const riseIn = (el: Element, delay = 0) => obAnim(el, [{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }], { duration: 560, delay, easing: OB_SOFT });
+const riseIn = (el: Element, delay = 0) => obAnim(el, [{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }], { duration: 560, delay, easing: SPRING });
 // Splits a heading into one box per letter (once), words kept whole so it wraps as before; the heading keeps its
 // text for screen readers and the letters are hidden from them.
 function letterBoxes(h: HTMLElement): HTMLElement[] {
@@ -326,7 +326,7 @@ function morphContribYear(change: () => void): void {
     pill.animate([
       { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})` },
       { transform: 'none' },
-    ], { duration: 340, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+    ], { duration: 510, easing: SPRING });
   }, () => {});
 }
 function drawContribYears(c: GhContributions): void {
@@ -581,5 +581,5 @@ document.addEventListener('pointerout', e => {
   const svg = b.querySelector('svg');
   const pose = svg ? getComputedStyle(svg).transform : 'none';
   b.classList.remove('icon-live');
-  if (svg && pose !== 'none') svg.animate([{ transform: pose }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  if (svg && pose !== 'none') svg.animate([{ transform: pose }, { transform: 'none' }], { duration: 480, easing: SPRING });
 });

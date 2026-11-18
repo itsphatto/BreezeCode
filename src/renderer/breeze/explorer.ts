@@ -136,7 +136,7 @@ function endTreeEdit(name: string | null): void {
 // Returns how long it runs.
 function growTreeEdit(input: HTMLInputElement, ed: TreeEdit, out: boolean): number {
   const row = input.closest<HTMLElement>('.tree-item');
-  const timing: KeyframeAnimationOptions = { duration: out ? 150 : 200, easing: 'cubic-bezier(.2, .8, .2, 1)', direction: out ? 'reverse' : 'normal', fill: out ? 'forwards' : 'none' };
+  const timing: KeyframeAnimationOptions = { duration: out ? 150 : 300, easing: SPRING, direction: out ? 'reverse' : 'normal', fill: out ? 'forwards' : 'none' };
   input.animate([{ borderColor: 'transparent' }], timing); // its blue edge fades with it, never a lone blue line
   if (ed.rename == null && row) {
     const cs = getComputedStyle(row);
@@ -189,8 +189,8 @@ function playTreeAnimation(oldPositions: Map<string, number>): void {
           { transform: `translateY(${dy}px)` },
           { transform: 'translateY(0)' },
         ], {
-          duration: 220,
-          easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+          duration: 330,
+          easing: SPRING,
         });
       }
     } else if (!r.classList.contains('enter')) {
@@ -198,8 +198,8 @@ function playTreeAnimation(oldPositions: Map<string, number>): void {
         { opacity: 0, transform: 'scale(0.96) translateY(-4px)' },
         { opacity: 1, transform: 'scale(1) translateY(0)' },
       ], {
-        duration: 180,
-        easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+        duration: 270,
+        easing: SPRING,
       });
     }
   }

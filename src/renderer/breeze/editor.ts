@@ -949,7 +949,7 @@ function openSplit(path: string | null = active, exact = false): void {
     split.classList.add('opening');
     const end = (e?: AnimationEvent) => { if (!e || e.target === split) { split.classList.remove('opening'); split.removeEventListener('animationend', end); } };
     split.addEventListener('animationend', end);
-    setTimeout(end, 450); // the animation didn't run (hidden window, reduced motion): settle anyway
+    setTimeout(end, 600); // the animation didn't run (hidden window, reduced motion): settle anyway
   }
   $('#editorRow').classList.add('is-split');
   splitTa.value = '';

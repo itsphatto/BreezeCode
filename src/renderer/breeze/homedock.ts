@@ -65,7 +65,7 @@ function placeHomeGraph(dock: HomeDock, from?: DOMRect): void {
   graph.animate([
     { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)`, opacity: .6 },
     { transform: 'none', opacity: 1 },
-  ], { duration: 320, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  ], { duration: 480, easing: SPRING });
 }
 function setHomeGraphDock(dock: HomeDock, from?: DOMRect): void {
   store.set('breeze.homeGraphDock', dock);

@@ -20,7 +20,7 @@
   /* No background of its own: in the splash window the light bubbles straight over the desktop. */
   pointer-events: none;
   /* If nothing ever lifts it, this still does, so it can't cover the app for good. */
-  animation: launch-out .6s cubic-bezier(.4, 0, .2, 1) 8s forwards;
+  animation: launch-out .6s var(--spring) 8s forwards;
 }
 
 .launch > * {
@@ -64,6 +64,8 @@
   --glint-3: rgba(70, 90, 255, .25);
   --glint-bubble-a: rgba(140, 200, 255, .9);
   --glint-bubble-b: rgba(150, 110, 255, .75);
+  /* --spring from breeze.css: the splash window (launch.html) loads only this file. */
+  --spring: linear(0, .024, .084, .169, .268, .372, .476, .575, .665, .746, .816, .875, .923, .962, .991, 1.013, 1.029, 1.039, 1.044, 1.046, 1.045, 1.043, 1.039, 1.035, 1.03, 1.025, 1.021, 1.016, 1.012, 1.009, 1.006, 1.004, 1.002, 1.001, 1, .999, .998, .998, .998, .998, 1);
 }
 
 /* Halloween: pumpkin orange and candle yellow. */
@@ -146,7 +148,7 @@
 .launch-sky {
   -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--open) - 120px), transparent var(--open));
   mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--open) - 120px), transparent var(--open));
-  animation: launch-open 1s cubic-bezier(.65, 0, .35, 1) .8s both;
+  animation: launch-open 1s var(--spring) .8s both;
 }
 
 /* Slow drifting light inside the sky, so it feels alive while it holds. */
@@ -187,7 +189,7 @@
   filter: blur(22px);
   animation:
     launch-bubble .8s ease-in-out both,
-    launch-bloom 1s cubic-bezier(.65, 0, .35, 1) .8s forwards;
+    launch-bloom 1s var(--spring) .8s forwards;
 }
 
 /* No blend mode on these: in the see-through splash window one makes Chromium paint an opaque backdrop to blend
@@ -215,17 +217,17 @@
   width: 150px;
   height: 150px;
   filter: blur(0) drop-shadow(0 0 22px rgba(255, 255, 255, .45)) drop-shadow(0 6px 24px rgba(10, 30, 120, .35));
-  animation: launch-logo-in .7s cubic-bezier(.2, .8, .2, 1) 1.4s both;
+  animation: launch-logo-in .7s var(--spring) 1.4s both;
   user-select: none;
 }
 
 /* Lifting off: the swirl grows and fades a beat ahead of the sky, which melts away onto the app. */
 .launch.done {
-  animation: launch-out .55s cubic-bezier(.4, 0, .2, 1) .08s forwards;
+  animation: launch-out .55s var(--spring) .08s forwards;
 }
 
 .launch.done .launch-logo {
-  animation: launch-logo-out .45s cubic-bezier(.5, 0, .75, 0) forwards;
+  animation: launch-logo-out .45s var(--spring) forwards;
 }
 
 @keyframes launch-bubble {
