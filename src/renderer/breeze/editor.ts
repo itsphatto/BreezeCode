@@ -15,11 +15,32 @@ function setCodeSize(size: number): void {
   LINE_H = lineHeightFor(next);
   store.set('breeze.codeSize', next);
   showCodeSize();
-  charW = 0; // measured again in the new size
+  redrawCodeText();
+}
+function redrawCodeText(): void {
+  charW = 0; // measured again in the new size or font
   for (const b of buffers.values()) { if (b.kind === 'text') b.ta?.refresh(); b.big?.surface.refresh(); }
   splitTa.refresh();
   dbgTa.refresh();
   renderCode();
+}
+// Settings → Appearance → Text: the code font (editors, terminal, debugger) and the interface font.
+function setCodeFont(id: string): void {
+  const next = pickFont(CODE_FONTS, id)[0];
+  if (next === codeFont) return;
+  codeFont = next;
+  store.set('breeze.codeFont', next);
+  showFonts();
+  redrawCodeText();
+  // A font that still has to load measures the fallback first: measure again once it's in.
+  void document.fonts?.load(`${codeSize}px ${pickFont(CODE_FONTS, next)[2]}`).then(() => redrawCodeText(), () => { /* system font */ });
+}
+function setUiFont(id: string): void {
+  const next = pickFont(UI_FONTS, id)[0];
+  if (next === uiFont) return;
+  uiFont = next;
+  store.set('breeze.uiFont', next);
+  showFonts();
 }
 const INDENT = '  ';
 
@@ -58,7 +79,7 @@ function measureChar(): number {
   s.remove();
   // Hidden (#ide not shown yet) measures 0, and before the code font loads it measures the fallback font:
   // use either for now, but measure again next time.
-  if (w > 0 && (!document.fonts || document.fonts.check('12px "Google Sans Code"') || document.fonts.status === 'loaded')) charW = w;
+  if (w > 0 && (!document.fonts || document.fonts.check(`12px ${pickFont(CODE_FONTS, codeFont)[2]}`) || document.fonts.status === 'loaded')) charW = w;
   return w || 7.8;
 }
 void document.fonts?.ready.then(() => {

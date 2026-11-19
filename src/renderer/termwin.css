@@ -17,6 +17,71 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* The other code fonts (Settings → Appearance → Code font), bundled as Latin variable fonts. Fira Code has no italic. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../../assets/fonts/JetBrainsMono-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../../assets/fonts/JetBrainsMono-Italic-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('../../assets/fonts/FiraCode-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cascadia Code';
+  font-style: normal;
+  font-weight: 200 700;
+  font-display: swap;
+  src: url('../../assets/fonts/CascadiaCode-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cascadia Code';
+  font-style: italic;
+  font-weight: 200 700;
+  font-display: swap;
+  src: url('../../assets/fonts/CascadiaCode-Italic-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../../assets/fonts/GeistMono-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../../assets/fonts/GeistMono-Italic-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url('../../assets/fonts/SourceCodePro-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url('../../assets/fonts/SourceCodePro-Italic-Latin.woff2') format('woff2');
+}
+
 @font-face {
   font-family: 'Instrument Sans';
   font-style: normal;
@@ -269,7 +334,7 @@ body {
   min-height: 0;
   overflow-y: auto;
   padding: 8px 14px 14px;
-  font: var(--code-size)/var(--code-line) "Google Sans Code", Consolas, monospace;
+  font: var(--code-size)/var(--code-line) var(--font-code, "Google Sans Code", Consolas, monospace);
   cursor: text;
 }
 

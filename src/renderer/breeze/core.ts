@@ -573,6 +573,49 @@ document.documentElement.dataset.theme = theme;
 // The code font size in px (editors, the debugger's source). The line height follows it.
 const CODE_SIZE_MIN = 10, CODE_SIZE_MAX = 24, CODE_SIZE_DEFAULT = 13;
 let codeSize = clamp(Math.round(Number(store.get<number>('breeze.codeSize', CODE_SIZE_DEFAULT)) || CODE_SIZE_DEFAULT), CODE_SIZE_MIN, CODE_SIZE_MAX);
+// Settings → Appearance → Text. [id, label, CSS family stack]; the id is the stored value. Every code font ships
+// with Breeze (assets/fonts, @font-face in breeze.css and termwin.css); Google Sans Code is the default. Of the
+// interface fonts the first two ship too; the rest are system fonts, offered only when installed (fontInstalled).
+type FontChoice = [string, string, string];
+const CODE_FONTS: FontChoice[] = [
+  ['google-sans-code', 'Google Sans Code', '"Google Sans Code", "Google Sans", Consolas, monospace'],
+  ['jetbrains-mono', 'JetBrains Mono', '"JetBrains Mono", "Google Sans Code", Consolas, monospace'],
+  ['fira-code', 'Fira Code', '"Fira Code", "Google Sans Code", Consolas, monospace'],
+  ['cascadia-code', 'Cascadia Code', '"Cascadia Code", "Google Sans Code", Consolas, monospace'],
+  ['geist-mono', 'Geist Mono', '"Geist Mono", "Google Sans Code", Consolas, monospace'],
+  ['source-code-pro', 'Source Code Pro', '"Source Code Pro", "Google Sans Code", Consolas, monospace'],
+];
+const UI_FONTS: FontChoice[] = [
+  ['instrument-sans', 'Instrument Sans', '"Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'],
+  ['google-sans', 'Google Sans', '"Google Sans", "Instrument Sans", "Segoe UI", sans-serif'],
+  ['system-ui', 'System default', 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'],
+  ['segoe-ui', 'Segoe UI', '"Segoe UI Variable Text", "Segoe UI", sans-serif'],
+  ['inter', 'Inter', 'Inter, "Segoe UI", sans-serif'],
+  ['roboto', 'Roboto', 'Roboto, "Segoe UI", sans-serif'],
+  ['arial', 'Arial', 'Arial, sans-serif'],
+  ['verdana', 'Verdana', 'Verdana, sans-serif'],
+];
+const pickFont = (list: FontChoice[], id: unknown): FontChoice => list.find(f => f[0] === id) ?? list[0];
+let codeFont = pickFont(CODE_FONTS, store.get<string>('breeze.codeFont', CODE_FONTS[0][0]))[0];
+let uiFont = pickFont(UI_FONTS, store.get<string>('breeze.uiFont', UI_FONTS[0][0]))[0];
+// A system font is installed when text in it measures differently from every generic fallback.
+const fontProbe = document.createElement('canvas').getContext('2d');
+function fontInstalled(family: string): boolean {
+  if (!fontProbe) return true;
+  const text = 'mmmmmmmmmmlli10OO@#';
+  return ['monospace', 'sans-serif', 'serif'].some(base => {
+    fontProbe.font = `40px ${base}`;
+    const w0 = fontProbe.measureText(text).width;
+    fontProbe.font = `40px "${family}", ${base}`;
+    return fontProbe.measureText(text).width !== w0;
+  });
+}
+function showFonts(): void {
+  const root = document.documentElement.style;
+  root.setProperty('--font-code', pickFont(CODE_FONTS, codeFont)[2]);
+  root.setProperty('--font-ui', pickFont(UI_FONTS, uiFont)[2]);
+}
+showFonts();
 
 /* ----- Redrawing lists: only the rows that changed ----- */
 // Replacing a whole list (the code window per keystroke, the file tree per file change) makes the browser style

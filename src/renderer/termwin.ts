@@ -34,9 +34,16 @@
     else delete document.documentElement.dataset.backdrop;
     const size = Math.min(24, Math.max(10, Number(read<number>('breeze.codeSize', 13)) || 13));
     document.documentElement.style.setProperty('--code-size', `${size}px`);
+    // The code font id (Settings → Appearance): its family name, with the bundled font behind it.
+    const fonts: Record<string, string> = {
+      'jetbrains-mono': '"JetBrains Mono"', 'fira-code': '"Fira Code"', 'cascadia-code': '"Cascadia Code"',
+      'geist-mono': '"Geist Mono"', 'source-code-pro': '"Source Code Pro"',
+    };
+    const pick = fonts[read<string>('breeze.codeFont', '')];
+    document.documentElement.style.setProperty('--font-code', `${pick ? `${pick}, ` : ''}"Google Sans Code", Consolas, monospace`);
   };
   applyPrefs();
-  window.addEventListener('storage', e => { if (e.key === 'breeze.theme' || e.key === 'breeze.codeSize' || e.key === 'breeze.backdrop') applyPrefs(); });
+  window.addEventListener('storage', e => { if (e.key === 'breeze.theme' || e.key === 'breeze.codeSize' || e.key === 'breeze.codeFont' || e.key === 'breeze.backdrop') applyPrefs(); });
 
   /* ----- Output, with the colours programs ask for (ANSI SGR); other escape codes are dropped ----- */
   interface Style { fg?: string; bg?: string; b?: boolean; d?: boolean; i?: boolean; u?: boolean }

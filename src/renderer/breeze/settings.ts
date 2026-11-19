@@ -134,6 +134,17 @@ const settingRow = (title: string, sub: string, control: string) =>
   `<div class="set-row"><div class="set-text"><div class="set-title">${title}</div>${sub ? `<div class="set-sub">${sub}</div>` : ''}</div><div class="set-ctl">${control}</div></div>`;
 const segHtml = (id: string, opts: [string, string][], cur: string) =>
   `<div class="seg set-seg" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
+// A font picker: every bundled font (all the code fonts), the generic system one, the current pick, and the
+// system fonts installed here.
+const fontSeen = new Map<string, boolean>();
+const fontOffered = ([id, label]: FontChoice, i: number, cur: string) => {
+  if (CODE_FONTS.some(f => f[0] === id) || i < 2 || id === cur || id.startsWith('system-')) return true;
+  if (!fontSeen.has(label)) fontSeen.set(label, fontInstalled(label));
+  return fontSeen.get(label);
+};
+const fontSelectHtml = (id: string, list: FontChoice[], cur: string, aria: string) =>
+  `<select class="select" id="${id}" aria-label="${aria}">${list.filter((f, i) => fontOffered(f, i, cur))
+    .map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
 //change from "Active" to "Developer"
 const DEVELOPER_EMAILS = new Set(['lovephatto@gmail.com', 'itsphatto@icloud.com', 'yell0wcircle12345@gmail.com']);
 const TESTERS_EMAILS = new Set([''])
@@ -937,6 +948,8 @@ function settingsBody(tab: SettingsTab): string {
       <p class="set-sub"></p>
       ${syntaxSettingsHtml()}
       <h5>Text</h5>
+      ${settingRow('Code font', 'The editor, the terminal and the debugger.', fontSelectHtml('sCodeFont', CODE_FONTS, codeFont, 'Code font'))}
+      ${settingRow('Interface font', 'Menus, panels, chat and settings.', fontSelectHtml('sUiFont', UI_FONTS, uiFont, 'Interface font'))}
       ${settingRow('Font size', 'Code in the editor and the debugger.', `<div class="set-volume set-font-size"><input type="range" id="sCodeSize" min="${CODE_SIZE_MIN}" max="${CODE_SIZE_MAX}" step="1" value="${codeSize}" aria-label="Code font size"><span class="set-volume-val" id="sCodeSizeVal">${codeSize}px</span></div>`)}
       <h5>Editor</h5>
       ${settingRow('Minimap', 'A zoomed-out view of the file beside the scrollbar. Click or drag it to scroll.', switchHtml('sMinimap', minimapOn, 'Minimap'))}`;
@@ -1122,6 +1135,7 @@ const SETTINGS_SYNONYMS: Record<string, string> = {
   volume: 'sound', mute: 'sound', audio: 'sound', sfx: 'sound', noise: 'sound',
   shortcut: 'keybinds', shortcuts: 'keybinds', hotkey: 'keybinds', hotkeys: 'keybinds', keyboard: 'keybinds', keys: 'keybinds',
   zoom: 'font size', bigger: 'font size', smaller: 'font size', text: 'font size',
+  typeface: 'font', fonts: 'font', monospace: 'code font', ligatures: 'code font', ui: 'interface font',
   ai: 'agents', model: 'agents', models: 'agents', llm: 'agents', permission: 'full access', permissions: 'full access', sandbox: 'full access',
   autosave: 'auto save', login: 'sign account', logout: 'sign out', profile: 'account', presence: 'discord rich',
   version: 'about', compiler: 'tools', compilers: 'tools', lsp: 'language servers', sidebar: 'side bar', highlight: 'syntax',
@@ -1420,6 +1434,9 @@ function bindSettings(m: HTMLElement): void {
   });
   bindBackdropSettings(pane);
   bindSyntaxSettings(pane);
+  const codeFontEl = $<HTMLSelectElement>('#sCodeFont', pane), uiFontEl = $<HTMLSelectElement>('#sUiFont', pane);
+  if (codeFontEl) codeFontEl.onchange = () => setCodeFont(codeFontEl.value);
+  if (uiFontEl) uiFontEl.onchange = () => setUiFont(uiFontEl.value);
   // Font size: the code redraws as the knob moves; the arrow keys and the wheel step one pixel.
   const sizeEl = $<HTMLInputElement>('#sCodeSize', pane);
   if (sizeEl) {
