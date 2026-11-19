@@ -1990,6 +1990,13 @@ textarea:focus-visible {
   display: none;
 }
 
+/* A block of its own so swapText can morph its width (the button follows); digits keep one width while it counts. */
+.update-btn > span {
+  display: inline-block;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The titlebar's account picture: 1px larger than the shared 24px avatar. */
 .titlebar #avatars .avatar {
   width: 25px;
