@@ -205,11 +205,23 @@ $('#tglAgents').onclick = () => run('view.toggleAgents');
 
 // Titlebar Update buttons (IDE, Home and Breeze Space bars): hidden until main.js finds an update, then
 // Update → Updating… n% → Restart now? (a click on that installs and restarts into the new version).
+// It pops in when an update is found, and morphs (text blur-swap, width spring) at each step; the percent ticks
+// in place, since a morph per progress event would never settle.
+let shownUpdate = 'idle';
 function renderUpdate(u: UpdateState): void {
+  const label = u.state === 'ready' ? 'Restart now?' : u.state === 'downloading' ? `Updating… ${Math.round(u.percent ?? 0)}%` : 'Update';
+  const stepped = u.state !== shownUpdate;
+  shownUpdate = u.state;
   for (const btn of $$<HTMLButtonElement>('[data-update]')) {
+    const span = $('span', btn) as HTMLElement;
+    const appearing = btn.hidden && u.state !== 'idle';
     btn.hidden = u.state === 'idle';
     btn.disabled = u.state === 'downloading';
-    btn.textContent = u.state === 'ready' ? 'Restart now?' : u.state === 'downloading' ? `Updating… ${Math.round(u.percent ?? 0)}%` : 'Update';
+    if (appearing) {
+      span.textContent = label;
+      btn.animate([{ opacity: 0, transform: 'scale(.6)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 500, easing: SPRING_BOUNCE });
+    } else if (stepped) swapText(span, label);
+    else span.textContent = label;
     btn.title = u.version ? `Breeze Code ${u.version}` + (u.state === 'ready' ? ' is ready to install' : ' is available') : '';
     btn.onclick = () => background(u.state === 'ready' ? api.update.install() : api.update.download());
   }

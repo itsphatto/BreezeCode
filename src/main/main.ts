@@ -162,8 +162,10 @@ function configureAutoUpdater() {
       setUpdateState({ ...updateState, state: 'available' });
     });
   };
+  // Silent (/S): the in-app button is the whole update, so no NSIS "Installing, please wait" window appears;
+  // the installer swaps the files in the background and relaunches Breeze into the new version.
   installUpdate = () => {
-    if (updateState.state === 'ready') updater.quitAndInstall(false, true);
+    if (updateState.state === 'ready') updater.quitAndInstall(true, true);
   };
 
   updater.checkForUpdates().catch(logError('update check'));
