@@ -9,7 +9,7 @@
 Ask for a change in plain words. Claude Code, Codex, Antigravity, OpenCode or a local model makes it,<br>
 and you see every file it reads, every edit and every command while it works.
 
-[**Download for Windows**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.itsphatto.site) &nbsp;·&nbsp; [FAQ](https://breezecode.itsphatto.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
+[**Download for Windows**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.site) &nbsp;·&nbsp; [FAQ](https://breezecode.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
 
 <br>
 

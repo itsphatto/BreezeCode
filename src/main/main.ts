@@ -5423,7 +5423,7 @@ const discord = new DiscordPresence(() => new DiscordRpc(discordClientId()), { o
 // Language icons Discord fetches itself (PNG, square, same look as the Java cup in IntelliJ's presence).
 const DISCORD_ICON_URL = (key: string) => `https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/${key}.png`;
 // The corner badge is a link too, so it shows without uploading art to the Discord application.
-const DISCORD_LOGO_URL = 'https://breezecode.itsphatto.site/favicon-192.png';
+const DISCORD_LOGO_URL = 'https://breezecode.site/favicon-192.png';
 // Developer mode's flipped logo, straight from the repository (it shows once IconDev.png is on main).
 const DISCORD_DEV_LOGO_URL = 'https://raw.githubusercontent.com/itsphatto/BreezeCode/main/assets/brand/IconDev.png';
 const discordText = (s: unknown, max = 120) => (typeof s === 'string' && s.trim() ? s.trim().slice(0, max) : undefined);
