@@ -226,8 +226,7 @@ function newBoxChat(): void {
 }
 function openBoxSearch(): void {
   const input = $<HTMLInputElement>('#boxSideSearch');
-  $('#boxSideSearchBox').classList.remove('hidden');
-  $('#boxSideSearchBtn').classList.add('hidden');
+  morphSearchRow($('#boxSideSearchBtn'), $('#boxSideSearchBox'), true);
   input.focus();
   input.select();
 }
@@ -235,8 +234,7 @@ function closeBoxSearch(): void {
   const input = $<HTMLInputElement>('#boxSideSearch');
   input.value = '';
   boxSideQuery = '';
-  $('#boxSideSearchBox').classList.add('hidden');
-  $('#boxSideSearchBtn').classList.remove('hidden');
+  morphSearchRow($('#boxSideSearchBtn'), $('#boxSideSearchBox'), false);
   renderBoxSide();
 }
 function renameChatEntry(s: Surface, id: string, title: string): void {

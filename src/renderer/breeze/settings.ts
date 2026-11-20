@@ -186,7 +186,8 @@ function setTheme(t: Theme): void {
   store.set('breeze.theme', t);
   // A view transition cross-fades a snapshot of the window, so it costs the same however big the editor is
   // (easing every element's colours made big files lag behind the click).
-  const apply = () => { document.documentElement.dataset.theme = t; applySyntax(); }; // a preset has a light and a dark version
+  // A preset has a light and a dark version; a picture's text contrast starts over from the new theme's colours.
+  const apply = () => { document.documentElement.dataset.theme = t; applySyntax(); void tunePicture(); };
   if (document.startViewTransition) document.startViewTransition(apply);
   else apply();
   background(api.win.theme(t));
@@ -345,9 +346,13 @@ let bdShownUrl = ''; // the picture on screen now, so a new one fades in rather 
 // Loads and decodes a picture before it is shown, so it fades in whole instead of appearing after the fade.
 const loadPicture = (url: string) => { const img = new Image(); img.src = url; return img.decode().catch(() => undefined); };
 // The picture, its opacity and its blur (px) as the CSS variables the backdrop layer reads; none without a picture on.
+// It follows the picture on screen (data-backdrop), not `backdrop`: turning it off redraws the pane at once, and
+// that redraw must not drop the picture before its fade-out (applyBackdrop) has run.
 function applyBackdropLook(): void {
   const root = document.documentElement.style;
-  if (backdrop === 'image' && bgImage) {
+  if (document.documentElement.dataset.backdrop === 'image') {
+    if (!bgImage) return; // Remove: the picture stays on screen until the fade-out ends
+
     root.setProperty('--bd-img', `url("${bgImage.url.replace(/"/g, '%22')}")`);
     root.setProperty('--bd-o', String(bgOpacity / 100));
     root.setProperty('--bd-blur', `${bgBlur}px`);
@@ -360,6 +365,7 @@ function applyBackdropLook(): void {
     bdShownUrl = '';
     for (const v of ['--bd-img', '--bd-o', '--bd-blur']) root.removeProperty(v);
   }
+  void tunePicture(); // the text's contrast follows the picture, its opacity and blur (or comes back off)
 }
 // Turning a backdrop on or off fades the window's background, not the panels or dialogs over it: a sheet in the theme's
 // own colour (breeze.css body.bd-fade::before) lies behind the see-through surfaces and fades away once the window
@@ -664,6 +670,70 @@ async function tuneGlass(): Promise<void> {
 }
 for (const ev of ['resize', 'focus']) window.addEventListener(ev, () => { if (backdrop === 'glass' && !glassBusy) { clearTimeout(glassTimer); glassTimer = window.setTimeout(tuneGlass, 150); } });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') stopGlassCam(); });
+/* ----- A picture stays readable: text and icons take the contrast they need from it -----
+   Unlike Glass nothing has to be read off the screen: the picture is known. It is drawn small, as the window covers it,
+   and its brightest spot (the light theme: darkest) is put behind one see-through layer (the title and status bars,
+   Home, Breeze Space) and behind two (a panel on the window's base layer), at the opacity you chose and --bd-a. Each
+   text colour then moves toward white (or black) only as far as it must to read 4.5:1 there, so the picture keeps its
+   look. A colour moves at most PICTURE_MAX_MIX of the way, so green stays green: past that, the surfaces turn a little
+   more solid (--bd-a) instead. */
+const PICTURE_INK = ['--text', '--text-soft', '--text-2', '--text-3', '--code-text', '--blue-text', '--ok', '--warn', '--err-text', '--c-planner', '--c-builder'];
+const PICTURE_THIN = '.titlebar, .statusbar, #box, .home-step'; // on one layer; everything else counts as two
+const PICTURE_MIN = 4.5, PICTURE_MAX_MIX = .6;
+let pictureSeq = 0, pictureResize = 0;
+async function tunePicture(): Promise<void> {
+  const seq = ++pictureSeq, root = document.documentElement, thin = $$<HTMLElement>(PICTURE_THIN);
+  const clear = () => {
+    for (const el of [root, ...thin]) for (const v of PICTURE_INK) el.style.removeProperty(v);
+    if (backdrop !== 'glass') root.style.removeProperty('--bd-a');
+  };
+  if (root.dataset.backdrop !== 'image' || !bgImage) { clear(); return; }
+  const img = new Image();
+  img.src = bgImage.url;
+  if (!(await img.decode().then(() => true, () => false)) || seq !== pictureSeq || root.dataset.backdrop !== 'image') return;
+  // The picture as the window shows it (centre / cover, blurred as set), about one pixel per 40px patch.
+  const W = 48, H = Math.max(1, Math.round(W * innerHeight / innerWidth));
+  const ctx = new OffscreenCanvas(W, H).getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+  const k = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+  ctx.imageSmoothingQuality = 'high';
+  if (bgBlur) ctx.filter = `blur(${(bgBlur * W) / innerWidth}px)`;
+  ctx.drawImage(img, (W - img.naturalWidth * k) / 2, (H - img.naturalHeight * k) / 2, img.naturalWidth * k, img.naturalHeight * k);
+  const px = ctx.getImageData(0, 0, W, H).data;
+  const light = themeKey() === 'light';
+  let worst = light ? 255 : 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const l = .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
+    worst = light ? Math.min(worst, l) : Math.max(worst, l);
+  }
+  clear(); // the theme's own colours, read fresh below
+  const o = bgOpacity / 100, base = colorLuma(getComputedStyle(root).backgroundColor)?.[0] ?? (light ? 236 : 29);
+  const pic = base * (1 - o) + worst * o; // the spot as the picture paints it over the window's canvas
+  // That spot's luminance behind `layers` see-through layers of the theme's colour, each `a` solid.
+  const behind = (a: number, layers: number) => inkLum(Array(3).fill(base + (pic - base) * (1 - a) ** layers));
+  const inks = (el: HTMLElement) => { const cs = getComputedStyle(el); return PICTURE_INK.map(v => [v, inkParse(cs.getPropertyValue(v))] as const); };
+  const reads = (rgb: number[] | null, bg: number) => !rgb || inkMix(rgb, bg, PICTURE_MIN) <= PICTURE_MAX_MIX;
+  // Surfaces only as solid as the thinnest layer needs for every colour to read within its reach, starting from the
+  // share the picture's opacity sets.
+  let a = 1 - o * .5;
+  const own = [root, ...thin].map(el => [el, inks(el)] as const);
+  while (a < .95 && !own.every(([, list]) => list.every(([, rgb]) => reads(rgb, behind(a, 1))))) a = Math.min(.95, a + .02);
+  if (a > 1 - o * .5 + 1e-6) root.style.setProperty('--bd-a', `${(a * 100).toFixed(1)}%`);
+  for (const [el, list] of own) {
+    const bg = behind(a, el === root ? 2 : 1);
+    for (const [v, rgb] of list) {
+      if (!rgb) continue;
+      const ink = inkFor(rgb, bg, PICTURE_MIN);
+      if (ink !== rgb) el.style.setProperty(v, `rgb(${ink.join(', ')})`);
+    }
+  }
+}
+// The window's shape changes which part of the picture covers it.
+window.addEventListener('resize', () => {
+  if (backdrop !== 'image') return;
+  clearTimeout(pictureResize);
+  pictureResize = window.setTimeout(() => void tunePicture(), 250);
+});
 if (backdrop !== 'none') applyBackdrop();
 const backdropCardHtml = ([id, name, sub]: [Exclude<Backdrop, 'none'>, string, string]) =>
   `<button class="set-theme ${id === backdrop ? 'on' : ''}" data-backdrop-pick="${id}" aria-pressed="${id === backdrop}">

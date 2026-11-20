@@ -404,6 +404,7 @@ function renameInline(el: HTMLElement, value: string, done: (name: string | null
   input.setAttribute('aria-label', 'Chat name');
   el.style.display = 'none';
   el.after(input);
+  settleIn(input);
   let ended = false;
   const end = (keep: boolean) => {
     if (ended) return;
@@ -411,6 +412,7 @@ function renameInline(el: HTMLElement, value: string, done: (name: string | null
     const name = input.value.trim().replaceAll(/\s+/g, ' ');
     input.remove();
     el.style.display = '';
+    settleIn(el);
     done(keep && name && name !== value ? name : null);
   };
   input.addEventListener('keydown', e => {

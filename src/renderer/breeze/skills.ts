@@ -56,7 +56,7 @@ let extQuery = '';
 document.body.insertAdjacentHTML('beforeend', `<div class="ext-scrim" id="extPop" hidden>
   <div class="ext-pop" role="dialog" aria-modal="true" aria-label="Skills, plugins and MCP servers">
     <div class="ext-head">
-      <div class="ext-tabs" role="tablist">${EXT_TABS.map(([k, l]) => `<button type="button" role="tab" data-ext-tab="${k}">${l}</button>`).join('')}</div>
+      <div class="ext-tabs" role="tablist">${EXT_TABS.map(([k, l]) => `<button class="ext-tab" type="button" role="tab" data-ext-tab="${k}">${l}</button>`).join('')}</div>
       <label class="ext-search">${svgIcon('search', 14)}<input id="extSearch" type="search" placeholder="Search" aria-label="Search" spellcheck="false" autocomplete="off"></label>
       <button class="btn btn-sm ext-add" id="extAdd" type="button" title="Connect MCP server">${svgIcon('plus', 14)}<span>Add</span></button>
       <button class="icon-btn ext-close" id="extClose" type="button" title="Close (Esc)" aria-label="Close">${svgIcon('x', 16)}</button>
@@ -66,13 +66,16 @@ document.body.insertAdjacentHTML('beforeend', `<div class="ext-scrim" id="extPop
 </div>`);
 const extPop = $('#extPop'), extBody = $('#extBody'), extSearch = $<HTMLInputElement>('#extSearch');
 const extOpen = () => !extPop.hidden && !extPop.classList.contains('closing');
+const EXT_LOADING = '<p class="side-note">Looking for skills…</p>';
+let extShown = ''; // the list as last put in: a refresh that finds the same leaves it, and its rise-in, alone
 
 const extMatches = (...text: (string | undefined)[]) => !extQuery || text.some(t => t?.toLowerCase().includes(extQuery));
 function extSection(title: string, count: number, rows: string, empty: string): string {
   return `<div class="ext-section"><span>${esc(title)}</span><span class="n">${count}</span></div>${rows || `<p class="side-note">${esc(extQuery ? 'Nothing matches your search.' : empty)}</p>`}`;
 }
 
-function renderSkills(): void {
+// rise: the rows come in one after another, as a dialog's parts do (opening, a new tab, the list first arriving).
+function renderSkills(rise = false): void {
   if (extPop.hidden) return;
   $$<HTMLButtonElement>('[data-ext-tab]', extPop).forEach(b => {
     const on = b.dataset.extTab === extTab;
@@ -80,9 +83,9 @@ function renderSkills(): void {
     b.setAttribute('aria-selected', String(on));
   });
   $('#extAdd').hidden = extTab !== 'mcp';
-  if (!skillData) { extBody.innerHTML = '<p class="side-note">Looking for skills…</p>'; return; }
-  let html = '';
-  if (extTab === 'skills') {
+  let html: string;
+  if (!skillData) html = EXT_LOADING;
+  else if (extTab === 'skills') {
     const list = skillData.skills.filter(k => extMatches(k.name, k.description));
     html = extSection('Your skills', list.length, list.map(skillRowHtml).join(''), 'No skills yet.');
   } else if (extTab === 'plugins') {
@@ -95,7 +98,11 @@ function renderSkills(): void {
     const rows = own.map(m => mcpRowHtml(m, false, true)).join('') + mine.map(m => mcpRowHtml(m, true)).join('') + theirs.map(m => mcpRowHtml(m, false)).join('');
     html = extSection('MCP servers', own.length + mine.length + theirs.length, rows, 'No MCP servers. Add one to give Claude Code its tools.');
   }
+  if (html === extShown && !rise) return;
+  rise ||= extShown === EXT_LOADING;
+  extShown = html;
   extBody.innerHTML = html;
+  if (rise) staggerIn(extBody.children);
   $$<HTMLElement>('[data-skill-del]', extBody).forEach(b => holdToDelete(b, () => { const k = allSkills().find(x => x.id === b.dataset.skillDel); if (k) void removeSkill(k); }));
   $$<HTMLElement>('[data-mcp-del]', extBody).forEach(b => holdToDelete(b, () => {
     const name = b.dataset.mcpDel as string;
@@ -106,7 +113,7 @@ function renderSkills(): void {
 async function refreshSkills(): Promise<void> {
   try {
     [skillData, mcpData] = await Promise.all([api.skills.list(), api.mcp.list().catch(() => ({ breeze: [], claude: [] }))]);
-  } catch (e) { extBody.innerHTML = `<p class="side-note">Couldn't read the skills: ${esc(errMsg(e))}</p>`; return; }
+  } catch (e) { extShown = ''; extBody.innerHTML = `<p class="side-note">Couldn't read the skills: ${esc(errMsg(e))}</p>`; return; }
   setSlashSkills(skillData); // the prompts' "/" menu follows what's here
   renderSkills();
 }
@@ -118,18 +125,27 @@ function openExtensions(tab: ExtTab): void {
     extSearch.value = '';
     extPop.classList.remove('closing');
     extPop.hidden = false;
+    staggerIn($('.ext-head', extPop).children); // marked once; showing the pop-up again replays their rise
   }
-  renderSkills();
+  renderSkills(true);
   extSearch.focus();
   void refreshSkills();
 }
 function closeExtensions(): void {
   if (!extOpen()) return;
   extPop.classList.add('closing');
-  setTimeout(() => { if (extPop.classList.contains('closing')) { extPop.hidden = true; extPop.classList.remove('closing'); } }, 200);
+  // As a closing dialog (closeModal): gone once its fade has run, while the roll-up is still finishing out of sight.
+  setTimeout(() => { if (extPop.classList.contains('closing')) { extPop.hidden = true; extPop.classList.remove('closing'); } }, 380);
 }
 $$<HTMLElement>('[data-ext-open]').forEach(b => b.onclick = () => openExtensions(b.dataset.extOpen as ExtTab));
-$$<HTMLButtonElement>('[data-ext-tab]', extPop).forEach(b => b.onclick = () => { extTab = b.dataset.extTab as ExtTab; renderSkills(); });
+// The highlight glides from the old tab to the new one, and the new list rises in.
+$$<HTMLButtonElement>('[data-ext-tab]', extPop).forEach(b => b.onclick = () => {
+  if (b.dataset.extTab === extTab) return;
+  const from = extPop.querySelector('.ext-tab.on')?.getBoundingClientRect();
+  extTab = b.dataset.extTab as ExtTab;
+  renderSkills(true);
+  slideSelected(b, from);
+});
 extSearch.oninput = () => { extQuery = extSearch.value.trim().toLowerCase(); renderSkills(); };
 $('#extClose').onclick = closeExtensions;
 $('#extAdd').onclick = () => connectMcp();

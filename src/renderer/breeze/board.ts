@@ -102,15 +102,18 @@ function placeBoardRailIndicator(): void {
 }
 
 /* ----- Roster: one draggable chip per installed agent ----- */
+// Redrawn each time the board opens: only a change is put in, chips that stay sliding over and new ones growing in.
+let rosterShown = '';
 function renderRoster(): void {
   const roster = $('#boardRoster');
   const agents = foundAgents();
-  if (!agents.length) {
-    roster.innerHTML = `<button class="btn btn-sm" type="button" data-board-pick>Choose an agent</button>`;
-    roster.querySelector<HTMLElement>('[data-board-pick]')!.onclick = openAgentPicker;
-    return;
-  }
-  roster.innerHTML = agents.map(a => `<span class="board-chip" role="listitem" draggable="true" tabindex="0" data-agent="${escAttr(a.id)}" title="Click to add ${escAttr(agentShortName(a))}, or drag it into a box">${brandMark('board-chip-logo', a.id, agentShortName(a)[0] ?? '?')}<b>${esc(agentShortName(a))}</b></span>`).join('');
+  const html = agents.length
+    ? agents.map(a => `<span class="board-chip" role="listitem" draggable="true" tabindex="0" data-agent="${escAttr(a.id)}" title="Click to add ${escAttr(agentShortName(a))}, or drag it into a box">${brandMark('board-chip-logo', a.id, agentShortName(a)[0] ?? '?')}<b>${esc(agentShortName(a))}</b></span>`).join('')
+    : `<button class="btn btn-sm" type="button" data-board-pick>Choose an agent</button>`;
+  if (rosterShown === html) return;
+  rosterShown = html;
+  flip(() => [...roster.children] as HTMLElement[], () => { roster.innerHTML = html; }, el => el.dataset.agent ?? 'pick');
+  roster.querySelector<HTMLElement>('[data-board-pick]')?.addEventListener('click', openAgentPicker);
 }
 $('#boardRoster').addEventListener('dragstart', e => {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.board-chip');
@@ -197,9 +200,14 @@ function paintBoardLive(): void {
     const code = !b.side && boardCodeOn && has && !b.liveHidden;
     const on = code || !!b.side;
     b.el.classList.toggle('live-on', on);
-    $('.board-live', b.el).dataset.view = b.side ?? 'code';
+    const pane = $('.board-live', b.el), view = b.side ?? 'code';
+    if (pane.dataset.view !== view) {
+      pane.dataset.view = view;
+      // Switched while open: the other view settles in where the last one was, rather than replacing it in a blink.
+      if (was && on) for (const part of pane.children) if (part.checkVisibility()) settleIn(part);
+    }
     const btn = $('.board-box-code', b.el);
-    btn.classList.toggle('hidden', !boardCodeOn || !has);
+    morphShow(btn, boardCodeOn && has);
     btn.setAttribute('aria-pressed', String(code));
     const label = code ? 'Hide the file the agent is editing' : 'Show the file the agent is editing';
     btn.title = label;
@@ -482,6 +490,8 @@ const workingBoxes = (except?: BoardBox) => allBoardBoxes().filter(b => b !== ex
 const freeKeysAfterClear = () => allBoxKeys().filter(k => !parkedBoxes.has(k) && !(boardBoxes.has(k) && boxBusy(boardBoxes.get(k)!)));
 const BOARD_ALL_BUSY = `${BOARD_MAX} chats are still working. Wait for one to finish, or stop one first.`;
 function freshBoard(agent: string): void {
+  const blank = blankBoxFor(agent);
+  if (blank) { blank.surface.prompt.focus(); return; }
   const key = freeKeysAfterClear()[0];
   if (!key) { toast(BOARD_ALL_BUSY); return; }
   morphBoard(() => {
@@ -494,6 +504,12 @@ function freshBoard(agent: string): void {
     boardBoxes.get(key)?.surface.prompt.focus();
   });
   sfx.play('send');
+}
+// The board is already one fresh chat with this agent, nothing asked yet: New chat (or its chip) stays on it, as
+// Breeze Space's New chat does, instead of playing the swap to an identical box.
+function blankBoxFor(agent: string): BoardBox | undefined {
+  const only = boardBoxes.size === 1 ? [...boardBoxes.values()][0] : undefined;
+  return only?.agent === agent && !only.tab.historyId && only.tab.panel.querySelector('.empty') ? only : undefined;
 }
 function emptyBoxEl(key: string): HTMLElement {
   const el = document.createElement('div');
@@ -509,8 +525,8 @@ function paintEmptyBox(el: HTMLElement, key: string): void {
   if (!el.classList.contains('empty-box')) return;
   const spot = boardBoxes.size > 0;
   el.classList.toggle('spot-box', spot);
-  $('.board-drop-title', el).textContent = spot ? 'Drop here to add it' : 'Drop an agent or a chat here';
-  $('.board-drop-hint', el).textContent = spot ? 'The boxes make room for it' : 'or click to pick one';
+  swapText($('.board-drop-title', el), spot ? 'Drop here to add it' : 'Drop an agent or a chat here');
+  swapText($('.board-drop-hint', el), spot ? 'The boxes make room for it' : 'or click to pick one');
   el.setAttribute('aria-label', spot ? `Box ${boxNumber(key)}, a spot for the agent you are dragging.` : 'No agent yet. Click or press Enter to pick one.');
 }
 const BOARD_DRAG_TYPES = ['text/breeze-agent', 'text/breeze-chat']; // an agent from the roster, a chat from the side bar
@@ -743,18 +759,19 @@ function paintBox(box: BoardBox): void {
   if (tabBusy(box.tab)) box.status = boardWaiting(box.key) ? 'waiting' : 'working';
   else if (boardWaiting(box.key)) box.status = 'waiting';
   else if (box.status === 'working' || box.status === 'waiting') box.status = 'idle';
-  $('.board-box-name', box.el).textContent = boxName(box);
+  swapText($('.board-box-name', box.el), boxName(box));
   paintBoardSideRow(box);
   paintBoxModel(box);
   paintBoxContext(box);
   const dot = $('.board-dot', box.el);
+  if (dot.dataset.status && dot.dataset.status !== box.status && !motionReduced()) dot.animate([{ transform: 'scale(1.6)' }, {}], { duration: 420, easing: SPRING });
   dot.dataset.status = box.status;
   dot.title = { idle: 'Idle', working: 'Working', waiting: 'Waiting on a teammate', done: 'Done', failed: 'Failed' }[box.status];
   dot.setAttribute('aria-label', dot.title);
   const owns = Object.values(boardOwners).filter(o => o === box.key).length;
   const ownsBtn = $('.board-owns', box.el);
-  ownsBtn.textContent = owns ? plural(owns, 'file') : '';
-  ownsBtn.classList.toggle('hidden', !owns);
+  if (owns) swapText(ownsBtn, plural(owns, 'file')); // kept while it shrinks away
+  morphShow(ownsBtn, !!owns);
   renderBoardStatus();
 }
 
@@ -795,19 +812,23 @@ function boardPickOf(key: string): { model?: string; effort?: string } {
 function paintBoxModel(box: BoardBox): void {
   const ag = boxAgent(box);
   const model = ag ? versionLabel(boxModelOf(box)) : '';
-  const btn = $('.board-box-model', box.el);
-  $('.bbm-label', btn).innerHTML = model ? `${esc(model)}${ag && !ag.api ? `<small> · ${esc(boxEffortOf(box))}</small>` : ''}` : '';
-  btn.classList.toggle('no-model', !model);
+  const btn = $('.board-box-model', box.el), label = $('.bbm-label', btn);
+  const html = model ? `${esc(model)}${ag && !ag.api ? `<small> · ${esc(boxEffortOf(box))}</small>` : ''}` : '';
+  if (label.innerHTML !== html) {
+    const shown = label.innerHTML !== '';
+    flip(() => [...btn.parentElement!.children] as HTMLElement[], () => { label.innerHTML = html; btn.classList.toggle('no-model', !model); });
+    if (shown && html) settleIn(label);
+  }
   btn.setAttribute('aria-label', model ? `${agentShortName(ag!)} model: ${model}. Change model or effort` : 'Model and effort');
 }
 // How full the box's chat is: the share of its model's context window the last request used (a `ctx` event from main,
 // for Claude and Codex). Amber from 80%, when the agent will soon compact or forget the start of the chat.
 function paintBoxContext(box: BoardBox): void {
   const el = $('.board-box-ctx', box.el), c = box.ctx;
-  el.classList.toggle('hidden', !c);
+  const pct = c ? Math.max(0, Math.min(100, Math.round((c.used / c.window) * 100))) : 0;
+  if (c) swapText(el, `${pct}% context`); // kept while it shrinks away
+  morphShow(el, !!c);
   if (!c) return;
-  const pct = Math.max(0, Math.min(100, Math.round((c.used / c.window) * 100)));
-  el.textContent = `${pct}% context`;
   el.classList.toggle('low', pct >= 80);
   el.setAttribute('aria-valuenow', String(pct));
   const k = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
@@ -1022,13 +1043,15 @@ async function logChatHtml(e: ChatEntry): Promise<string> {
 // The list an entry is kept in: this folder's, or Space's.
 const sideStore = (id: string): Surface => (chatHistory(SURFACES.ide).some(e => e.id === id) ? SURFACES.ide : SURFACES.box);
 const boxWithChat = (id: string) => allBoardBoxes().find(b => b.tab.historyId === id);
-function setBoardSide(open: boolean): void {
+// morph: false at start-up, before ui.js (morphShow) has loaded.
+function setBoardSide(open: boolean, morph = true): void {
   store.set('breeze.board.side', open);
   $('#board').classList.toggle('side-closed', !open);
+  if (morph) morphShow($('#boardSideShow'), !open); else $('#boardSideShow').classList.toggle('hidden', open);
   $('#boardSide').inert = !open;
   requestAnimationFrame(layoutBoard);
 }
-setBoardSide(store.get<boolean>('breeze.board.side', true));
+setBoardSide(store.get<boolean>('breeze.board.side', true), false);
 function renderBoardSide(): void {
   const list = $('#boardSideList');
   if (list.querySelector('.rename-input')) return; // a chat is being renamed: redrawn once that is done
@@ -1039,11 +1062,7 @@ function renderBoardSide(): void {
   if (rootInfo) groups.set(rootInfo.root, []);
   for (const e of entries) groups.set(e.folder ?? '', [...groups.get(e.folder ?? '') ?? [], e]);
   for (const [k, v] of groups) { if (v.length) v.sort((a, b) => b.at - a.at); else groups.delete(k); }
-  if (!groups.size) {
-    list.innerHTML = `<div class="box-side-empty">${q ? 'No chats match' : 'Your chats show up here'}</div>`;
-    return;
-  }
-  list.innerHTML = [...groups].map(([folder, chats]) => {
+  const html = !groups.size ? `<div class="box-side-empty">${q ? 'No chats match' : 'Your chats show up here'}</div>` : [...groups].map(([folder, chats]) => {
     const folded = !q && boardSideFolded.has(folder);
     const rows = chats.map(e => {
       const box = boxWithChat(e.id);
@@ -1057,14 +1076,36 @@ function renderBoardSide(): void {
       <div class="box-side-chats">${rows}</div>
     </div>`;
   }).join('');
+  morphSideList(list, html);
+}
+// The chats list redrawn as a morph: rows that stay slide to their new place and new ones grow in (flip); the open
+// chat's highlight grows on its row and fades off the last one, as hovering does; a folder's chevron turns.
+function morphSideList(list: HTMLElement, html: string): void {
+  const rows = () => $$<HTMLElement>('[data-chat], [data-folder], .box-side-empty', list);
+  const key = (el: HTMLElement) => el.dataset.chat ?? (el.dataset.folder !== undefined ? `folder:${el.dataset.folder}` : 'empty');
+  const on = new Set($$<HTMLElement>('.box-side-chat.on', list).map(key));
+  const folded = new Set($$<HTMLElement>('.box-side-group.folded > [data-folder]', list).map(key));
+  const had = new Set(rows().map(key));
+  flip(rows, () => { list.innerHTML = html; }, key);
+  if (motionReduced() || !list.checkVisibility()) return;
+  for (const el of rows()) {
+    const k = key(el);
+    if (!had.has(k)) continue; // new: flip grows it in
+    const isOn = el.classList.contains('on');
+    if (isOn !== on.has(k)) el.animate([isOn ? { opacity: 0, transform: 'scaleX(.55)' } : { opacity: 1, transform: 'none' }, {}], { pseudoElement: '::before', duration: 510, easing: SPRING });
+    const isFolded = !!el.closest('.box-side-group.folded');
+    const chevron = el.dataset.folder !== undefined ? el.querySelector('svg') : null;
+    if (chevron && isFolded !== folded.has(k)) chevron.animate([{ transform: isFolded ? 'none' : 'rotate(-90deg)' }, {}], { duration: 420, easing: SPRING });
+  }
 }
 // A box's working dot, without redrawing the list on every event.
 function paintBoardSideRow(box: BoardBox): void {
   const id = box.tab.historyId;
   const row = id ? $('#boardSideList').querySelector<HTMLElement>(`[data-chat="${CSS.escape(id)}"]`) : null;
-  row?.classList.toggle('busy', boxBusy(box));
+  if (!row) return;
+  morphClass(row, 'busy', boxBusy(box), $('.box-side-busy', row));
   // Out of sight and waiting on an answer: the row's blue dot flashes until the chat is opened and answered.
-  row?.classList.toggle('needs-you', parkedBoxes.get(box.key) === box && tabNeedsYou(box.tab));
+  morphClass(row, 'needs-you', parkedBoxes.get(box.key) === box && tabNeedsYou(box.tab), $('.needs-you-dot', row));
 }
 // agents.ts's refreshNeedsYou, for a chat in a box.
 function paintBoardTabRow(tab: AgentTabState): void {
@@ -1110,16 +1151,14 @@ function deleteBoardChat(id: string): void {
 function closeBoardSearch(): void {
   $<HTMLInputElement>('#boardSideSearch').value = '';
   boardSideQuery = '';
-  $('#boardSideSearchBox').classList.add('hidden');
-  $('#boardSideSearchBtn').classList.remove('hidden');
+  morphSearchRow($('#boardSideSearchBtn'), $('#boardSideSearchBox'), false);
   renderBoardSide();
 }
 $('#boardSideNew').onclick = newBoardChat;
 $('#boardSideHide').onclick = () => setBoardSide(false);
 $('#boardSideShow').onclick = () => setBoardSide(true);
 $('#boardSideSearchBtn').onclick = () => {
-  $('#boardSideSearchBox').classList.remove('hidden');
-  $('#boardSideSearchBtn').classList.add('hidden');
+  morphSearchRow($('#boardSideSearchBtn'), $('#boardSideSearchBox'), true);
   $<HTMLInputElement>('#boardSideSearch').focus();
 };
 $('#boardSideSearch').addEventListener('input', ev => { boardSideQuery = (ev.target as HTMLInputElement).value.trim(); renderBoardSide(); });
@@ -1295,7 +1334,7 @@ function onRelay(from: BoardBox, ev: AgentEvent): void {
   const r: Relay = { id: relayId(), from: from.key, to, kind: 'ask', path: ev.path, diff: ev.diff, note: ev.note };
   if (!anyBox(to)) {
     const el = addMsg(`<div class="card relay"><h5>${svgIcon('arrowRight', 14)} ${esc(boxLabel(to))} is empty</h5><p>Nobody can make this change for ${esc(boxName(from))}.</p><div class="row" data-live><button class="btn btn-sm" data-relay-drop>Drop</button></div></div>`, from.tab);
-    el.querySelector<HTMLElement>('[data-relay-drop]')!.onclick = () => el.remove();
+    el.querySelector<HTMLElement>('[data-relay-drop]')!.onclick = () => { if (motionReduced()) el.remove(); else el.animate([{}, MORPH_GONE], { duration: 160, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' }).onfinish = () => el.remove(); };
     return;
   }
   const what = r.path ? ` in <code>${esc(r.path)}</code>` : '';
@@ -1315,7 +1354,7 @@ function deliver(r: Relay, sent = false): void {
   const card = incomingCard(r, target);
   const wait = card.querySelector<HTMLElement>('.relay-wait')!;
   if (outcome === 'queued') {
-    wait.textContent = `Waiting for ${boxName(target)} to finish.`;
+    swapText(wait, `Waiting for ${boxName(target)} to finish.`);
     return;
   }
   const why = relayQueue.auto ? `${boxLabel(r.from)} and ${boxName(target)} went back and forth ${relayQueue.limit} times, so this one waits.` : 'Auto-relay is off.';
@@ -1326,7 +1365,7 @@ function deliver(r: Relay, sent = false): void {
   };
   wait.querySelector<HTMLElement>('[data-relay-drop]')!.onclick = () => {
     relayQueue.drop(r.id);
-    wait.textContent = 'Dropped.';
+    swapText(wait, 'Dropped.');
     closeAsk(r);
   };
 }
@@ -1350,8 +1389,8 @@ async function startRelay(r: Relay): Promise<void> {
   if (!target || boardFolder !== (rootInfo?.root ?? null)) { closeAsk(r); return; }
   if (boxBusy(target)) { deliver(r); return; } // it got busy meanwhile: wait for it
   const card = incomingCard(r, target);
-  const wait = card.querySelector('.relay-wait');
-  if (wait) wait.textContent = r.kind === 'reply' ? 'Continuing.' : 'Working on it.';
+  const wait = card.querySelector<HTMLElement>('.relay-wait');
+  if (wait) swapText(wait, r.kind === 'reply' ? 'Continuing.' : 'Working on it.');
   sfx.play('send');
   await runBox(target, relayPrompt(r, boxLabel(r.from)));
   const runId = target.tab.runId;
@@ -1372,8 +1411,8 @@ function onBoxIdle(box: BoardBox, runId: number, stopped = false): void {
   const answered = relayRuns.get(runId);
   if (answered) {
     relayRuns.delete(runId);
-    const wait = relayCards.get(answered.id)?.querySelector('.relay-wait');
-    if (wait) wait.textContent = stopped ? 'Stopped.' : box.status === 'failed' ? 'Couldn’t finish.' : answered.kind === 'ask' ? 'Answered.' : '';
+    const wait = relayCards.get(answered.id)?.querySelector<HTMLElement>('.relay-wait');
+    if (wait) swapText(wait, stopped ? 'Stopped.' : box.status === 'failed' ? 'Couldn’t finish.' : answered.kind === 'ask' ? 'Answered.' : '');
     if (answered.kind === 'ask') {
       closeAsk(answered);
       const asker = anyBox(answered.from);
@@ -1411,8 +1450,8 @@ function dropRelaysFor(key: string): void {
 function stopAllRelays(): void {
   // Cards still waiting or asking for Send say so instead of keeping buttons that do nothing.
   for (const card of relayCards.values()) {
-    const wait = card.querySelector('.relay-wait');
-    if (wait && (wait.querySelector('button') || wait.textContent?.startsWith('Waiting'))) wait.textContent = 'Stopped.';
+    const wait = card.querySelector<HTMLElement>('.relay-wait');
+    if (wait && (wait.querySelector('button') || wait.textContent?.startsWith('Waiting'))) swapText(wait, 'Stopped.');
   }
   for (const r of relayQueue.stopAll()) closeAsk(r);
   // Relays being answered right now stay in relayRuns: each stopped run's done (onBoxIdle) marks its card
