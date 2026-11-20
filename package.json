@@ -14,7 +14,11 @@
     "build:engine": "node scripts/build-engine.js",
     "test:engine": "cargo test --release --manifest-path engine/Cargo.toml -- --include-ignored",
     "dist": "tsc && electron-builder --win --publish never",
-    "predist": "node scripts/write-config.js && node scripts/build-engine.js"
+    "dist:mac": "tsc && electron-builder --mac",
+    "dist:linux": "tsc && electron-builder --linux",
+    "predist": "node scripts/write-config.js && node scripts/build-engine.js",
+    "predist:mac": "node scripts/write-config.js && node scripts/build-engine.js",
+    "predist:linux": "node scripts/write-config.js && node scripts/build-engine.js"
   },
   "devDependencies": {
     "electron": "^44.7.2",
@@ -54,6 +58,25 @@
         "nsis"
       ],
       "icon": "assets/brand/Icon.png"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/brand/Icon.png",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "Breeze-Code-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/brand/Icon.png",
+      "category": "Development",
+      "maintainer": "itsphatto <itsphatto@users.noreply.github.com>",
+      "artifactName": "Breeze-Code-${version}-linux-${arch}.${ext}"
     },
     "nsis": {
       "artifactName": "Breeze-Code-Setup-${version}.${ext}",

@@ -1,0 +1,76 @@
+name: Release (Mac + Linux)
+
+# Push a tag like v0.7.10 (npm version patch && git push --follow-tags) to build and publish.
+# Windows is still built locally with `npm run dist`.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest   # Apple Silicon (arm64)
+            script: dist:mac
+          - os: ubuntu-latest
+            script: dist:linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            engine
+            hands
+
+      - name: Linux system libraries (enigo / Electron)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxdo-dev libxkbcommon-dev libxcb1-dev libx11-dev libxtst-dev libssl-dev pkg-config rpm fakeroot
+
+      - run: npm ci
+
+      - name: Build and publish
+        # Tag push publishes to the GitHub release. Manual runs only build (no publish).
+        run: npm run ${{ matrix.script }} -- --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Client ids written into breeze.config.json by scripts/write-config.js
+          BREEZE_GITHUB_CLIENT_ID: ${{ secrets.BREEZE_GITHUB_CLIENT_ID }}
+          BREEZE_GOOGLE_CLIENT_ID: ${{ secrets.BREEZE_GOOGLE_CLIENT_ID }}
+          BREEZE_GOOGLE_CLIENT_SECRET: ${{ secrets.BREEZE_GOOGLE_CLIENT_SECRET }}
+          BREEZE_DISCORD_CLIENT_ID: ${{ secrets.BREEZE_DISCORD_CLIENT_ID }}
+          BREEZE_FIREBASE_API_KEY: ${{ secrets.BREEZE_FIREBASE_API_KEY }}
+          BREEZE_FIREBASE_PROJECT_ID: ${{ secrets.BREEZE_FIREBASE_PROJECT_ID }}
+          # Mac signing + notarization (optional; unsigned build if unset)
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Keep build output (manual test runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: breeze-${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
