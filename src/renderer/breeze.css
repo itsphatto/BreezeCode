@@ -748,6 +748,15 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   color: var(--on-blue);
 }
 
+/* One accent colour: blue is kept for each screen's main action (Send, Commit). A row of Install buttons and the
+   diff's Stage / Unstage are plain buttons, so they don't compete with it. */
+.set-pane .set-agent-install.btn-primary,
+#diffStage.btn-primary {
+  background: var(--bg-3);
+  border-color: var(--line);
+  color: var(--text);
+}
+
 .btn-ghost {
   background: transparent;
   border-color: transparent;
@@ -12929,7 +12938,7 @@ body.term-popout .term-win-controls .win-btn::before {
   top: 0;
   height: 2px;
   border-radius: 2px;
-  background: var(--blue);
+  background: var(--text-3); /* one accent colour: blue is kept for each screen's main action */
   pointer-events: none;
   z-index: 1;
   transition: transform .48s var(--spring), width .48s var(--spring);
@@ -13584,6 +13593,16 @@ body.layout-animating #previewPane {
 .modal:has(> .img-modal-view) { width: auto; max-width: none; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; }
 .img-modal-img { cursor: zoom-out; }
 .img-modal-img { max-width: 85vw; max-height: 75vh; object-fit: contain; border-radius: 8px; display: block; animation: imgOpenIn .42s var(--spring) both; }
+/* A see-through SVG sits on the same backdrop its thumbnail has, so dark strokes stay visible. */
+.img-modal-img.svg { height: auto; background: var(--bg-1); }
+
+/* Markdown headings in agent replies ("## Fix first"). */
+.md-h { display: block; font-weight: 650; color: var(--text-1, inherit); line-height: 1.3; margin: .9em 0 .35em; }
+.md-h:first-child { margin-top: 0; }
+.md-h1 { font-size: 1.3em; }
+.md-h2 { font-size: 1.15em; }
+.md-h3 { font-size: 1.05em; }
+.md-h4 { font-size: 1em; }
 
 /* ================= AGENT MULTI-TAB SYSTEM ================= */
 .agents .side-head {
@@ -13828,14 +13847,14 @@ body.layout-animating #previewPane {
   content: none;
 }
 
-/* Gliding blue line under open agent tab (identical to file tabs) */
+/* Gliding grey line under open agent tab (identical to file tabs) */
 .agent-tab-ink {
   position: absolute;
   left: 0;
   top: 0;
   height: 2px;
   border-radius: 2px;
-  background: var(--blue);
+  background: var(--text-3);
   pointer-events: none;
   z-index: 2;
   transition: transform .48s var(--spring), width .48s var(--spring), opacity .15s ease;

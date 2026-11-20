@@ -103,7 +103,7 @@
   --sel: rgba(38, 79, 120, .9);
   --ok: #3794ff;
   --err: #f14c4c;
-  --code-size: 13px;
+  --code-size: 14px;
   --code-line: 1.45;
   /* The main window's terminal colours (breeze.css .terminal), so both terminals colour output the same way. */
   --term-red: #f87171;

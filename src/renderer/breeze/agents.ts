@@ -888,7 +888,9 @@ function nextPlaceholder(r: PlaceholderRotator): void {
   if (decorResting() || r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
   blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
 }
-rotatePlaceholder(SURFACES.ide.prompt, ' ', IDE_PLACEHOLDERS);
+// Each example reads as a hint, not as a prompt already sent: "Describe a change… e.g. fix the router".
+const IDE_HINTS = IDE_PLACEHOLDERS.map(p => `Describe a change… e.g. ${p[0].toLowerCase()}${p.slice(1)}`);
+rotatePlaceholder(SURFACES.ide.prompt, ' ', IDE_HINTS);
 rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS[0], BOX_PLACEHOLDERS);
 // Rests under the power saver and while the window is unseen (power.ts).
 decorInterval(() => {
@@ -930,7 +932,24 @@ function emptyChat(s: Surface = SURFACES.ide, tab?: AgentTabState): void {
 }
 // A small, safe subset of Markdown for agent replies: inline code, bold and line breaks. Fenced code blocks
 // become artifacts: a card with the file name, Copy and Download. A fence may name its file: ```html index.html
-const inlineMd = (s: string) => codeSpans(esc(s)).replaceAll(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replaceAll('\n', '<br>');
+// A line starting "# " to "###### " is a heading. It is a block span (it may sit inside a <p>), so the blank lines
+// next to it are dropped: its margins already space it.
+const MD_HEADING = /^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
+function inlineMd(s: string): string {
+  const lines = codeSpans(esc(s)).replaceAll(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').split('\n');
+  const isHead = (l: string | undefined) => l !== undefined && MD_HEADING.test(l);
+  let out = '';
+  let prevBlock = false;
+  lines.forEach((line, i) => {
+    const m = MD_HEADING.exec(line);
+    if (m) { out += `<span class="md-h md-h${Math.min(m[1].length, 4)}">${m[2]}</span>`; prevBlock = true; return; }
+    if (!line.trim() && (prevBlock || isHead(lines[i + 1]))) return;
+    if (i > 0 && !prevBlock) out += '<br>';
+    out += line;
+    prevBlock = false;
+  });
+  return out;
+}
 // Only a ``` at the start of a line opens a block (splitFences, mdcore.ts): one mid-sentence is text.
 function md(text: string): string {
   return splitFences(text).map(p => ('code' in p ? artifactHtml(p.info, p.code) : inlineMd(p.text))).join('');

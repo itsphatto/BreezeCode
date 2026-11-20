@@ -564,8 +564,20 @@ document.addEventListener('click', e => {
   const img = target.closest<HTMLImageElement>('.chat-img, .attachment-thumb');
   if (img?.src && !img.closest('.attachment-icon')) {
     const full = img.dataset.full || img.src;
+    // An SVG often has only a viewBox, no size of its own: in the shrink-to-fit viewer it collapses to nothing. It
+    // gets the shape its thumbnail shows, scaled to fill the viewer, on the chat's own backdrop.
+    const svg = /^data:image\/svg/i.test(full) || /\.svg(?:[?#]|$)/i.test(full);
+    const box = img.getBoundingClientRect();
+    const ratio = box.width > 0 && box.height > 0 ? box.width / box.height : 1;
+    // Set through the DOM: the page's CSP (style-src 'self') drops a style="" attribute.
+    const size = (m: HTMLElement) => {
+      const view = m.querySelector<HTMLImageElement>('.img-modal-img');
+      if (!svg || !view) return;
+      view.style.aspectRatio = String(ratio);
+      view.style.width = `min(85vw, calc(75vh * ${ratio}))`;
+    };
     // Just the picture: no dialog panel or button. A click on it or beside it, or Esc, closes it.
-    openModal(`<div class="img-modal-view"><img src="${escAttr(full)}" class="img-modal-img" alt="" title="Click to close" data-close></div>`);
+    openModal(`<div class="img-modal-view"><img src="${escAttr(full)}" class="img-modal-img${svg ? ' svg' : ''}" alt="" title="Click to close" data-close></div>`, size);
   }
 });
 
