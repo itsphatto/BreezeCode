@@ -330,10 +330,7 @@
         </nav>
         <main class="home-main">
           <div class="home-view" data-view="session">
-            <!-- The contribution graph can be dragged to the left or right of the page, where it stands upright
-                 (homedock.ts); these slots hold it there. At the bottom it sits in the welcome, above the prompt. -->
             <div class="home-layout" id="homeLayout">
-            <aside class="home-dock" id="homeDockLeft" data-dock="left"></aside>
             <div class="home-welcome">
               <!-- Clone Repository: the address is typed here, over the greeting (openCloneBar, setup.ts). -->
               <form class="home-clone hidden" id="homeClone" autocomplete="off">
@@ -391,12 +388,6 @@
                 </div>
                 <div class="cmp-meta"><button type="button" class="cmp-folder cmp-folder-btn" id="homeAskDir" title="The folder the agent works in" aria-haspopup="menu"><svg data-i="folder" data-size="13"></svg><span id="homeAskDirName">Choose a folder</span><svg data-i="chevronDown" data-size="11"></svg></button><span class="cmp-env" title="Agents run on this computer"><svg data-i="monitor" data-size="13"></svg><span>Local</span></span><span class="cmp-branch hidden"><svg data-i="gitBranch" data-size="13"></svg><span class="cmp-branch-name"></span></span><span class="flex-1"></span><span class="cmp-ctx hidden" role="meter" aria-label="Usage limit used" aria-valuemin="0" aria-valuemax="100"><span class="cmp-ctx-bar"><i></i></span><span class="cmp-ctx-pct"></span></span></div>
               </form>
-            </div>
-            <aside class="home-dock" id="homeDockRight" data-dock="right"></aside>
-            <div class="home-dock-zones" aria-hidden="true">
-              <div class="home-zone" data-zone="left"><span>Left</span></div>
-              <div class="home-zone" data-zone="bottom"><span>Bottom</span></div>
-              <div class="home-zone" data-zone="right"><span>Right</span></div>
             </div>
             </div>
           </div>

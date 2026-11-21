@@ -363,13 +363,8 @@ function setContribTitle(c: GhContributions, tail: string): void {
   n.textContent = c.total.toLocaleString();
   $('#homeContribTitle').replaceChildren(n, ` contribution${c.total === 1 ? '' : 's'}${tail}`);
 }
-// The last year drawn, so moving the graph to a side (homedock.ts) can redraw it upright without asking GitHub again.
-let lastContrib: GhContributions | null = null;
 function drawContrib(c: GhContributions): void {
-  lastContrib = c;
   drawContribYears(c);
-  if (homeGraphDock() !== 'bottom') { drawContribUpright(c); return; }
-  $('#homeContrib').classList.remove('upright');
   setContribTitle(c, ` ${contribSpan(c)}`);
   const graph = $('#homeContribGraph');
   graph.setAttribute('aria-label', `${c.total} GitHub contributions ${contribSpan(c)}`);
