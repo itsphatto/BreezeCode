@@ -62,6 +62,8 @@ function openBoard(): void {
   loadBoardLogs();
   placeBoardRailIndicator();
   refreshBoardLimits();
+  // A hidden page loses its scroll, so coming back each chat opens on its latest message.
+  for (const b of boardBoxes.values()) b.scrollPending = true;
   requestAnimationFrame(scrollRestoredChats);
   background(api.board.open().then(refreshOwners));
 }
@@ -626,8 +628,7 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     <header class="board-box-head">
       ${brandMark('board-box-logo', agent, agentNameOf(agent)[0] ?? '?')}
       <b class="board-box-name"></b>
-      <button class="board-box-model" type="button" title="Model and effort" aria-haspopup="menu"><span class="bbm-label"></span><svg data-i="chevronDown" data-size="11"></svg></button>
-      <span class="board-box-ctx hidden" role="meter" aria-valuemin="0" aria-valuemax="100"></span>
+      <button class="board-box-model" type="button" title="Context" aria-haspopup="menu"><span class="bbm-label">Context</span><svg data-i="chevronRight" data-size="11"></svg></button>
       <span class="board-dot" role="status"></span>
       <span class="flex-1"></span>
       <button class="board-owns" type="button" title="Files this box owns"></button>
@@ -729,10 +730,7 @@ function wireBox(box: BoardBox): void {
   $('.board-box-preview', el).onclick = () => showBoxSide(box, 'preview');
   wireLiveSash(box);
   $('.board-owns', el).onclick = e => ownsMenu(box, e.currentTarget as HTMLElement);
-  $('.board-box-model', el).onclick = e => {
-    const ag = boxAgent(box);
-    if (ag) openChipMenu(e.currentTarget as HTMLElement, modelPickerItems(ag, false, boxModelTarget(box)));
-  };
+  $('.board-box-model', el).onclick = e => openChipMenu(e.currentTarget as HTMLElement, boxContextItems(box));
   $('.board-box-head', el).addEventListener('dblclick', e => {
     if ((e.target as HTMLElement).closest('button')) return;
     toggleMaxBox(box);
@@ -762,7 +760,6 @@ function paintBox(box: BoardBox): void {
   else if (box.status === 'working' || box.status === 'waiting') box.status = 'idle';
   swapText($('.board-box-name', box.el), boxName(box));
   paintBoardSideRow(box);
-  paintBoxModel(box);
   paintBoxContext(box);
   const dot = $('.board-dot', box.el);
   if (dot.dataset.status && dot.dataset.status !== box.status && !motionReduced()) dot.animate([{ transform: 'scale(1.6)' }, {}], { duration: 420, easing: SPRING });
@@ -795,7 +792,6 @@ function boxModelTarget(box: BoardBox): ModelTarget {
     set: (model, effort) => {
       box.model = model || undefined;
       box.effort = effort;
-      paintBoxModel(box);
       if (box.kit) renderPromptModels(box.kit);
       saveBoard();
       toast(`${boxName(box)} will use ${versionLabel(model) || 'its default model'}${boxAgent(box)?.api ? '' : ` (${effort} effort)`}`);
@@ -809,32 +805,27 @@ function boardPickOf(key: string): { model?: string; effort?: string } {
   const model = b.model ? boxModelOf(b) : '';
   return { ...(model ? { model } : {}), ...(b.effort ? { effort: b.effort } : {}) };
 }
-// The header's model, as the Agents tab's chip shows it: "Opus 4.6 · High" (a local model has no effort).
-function paintBoxModel(box: BoardBox): void {
-  const ag = boxAgent(box);
-  const model = ag ? versionLabel(boxModelOf(box)) : '';
-  const btn = $('.board-box-model', box.el), label = $('.bbm-label', btn);
-  const html = model ? `${esc(model)}${ag && !ag.api ? `<small> · ${esc(boxEffortOf(box))}</small>` : ''}` : '';
-  if (label.innerHTML !== html) {
-    const shown = label.innerHTML !== '';
-    flip(() => [...btn.parentElement!.children] as HTMLElement[], () => { label.innerHTML = html; btn.classList.toggle('no-model', !model); });
-    if (shown && html) settleIn(label);
-  }
-  btn.setAttribute('aria-label', model ? `${agentShortName(ag!)} model: ${model}. Change model or effort` : 'Model and effort');
-}
-// How full the box's chat is: the share of its model's context window the last request used (a `ctx` event from main,
-// for Claude and Codex). Amber from 80%, when the agent will soon compact or forget the start of the chat.
+// The header's Context button: how full the box's chat is, the share of its model's context window the last request
+// used (a `ctx` event from main, for Claude and Codex). Amber from 80%, when the agent will soon compact or forget the
+// start of the chat. The model is picked in the prompt's chip, or from this button's menu.
+const ctxTokens = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+const ctxPct = (c: BoxContext) => Math.max(0, Math.min(100, Math.round((c.used / c.window) * 100)));
 function paintBoxContext(box: BoardBox): void {
-  const el = $('.board-box-ctx', box.el), c = box.ctx;
-  const pct = c ? Math.max(0, Math.min(100, Math.round((c.used / c.window) * 100))) : 0;
-  if (c) swapText(el, `${pct}% context`); // kept while it shrinks away
-  morphShow(el, !!c);
-  if (!c) return;
-  el.classList.toggle('low', pct >= 80);
-  el.setAttribute('aria-valuenow', String(pct));
-  const k = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
-  el.title = `Context window: ${k(c.used)} of ${k(c.window)} tokens used`;
-  el.setAttribute('aria-label', el.title);
+  const btn = $('.board-box-model', box.el), c = box.ctx;
+  const pct = c ? ctxPct(c) : 0;
+  btn.classList.toggle('low', pct >= 80);
+  btn.title = c ? `Context window: ${ctxTokens(c.used)} of ${ctxTokens(c.window)} tokens used (${pct}%)` : 'Context';
+  btn.setAttribute('aria-label', `${btn.title}. Show context`);
+}
+function boxContextItems(box: BoardBox): MenuItem[] {
+  const c = box.ctx, ag = boxAgent(box);
+  const items: MenuItem[] = [{
+    label: c ? `${ctxPct(c)}% used · ${ctxTokens(c.used)} of ${ctxTokens(c.window)} tokens` : 'No context used yet',
+    enabled: () => false,
+  }];
+  const model = ag ? versionLabel(boxModelOf(box)) : '';
+  if (ag && model) items.push({ sep: true }, { label: `Model: ${model}${ag.api ? '' : ` · ${boxEffortOf(box)}`}`, sub: () => modelPickerItems(ag, false, boxModelTarget(box)) });
+  return items;
 }
 // Fresh numbers when the board opens (at most every 30 s) and after each run, when they have moved.
 let boardUsageAt = 0;
@@ -844,12 +835,9 @@ function refreshBoardLimits(force = false): void {
   boardUsageAt = Date.now();
   background(api.agent.usage().then(u => { agentUsage = u; if (typeof refreshComposers === 'function') refreshComposers(); }));
 }
-// A model or effort changed somewhere (renderAgentBar): every box's header and prompt chip show it.
+// A model or effort changed somewhere (renderAgentBar): every box's prompt chip shows it.
 function renderBoardModels(): void {
-  for (const b of boardBoxes.values()) {
-    paintBoxModel(b);
-    if (b.kit) renderPromptModels(b.kit);
-  }
+  for (const b of boardBoxes.values()) if (b.kit) renderPromptModels(b.kit);
 }
 
 async function sendBox(box: BoardBox): Promise<void> {

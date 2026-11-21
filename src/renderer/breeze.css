@@ -20324,7 +20324,7 @@ input.dbg-edit.bad:focus-visible {
   white-space: nowrap;
 }
 
-/* The box's model beside its name, as the Agents tab's model chip shows it; a click picks another. */
+/* The box's Context button beside its name; a click shows how full the chat is and its model. */
 .board-box-model {
   display: inline-flex;
   align-items: center;
@@ -20358,12 +20358,6 @@ input.dbg-edit.bad:focus-visible {
 .board-box-model small {
   color: var(--text-3);
   font-size: 11px;
-}
-
-.board-box-model.no-model {
-  padding: 0;
-  width: 22px;
-  justify-content: center;
 }
 
 .board-dot {
@@ -20525,20 +20519,8 @@ input.dbg-edit.bad:focus-visible {
   }
 }
 
-/* How full the box's chat is (its context window), beside its model: amber from 80%. */
-.board-box-ctx {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: var(--bg-2);
-  color: var(--text-3);
-  font-size: 11px;
-  white-space: nowrap;
-  cursor: default;
-  transition: color .3s ease;
-}
-
-.board-box-ctx.low {
+/* The Context button: amber from 80% full. */
+.board-box-model.low {
   color: var(--warn);
 }
 

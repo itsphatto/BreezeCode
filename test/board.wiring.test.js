@@ -62,10 +62,11 @@ test("a board box's prompt is the Agents tab's: its text layer, model chips, and
   assert.match(board, /addEventListener\('input', \(\) => syncPromptHl\(kit\)\)/);
 });
 
-test("a board box's header shows its agent's model", () => {
+test("a board box's header shows its context, and its menu the model", () => {
   const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
   const setup = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/setup.ts'), 'utf8');
-  assert.match(board, /function paintBoxModel\(box: BoardBox\)/);
+  assert.match(board, /function paintBoxContext\(box: BoardBox\)/);
+  assert.match(board, /modelPickerItems\(ag, false, boxModelTarget\(box\)\)/);
   assert.match(setup, /renderBoardModels\(\)/); // a model change elsewhere repaints the boxes
 });
 
