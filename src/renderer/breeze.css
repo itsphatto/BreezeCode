@@ -320,15 +320,28 @@
     color-mix(in srgb, #06080f var(--bd-box, var(--bd-a)), transparent); /* --bd-box: settings.ts tuneGlass */
 }
 /* Under Glass or a picture what's behind a popup is see-through too, and Chromium lays the blurred copy over the
-   original rather than in its place: at 60% the sharp original showed through the frost. Small popups go nearly
-   solid there (the light theme's already are). */
-:root[data-backdrop]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+   original rather than in its place: at 60% the sharp original showed through the frost. So every popup and dropdown
+   (menus, dialogs, Settings, toasts, tooltips, the find bar, suggestions, pickers) wears one sheet, 90% solid, and
+   they all match. The light theme's are already near solid; they match too. */
+:root[data-backdrop]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass: rgba(42, 42, 44, .9);
-  --glass-strong: rgba(35, 35, 37, .93);
+  --glass-strong: rgba(42, 42, 44, .9);
 }
-:root[data-theme="contrast"][data-backdrop] :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+:root[data-theme="contrast"][data-backdrop] :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass: rgba(28, 28, 34, .9);
-  --glass-strong: rgba(24, 24, 30, .93);
+  --glass-strong: rgba(28, 28, 34, .9);
+}
+:root[data-theme="light"][data-backdrop] :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel) {
+  --glass: rgba(238, 234, 230, .97);
+  --glass-strong: rgba(238, 234, 230, .97);
+}
+/* These two draw their own colour (a see-through --bg-1, a fixed dark grey): under a backdrop they take the sheet. */
+:root[data-backdrop] .ext-pop {
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+}
+:root[data-backdrop]:not([data-theme="light"]) .breeze-tooltip {
+  background: var(--glass-strong);
 }
 /* Turning a backdrop on or off (applyBackdrop, settings.ts): the theme's solid colour behind every surface, faded. */
 :root { --bd-solid: #1d1d1f; }
@@ -21151,14 +21164,20 @@ body > .board-preview.full {
   --settings-blur: none;
 }
 :root[data-power="saver"]:not([data-theme="light"]),
-:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass: rgba(42, 42, 44, .96);
   --glass-strong: rgba(35, 35, 37, .98);
 }
+:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
+  --glass-strong: rgba(42, 42, 44, .96);
+}
 :root[data-power="saver"][data-theme="contrast"],
-:root[data-power="saver"][data-theme="contrast"] :is(.menu, .findbar, .toast, .ad-tip, .lsp-hover, .suggest, .color-picker) {
+:root[data-power="saver"][data-theme="contrast"] :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass: rgba(28, 28, 34, .96);
   --glass-strong: rgba(24, 24, 30, .98);
+}
+:root[data-power="saver"][data-theme="contrast"] :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
+  --glass-strong: rgba(28, 28, 34, .96);
 }
 /* Blur written out in a rule rather than through the tokens above. */
 :root[data-power="saver"] *,
