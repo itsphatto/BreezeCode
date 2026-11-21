@@ -50,7 +50,7 @@ contextBridge.exposeInMainWorld('breeze', {
     open: (rel: unknown, text: unknown) => invoke('lsp:open', rel, text),
     change: (rel: unknown, text: unknown) => invoke('lsp:change', rel, text),
     close: (rel: unknown) => invoke('lsp:close', rel),
-    completion: (rel: unknown, line: unknown, ch: unknown) => invoke('lsp:completion', rel, line, ch),
+    completion: (rel: unknown, line: unknown, ch: unknown, prefix?: unknown) => invoke('lsp:completion', rel, line, ch, prefix),
     hover: (rel: unknown, line: unknown, ch: unknown) => invoke('lsp:hover', rel, line, ch),
     definition: (rel: unknown, line: unknown, ch: unknown) => invoke('lsp:definition', rel, line, ch),
     references: (rel: unknown, line: unknown, ch: unknown) => invoke('lsp:references', rel, line, ch),

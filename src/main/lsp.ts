@@ -336,10 +336,13 @@ class LspManager {
     if (!rel) { try { file = fileURLToPath(uri); } catch { file = uri; } }
     return { path: rel, file, line: range.start.line, col: range.start.character, len: range.end.line === range.start.line ? range.end.character - range.start.character : 0 };
   }
-  async completion(rel: string, pos: Position) {
+  // prefix: the word typed so far. Servers send every name in scope (well over 400 globals in JS), in no useful
+  // order, so the cut to 400 comes after picking the ones that start with it.
+  async completion(rel: string, pos: Position, prefix = '') {
     const r = await this.ask(rel, 'textDocument/completion', { context: { triggerKind: 1 } }, pos);
     const items: LspCompletionItem[] = Array.isArray(r) ? r : r?.items ?? [];
-    return items.slice(0, 400).map((it: LspCompletionItem) => ({
+    const low = prefix.toLowerCase();
+    return items.filter(it => (it.filterText ?? it.label).toLowerCase().startsWith(low)).slice(0, 400).map((it: LspCompletionItem) => ({
       label: it.label,
       kind: it.kind ?? 0,
       detail: it.detail ?? '',

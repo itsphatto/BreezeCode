@@ -10881,6 +10881,13 @@ body.layout-animating .box > .terminal.open {
   white-space: nowrap;
 }
 
+.box-side-chat .box-side-pin {
+  flex: none;
+  display: inline-flex;
+  margin-right: 6px;
+  color: var(--text-3);
+}
+
 .box-side-chat .ago {
   flex: none;
   font-size: 11px;

@@ -992,6 +992,14 @@ function reopenInBox(e: ChatEntry, into?: string, place?: { by: string; side: Dr
 // A click opens a chat alone on the board; dragged onto the board, it opens beside the boxes there (or in a blank one).
 // Claude Code's and Codex's own chats are listed too (main/agentlogs.ts), each carried on with its own session.
 const boardSideFolded = new Set(store.get<string[]>('breeze.board.sideFolded', []));
+// Pinned chats: listed first, in a group of their own above every folder, newest pin first. Kept for every folder.
+const PINNED_KEY = 'breeze.board.pinned', PINNED_GROUP = 'pinned:';
+const pinnedChats = () => store.get<string[]>(PINNED_KEY, []);
+function setChatPinned(id: string, on: boolean): void {
+  const rest = pinnedChats().filter(x => x !== id);
+  store.set(PINNED_KEY, on ? [id, ...rest] : rest);
+  renderBoardSide();
+}
 let boardSideQuery = '';
 // This folder's chats (the Agents panel's and the boxes', one list), then Breeze Space's old chats not carried on
 // here yet, so none of them are lost with Space.
@@ -1051,21 +1059,27 @@ function renderBoardSide(): void {
   const q = boardSideQuery.toLowerCase();
   const entries = boardSideEntries().filter(e => !q || `${e.title}\n${folderName(e.folder)}`.toLowerCase().includes(q));
   // This folder first, then the rest in the order of their newest chat; each newest first.
-  const groups = new Map<string, ChatEntry[]>();
+  const pins = pinnedChats();
+  const groups = new Map<string, ChatEntry[]>([[PINNED_GROUP, []]]);
   if (rootInfo) groups.set(rootInfo.root, []);
-  for (const e of entries) groups.set(e.folder ?? '', [...groups.get(e.folder ?? '') ?? [], e]);
-  for (const [k, v] of groups) { if (v.length) v.sort((a, b) => b.at - a.at); else groups.delete(k); }
+  for (const e of entries) { const g = pins.includes(e.id) ? PINNED_GROUP : e.folder ?? ''; groups.set(g, [...groups.get(g) ?? [], e]); }
+  for (const [k, v] of groups) {
+    if (!v.length) groups.delete(k);
+    else if (k === PINNED_GROUP) v.sort((a, b) => pins.indexOf(a.id) - pins.indexOf(b.id));
+    else v.sort((a, b) => b.at - a.at);
+  }
   const html = !groups.size ? `<div class="box-side-empty">${q ? 'No chats match' : 'Your chats show up here'}</div>` : [...groups].map(([folder, chats]) => {
     const folded = !q && boardSideFolded.has(folder);
+    const pinGroup = folder === PINNED_GROUP;
     const rows = chats.map(e => {
       const box = boxWithChat(e.id);
       const away = !!box && parkedBoxes.get(box.key) === box;
       return `<button class="box-side-chat${box && !away ? ' on' : ''}${box && boxBusy(box) ? ' busy' : ''}${away && tabNeedsYou(box.tab) ? ' needs-you' : ''}" type="button" role="listitem" draggable="true" data-chat="${escAttr(e.id)}" title="${escAttr(`${e.title}${e.log ? `\nFrom ${LOG_AGENT[e.log.agent] ?? e.log.agent}` : ''}\nClick to open it in a box, or drag it onto the board`)}">
-        <span class="needs-you-dot" title="Needs you" aria-label="Needs you"></span><span class="nm">${esc(e.title)}</span><span class="box-side-busy" aria-label="Working"></span><span class="ago">${esc(timeAgo(e.at))}</span></button>`;
+        <span class="needs-you-dot" title="Needs you" aria-label="Needs you"></span>${pins.includes(e.id) ? `<span class="box-side-pin" aria-label="Pinned">${svgIcon('pin', 12)}</span>` : ''}<span class="nm">${esc(e.title)}</span><span class="box-side-busy" aria-label="Working"></span><span class="ago">${esc(timeAgo(e.at))}</span></button>`;
     }).join('');
     return `<div class="box-side-group${folded ? ' folded' : ''}">
-      <button class="box-side-folder" type="button" data-folder="${escAttr(folder)}" aria-expanded="${!folded}" title="${escAttr(folder || 'Chats from before folders were kept')}">
-        <span class="nm">${esc(folderName(folder) || 'Earlier chats')}</span>${svgIcon('chevronDown', 12)}</button>
+      <button class="box-side-folder" type="button" data-folder="${escAttr(folder)}" aria-expanded="${!folded}" title="${escAttr(pinGroup ? 'Chats you pinned' : folder || 'Chats from before folders were kept')}">
+        <span class="nm">${pinGroup ? 'Pinned' : esc(folderName(folder) || 'Earlier chats')}</span>${svgIcon('chevronDown', 12)}</button>
       <div class="box-side-chats">${rows}</div>
     </div>`;
   }).join('');
@@ -1128,6 +1142,7 @@ function renameBoardChat(id: string): void {
   if (input?.matches('.rename-input')) input.style.height = h;
 }
 function deleteBoardChat(id: string): void {
+  if (pinnedChats().includes(id)) store.set(PINNED_KEY, pinnedChats().filter(x => x !== id));
   if (boardLogs.some(e => e.id === id)) {
     store.set(LOG_HIDDEN_KEY, [...store.get<string[]>(LOG_HIDDEN_KEY, []), id]);
     renderBoardSide();
@@ -1182,6 +1197,9 @@ $('#boardSideList').addEventListener('contextmenu', ev => {
   ev.preventDefault();
   popupMenu(ev.clientX, ev.clientY, [
     { label: 'Open chat', run: () => reopenInBox(e, undefined, undefined, true) },
+    pinnedChats().includes(id)
+      ? { label: 'Unpin Chat', run: () => setChatPinned(id, false) }
+      : { label: 'Pin Chat', run: () => setChatPinned(id, true) },
     { label: 'Rename chat', run: () => renameBoardChat(id) },
     { label: 'Delete chat', run: () => deleteBoardChat(id) },
   ]);

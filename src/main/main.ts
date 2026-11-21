@@ -1450,7 +1450,7 @@ handle('lsp:change', (_e, rel, change) => {
   return lsp.change(rel, edit && edit.start >= 0 && edit.end >= edit.start ? edit : String(change));
 });
 handle('lsp:close', (_e, rel) => lsp.close(rel));
-handle('lsp:completion', (_e, rel, line, ch) => lsp.completion(rel, lspPos(line, ch)));
+handle('lsp:completion', (_e, rel, line, ch, prefix) => lsp.completion(rel, lspPos(line, ch), String(prefix ?? '').slice(0, 200)));
 handle('lsp:hover', (_e, rel, line, ch) => lsp.hover(rel, lspPos(line, ch)));
 handle('lsp:definition', (_e, rel, line, ch) => lsp.definition(rel, lspPos(line, ch)));
 handle('lsp:references', (_e, rel, line, ch) => lsp.references(rel, lspPos(line, ch)));

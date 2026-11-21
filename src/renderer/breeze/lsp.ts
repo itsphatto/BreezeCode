@@ -64,7 +64,7 @@ const LSP_KINDS = ['', 'text', 'method', 'function', 'constructor', 'field', 'va
 async function lspCompletions(b: EditorBuffer, pos: number, prefix: string): Promise<Suggestion[]> {
   await lspFlush(b);
   const p = lspPosOf(b.text, pos);
-  const items = await api.lsp.completion(b.path, p.line, p.ch).catch(() => [] as LspCompletion[]);
+  const items = await api.lsp.completion(b.path, p.line, p.ch, prefix).catch(() => [] as LspCompletion[]);
   const low = prefix.toLowerCase();
   return items
     .filter(i => i.filter.toLowerCase().startsWith(low) && i.insert !== prefix)

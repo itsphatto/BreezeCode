@@ -289,7 +289,7 @@ interface BreezeApi {
     // The whole new text, or one edit in offsets of the text sent before.
     change(rel: string, change: string | { start: number; end: number; text: string }): Promise<void>;
     close(rel: string): Promise<void>;
-    completion(rel: string, line: number, ch: number): Promise<LspCompletion[]>;
+    completion(rel: string, line: number, ch: number, prefix?: string): Promise<LspCompletion[]>;
     hover(rel: string, line: number, ch: number): Promise<string | null>;
     definition(rel: string, line: number, ch: number): Promise<LspLocation[]>;
     references(rel: string, line: number, ch: number): Promise<LspLocation[]>;

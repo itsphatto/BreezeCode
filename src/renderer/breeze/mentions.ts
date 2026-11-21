@@ -91,7 +91,8 @@ function pickSlash(s: Surface, k: SlashSkill): void {
 function updateSlashMenu(s: Surface): void {
   const ta = s.prompt;
   const m = SLASH_AT_CARET.exec(ta.value.slice(0, ta.selectionStart ?? 0));
-  if (!m) { closeSlash(); return; }
+  // Only while typing there: a draft brought back on start-up (restoreDraft) fires `input` too, in a prompt nobody is in.
+  if (!m || document.activeElement !== ta) { closeSlash(); return; }
   if (!slashSkills) { void loadSlashSkills().then(() => { if (document.activeElement === ta) updateSlashMenu(s); }); return; }
   const matches = slashMatches(m[2]);
   if (!matches.length) { closeSlash(); return; }

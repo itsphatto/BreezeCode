@@ -120,6 +120,11 @@ test('TypeScript server: completion, hover, definition, references and rename', 
     await m.change('main.ts', { start: at + 'const n = 1;\nn'.length, end: at + 'const n = 1;\nn'.length + 1, text: '' }); // drop the old "s"
     const nums = await m.completion('main.ts', { line: 4, character: 2 });
     assert.ok(nums.some(i => i.label === 'toFixed'), 'number methods after the ranged edits');
+    // Globals run past the 400 kept: the typed word picks them before the cut, so `document` isn't lost behind `Document*`.
+    await m.change('main.ts', 'doc');
+    const docs = await m.completion('main.ts', { line: 0, character: 3 }, 'doc');
+    assert.ok(docs.some(i => i.label === 'document'), 'document among the globals for "doc"');
+    assert.ok(docs.every(i => i.filter.toLowerCase().startsWith('doc')), 'only names that start with what was typed');
   } finally {
     m.stopAll();
   }
