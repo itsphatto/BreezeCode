@@ -8,6 +8,7 @@ interface MenuItem {
   clickRuns?: boolean;        // with `sub`: a click runs the item, hovering still opens the submenu
   slider?: MenuSlider;        // a row with a stepped slider in place of a label
   search?: (q: string) => MenuItem[]; // a filter field (label: its placeholder); typing swaps the rows under it for these
+  tip?: string;               // a longer explanation, shown in a card beside the menu while the row is hovered or picked by keys
 }
 // Steps picked by dragging or clicking along a track; the menu stays open while it changes.
 interface MenuSlider {
@@ -820,6 +821,8 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
   m.style.setProperty('--n', String(items.length)); // menus that open upwards stagger their rows from the bottom
   menuItemsOf.set(m, items);
   m.addEventListener('pointerenter', () => useKbMenu(m));
+  // Off the menu, the card goes back to the row the keys are on (or away).
+  m.addEventListener('pointerleave', () => showMenuTip(m.querySelector<HTMLElement>('.menu-item.kb')));
   applyDataStyles(m);
   $('#menuRoot').append(m);
   fitMenuHeight(m);
@@ -837,6 +840,7 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
     b.onclick = () => (it.sub && !it.clickRuns ? openSubmenu(b, it) : activateMenuItem(it));
     const del = b.querySelector<HTMLElement>('[data-mi-del]');
     if (del && it.remove) { const remove = it.remove; holdToDelete(del, () => { closeMenu(); remove(); }); }
+    b.addEventListener('pointerenter', () => showMenuTip(b));
     // Submenus open on hover at every level; hovering a plain row closes any deeper ones.
     if (cls === 'menu' || it.sub) b.onmouseenter = () => (it.sub ? openSubmenu(b, it) : closeSubmenu(depth + 1));
     else if (depth) b.onmouseenter = () => closeSubmenu(depth + 1);
@@ -868,6 +872,25 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
   });
   hoverGlide(m, '.menu-item');
   return m;
+}
+// The card beside a menu with the hovered (or keyed) row's `tip`: the whole explanation, where the row has room only
+// for its name. To the right of the menu, or the left when the window has no room there; level with the row.
+function showMenuTip(row: HTMLElement | null): void {
+  const menu = row?.closest<HTMLElement>('.menu');
+  const tip = menu && row ? menuItemsOf.get(menu)?.[Number(row.dataset.mi)]?.tip : undefined;
+  let card = document.querySelector<HTMLElement>('#menuRoot .menu-tip');
+  if (!tip || !menu || !row || menu.classList.contains('closing')) { card?.remove(); return; }
+  if (!card) {
+    card = document.createElement('div');
+    card.className = 'menu-tip';
+    card.setAttribute('role', 'tooltip');
+    $('#menuRoot').append(card);
+  }
+  if (card.textContent !== tip) card.textContent = tip;
+  const m = menu.getBoundingClientRect(), r = row.getBoundingClientRect();
+  const right = m.right + 8;
+  card.style.left = `${right + card.offsetWidth <= innerWidth - 8 ? right : Math.max(8, m.left - card.offsetWidth - 8)}px`;
+  card.style.top = `${Math.max(8, Math.min(r.top, innerHeight - card.offsetHeight - 8))}px`;
 }
 // A menu with more rows than fit (every page in a project, say) keeps a fixed size: its rows scroll in a box inside it,
 // with the editor's slider (scrollSlider, editor.ts) for the hidden scrollbar. The menu itself doesn't scroll, so the
@@ -967,6 +990,7 @@ function closeMenu(): void {
     activeMenuTrigger = null;
   }
   openMenuIdx = -1; kbIdx = -1; kbMenu = null; menuPinned = false;
+  document.querySelector('#menuRoot .menu-tip')?.remove();
   // Menus fade out before they are removed; opening another menu clears the root straight away.
   const root = $('#menuRoot');
   const leaving = $$('.menu', root);
@@ -1014,6 +1038,7 @@ function markKbRow(): void {
   // The keys win over a pointer resting on the menu (breeze.css .kb-nav) until the pointer moves again.
   $$('#menuRoot .menu').forEach(el => el.classList.add('kb-nav'));
   slideKbHighlight();
+  showMenuTip(m?.querySelector<HTMLElement>(`[data-mi="${kbIdx}"]`) ?? null);
 }
 function moveKbSelection(down: boolean): void {
   const [m, items] = kbTarget();

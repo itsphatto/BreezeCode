@@ -323,15 +323,15 @@
    original rather than in its place: at 60% the sharp original showed through the frost. So every popup and dropdown
    (menus, dialogs, Settings, toasts, tooltips, the find bar, suggestions, pickers) wears one sheet, 90% solid, and
    they all match. The light theme's are already near solid; they match too. */
-:root[data-backdrop]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
+:root[data-backdrop]:not([data-theme="light"]) :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass: rgba(42, 42, 44, .9);
   --glass-strong: rgba(42, 42, 44, .9);
 }
-:root[data-theme="contrast"][data-backdrop] :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
+:root[data-theme="contrast"][data-backdrop] :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass: rgba(28, 28, 34, .9);
   --glass-strong: rgba(28, 28, 34, .9);
 }
-:root[data-theme="light"][data-backdrop] :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel) {
+:root[data-theme="light"][data-backdrop] :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel) {
   --glass: rgba(238, 234, 230, .97);
   --glass-strong: rgba(238, 234, 230, .97);
 }
@@ -2331,6 +2331,32 @@ textarea:focus-visible {
   top: 50%;
   display: grid;
   transform: translateY(-50%);
+}
+
+/* A row's longer explanation (MenuItem.tip), in a card beside the menu: the slash menu's skill descriptions. */
+.menu-tip {
+  position: fixed;
+  z-index: 71;
+  box-sizing: border-box;
+  max-width: 280px;
+  padding: 8px 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 8px;
+  background: var(--glass);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  animation: menuTipIn .14s ease both;
+}
+
+@keyframes menuTipIn {
+  from { opacity: 0; transform: translateX(-4px); }
 }
 
 .menu-sep {
@@ -21164,19 +21190,19 @@ body > .board-preview.full {
   --settings-blur: none;
 }
 :root[data-power="saver"]:not([data-theme="light"]),
-:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
+:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass: rgba(42, 42, 44, .96);
   --glass-strong: rgba(35, 35, 37, .98);
 }
-:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
+:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass-strong: rgba(42, 42, 44, .96);
 }
 :root[data-power="saver"][data-theme="contrast"],
-:root[data-power="saver"][data-theme="contrast"] :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
+:root[data-power="saver"][data-theme="contrast"] :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass: rgba(28, 28, 34, .96);
   --glass-strong: rgba(24, 24, 30, .98);
 }
-:root[data-power="saver"][data-theme="contrast"] :is(.menu, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
+:root[data-power="saver"][data-theme="contrast"] :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
   --glass-strong: rgba(28, 28, 34, .96);
 }
 /* Blur written out in a rule rather than through the tokens above. */

@@ -97,7 +97,8 @@ function updateSlashMenu(s: Surface): void {
   if (!matches.length) { closeSlash(); return; }
   const key = matches.map(k => k.cmd).join(',');
   if (slashOpen() && slashList?.key === key && slashList.s === s) return; // the same skills are already listed
-  const items: MenuItem[] = matches.map(k => ({ label: `/${k.cmd}`, key: k.desc.length > 48 ? k.desc.slice(0, 47) + '…' : k.desc, run: () => pickSlash(s, k) }));
+  // Just the names: a skill's description shows whole in a card beside the menu, on hover or the arrow keys.
+  const items: MenuItem[] = matches.map(k => ({ label: `/${k.cmd}`, ...(k.desc ? { tip: k.desc } : {}), run: () => pickSlash(s, k) }));
   slashList = { items, key, s };
   const r = ta.getBoundingClientRect();
   popupMenu(r.left, r.top, items, () => { if (slashList?.items === items) slashList = null; }, ta);
