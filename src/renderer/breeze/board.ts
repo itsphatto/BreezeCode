@@ -722,6 +722,7 @@ function wireBox(box: BoardBox): void {
   });
   s.prompt.addEventListener('input', () => syncPromptHl(kit));
   syncPromptHl(kit);
+  keepDraft(s.prompt, () => boxDraftKey(box));
   $('.board-box-close', el).onclick = () => void emptyBox(box.key);
   $('.board-box-code', el).onclick = () => showBoxSide(box, 'code');
   $('.board-box-term', el).onclick = () => showBoxSide(box, 'term');
@@ -857,6 +858,7 @@ async function sendBox(box: BoardBox): Promise<void> {
   if ((!text && !attachments.length) || boxBusy(box)) return;
   if (!rootInfo) { toast('Open a folder first, so the agents know what to work on'); return; }
   s.prompt.value = '';
+  saveDraft(s.prompt);
   attachmentsMap[s.name] = [];
   box.tab.attachments = [];
   renderAttachments(s);
@@ -907,8 +909,11 @@ async function emptyBox(key: string): Promise<void> {
   dropRelaysFor(key);
   if (box.el.classList.contains('box-max')) toggleMaxBox(null);
   background(api.board.clearBox(key));
+  store.del(boxDraftKey(box)); // a closed box's unsent message doesn't come back in the next agent put there
   morphBoard(() => { removeBox(box); renderBoard(); saveBoard(); renderBoardStatus(); });
 }
+// A box's unsent message, filed under the folder its boxes belong to.
+const boxDraftKey = (box: BoardBox) => `breeze.draft:board:${box.key}:${boardFolder ?? ''}`;
 
 /* ----- History: this folder's earlier chats (the IDE's list, which boxes file into too), each reopened in a box ----- */
 function boardHistoryMenu(anchor: HTMLElement): void {

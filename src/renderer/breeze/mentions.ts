@@ -641,6 +641,7 @@ async function sendPrompt(): Promise<void> {
   const uiMode = 'build'; // no mode picker any more: the agent works with full tools and decides how to answer
   if (onScreen) {
     s.prompt.value = '';
+    saveDraft(s.prompt);
     mentionWarning(s);
     attachmentsMap[s.name] = [];
     renderAttachments(s);

@@ -345,6 +345,16 @@ function drawContribYears(c: GhContributions): void {
     box.append(b);
   }
 }
+// A month's label, named so a year change (.contrib-morph) glides it from its old place to its new one; a month
+// that shows twice (the last twelve months can start and end in it) names its second label apart.
+function contribMonth(m: number, named: Set<number>): HTMLSpanElement {
+  const s = document.createElement('span');
+  s.className = 'cg-month';
+  s.textContent = CONTRIB_MONTHS[m];
+  s.style.setProperty('--cg-vt', `cg-m${m}${named.has(m) ? '-2' : ''}`);
+  named.add(m);
+  return s;
+}
 const contribSpan = (c: GhContributions) => c.year ? `in ${c.year}` : 'in the last year';
 // The count sits in a span of its own, so a year change can scramble just that number (scrambleText, setup.ts).
 function setContribTitle(c: GhContributions, tail: string): void {
@@ -375,16 +385,12 @@ function drawContrib(c: GhContributions): void {
     put(s, 1, 3 + i * 2);
   });
   let lastMonth = -1;
+  const named = new Set<number>();
   c.weeks.forEach((week, w) => {
     const first = contribDay(week[0].date);
     // A month is named over the first week that starts in it, unless it is too near the end to fit its name.
     const m = first.getMonth();
-    if (m !== lastMonth && (w > 0 || first.getDate() <= 7) && w < c.weeks.length - 2) {
-      const s = document.createElement('span');
-      s.className = 'cg-month';
-      s.textContent = CONTRIB_MONTHS[m];
-      put(s, w + 2, 1);
-    }
+    if (m !== lastMonth && (w > 0 || first.getDate() <= 7) && w < c.weeks.length - 2) put(contribMonth(m, named), w + 2, 1);
     lastMonth = m;
     for (const d of week) {
       const day = contribDay(d.date);

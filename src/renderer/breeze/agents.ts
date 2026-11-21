@@ -83,6 +83,8 @@ const SURFACES: Record<string, Surface> & Record<WorkMode, Surface> = {
   ide: { name: 'ide', chat: $('#chat'), prompt: $<HTMLTextAreaElement>('#prompt'), send: $('#send'), mode: $<HTMLSelectElement>('#agentMode'), attachmentsEl: $('#promptAttachments') },
   box: { name: 'box', chat: $('#boxChat'), prompt: $<HTMLTextAreaElement>('#boxPrompt'), send: $('#boxSend'), mode: $<HTMLSelectElement>('#boxMode'), attachmentsEl: $('#boxPromptAttachments') },
 };
+keepDraft(SURFACES.ide.prompt, () => `breeze.draft:ide:${rootInfo?.root ?? ''}`); // restoreChat puts a folder's back
+keepDraft(SURFACES.box.prompt, () => 'breeze.draft:box');
 let surface = SURFACES.ide;     // the one on screen
 let msgSurface = surface;       // fallback surface
 

@@ -254,7 +254,7 @@ function typeScmMsg(text: string): void {
     i = Math.min(text.length, i + step);
     shown = text.slice(0, i);
     msg.value = shown;
-    scmDraft = shown;
+    setScmDraft(shown);
     autoResizeScmMsg(msg);
     if (document.activeElement !== msg) msg.focus();
     msg.setSelectionRange(i, i);
@@ -462,13 +462,13 @@ function renderScm(): void {
   for (const f of staged) seenScm.add(f.path + true);
   for (const f of changes) seenScm.add(f.path + false);
   const msg = $<HTMLTextAreaElement>('#scmMsg', el);
-  msg.value = scmDraft;
+  msg.value = scmDraft();
   autoResizeScmMsg(msg);
   scmMsgWidth.disconnect();
   scmMsgW = 0;
   scmMsgWidth.observe(msg);
   msg.oninput = () => {
-    scmDraft = msg.value;
+    setScmDraft(msg.value);
     fitScmMsgEased(msg);
   };
   msg.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run('git.commit'); } };
@@ -486,7 +486,10 @@ function incomingSectionHtml(): string {
     <div class="scm-head"><span class="chev"><svg width="10" height="10"><use href="#i-chev"/></svg></span><span class="title">Incoming (not pulled)</span><span class="acts"><button class="icon-btn" data-act="git.sync" title="Pull">${svgIcon('down')}</button></span><span class="count">${list.length}</span></div>
     <div class="scm-list">${rows}</div></div>`;
 }
-let scmDraft = '';
+// The commit message being written, kept per folder until it is committed (a restart or another page keeps it).
+const scmDraftKey = () => `breeze.draft:commit:${rootInfo?.root ?? ''}`;
+const scmDraft = () => store.get<string>(scmDraftKey(), '');
+function setScmDraft(text: string): void { if (text.trim()) store.set(scmDraftKey(), text); else store.del(scmDraftKey()); }
 const seenScm = new Set<string>();
 
 function toggleScmSection(head: HTMLElement): void {
@@ -860,7 +863,7 @@ $('#scm').addEventListener('click', e => {
 }, true);
 
 async function commitNow(): Promise<void> {
-  const msg = scmDraft.trim();
+  const msg = scmDraft().trim();
   if (!msg) { toast('Write a short message describing this checkpoint'); $('#scmMsg')?.focus(); return; }
   const files = gitState.files ?? [];
   if (!files.length) { toast('Nothing to commit'); return; }
@@ -869,7 +872,7 @@ async function commitNow(): Promise<void> {
   let hash = '';
   if (!(await gitOp(async () => { hash = await api.git.commit(msg, all); }))) return;
   sfx.play('save');
-  scmDraft = '';
+  setScmDraft('');
   renderScm();
   // A checkpoint is committed and pushed in one go (pulling first if the branch is behind).
   if (!gitState.hasRemote) { toast(`Checkpoint saved · ${hash} (no remote to push to yet)`); return; }

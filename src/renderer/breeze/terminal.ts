@@ -694,8 +694,15 @@ function runOutput(chunk: string, session: TermSession = activeTermSession): voi
   if (target) target.pending = null;
   const nl = full.lastIndexOf('\n');
   if (nl >= 0) termLinked(full.slice(0, nl + 1), target);
-  const rest = full.slice(nl + 1);
+  const rest = lastFrame(full.slice(nl + 1));
   if (rest && target) target.pending = { el: termWrite(rest, '', target), text: rest }; // termWrite cleared `pending`; set it after
+}
+// The unfinished line's latest frame: a progress bar (cargo, pip, npm) redraws its line with \r and never ends it, so
+// keeping every frame grew the line without end and redrew all of it on each chunk. A trailing \r stays: it may be the
+// first half of a \r\n split across two chunks.
+function lastFrame(line: string): string {
+  const cut = line.length > 1 ? line.lastIndexOf('\r', line.length - 2) : -1;
+  return cut >= 0 ? line.slice(cut + 1) : line;
 }
 
 function termLinked(text: string, session: TermSession = activeTermSession): void {
@@ -1028,7 +1035,7 @@ class BoxTerminal {
     this.pending = null;
     const nl = full.lastIndexOf('\n');
     if (nl >= 0) this.linked(full.slice(0, nl + 1));
-    const rest = full.slice(nl + 1);
+    const rest = lastFrame(full.slice(nl + 1));
     if (rest) this.pending = { el: this.write(rest), text: rest };
   }
   exited(code: number | null): void {

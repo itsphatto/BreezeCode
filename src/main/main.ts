@@ -67,7 +67,9 @@ try {
 }
 
 
-const IGNORED_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', '.cache', '__pycache__', '.venv']);
+// Dependencies and build output: not watched, listed or searched. `target` is Rust's and Maven's, `obj` .NET's.
+const IGNORED_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'out', '.cache', '__pycache__', '.venv',
+  'target', 'obj', 'coverage', '.gradle', '.turbo', '.svelte-kit', '.parcel-cache']);
 // The editor draws only the lines in view, so big files open; past 5 MB (HL_MAX) they show uncoloured.
 // shortcut: the scroll height is lines × line height, which Chromium caps near 33M px (~1.6M lines); a file with
 // more lines can't scroll to its end. Raise only with a scroll model that isn't one tall spacer.
@@ -952,12 +954,17 @@ handle('fs:previewUrl', (_e, rel) => {
 });
 
 // Every file under `dir`, skipping build output and dependencies. Folders are read in parallel.
-async function listFiles(dir: string): Promise<string[]> {
+// `budget`: how many more files the whole walk still wants. Folders opened after it runs out aren't read, so a huge
+// project stops at the cap instead of being walked to the end and cut. Past the cap, which files make it in depends on
+// which folders the disk answered first.
+async function listFiles(dir: string, budget = { left: MAX_LISTED_FILES }): Promise<string[]> {
+  if (budget.left <= 0) return [];
   let entries: fs.Dirent[];
   try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return []; } // unreadable folder: skip it
   const files = entries.filter(d => d.isFile()).map(d => path.join(dir, d.name));
+  budget.left -= files.length;
   const subdirs = entries.filter(d => d.isDirectory() && !IGNORED_DIRS.has(d.name)).map(d => path.join(dir, d.name));
-  const nested = await Promise.all(subdirs.map(listFiles));
+  const nested = await Promise.all(subdirs.map(d => listFiles(d, budget)));
   return files.concat(...nested).slice(0, MAX_LISTED_FILES);
 }
 
@@ -2395,6 +2402,21 @@ async function claudeLiveLimits() {
     return (claudeLive.windows = shown.map(k => limitWindow(CLAUDE_WINDOWS[k], d[k].utilization, resets(k))));
   } catch { return claudeLiveFailed('Couldn\'t reach Claude to read its plan limits. Trying again soon'); }
 }
+// The last line of a log that passes `test`. Logs are appended to, so it is near the end: only the last 256 KB are read
+// (then 2 MB, 16 MB...), not a session log of tens of MB on every Codex turn.
+function lastLogLine(file: string, test: (line: string) => boolean): string | undefined {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    for (let want = 256 * 1024; ; want *= 8) {
+      const len = Math.min(want, size), buf = Buffer.allocUnsafe(len);
+      const lines = buf.toString('utf8', 0, fs.readSync(fd, buf, 0, len, size - len)).split('\n');
+      if (len < size) lines.shift(); // starts mid-line
+      const hit = lines.reverse().find(test);
+      if (hit || len === size) return hit;
+    }
+  } finally { fs.closeSync(fd); }
+}
 // The newest Codex session log (sessions/YYYY/MM/DD/rollout-*.jsonl) holds the latest rate_limits it was sent.
 function codexLimits() {
   try {
@@ -2406,7 +2428,7 @@ function codexLimits() {
     }
     const file = fs.readdirSync(dir).filter(n => n.endsWith('.jsonl')).map(n => path.join(dir, n))
       .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
-    const line = file && fs.readFileSync(file, 'utf8').split('\n').reverse().find(l => l.includes('"rate_limits"'));
+    const line = file && lastLogLine(file, l => l.includes('"rate_limits"'));
     const r = line && JSON.parse(line).payload?.rate_limits;
     return [r?.primary, r?.secondary].filter(w => typeof w?.used_percent === 'number')
       .map(w => limitWindow(windowLabel(w.window_minutes), w.used_percent, w.resets_at));
@@ -2422,7 +2444,7 @@ function codexContext(thread: string): { used: number; window: number } | null {
       const dir = path.join(base, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
       const name = fs.existsSync(dir) && fs.readdirSync(dir).find(n => n.endsWith(`${thread}.jsonl`));
       if (!name) continue;
-      const line = fs.readFileSync(path.join(dir, name), 'utf8').split('\n').reverse().find(l => l.includes('"token_count"') && l.includes('"last_token_usage"'));
+      const line = lastLogLine(path.join(dir, name), l => l.includes('"token_count"') && l.includes('"last_token_usage"'));
       const info = line && JSON.parse(line).payload?.info;
       const used = info?.last_token_usage?.total_tokens, window = info?.model_context_window;
       return typeof used === 'number' && typeof window === 'number' && window > 0 ? { used, window } : null;
@@ -2457,8 +2479,11 @@ async function codexLiveLimits() {
   } catch { return codexLiveFailed('Couldn\'t reach Codex to read its plan limits. Trying again soon'); }
 }
 // Claude Code and Codex log every session on disk, whether it ran in Breeze or not, so their monthly tokens come from
-// those logs: input (cached or not) plus output, the same total Codex reports. Each log is re-read only when it changes.
-const logCache = new Map<string, { key: string; data: Loose }>(); // file -> its parsed data
+// those logs: input (cached or not) plus output, the same total Codex reports. Logs only grow, so each is read on from
+// where the last read stopped (just past a whole line), a few MB at a time so IPC (terminal output, file reads) gets a
+// turn between pieces: a 35 MB log parsed in one go held the main process for up to 400 ms, and the logs reach 800 MB a month.
+const LOG_PIECE = 4 * 1024 * 1024;
+const logCache = new Map<string, { month: string; offset: number; state: Loose }>(); // `kind:file` -> how far it's read, what its lines added up to
 async function recentLogs(dir: string, depth: number, since: number): Promise<string[]> {
   const out: string[] = [];
   for (const e of await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])) {
@@ -2468,14 +2493,28 @@ async function recentLogs(dir: string, depth: number, since: number): Promise<st
   }
   return out;
 }
-async function readLog(file: string, parse: (lines: string[], month: string) => Loose): Promise<Loose> {
-  const st = await fs.promises.stat(file).catch(() => null);
-  if (!st) return null;
-  const key = `${st.mtimeMs}:${st.size}:${usageMonth()}`;
-  if (logCache.get(file)?.key === key) return logCache.get(file)!.data;
-  const data = parse((await fs.promises.readFile(file, 'utf8')).split('\n'), usageMonth());
-  logCache.set(file, { key, data });
-  return data;
+async function readLog<T>(kind: string, file: string, init: () => T, add: (state: T, line: string, month: string) => void): Promise<T | null> {
+  const month = usageMonth(), key = `${kind}:${file}`;
+  const fh = await fs.promises.open(file, 'r').catch(() => null);
+  if (!fh) return null;
+  try {
+    const { size } = await fh.stat();
+    let c = logCache.get(key);
+    // shortcut: a log rewritten in place to the same size or larger isn't noticed; the agents only ever append to theirs.
+    if (!c || c.month !== month || size < c.offset) logCache.set(key, (c = { month, offset: 0, state: init() }));
+    for (let want = LOG_PIECE; c.offset < size;) {
+      const buf = Buffer.allocUnsafe(Math.min(want, size - c.offset));
+      const { bytesRead } = await fh.read(buf, 0, buf.length, c.offset);
+      const end = bytesRead ? buf.lastIndexOf(10, bytesRead - 1) + 1 : 0; // just past the last whole line
+      if (!end) { if (!bytesRead || c.offset + bytesRead >= size) break; want *= 2; continue; } // a line longer than the piece, or one still being written
+      for (const line of buf.toString('utf8', 0, end).split('\n')) add(c.state, line, month);
+      c.offset += end;
+      want = LOG_PIECE;
+    }
+    return c.state as T;
+  } finally {
+    await fh.close();
+  }
 }
 const monthStart = () => Date.parse(`${usageMonth()}-01T00:00:00Z`);
 // Claude repeats a message's usage on each of its lines and a resumed chat copies earlier ones, so each message id counts once.
@@ -2483,24 +2522,20 @@ async function claudeTokens() {
   const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
   const byMsg = new Map<string, number>();
   for (const file of await recentLogs(base, 3, monthStart())) {
-    const msgs = await readLog(file, (lines, month) => {
-      const m = new Map<string, number>();
-      for (const line of lines) {
-        if (!line.includes('"usage"')) continue;
-        try {
-          const d = JSON.parse(line), u = d.message?.usage;
-          if (!u || !d.message.id || d.timestamp?.slice(0, 7) !== month) continue;
-          m.set(d.message.id, (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0));
-        } catch { /* a line still being written */ }
-      }
-      return m;
+    const msgs = await readLog('claude', file, () => new Map<string, number>(), (m, line, month) => {
+      if (!line.includes('"usage"')) return;
+      try {
+        const d = JSON.parse(line), u = d.message?.usage;
+        if (!u || !d.message.id || d.timestamp?.slice(0, 7) !== month) return;
+        m.set(d.message.id, (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0));
+      } catch { /* not a whole JSON line */ }
     });
     for (const [id, n] of msgs ?? []) byMsg.set(id, n);
   }
   return [...byMsg.values()].reduce((a, b) => a + b, 0);
 }
 // Has any Claude Code session ever run on Fable? Remembered once seen, so it holds after old logs are gone; until then
-// each check only reads the logs that changed since the last one.
+// each check only reads what the logs that changed since the last one gained.
 let fableLogsRead = 0;
 async function claudeUsedFable() {
   if (loadState().claudeUsedFable) return true;
@@ -2508,7 +2543,8 @@ async function claudeUsedFable() {
   const since = fableLogsRead;
   fableLogsRead = Date.now();
   for (const file of await recentLogs(base, 3, since)) {
-    if (!(await fs.promises.readFile(file, 'utf8').catch(() => '')).includes('"model":"claude-fable')) continue;
+    const fable = await readLog('fable', file, () => ({ seen: false }), (s, line) => { s.seen ||= line.includes('"model":"claude-fable'); }).catch(() => null);
+    if (!fable?.seen) continue;
     saveState({ claudeUsedFable: true });
     return true;
   }
@@ -2519,18 +2555,15 @@ async function codexTokens() {
   const base = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
   let sum = 0;
   for (const file of await recentLogs(base, 4, monthStart())) {
-    sum += await readLog(file, (lines, month) => {
-      let before = 0, last = 0;
-      for (const line of lines) {
-        if (!line.includes('"token_count"')) continue;
-        try {
-          const d = JSON.parse(line), t = d.payload?.info?.total_token_usage?.total_tokens;
-          if (typeof t !== 'number') continue;
-          if (d.timestamp?.slice(0, 7) < month) before = t; else last = t;
-        } catch { /* a line still being written */ }
-      }
-      return Math.max(0, last - before);
-    }) ?? 0;
+    const s = await readLog('codex', file, () => ({ before: 0, last: 0 }), (s, line, month) => {
+      if (!line.includes('"token_count"')) return;
+      try {
+        const d = JSON.parse(line), t = d.payload?.info?.total_token_usage?.total_tokens;
+        if (typeof t !== 'number') return;
+        if (d.timestamp?.slice(0, 7) < month) s.before = t; else s.last = t;
+      } catch { /* not a whole JSON line */ }
+    });
+    sum += s ? Math.max(0, s.last - s.before) : 0;
   }
   return sum;
 }
@@ -3204,10 +3237,11 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
   child.stdout!.setEncoding('utf8');
   child.stderr!.setEncoding('utf8');
   child.stdout!.on('data', (chunk: string) => {
-    buf += chunk;
-    const lines = buf.split('\n');
-    buf = lines.pop()!;
-    for (const l of lines) line(l.trim());
+    // The newline is looked for only in the new chunk: one line (a big tool result) can be many MB, and splitting all
+    // that's buffered on every chunk is quadratic.
+    let from = 0;
+    for (let i = chunk.indexOf('\n'); i !== -1; i = chunk.indexOf('\n', from)) { line((buf + chunk.slice(from, i)).trim()); buf = ''; from = i + 1; }
+    buf += chunk.slice(from);
   });
   child.stderr!.on('data', (chunk: string) => { ctx.stderr = (ctx.stderr + chunk).slice(-4000); });
   child.on('error', err => { ctx.lastError = err.message; });
@@ -4693,10 +4727,9 @@ function runCommitCli(bin: string, args: string[], base: string, prompt: string,
     child.stdout.on('data', (chunk: string) => {
       out += chunk;
       if (!onLine) return;
-      buf += chunk;
-      const lines = buf.split('\n');
-      buf = lines.pop()!;
-      lines.forEach(onLine);
+      let from = 0; // newlines looked for in the new chunk only, as in streamCli
+      for (let i = chunk.indexOf('\n'); i !== -1; i = chunk.indexOf('\n', from)) { onLine(buf + chunk.slice(from, i)); buf = ''; from = i + 1; }
+      buf += chunk.slice(from);
     });
     child.stdin.on('error', () => { /* exited early; close reports it */ });
     child.stdin.end(prompt);

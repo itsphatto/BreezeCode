@@ -1953,6 +1953,13 @@ textarea:focus-visible {
   -webkit-app-region: no-drag;
 }
 
+/* Its own piece in every view transition, so a page swap's root fade doesn't fade the buttons out and back in. The
+   default cross-fade (plus-lighter) of two identical pictures shows no change; it still blends their colour when the
+   look differs (Home's light buttons). Only #winControls: the popped-out terminal's copy would duplicate the name. */
+#winControls {
+  view-transition-name: win-controls;
+}
+
 .win-btn {
   position: relative;
   isolation: isolate;
@@ -9264,7 +9271,8 @@ body.vibing .ide {
   transform-origin: left top;
 }
 
-/* Changing year (morphContribYear, onboarding.ts): the squares cross-fade into the new year's; the rest of the page,
+/* Changing year (morphContribYear, onboarding.ts): the squares cross-fade into the new year's and the month names slide
+   to their new places; the rest of the page,
    the title's scrambling count included, stays live, so the pill's slide shows through and the page keeps the pointer. */
 :root.contrib-morph::view-transition {
   pointer-events: none;
@@ -9277,7 +9285,14 @@ body.vibing .ide {
 
 :root.contrib-morph #homeContribGraph { view-transition-name: contrib-graph; }
 
-:root.contrib-morph::view-transition-group(contrib-graph) {
+/* Each month's label glides from where it was to where it is in the new year (named by contribMonth). */
+:root.contrib-morph .cg-month {
+  view-transition-name: var(--cg-vt);
+  view-transition-class: cg-month;
+}
+
+:root.contrib-morph::view-transition-group(contrib-graph),
+:root.contrib-morph::view-transition-group(*.cg-month) {
   animation-duration: .51s;
   animation-timing-function: var(--spring);
 }

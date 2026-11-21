@@ -558,6 +558,29 @@ const store = {
   },
 };
 
+// Unsent text in a message box stays until it is sent: saved as it is typed, and put back after a restart, another
+// page or a trip to another folder. A send empties the box without an input event, so it calls saveDraft itself.
+// `key` is read at each save, so a box whose folder changes files its text under the new one.
+const draftKeys = new WeakMap<HTMLTextAreaElement, () => string>();
+function saveDraft(ta: HTMLTextAreaElement): void {
+  const key = draftKeys.get(ta)?.();
+  if (!key) return;
+  if (ta.value.trim()) store.set(key, ta.value); else store.del(key);
+}
+function restoreDraft(ta: HTMLTextAreaElement): void {
+  const key = draftKeys.get(ta)?.();
+  if (!key) return;
+  ta.value = store.get<string>(key, '');
+  ta.dispatchEvent(new Event('input', { bubbles: true })); // grows the box and draws its highlight, as typing does
+}
+function keepDraft(ta: HTMLTextAreaElement, key: () => string): void {
+  draftKeys.set(ta, key);
+  ta.addEventListener('input', () => saveDraft(ta));
+  // After every script has wired its own input handlers (the height, the highlight layer).
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => restoreDraft(ta));
+  else restoreDraft(ta);
+}
+
 // True while a panel sash is being dragged (layout.ts). Fitting that measures as it goes (the tab strip, the agent bar)
 // waits for the drag to end: each measure re-lays out the whole IDE, several times a frame. It runs again on
 // 'sashdragend'.
