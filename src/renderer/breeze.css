@@ -5847,7 +5847,148 @@ button.chat-img-cap:focus-visible {
   text-decoration: underline;
 }
 
+/* The agent's to-do list (todoCard): its steps, done ones ticked, the current one turning. */
+.todo-card {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-1);
+}
+
+.todo-card ul {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.td-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text);
+}
+
+.td-row.completed {
+  color: var(--text-3);
+}
+
+.td-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid var(--text-3);
+  border-radius: 50%;
+}
+
+.td-row.completed .td-mark {
+  border: 0;
+  background: var(--text-3);
+  color: var(--bg);
+}
+
+.td-row.completed .td-mark .ico-svg {
+  stroke-width: 3.5;
+}
+
+.td-row.in_progress .td-mark {
+  border-color: var(--text-3);
+  border-top-color: transparent;
+}
+
+.todo-card.live .td-row.in_progress .td-mark {
+  animation: spin .9s linear infinite;
+}
+
+.td-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* Test results from a command the agent ran. */
+/* As one line of text (testsCard): what ran, then the counts; the arrow opens the failures under it. */
+.tests-line .tl-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-3);
+  text-align: left;
+}
+
+button.tl-head {
+  cursor: pointer;
+}
+
+.tests-line .tl-label {
+  flex: none;
+}
+
+.tests-line .tl-label .t-runner {
+  color: var(--text-3);
+  opacity: .75;
+}
+
+.tests-line .t-counts {
+  font-size: 13px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.tests-line.ok .t-counts .t-pass {
+  color: var(--ok);
+}
+
+.tests-line.fail .t-counts .t-pass {
+  color: var(--text-3);
+}
+
+.tests-line .t-counts .t-fail {
+  font-weight: 500;
+}
+
+.tests-line .tl-head > .ico-svg {
+  flex: none;
+  color: var(--text-3);
+  transition: transform .2s ease;
+}
+
+button.tl-head:hover,
+button.tl-head:hover > .ico-svg,
+button.tl-head:focus-visible {
+  color: var(--text);
+}
+
+.tests-line.open .tl-head > .ico-svg {
+  transform: rotate(90deg);
+}
+
+.tests-line .tl-body {
+  display: none;
+}
+
+.tests-line.open .tl-body {
+  display: block;
+}
+
+.tests-line .t-fails {
+  margin-top: 6px;
+}
+
 .card.tests h5 .t-runner {
   margin-left: 4px;
   font-weight: 500;

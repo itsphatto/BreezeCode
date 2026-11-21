@@ -622,7 +622,33 @@ function testsCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
       : `<li><div class="t-row">${body}</div></li>`;
   }).join('');
   const more = failed > failures.length && failures.length ? `<p class="t-more">and ${failed - failures.length} more</p>` : '';
-  addMsg(`<div class="card tests ${failed ? 'fail' : 'ok'}"><h5>${svgIcon(failed ? 'circleX' : 'check', 14)} Tests <span class="t-runner">${esc(ev.runner ?? '')}</span></h5><p class="t-counts">${counts}</p>${rows ? `<ul class="t-fails">${rows}</ul>` : ''}${more}</div>`, tab);
+  // One line of text, as a tool line: "Tests node:test  40 passed · 1 failed ›". The arrow opens the failures under it.
+  const label = `<span class="tl-label">Tests${ev.runner ? ` <span class="t-runner">${esc(ev.runner)}</span>` : ''}</span><span class="t-counts">${counts}</span>`;
+  addMsg(rows
+    ? `<div class="tests-line ${failed ? 'fail' : 'ok'}"><button class="tl-head" type="button" aria-expanded="false" title="Show the failures">${label}${svgIcon('chevronRight', 12)}</button><div class="tl-body"><ul class="t-fails">${rows}</ul>${more}</div></div>`
+    : `<div class="tests-line ${failed ? 'fail' : 'ok'}"><div class="tl-head">${label}</div></div>`, tab);
+}
+
+// The agent's own to-do list, as a card of steps: done ones ticked, the current one turning. Each update replaces the
+// last card and lands at the bottom of the chat, so the list stays in view while the agent works.
+const TODO_MARK = { completed: 'check', in_progress: '', pending: '' } as const;
+function todoCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  const todos = ev.todos ?? [];
+  if (!todos.length) return;
+  r.lastMsg = undefined;
+  const done = todos.filter(t => t.status === 'completed').length;
+  const rows = todos.map(t => `<li class="td-row ${t.status}"><span class="td-mark" aria-hidden="true">${TODO_MARK[t.status] ? svgIcon(TODO_MARK[t.status], 10) : ''}</span><span class="td-text">${esc(t.text)}</span></li>`).join('');
+  tab.panel.querySelector('.todo-card.live')?.remove();
+  addMsg(`<div class="todo-card live" role="list" aria-label="Steps: ${done} of ${todos.length} done"><ul>${rows}</ul></div>`, tab);
+  const cur = todos.find(t => t.status === 'in_progress');
+  if (cur) setAgent(r.phase, 'working', cur.text, r.tools);
+}
+// The run ended: the card stays as a record, with nothing turning.
+function endTodoCard(tab: AgentTabState): void {
+  const card = tab.panel.querySelector('.todo-card.live');
+  if (!card) return;
+  card.classList.remove('live');
+  saveChat(tab);
 }
 
 // The card stops taking answers and says how it ended.
@@ -727,6 +753,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   question: (r, ev, tab) => questionCard(r, ev, tab),
   image: (r, ev, tab) => agentImage(r, ev, tab),
   tests: (r, ev, tab) => testsCard(r, ev, tab),
+  todo: (r, ev, tab) => todoCard(r, ev, tab),
   // The run stopped (or the agent gave up waiting) before anyone answered.
   'question-end': (_r, ev, tab) => { if (ev.id) endQuestion(tab.panel.querySelector(`[data-question="${CSS.escape(ev.id)}"]`), '✕ Not answered'); saveChat(tab); },
   note: (_r, ev, tab) => { if (ev.text) toolLine('note', ev.text, tab); },
@@ -751,7 +778,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
     AGENT_EVENTS.auth?.(r, ev, tab);
   },
   error: (r, ev, tab) => onAgentError(r, ev, tab),
-  done: (r, ev, tab) => { dropUnwrittenDrafts(r); finishRun(r, ev, tab); },
+  done: (r, ev, tab) => { endTodoCard(tab); dropUnwrittenDrafts(r); finishRun(r, ev, tab); },
   crossing: (r, ev, tab) => crossingCard(r, ev, tab),
   'team-done': (r, ev, tab) => onTeamDone(r, ev, tab),
 };
@@ -864,6 +891,13 @@ async function fillEditCounts(el: HTMLElement, files: string[], tab: AgentTabSta
 // Delegated, so the line still opens and closes in a chat brought back from history.
 document.addEventListener('click', e => {
   const t = e.target as HTMLElement;
+  const tests = t.closest<HTMLElement>('.tests-line button.tl-head');
+  if (tests) {
+    const open = tests.closest('.tests-line')!.classList.toggle('open');
+    tests.setAttribute('aria-expanded', String(open));
+    tests.title = open ? 'Hide the failures' : 'Show the failures';
+    return;
+  }
   const view = t.closest<HTMLElement>('.run-edits .re-view');
   if (view) {
     const open = view.closest('.run-edits')!.classList.toggle('open');

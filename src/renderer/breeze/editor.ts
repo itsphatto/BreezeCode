@@ -1368,6 +1368,7 @@ function editorKeys(e: KeyboardEvent): void {
     }
   } else if (e.key === 'Tab' && plainKey(e)) {
     e.preventDefault();
+    if (!e.shiftKey && acceptLineHint(ta)) return;
     if (!e.shiftKey && b && emmetCandidate(b, ta)) {
       const value = ta.value, caret = ta.selectionStart;
       // No expansion means a plain Tab, unless the user has typed on since: then the key press is spent.
@@ -1376,6 +1377,7 @@ function editorKeys(e: KeyboardEvent): void {
   } else if (e.key === 'Enter' && plainKey(e) && !e.shiftKey && !multi) { // several cursors: the surface's plain newline
     e.preventDefault();
     enterKey(ta);
+    if (b) nextLineHint(b, ta);
   }
 }
 // Removes one comment marker pair from a line, keeping its indentation.

@@ -3052,6 +3052,18 @@ const CLAUDE_TOOLS: Record<string, (i: Loose) => string[]> = {
   WebFetch: i => ['web', `Read ${i.url}`],
   TodoWrite: () => ['todo', 'Updated its to-do list'],
 };
+// An agent's to-do list as the chat's step card draws it: each step's text and where it stands.
+type TodoStatus = 'pending' | 'in_progress' | 'completed';
+const todoStatus = (s: unknown): TodoStatus => (s === 'completed' || s === 'in_progress' ? s : 'pending');
+// Claude Code's TodoWrite and OpenCode's todowrite: `{ content, status }`; Codex's todo_list: `{ text, completed }`.
+function emitTodos(runId: number, list: unknown): void {
+  if (!Array.isArray(list)) return;
+  const todos = list.map((x: Loose) => ({
+    text: String(x?.content ?? x?.text ?? '').trim(),
+    status: typeof x?.completed === 'boolean' ? (x.completed ? 'completed' : 'pending') : todoStatus(x?.status),
+  })).filter(x => x.text);
+  if (todos.length) emit(runId, { t: 'todo', todos });
+}
 // One piece of an assistant message: text for the chat, or a tool call shown as a line (and the file it touched).
 function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
   if (c.type === 'text' && c.text?.trim()) {
@@ -3062,6 +3074,7 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
   if (c.type !== 'tool_use') return;
   // Breeze's own tool: what it does shows in the chat itself. ToolSearch is Claude Code looking that tool up.
   if (String(c.name).startsWith(`mcp__${BREEZE_MCP}__`) || c.name === 'ToolSearch') return;
+  if (c.name === 'TodoWrite') { emitTodos(runId, c.input?.todos); return; } // drawn as the step card, not a line
   const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
   emit(runId, { t: 'tool', kind, label });
   if (CLAUDE_SHELL_TOOLS.includes(c.name) && c.id) {
@@ -3280,7 +3293,7 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
   },
   mcp_tool_call: (runId, it) => { if (it.server !== BREEZE_MCP) emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }); },
   web_search: (runId, it) => emit(runId, { t: 'tool', kind: 'web', label: `Searched the web for ${it.query}` }),
-  todo_list: runId => emit(runId, { t: 'tool', kind: 'todo', label: 'Updated its to-do list' }),
+  todo_list: (runId, it) => emitTodos(runId, it.items),
   // Codex's warning about a model it has no metadata for is noise to the user.
   error: (runId, it) => { if (it.message && !/^Model metadata for/i.test(it.message)) emit(runId, { t: 'note', text: it.message }); },
 };
@@ -3288,6 +3301,7 @@ function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void
   if (d.type === 'thread.started') { ctx.session = d.thread_id; emit(runId, { t: 'session', id: d.thread_id }); }
   else if (d.type === 'item.started' && d.item?.type === 'command_execution' && d.item.id) shellEvent(runId, String(d.item.id), String(d.item.command ?? ''));
   else if (d.type === 'item.completed' && d.item) CODEX_ITEMS[d.item.type]?.(runId, d.item, ctx);
+  else if ((d.type === 'item.started' || d.type === 'item.updated') && d.item?.type === 'todo_list') emitTodos(runId, d.item.items);
   else if (d.type === 'error') ctx.lastError = codexError(d.message || '');
   else if (d.type === 'turn.failed') {
     const text = codexError(d.error?.message || ctx.lastError || 'The turn failed');
@@ -3315,7 +3329,7 @@ function opencodeTool(runId: number, p: Loose): void {
     emit(runId, { t: 'tool', kind: 'edit', label: `${created ? 'Created' : 'Edited'} ${relOut(input.filePath)}` });
     if (p.state?.status === 'completed') emit(runId, { t: 'file', path: relOut(input.filePath), created, written: true });
   } else if (p.tool === 'webfetch' || p.tool === 'websearch') emit(runId, { t: 'tool', kind: 'web', label: p.state?.title || 'Searched the web' });
-  else if (p.tool === 'todowrite') emit(runId, { t: 'tool', kind: 'todo', label: 'Updated its to-do list' });
+  else if (p.tool === 'todowrite') emitTodos(runId, input.todos);
   else emit(runId, { t: 'tool', kind: 'tool', label: p.state?.title || String(p.tool ?? 'tool') });
 }
 function opencodeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {

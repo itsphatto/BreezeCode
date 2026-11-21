@@ -253,7 +253,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
   ta.addEventListener('input', e => linkTagAfter(ta, e)); // after the handler above has taken the text
   ta.addEventListener('blur', hideSuggest);
   ta.addEventListener('mousedown', hideSuggest);
-  ta.addEventListener('scroll', () => { if (suggest?.owner === ta.input) editorSuggest(b); }); // follow the caret
+  ta.addEventListener('scroll', () => { if (suggest?.owner === ta.input) editorSuggest(b); else placeLineHint(); }); // follow the caret
   ta.addEventListener('scroll', syncScroll);
   ta.addEventListener('keydown', e => editorKeys(e as KeyboardEvent));
   ta.addEventListener('selectionchange', updateCaret); // also fires on focus

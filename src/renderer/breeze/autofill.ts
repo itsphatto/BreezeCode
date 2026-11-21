@@ -172,6 +172,49 @@ function editorSuggest(b: EditorBuffer, force = false): void {
   });
 }
 
+/* ----- Next line: after Enter, the line above again with its numbers counted on (nextlinecore.ts) ----- */
+// Drawn in the same grey as a word's rest. Tab takes it; typing, Esc, a click or leaving the editor drops it (hideSuggest
+// empties the ghost, and a hint whose ghost is gone or whose spot changed counts as dropped).
+let lineHint: { ta: CodeSurface; pos: number; value: string; text: string } | null = null;
+function lineHintLive(ta: CodeSurface): boolean {
+  const h = lineHint;
+  return !!h && h.ta === ta && editorGhost.textContent === h.text && ta.value === h.value && ta.selectionStart === h.pos && ta.selectionEnd === h.pos;
+}
+function placeLineHint(): void {
+  const h = lineHint;
+  if (!h || !lineHintLive(h.ta)) return;
+  const v = h.ta.value, ls = lineStart(v, h.pos), r = h.ta.getBoundingClientRect();
+  editorGhost.style.left = `${r.left + 4 + visualCol(v.slice(ls, h.pos), h.pos - ls) * measureChar() - h.ta.scrollLeft}px`;
+  editorGhost.style.top = `${r.top + 10 + lineAt(v, h.pos) * LINE_H - h.ta.scrollTop}px`;
+}
+// Called right after Enter made a new line.
+function nextLineHint(b: EditorBuffer, ta: CodeSurface): void {
+  lineHint = null;
+  if (ta !== b.ta || ta.multi || ta.selectionStart !== ta.selectionEnd || suggest) return;
+  const v = ta.value, pos = ta.selectionStart, ls = lineStart(v, pos);
+  const le = v.indexOf('\n', pos);
+  if (ls === 0 || v.slice(ls, le < 0 ? undefined : le).trim()) return; // only on a line that is still empty
+  const aboveAt = lineStart(v, ls - 1), above = v.slice(aboveAt, ls - 1);
+  const twoAbove = aboveAt > 0 ? v.slice(lineStart(v, aboveAt - 1), aboveAt - 1) : null;
+  const guess = nextLineGuess(above, twoAbove);
+  if (!guess) return;
+  const indent = v.slice(ls, pos);
+  const text = guess.startsWith(indent) ? guess.slice(indent.length) : guess.trimStart();
+  if (!text) return;
+  lineHint = { ta, pos, value: v, text };
+  editorGhost.textContent = text;
+  placeLineHint();
+}
+// Tab: puts the hinted line in. False when there is none, so Tab indents as usual.
+function acceptLineHint(ta: CodeSurface): boolean {
+  if (!lineHintLive(ta)) { lineHint = null; return false; }
+  const { pos, text } = lineHint!;
+  lineHint = null;
+  editorGhost.textContent = '';
+  replaceRange(ta, pos, pos, text);
+  return true;
+}
+
 /* ----- Terminal: files and folders, commands, and your history ----- */
 const COMMANDS = ['git', 'npm', 'npx', 'node', 'cd', 'dir', 'ls', 'cls', 'clear', 'mkdir', 'python', 'pip', 'echo', 'type', 'cat', 'code'];
 const SUBCOMMANDS: Record<string, string[]> = {
