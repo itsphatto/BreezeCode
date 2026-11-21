@@ -5452,7 +5452,8 @@ body.resizing-h .term-body {
   color: var(--text-2);
 }
 
-.card.ask {
+.card.ask,
+.card.relay {
   border-color: rgba(0, 122, 255, .5);
   background: linear-gradient(180deg, rgba(0, 122, 255, .12), rgba(0, 122, 255, .03));
 }
@@ -10830,9 +10831,10 @@ body.layout-animating .box > .terminal.open {
   flex: 1;
 }
 
+/* Shown only while the side bar is: its panel drawn filled (#i-left-on), in white. */
 .box-side-hide {
   flex: none;
-  color: var(--text-3);
+  color: var(--text);
 }
 
 .box-side-row,
@@ -12145,7 +12147,8 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   animation-delay: calc(70ms + min(var(--i, 0), 10) * 30ms);
 }
 
-.scrim.closing .stagger-item {
+.scrim.closing .stagger-item,
+.ext-scrim.closing .stagger-item {
   animation: staggerRowOut .16s var(--spring) forwards;
   animation-delay: calc(max(0, 6 - var(--i, 0)) * 12ms);
 }
@@ -12329,7 +12332,9 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
    call stack, editor ↔ source or the board's boxes, agents ↔ variables, terminal ↔ output), what's in it swapping
    inside, clipped at its own size as on the Source Control page. A panel the other page lacks fades where it is.
    The blue marker on the rail is its own piece, so it slides to the new page's icon instead of fading with the rail. */
-:root.page-morph .page-vt :is(.main:not(.scm-page) > #sidebar, .main.scm-page #scmLeft, #dbgLeft) {
+/* The board's chats side bar is its left panel: the Explorer springs into it rather than fading out over it. */
+:root.page-morph .page-vt :is(.main:not(.scm-page) > #sidebar, .main.scm-page #scmLeft, #dbgLeft),
+:root.page-morph .page-vt:not(.side-closed) #boardSide {
   view-transition-name: page-left;
 }
 
@@ -20118,7 +20123,7 @@ input.dbg-edit.bad:focus-visible {
 .board-history {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   -webkit-app-region: no-drag;
 }
 
@@ -20140,9 +20145,9 @@ input.dbg-edit.bad:focus-visible {
   height: 28px;
   padding: 0 10px 0 4px;
   border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: var(--bg-1);
-  font-size: 12.5px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  font-size: 12px;
   cursor: grab;
   user-select: none;
   transition: background .15s, border-color .15s, transform .225s var(--spring);
@@ -20164,13 +20169,13 @@ input.dbg-edit.bad:focus-visible {
 
 .board-chip:hover,
 .board-chip:focus-visible {
-  border-color: rgba(var(--ink), .28);
-  background: var(--bg-2);
+  border-color: var(--line-strong);
+  background: var(--bg-3);
 }
 
 .board-chip:active {
   cursor: grabbing;
-  transform: scale(.97);
+  transform: scale(.94);
 }
 
 .board-chip b {
@@ -20195,7 +20200,7 @@ input.dbg-edit.bad:focus-visible {
   width: 40px;
   height: 40px;
   margin-bottom: 10px;
-  border-radius: 11px;
+  border-radius: 12px;
 }
 
 :is(.board-chip-logo, .board-box-logo, .board-empty-logo) .brand-img {
@@ -20212,7 +20217,7 @@ input.dbg-edit.bad:focus-visible {
   grid-template-columns: 44px var(--board-side-w) minmax(0, 1fr);
   min-height: 0;
   padding: var(--gap) var(--gap) var(--gap) 0;
-  transition: grid-template-columns .32s cubic-bezier(.32, .72, 0, 1);
+  transition: grid-template-columns .35s cubic-bezier(.32, .72, 0, 1);
 }
 
 .board.side-closed .board-main {
@@ -20240,10 +20245,6 @@ input.dbg-edit.bad:focus-visible {
   padding-inline: 0;
   opacity: 0;
   visibility: hidden;
-}
-
-.board:not(.side-closed) .board-side-show {
-  display: none;
 }
 
 .board-side-show {
@@ -20297,8 +20298,8 @@ input.dbg-edit.bad:focus-visible {
 
 /* The spot a dragged chip opens: lighter than the empty board's box, and lit while the chip is over it. */
 .board-box.spot-box {
-  border-color: rgba(var(--ink), .3);
-  background: rgba(var(--ink), .025);
+  border-color: var(--line-strong);
+  background: var(--bg-1);
 }
 
 /* Adding, emptying or maximizing a box (morphBoard, board.ts): each box glides and resizes to its new place. Its
@@ -20364,8 +20365,8 @@ input.dbg-edit.bad:focus-visible {
 }
 
 .empty-box:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: -2px;
+  outline: 2px solid var(--blue-text);
+  outline-offset: -2px; /* inside: the grid clips anything past the box */
 }
 
 .board-drop {
@@ -20381,11 +20382,10 @@ input.dbg-edit.bad:focus-visible {
 
 .board-drop small {
   font-size: 11px;
-  opacity: .7;
 }
 
 .board-grid.dragging .board-box {
-  border-color: rgba(var(--ink), .22);
+  border-color: var(--line-hi);
 }
 
 /* Where a drag lands: one blue panel, the same ring, radius and gap from the edge wherever it goes. Over a box it would
@@ -20401,12 +20401,12 @@ input.dbg-edit.bad:focus-visible {
   position: absolute;
   inset: 4px;
   z-index: 5;
-  border-radius: calc(var(--r) - 3px);
+  border-radius: calc(var(--r) - 4px); /* concentric with the 4px inset */
   background: var(--blue-soft);
   box-shadow: inset 0 0 0 2px var(--blue);
   opacity: 0;
   pointer-events: none;
-  transition: opacity .14s ease, inset .2s cubic-bezier(.32, .72, 0, 1);
+  transition: opacity .15s ease, inset .2s cubic-bezier(.32, .72, 0, 1);
 }
 
 .board-box.drop-on::after {
@@ -20415,7 +20415,7 @@ input.dbg-edit.bad:focus-visible {
 
 /* Hidden, it only fades: it keeps the half it was on (board.ts leaves data-drop-side), rather than sliding back. */
 .board-box:not(.drop-on)::after {
-  transition: opacity .14s ease;
+  transition: opacity .15s ease;
 }
 
 .board-box[data-drop-side="left"]::after {
@@ -20442,7 +20442,7 @@ input.dbg-edit.bad:focus-visible {
   min-height: 38px;
   padding: 0 6px 0 10px;
   border-bottom: 1px solid var(--line);
-  font-size: 12.5px;
+  font-size: 13px;
   user-select: none;
 }
 
@@ -20501,39 +20501,35 @@ input.dbg-edit.bad:focus-visible {
   flex-shrink: 0;
   border-radius: 50%;
   background: var(--text-3);
-  opacity: .6;
+  transition: background-color .3s ease; /* a new status eases in under the pop (paintBox) */
 }
 
 .board-dot[data-status="working"] {
-  background: var(--c-builder);
-  opacity: 1;
+  background: var(--blue);
   animation: pulse 1.2s ease-in-out infinite;
 }
 
 .board-dot[data-status="waiting"] {
   background: var(--warn);
-  opacity: 1;
   animation: pulse 1.6s ease-in-out infinite;
 }
 
 .board-dot[data-status="done"] {
   background: var(--ok);
-  opacity: 1;
 }
 
 .board-dot[data-status="failed"] {
   background: var(--err);
-  opacity: 1;
 }
 
 .board-owns {
   padding: 2px 8px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 6px;
   background: none;
   color: var(--text-2);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -20566,7 +20562,7 @@ input.dbg-edit.bad:focus-visible {
    (board.ts wireLiveSash) sets --live-w as a share of the box. */
 .board-live {
   --live-w: clamp(200px, 50cqw, 820px);
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  background: var(--bg);
 }
 
 .board-box:not(.live-on) .board-live {
@@ -20668,6 +20664,7 @@ input.dbg-edit.bad:focus-visible {
   font-size: 11px;
   white-space: nowrap;
   cursor: default;
+  transition: color .3s ease;
 }
 
 .board-box-ctx.low {
@@ -20778,25 +20775,14 @@ body > .board-preview.full {
 .board-status {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--blue-text);
 }
 
-/* Relay cards: one box asking another for a change, and the answer coming back. */
-.card.relay {
-  border-left: 3px solid var(--c-planner);
-}
-
-.card.relay h5 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
+/* Relay cards: one box asking another for a change, and the answer coming back. They wear .card.ask's blue. */
 .card.relay pre {
   max-height: 220px;
   overflow: auto;
-  font: 11.5px/1.45 var(--font-code);
   white-space: pre;
 }
 
@@ -21099,8 +21085,18 @@ body > .board-preview.full {
   z-index: 54;
   display: grid;
   place-items: center;
-  background: rgba(0, 0, 0, .45);
-  animation: extFade .18s ease;
+}
+
+/* Opens and closes as Settings does (.scrim, .modal): the dim and blur on a layer of their own, the panel unrolling
+   down from its top strip and rolling back up into it. */
+.ext-scrim::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(0, 0, 0, .38);
+  backdrop-filter: blur(3px);
+  animation: fade .35s cubic-bezier(.16, 1, .3, 1);
 }
 
 .ext-scrim[hidden] {
@@ -21114,28 +21110,23 @@ body > .board-preview.full {
   height: min(760px, calc(100vh - 64px));
   background: var(--bg-1);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 16px; /* a dialog's, and the round of modalGrow's clip */
   box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
   overflow: hidden;
-  animation: extIn .26s cubic-bezier(.32, .72, 0, 1);
+  animation: modalGrow .5s var(--spring);
 }
 
 .ext-scrim.closing {
-  animation: extFade .2s ease reverse forwards;
+  pointer-events: none;
+}
+
+.ext-scrim.closing::before {
+  animation: fadeOut .36s cubic-bezier(.4, 0, .2, 1) forwards;
 }
 
 .ext-scrim.closing .ext-pop {
-  animation: extIn .2s ease reverse forwards;
-}
-
-@keyframes extFade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes extIn {
-  from { opacity: 0; transform: translateY(8px) scale(.98); }
-  to { opacity: 1; transform: none; }
+  will-change: transform, opacity;
+  animation: settingsRoll .54s var(--spring) both, settingsFade .36s both;
 }
 
 .ext-head {
@@ -21152,15 +21143,17 @@ body > .board-preview.full {
 }
 
 .ext-tabs button {
-  padding: 5px 11px;
-  border: 0;
+  position: relative;
+  z-index: 2; /* over the highlight gliding to the picked tab (slideSelected, skills.ts) */
+  padding: 4px 10px;
+  border: 1px solid transparent; /* the glide copies this edge: with none it took the text colour */
   border-radius: 8px;
   background: none;
   color: var(--text-2);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
-  transition: background-color .15s ease, color .15s ease;
+  transition: color .15s ease; /* not the fill: the glide reads it at once, and carries it across itself */
 }
 
 .ext-tabs button:hover {
@@ -21186,10 +21179,6 @@ body > .board-preview.full {
   background: var(--bg-2);
   color: var(--text-3);
   cursor: text;
-}
-
-.ext-search:focus-within {
-  border-color: var(--text-3);
 }
 
 .ext-search input {
@@ -21248,6 +21237,12 @@ body > .board-preview.full {
   color: var(--text-3);
 }
 
+/* Its rows rise in closer together than a dialog's parts: a long list filled the window, and every row past the tenth
+   waited for the dialog's last step, leaving its lower half empty for a moment. */
+.ext-body > .stagger-item {
+  animation-delay: calc(40ms + min(var(--i, 0), 12) * 20ms);
+}
+
 /* Roomier rows than the old side-bar list: one line for the name, one for what it does. */
 .ext-body .skill-row {
   gap: 12px;
@@ -21287,15 +21282,6 @@ body > .board-preview.full {
 
 .ext-body .side-note {
   padding: 8px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ext-scrim,
-  .ext-pop,
-  .ext-scrim.closing,
-  .ext-scrim.closing .ext-pop {
-    animation: none;
-  }
 }
 
 /* ================= Power saver =================

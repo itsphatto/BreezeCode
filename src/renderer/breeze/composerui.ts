@@ -227,6 +227,10 @@ async function flushQueue(tab: AgentTabState): Promise<void> {
   s.prompt.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+// Its line's parts come and go and change their words as a morph (ui.ts), once ui.js has loaded: an early repaint
+// (an answer arriving while the page still loads) just sets them.
+const cmpShow = (el: HTMLElement, on: boolean) => composersReady ? morphShow(el, on) : el.classList.toggle('hidden', !on);
+const cmpText = (el: HTMLElement, text: string) => { if (composersReady) swapText(el, text); else el.textContent = text; };
 function paintComposer(c: Composer): void {
   // Access: one setting for every agent (Settings → Agents → Full access), shown on every composer.
   const perm = $<HTMLButtonElement>('.cmp-perm', c.box);
@@ -241,35 +245,34 @@ function paintComposer(c: Composer): void {
   const name = c.meta.querySelector<HTMLElement>('.cmp-folder-name');
   if (name) {
     const text = rootInfo ? rootInfo.name : 'No folder';
-    if (name.textContent !== text) name.textContent = text;
+    cmpText(name, text);
     name.parentElement!.title = rootInfo ? `Agents work in ${rootInfo.root}` : 'No folder open';
   }
 
   // Branch: the open project's, so only where this composer sends to that project.
   const br = $('.cmp-branch', c.meta);
   const showBranch = !!rootInfo && !!gitState.repo && dir === rootInfo.root;
-  br.classList.toggle('hidden', !showBranch);
   if (showBranch) {
     const b = gitState.branch || 'main';
-    const bn = $('.cmp-branch-name', br);
-    if (bn.textContent !== b) bn.textContent = b;
+    cmpText($('.cmp-branch-name', br), b);
     br.title = `On branch ${b}`;
   }
+  cmpShow(br, showBranch);
 
   // Usage: how much of its plan's limit the agent has used. Claude shows its 5-hour window; other agents show their
   // tightest window (the arrow lists every one). Hidden for an agent with no plan limit (a local model, an API key).
   const meter = $('.cmp-ctx', c.meta);
   const id = composerAgent(c);
   const wins = (id && agentUsage?.limits[id]) || [];
-  meter.classList.toggle('hidden', !wins.length);
-  $('.cmp-ctx-more', c.meta).classList.toggle('hidden', !wins.length);
+  cmpShow(meter, !!wins.length);
+  cmpShow($('.cmp-ctx-more', c.meta), !!wins.length);
   if (wins.length) {
     const tight = (id === 'claude' && wins.find(w => w.label === '5-hour')) || wins.reduce((a, w) => (w.used > a.used ? w : a));
     const pct = Math.max(0, Math.min(100, Math.round(tight.used)));
     const fill = $<HTMLElement>('.cmp-ctx-bar i', meter);
     fill.style.width = `${pct}%`;
     fill.style.setProperty('--usage-left', String(100 - pct));
-    $('.cmp-ctx-pct', meter).textContent = `${pct}%`;
+    cmpText($('.cmp-ctx-pct', meter), `${pct}%`);
     meter.setAttribute('aria-valuenow', String(pct));
     const name = appState.detect?.agents.find(a => a.id === id)?.name ?? 'This agent';
     meter.title = `${name} usage limit used\n` + wins.map(w => `${w.label}: ${Math.round(w.used)}% used${w.resetsAt ? ` · resets ${resetText(w.resetsAt)}` : ''}`).join('\n');

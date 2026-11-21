@@ -85,6 +85,73 @@ function slideSelected(el: HTMLElement | null, from: DOMRect | undefined): void 
     [{ ...looks[1 - i], color: 'transparent' }, { color: 'transparent', offset: .3 }, {}],
     { duration: ms, easing: 'ease-out' }));
 }
+// A part arriving grows in where it lands; one going shrinks away first. Shared by flip and morphClass.
+const MORPH_GONE: Keyframe = { opacity: 0, transform: 'scale(.6)', filter: 'blur(2px)' };
+const motionReduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Changes a row or list without a snap: what stays slides from where it was to where it lands, and what's new grows in.
+// `items` lists the parts to follow; `key` matches them across a redraw (innerHTML), else each element is itself.
+// Nothing moved, nothing plays, so a redraw that changes nothing stays still.
+function flip(items: () => HTMLElement[], change: () => void, key: (el: HTMLElement) => unknown = el => el): void {
+  if (motionReduced()) { change(); return; }
+  const before = new Map(items().filter(el => el.checkVisibility()).map(el => [key(el), el.getBoundingClientRect()]));
+  change();
+  if (!before.size) return; // nothing was showing (the page is hidden, or the list was empty): it just appears
+  for (const el of items()) {
+    if (!el.checkVisibility()) continue;
+    const was = before.get(key(el)), now = el.getBoundingClientRect();
+    if ((now.bottom < 0 || now.top > innerHeight) && (!was || was.bottom < 0 || was.top > innerHeight)) continue; // out of sight: a long list animates only what shows
+    if (!was) { el.animate([MORPH_GONE, {}], { duration: 360, easing: SPRING }); continue; }
+    const dx = was.left - now.left, dy = was.top - now.top;
+    if (Math.abs(dx) >= 1 || Math.abs(dy) >= 1) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 420, easing: SPRING });
+  }
+}
+// Turns a class on or off that brings `part` in or out (.hidden on the part itself, a row's .busy for its dot): coming,
+// it grows in; going, it shrinks away first. Either way the rest of its row slides over (flip). Asked again before it
+// has gone, it stays.
+function morphClass(el: HTMLElement, cls: string, on: boolean, part: HTMLElement = el): void {
+  const going = part.getAnimations().find(a => a.id === 'morph-out');
+  if (going) { if (el.classList.contains(cls) === on) going.cancel(); return; }
+  if (el.classList.contains(cls) === on) return;
+  const row = () => [...(part.parentElement?.children ?? [])] as HTMLElement[];
+  const toggle = () => flip(row, () => el.classList.toggle(cls, on));
+  const was = part.checkVisibility();
+  el.classList.toggle(cls, on);
+  const leaves = was && !part.checkVisibility();
+  el.classList.toggle(cls, !on);
+  if (!leaves || motionReduced()) { toggle(); return; }
+  const out = part.animate([{}, MORPH_GONE], { id: 'morph-out', duration: 140, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  out.onfinish = () => { toggle(); out.cancel(); };
+}
+const morphShow = (el: HTMLElement, show: boolean) => morphClass(el, 'hidden', !show);
+// New content in place (a panel's other view, a label): it settles in, as swapText does for words.
+const settleIn = (el: Element) => motionReduced() || el.animate([{ opacity: 0, filter: 'blur(3px)', transform: 'translateY(2px)' }, {}], { duration: 360, easing: SPRING });
+// Search in a chats side bar opens into its field and closes back as one row: the highlight carries over, and
+// "Search chats" grows out of the word "Search" (closing, shrinks back into it) rather than the two swapping.
+function morphSearchRow(btn: HTMLElement, box: HTMLElement, open: boolean): void {
+  const input = box.querySelector('input') as HTMLInputElement;
+  const swap = () => { box.classList.toggle('hidden', !open); btn.classList.toggle('hidden', open); };
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const clip = (w: number) => `inset(0 calc(100% - ${w + 2}px) 0 0)`; // +2: the field's text sits a hair right of the word's
+  if (open) {
+    const w = btn.querySelector('span')?.offsetWidth ?? 0;
+    const glow = getComputedStyle(btn, '::before');
+    const from = { opacity: glow.opacity, transform: glow.transform };
+    swap();
+    box.dataset.word = String(w);
+    if (still || !w) return;
+    box.animate([from, {}], { pseudoElement: '::before', duration: 510, easing: SPRING });
+    input.animate([{ clipPath: clip(w) }, { clipPath: 'inset(0)' }], { duration: 300, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    return;
+  }
+  const w = Number(box.dataset.word);
+  if (still || !w || !box.checkVisibility()) { swap(); return; }
+  const shrink = input.animate([{ clipPath: 'inset(0)' }, { clipPath: clip(w) }], { duration: 160, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  shrink.onfinish = () => {
+    swap();
+    shrink.cancel();
+    btn.animate([{ opacity: 1, transform: 'none' }, {}], { pseudoElement: '::before', duration: 260, easing: 'ease' });
+  };
+}
 // One hover highlight for a list of rows, instead of each row lighting up on its own: it fades in where the pointer
 // comes in, glides from row to row as it moves, and fades out where it leaves. Rows matching `skip` (disabled ones)
 // let it go. The block is the box's first child; CSS gives it its look (.hover-glide).
