@@ -65,5 +65,13 @@ function enhanceSelect(sel: HTMLSelectElement): void {
 }
 
 $$<HTMLSelectElement>('select.select').forEach(enhanceSelect);
-new MutationObserver(() => $$<HTMLSelectElement>('select.select:not([data-dd])').forEach(enhanceSelect)).observe(document.body, { childList: true, subtree: true });
+// Only what was added is looked through: searching the whole page on every change (each terminal chunk, each streamed
+// reply) was most of this observer's cost.
+new MutationObserver(recs => {
+  for (const r of recs) for (const n of r.addedNodes) {
+    if (!(n instanceof Element)) continue;
+    if (n.matches('select.select')) enhanceSelect(n as HTMLSelectElement);
+    n.querySelectorAll<HTMLSelectElement>('select.select:not([data-dd])').forEach(enhanceSelect);
+  }
+}).observe(document.body, { childList: true, subtree: true });
 

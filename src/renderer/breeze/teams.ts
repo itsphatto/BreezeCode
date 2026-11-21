@@ -697,8 +697,9 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   text: (r, ev, tab) => {
     if (!ev.text) return;
     if (r.lastMsg && r.lastText && (ev.text.startsWith(r.lastText) || ev.text === r.lastText)) {
-      const bodyEl = r.lastMsg.querySelector('.body');
+      const bodyEl = r.lastMsg.querySelector<HTMLElement>('.body');
       if (bodyEl) {
+        bodyEl.dataset.noGrow = ''; // until settleReply
         bodyEl.innerHTML = md(ev.text);
         r.lastText = ev.text;
         sfx.play('stream'); // a light patter while the answer streams in
@@ -707,6 +708,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
         return;
       }
     }
+    settleReply(r);
     r.lastText = ev.text;
     r.lastMsg = agentMsg(r.phase, md(ev.text), tab, r.agent);
   },
@@ -754,12 +756,23 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   'team-done': (r, ev, tab) => onTeamDone(r, ev, tab),
 };
 
+// A streamed reply is redrawn whole every 60 ms, each time all new elements; while it streams, data-no-grow keeps the grow
+// watcher (mentions.ts) from measuring and observing every one of them. Once it's complete it's drawn once more without
+// the flag, so its text eases on a panel resize like any other.
+function settleReply(r: Run): void {
+  const body = r.lastMsg?.querySelector<HTMLElement>('.body[data-no-grow]');
+  if (!body) return;
+  delete body.dataset.noGrow;
+  body.innerHTML = md(r.lastText);
+}
+
 const NEEDS_YOU_EVENTS = new Set<AgentEvent['t']>(['question', 'approve', 'question-end', 'done', 'error']);
 function handleAgentEvent(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const team = tab.agentTeam?.runs.has(r.id) ? tab.agentTeam : undefined;
   if (!r.replied && ev.t !== 'session' && ev.t !== 'done' && ev.t !== 'team-done') onFirstReply(r, tab);
   const prev = labelAgent;
   labelAgent = team && ev.t !== 'team-done' ? r.agent : null;
+  if (ev.t !== 'text') settleReply(r); // anything else ends the reply being streamed
   try {
     AGENT_EVENTS[ev.t]?.(r, ev, tab);
   } finally {

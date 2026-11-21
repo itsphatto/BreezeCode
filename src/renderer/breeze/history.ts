@@ -8,24 +8,32 @@ const chatIdKey = (s: Surface) => `breeze.chatId:${chatScope(s)}`;
 const HISTORY_MAX = 30, HISTORY_BYTES = 1_500_000;
 const newChatId = () => crypto.randomUUID();
 const chatHistory = (s: Surface) => store.get<ChatEntry[]>(historyKey(s), []);
+// What each tab last filed. Filing parses and rewrites the whole history (up to HISTORY_BYTES), and the board files
+// every box's chat whenever one box finishes, so a chat that hasn't changed since isn't filed again.
+const archivedAs = new WeakMap<AgentTabState, string>();
 
 function archiveChatTab(s: Surface, tab: AgentTabState): void {
   if (s.name === 'ide' && !rootInfo) return;
   if (tab.panel.querySelector('.empty') && !tab.panel.querySelector('.msg')) return;
   const html = [...tab.panel.children].filter(c => !c.classList.contains('thinking') && !c.classList.contains('team-strip')).map(c => c.outerHTML).join('');
   if (!html?.includes('class="msg')) return;
-  if (!tab.historyId) tab.historyId = newChatId();
-  const id = tab.historyId;
   const first = tab.panel.querySelector('.msg.user .body')?.textContent ?? '';
   // The tab's own name (typed, or the agent's), else the first request. A board box's "Box 3" is no name either.
   const title = (/^(Chat|Box) \d+$/i.test(tab.title) ? '' : tab.title) || first.trim().replaceAll(/\s+/g, ' ').slice(0, 64) || 'Chat';
+  const agent = tab.agentId || appState.agent;
+  // Without the id: a chat deleted from history while still open is filed again (as a new one) only once it changes.
+  const filed = `${historyKey(s)}\n${title}\n${agent}\n${JSON.stringify(tab.sessions)}\n${html}`;
+  if (archivedAs.get(tab) === filed) return;
+  if (!tab.historyId) tab.historyId = newChatId();
+  const id = tab.historyId;
   const old = chatHistory(s);
   // A chat stays under the folder it began in, even if another folder is open by now.
   const folder = old.find(e => e.id === id)?.folder ?? rootInfo?.root ?? null;
-  const entry: ChatEntry = { id, title, at: Date.now(), html, agent: tab.agentId || appState.agent, session: tab.sessions[tab.agentId] ?? null, sessions: { ...tab.sessions }, folder };
+  const entry: ChatEntry = { id, title, at: Date.now(), html, agent, session: tab.sessions[tab.agentId] ?? null, sessions: { ...tab.sessions }, folder };
   let bytes = 0;
   const list = [entry, ...old.filter(e => e.id !== id)].filter(e => (bytes += e.html.length) < HISTORY_BYTES).slice(0, HISTORY_MAX);
   store.set(historyKey(s), list);
+  archivedAs.set(tab, filed);
   if (s.name === 'box') renderBoxSide();
   // The Agent Board's side bar lists this folder's chats (and Space's old ones).
   else if (typeof renderBoardSide === 'function' && boardPageShowing()) renderBoardSide();
@@ -86,6 +94,7 @@ function restoreChat(s: Surface = SURFACES.ide): void {
   initial.panel.classList.add('active');
   renderAgentTabs(s);
   scrollChat(s);
+  restoreDraft(s.prompt); // the message this folder's box held when it was last open
 }
 
 function openChat(s: Surface, e: ChatEntry): void {

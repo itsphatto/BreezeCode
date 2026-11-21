@@ -26,17 +26,13 @@ function drawContribUpright(c: GhContributions): void {
   });
   const n = c.weeks.length;
   let lastMonth = -1;
+  const named = new Set<number>();
   // Oldest to newest, so a month is named on the first week that starts in it; rows count from the newest.
   c.weeks.forEach((week, w) => {
     const row = n - w + 1;
     const first = contribDay(week[0].date);
     const m = first.getMonth();
-    if (m !== lastMonth && (w > 0 || first.getDate() <= 7)) {
-      const s = document.createElement('span');
-      s.className = 'cg-month';
-      s.textContent = CONTRIB_MONTHS[m];
-      put(s, 1, row);
-    }
+    if (m !== lastMonth && (w > 0 || first.getDate() <= 7)) put(contribMonth(m, named), 1, row);
     lastMonth = m;
     for (const d of week) {
       const day = contribDay(d.date);
@@ -212,6 +208,7 @@ async function sendFromHome(): Promise<void> {
     } catch (e) { toast(errMsg(e)); return; }
   }
   input.value = '';
+  saveDraft(input);
   enterMode('ide');
   if (!layout.agentsOpen) commands['view.toggleAgents']();
   const files = homeAskFiles.splice(0);
@@ -239,6 +236,7 @@ wireComposer({
   folder: homeAskDir,
   attach: files => { homeAskFiles.push(...files); renderHomeAskFiles(); },
 });
+keepDraft($<HTMLTextAreaElement>('#homeAskInput'), () => 'breeze.draft:home');
 $('#homeAsk').addEventListener('submit', e => { e.preventDefault(); background(sendFromHome()); });
 $('#homeAskInput').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); background(sendFromHome()); }

@@ -30,16 +30,21 @@ class Kernels extends EventEmitter {
     this.kernels.set(nb, k);
     const dec = new StringDecoder('utf8');
     child.stdout!.on('data', (b: Buffer) => {
-      k.buf += dec.write(b);
-      for (let i = k.buf.indexOf('\n'); i !== -1; i = k.buf.indexOf('\n')) {
-        const line = k.buf.slice(0, i);
-        k.buf = k.buf.slice(i + 1);
+      // The newline is looked for only in the new piece: an image output is one line of MBs, and re-scanning all that's
+      // buffered on every piece is quadratic.
+      const piece = dec.write(b);
+      let from = 0;
+      for (let i = piece.indexOf('\n'); i !== -1; i = piece.indexOf('\n', from)) {
+        const line = k.buf + piece.slice(from, i);
+        k.buf = '';
+        from = i + 1;
         let msg: KernelMessage;
         try { msg = JSON.parse(line); } catch { continue; }
         if (msg.type === 'done') k.pending.delete(msg.id!);
         this.emit('message', nb, msg);
         if (msg.type === 'done' && !k.pending.size) this.emit('state', nb, 'idle');
       }
+      k.buf += piece.slice(from);
     });
     // Python's own errors before the kernel runs (a bad interpreter, say); a cell's errors come as messages.
     child.stderr!.setEncoding('utf8');
