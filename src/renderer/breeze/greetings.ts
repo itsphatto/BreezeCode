@@ -834,6 +834,1011 @@ const tickGreeting = () => {
 decorInterval(tickGreeting, 10_000, 30_000);
 onDecorChange(() => { if (!decorUnseen()) tickGreeting(); }); // back in view: the time shown may be minutes old
 
+/* ----- A new board chat’s greeting (board.ts boxHelloHtml): one of these, a new one every 10 seconds ----- */
+const BOARD_GREETINGS = `
+Let’s build something great.
+What are we making today?
+Ready when you are.
+Start with one line.
+Small steps, big builds.
+What’s on your mind?
+Let’s turn that idea into code.
+A blank page, endless options.
+Pick a problem. Let’s solve it.
+Let’s make it work, then make it nice.
+Describe it. We’ll build it.
+What should we fix first?
+Let’s squash some bugs.
+One prompt away from progress.
+Dream it, type it, ship it.
+Ask me anything about your code.
+Let’s refactor something messy.
+Clean code is a love letter.
+Let’s build the thing.
+Bring me your hardest problem.
+Let’s make today productive.
+Tell me what you need.
+Let’s write the first draft.
+Let’s make it simpler.
+Let’s make it beautiful.
+Let’s untangle that logic.
+Something to prototype?
+Let’s sketch it in code.
+Let’s chase down that error.
+Where should we begin?
+Let’s explore your codebase.
+Need a second pair of eyes?
+Let’s pair on it.
+New chat, fresh start.
+A clean slate for clean code.
+Let’s document that function.
+Let’s add that missing feature.
+Let’s polish the rough edges.
+Let’s break it down step by step.
+Let’s make it production ready.
+Let’s find the root cause.
+Let’s read the stack trace together.
+Let’s design the API first.
+Let’s think it through.
+Let’s get unstuck.
+Let’s wire it all up.
+Let’s connect the dots.
+Let’s build it right.
+Let’s make it delightful.
+Let’s make users smile.
+Let’s write a script for that.
+Let’s optimize the hot path.
+Let’s profile it first.
+Let’s rename things properly.
+Let’s split that giant file.
+Let’s set up the project.
+Let’s scaffold something new.
+Let’s try a bold idea.
+Let’s learn something new.
+Let’s level up the codebase.
+Let’s close some issues.
+Let’s review that diff.
+Let’s handle the edge cases.
+Let’s add some logging.
+Let’s make it accessible.
+Let’s add dark mode.
+Let’s ship a tiny win.
+Let’s make progress, not perfection.
+Think, then type.
+Build with care.
+Debug with patience.
+Refactor with courage.
+Test with curiosity.
+Commit with clarity.
+Deploy with a smile.
+Today’s a good day to refactor.
+Today’s a good day to learn.
+Today’s a good day to fix things.
+Your code, your rules.
+Your idea, our build.
+The cursor is blinking. So is opportunity.
+A blinking cursor means possibilities.
+Every bug has an answer.
+Every project starts with hello.
+Every expert was once a beginner.
+Every fix makes it better.
+Every commit tells a story.
+Nothing compiles itself. Let’s help.
+Let’s write something elegant.
+Let’s write something clever.
+Let’s write something fun.
+Let’s write something new.
+Make it work. Make it right. Make it fast.
+Simple beats clever.
+Readable beats short.
+Shipped beats stuck.
+Tested beats hoped.
+Measured beats guessed.
+Focus mode: on.
+Builder mode: on.
+Ship mode: on.
+Curiosity mode: on.
+Let’s go.
+Let’s do this.
+Let’s get building.
+Let’s get shipping.
+Let’s get going.
+Hello, builder.
+Hello, maker.
+Hello, hacker.
+Welcome back, builder.
+Good to see you.
+Nice to see you again.
+Back at it?
+Missed you. Let’s code.
+What’s the plan?
+What’s the mission?
+What’s the goal today?
+What’s next on the list?
+What’s the big idea?
+What would make this better?
+What would you build with no limits?
+What if we tried it differently?
+How can I help?
+How should we approach this?
+Shall we begin?
+Shall we refactor?
+Shall we write some tests?
+Shall we dig in?
+Want to build something?
+Want to learn something?
+Want to try something new?
+Need a hand?
+Need a fresh perspective?
+Need a quick fix?
+I’m your rubber duck today.
+I’m all ears.
+I’m ready to build.
+Talk to me about your code.
+Tell me about your project.
+Tell me what you’re building.
+Show me the error.
+Show me the code.
+Paste it in. Let’s look.
+Let’s look under the hood.
+Let’s peek at the logs.
+Let’s trace the data.
+Let’s follow the request.
+Let’s inspect the state.
+Let’s mock that service.
+Let’s cache that result.
+Let’s memoize it.
+Let’s debounce it.
+Let’s paginate it.
+Let’s index that query.
+Let’s migrate the database.
+Let’s seed some data.
+Let’s validate that input.
+Let’s secure that endpoint.
+Let’s rotate those keys.
+Let’s add rate limiting.
+Let’s handle the timeout.
+Let’s retry gracefully.
+Let’s fail safely.
+Let’s recover cleanly.
+Let’s type it properly.
+Let’s tighten the types.
+Let’s remove the any.
+Let’s make it composable.
+Let’s make it reusable.
+Let’s inline that helper.
+Let’s flatten that nesting.
+Let’s simplify that condition.
+Let’s name that constant.
+Let’s kill that TODO.
+Let’s clean up the imports.
+Let’s update the dependencies.
+Let’s pin those versions.
+Let’s lazy-load it.
+Let’s tree-shake it.
+Let’s speed up startup.
+Let’s cut the render time.
+Let’s smooth that animation.
+Let’s fix the layout shift.
+Let’s center that div.
+Let’s pick a better font.
+Let’s fix the spacing.
+Let’s refine the colors.
+Let’s add a loading state.
+Let’s add an empty state.
+Let’s add keyboard shortcuts.
+Let’s add a search bar.
+Let’s add a settings page.
+Let’s add notifications.
+Let’s add an undo button.
+Let’s add a dashboard.
+Let’s add some charts.
+Let’s add an export button.
+Let’s add file uploads.
+Let’s add real-time updates.
+Let’s add a command palette.
+Let’s add tooltips.
+Let’s add sound effects.
+Let’s add a dark theme.
+Let’s add a light theme.
+Let’s add analytics.
+Let’s add a CLI.
+Let’s add webhooks.
+Let’s add a plugin system.
+Let’s add a config file.
+Let’s add a changelog.
+Let’s add CI.
+Let’s add a health check.
+Let’s add metrics.
+Let’s add tracing.
+Let’s add a migration.
+Let’s add a unit test.
+Let’s add an end-to-end test.
+Let’s add a snapshot test.
+Let’s add a benchmark.
+Let’s raise the coverage.
+Let’s fix the flaky test.
+Let’s fix the build.
+Let’s fix the merge conflict.
+Let’s rebase cleanly.
+Let’s open a pull request.
+Let’s cut a release.
+Let’s write release notes.
+Let’s roll back safely.
+Let’s ship a hotfix.
+Let’s groom the tickets.
+Let’s estimate the work.
+Let’s draw the architecture.
+Let’s pick the right tool.
+Let’s choose a framework.
+Let’s weigh the tradeoffs.
+Let’s prototype both.
+Let’s timebox it.
+Let’s keep it lean.
+Let’s keep it boring.
+Let’s keep it fast.
+Let’s keep it clean.
+Let’s keep shipping.
+Keep calm and commit.
+Keep calm and debug.
+Keep calm and ship it.
+Keep calm and write tests.
+Stay curious.
+Stay focused.
+Stay in flow.
+Code boldly.
+Code calmly.
+Code kindly.
+Code happily.
+Build something you’re proud of.
+Build something small today.
+Build something weird.
+Build the tool you wish existed.
+Build it once, build it well.
+Ship something small.
+Ship something today.
+Ship it and learn.
+Fix one thing today.
+Fix the thing that annoys you.
+Fix it before it grows.
+Learn one new thing today.
+Learn by building.
+Break things, then fix them.
+Break it down.
+Break the problem into pieces.
+One bug at a time.
+One feature at a time.
+One test at a time.
+One commit at a time.
+Step by step, line by line.
+Little by little, it ships.
+Brick by brick, build the app.
+Let’s raise the walls.
+Let’s add the roof.
+Let’s paint the walls.
+Ideas in, code out.
+Coffee in, code out.
+Questions in, answers out.
+Bugs in, fixes out.
+Thoughts in, commits out.
+From draft to done.
+From bug to fix.
+From messy to clean.
+From slow to fast.
+From broken to working.
+From prototype to product.
+From hello world to hello users.
+Hello, world. Again.
+No bugs were harmed today. Yet.
+Bugs fear us.
+Bug hunting season is open.
+Let’s go bug hunting.
+Let’s corner that bug.
+That bug won’t fix itself.
+That bug has met its match.
+Have you tried turning it off and on?
+It’s not a bug, it’s a feature. Let’s check.
+Off-by-one? Let’s count again.
+Semicolons optional, curiosity required.
+Tabs or spaces? Let’s just build.
+There are only two hard problems. Let’s solve one.
+The best code is no code. The second best is ours.
+No yaks were shaved today.
+Rubber duck reporting for duty.
+Your friendly neighborhood coder.
+Ones and zeros, at your service.
+Bits and bytes, let’s make it right.
+Functions and fun, let’s begin.
+Arrays of ideas, let’s iterate.
+Objects of desire, let’s build them.
+Promises kept, features shipped.
+Async dreams, sync results.
+Let’s resolve that promise.
+Let’s handle the rejection gracefully.
+Let’s await something great.
+Let’s filter out the noise.
+Let’s reduce the complexity.
+Let’s find the needle.
+Let’s join the pieces.
+Let’s merge the ideas.
+Let’s branch out.
+Let’s check out something new.
+Let’s cherry-pick the best ideas.
+Let’s squash the noise.
+Let’s push forward.
+Let’s compile some ideas.
+Let’s interpret the error.
+Let’s render something lovely.
+Let’s hydrate the page.
+Let’s mount the component.
+Let’s pass the props.
+Let’s hook it up.
+Let’s query the data.
+Let’s mutate carefully.
+Let’s subscribe to progress.
+Let’s listen for changes.
+Let’s observe the system.
+Let’s buffer the chaos.
+Let’s pipe it through.
+Let’s queue the work.
+Let’s spawn a worker.
+Let’s scale it up.
+Let’s containerize it.
+Let’s orchestrate it.
+Let’s deploy to the edge.
+Let’s go full stack.
+Let’s go back to basics.
+Let’s zoom out.
+Let’s zoom in.
+Let’s take a fresh look.
+Let’s question the assumption.
+Let’s read the docs.
+Let’s check the changelog.
+Let’s search the issues.
+Let’s ask the code.
+Let’s bisect the bug.
+Let’s reproduce it first.
+Let’s make the failing test pass.
+Let’s clean up after green.
+Red, green, refactor.
+Think, code, test.
+Read, write, run.
+Build, measure, learn.
+Try, fail, learn, ship.
+Dream, design, deliver.
+Write it, test it, ship it.
+Clean code, clear mind.
+Small diffs, happy reviewers.
+Good names, happy future you.
+Good tests, calm nights.
+Good docs, fewer questions.
+Good defaults, happy users.
+Your future self is watching.
+Write code your future self will love.
+Leave the code better than you found it.
+Make it boring. Boring is reliable.
+Make it small.
+Make it kind.
+Make it yours.
+Make it sing.
+Make it snappy.
+Make it real.
+Make something today.
+Make something new.
+Make something weird.
+Make something fun.
+Make the hard thing easy.
+Make the slow thing quick.
+Make the confusing thing clear.
+Make the ugly thing pretty.
+Turn coffee into code.
+Turn ideas into features.
+Turn chaos into structure.
+Turn questions into answers.
+Turn sketches into software.
+Turn red into green.
+Turn plans into progress.
+A fresh chat for a fresh idea.
+A new box, a new beginning.
+A good place to start.
+A perfect time to code.
+A great day for a refactor.
+A great day for a bug fix.
+A great day to learn.
+A tiny fix, a big relief.
+A clean diff is a happy diff.
+A green build is a good build.
+A clear name is a gift.
+A good question is half the answer.
+An empty box is full of potential.
+An open mind, an open editor.
+Nothing but possibilities.
+Nothing a good test can’t catch.
+Nothing we can’t debug.
+Anything is possible with enough commits.
+Anything you can describe, we can build.
+Anything on your mind?
+Anything new today?
+Something to build?
+Something to learn?
+Something to ship?
+Something to try?
+Something cool in mind?
+Something big brewing?
+Got a bug? I’ve got time.
+Got a feature? Let’s build it.
+Got a question? Ask away.
+Got a minute? Let’s ship.
+Got an error? Let’s read it.
+Got a dream? Let’s prototype.
+Ask away.
+Fire away.
+Code away.
+Lead the way.
+Point me at the bug.
+Point me at the file.
+Point me at the feature.
+Let me take the boring part.
+Let me write the boilerplate.
+Let me explain that code.
+Let me find that bug.
+Let me tidy that up.
+Let me sketch the plan.
+Let me check that for you.
+Let me help you ship.
+Together, we ship.
+Together, we debug.
+Two heads, one codebase.
+You lead, I’ll code.
+You decide, I’ll do.
+You ask, I answer.
+You describe, I build.
+Your vision, my keystrokes.
+Your idea deserves to exist.
+Your codebase, upgraded.
+Your bugs, squashed.
+Your tests, passing.
+Your feature, shipped.
+Your app, faster.
+Your day, easier.
+Your time is valuable. Let’s use it well.
+Your ideas matter.
+Your next fix is one message away.
+Your next breakthrough is one message away.
+Ready to build?
+Ready to debug?
+Ready to refactor?
+Ready to create?
+Ready to explore?
+Ready to deploy?
+Ready, set, code.
+Ready, steady, ship.
+Lights, camera, compile.
+Three, two, one, build.
+Liftoff in one prompt.
+Engines on. Let’s fly.
+All systems go.
+Houston, we have an idea.
+Ground control to builder.
+Prepare for takeoff.
+The runway is clear.
+The road is open.
+The floor is yours.
+The keyboard is yours.
+The editor awaits.
+The terminal awaits.
+The compiler awaits.
+The users await.
+The future awaits.
+Treasure hidden in the logs.
+Here be dragons. Let’s tame them.
+Into the codebase we go.
+Down the rabbit hole, carefully.
+Deep dive time.
+Building time.
+Shipping time.
+Refactoring time.
+Learning time.
+Creative time.
+Maker time.
+Hacker time.
+Code o’clock.
+It’s a good time to start.
+It’s never too late to refactor.
+It’s okay to start messy.
+It’s okay to ask.
+It’s okay to delete code.
+It’s just code. We’ve got this.
+We’ve got this.
+We can build that.
+We can ship that.
+We can figure it out.
+We can make it work.
+We’ll get there.
+We’ll ship it.
+We’ll make it shine.
+Let’s figure it out together.
+Let’s make sense of the mess.
+Let’s turn the mess into magic.
+Let’s make some magic.
+Let’s cook something up.
+Let’s cook up a feature.
+Let’s bake in some tests.
+Let’s stir up some ideas.
+Let’s plate the release.
+Fresh out of the compiler.
+Hot off the press: your next feature.
+Handcrafted with care.
+Artisanal commits.
+Made with love and logic.
+Built with curiosity.
+Powered by ideas.
+Fueled by curiosity.
+Driven by users.
+Shaped by feedback.
+Inspired by problems.
+Born from a bug report.
+Assembled with care.
+Engineered for joy.
+Optimized for happiness.
+Tuned for speed.
+Ready for production.
+Ready for anything.
+Bring it on.
+Let’s tackle it.
+Let’s crack it.
+Let’s nail it.
+Let’s own it.
+Let’s solve it.
+Let’s fix it.
+Let’s test it.
+Let’s build on it.
+Let’s rethink it.
+Let’s rewrite it, carefully.
+Let’s see what breaks.
+Let’s see what’s possible.
+Let’s see where this goes.
+Let’s surprise ourselves.
+Let’s raise the bar.
+Let’s go the extra mile.
+Let’s sweat the details.
+Let’s get the details right.
+Let’s get it right the first time.
+Let’s get it working first.
+Let’s get it in front of users.
+Let’s get feedback early.
+Let’s iterate quickly.
+Let’s move carefully and ship things.
+Let’s be bold.
+Let’s be clever.
+Let’s be thorough.
+Let’s be pragmatic.
+Let’s be creative.
+Let’s be curious.
+Let’s enjoy the process.
+Let’s celebrate small wins.
+Let’s make it count.
+Let’s make a dent.
+Let’s make waves.
+Let’s make it quietly excellent.
+Let’s build in public.
+Let’s build for fun.
+Let’s build for the future.
+Let’s build for scale.
+Let’s build for clarity.
+Let’s build a better tomorrow, one commit at a time.
+Let’s build a game.
+Let’s build a website.
+Let’s build an app.
+Let’s build a library.
+Let’s build a plugin.
+Let’s build an extension.
+Let’s build a landing page.
+Let’s build a portfolio.
+Let’s build a store.
+Let’s build a chat app.
+Let’s build a calculator.
+Let’s build a timer.
+Let’s build a weather app.
+Let’s build a quiz.
+Let’s build a puzzle.
+Let’s build a parser.
+Let’s build a compiler.
+Let’s build an interpreter.
+Let’s build a database.
+Let’s build a game engine.
+Let’s build a component library.
+Let’s build a form.
+Let’s build a table.
+Let’s build a navbar.
+Let’s build a sidebar.
+Let’s build a calendar.
+Let’s build a kanban board.
+Let’s build a markdown editor.
+Let’s build a habit tracker.
+Let’s build a budget app.
+Let’s build a flashcard app.
+Let’s build a pomodoro timer.
+Let’s build a URL shortener.
+Let’s build a file uploader.
+Let’s build a search engine.
+Let’s build an AI agent.
+Let’s build a Discord bot.
+Let’s build a CLI tool.
+Let’s build a mobile app.
+Let’s build a desktop app.
+Let’s build a GraphQL API.
+Let’s build a real-time app.
+Let’s build a multiplayer game.
+Let’s build a snake game.
+Let’s build a particle system.
+Let’s build a visualizer.
+Let’s build a synth.
+Let’s build a chatbot.
+Let’s build a status page.
+Let’s build an admin panel.
+Let’s build a checkout flow.
+Let’s build a settings screen.
+Let’s build a profile page.
+Let’s build a notification center.
+Let’s build a file explorer.
+Let’s build a text editor.
+Let’s build a color picker.
+Let’s build a date picker.
+Let’s build a toast system.
+Let’s build an infinite scroll.
+Let’s build an image gallery.
+Let’s build a video player.
+Let’s build a map view.
+Let’s build a tree view.
+Let’s build a diff viewer.
+Let’s build a test runner.
+Let’s build a build tool.
+Let’s build a linter rule.
+Let’s build a migration script.
+Let’s build a backup script.
+Let’s build a webhook handler.
+Let’s build an auth system.
+Let’s build a permission system.
+Let’s build a job queue.
+Let’s build a rate limiter.
+Let’s build an event bus.
+Let’s build an undo stack.
+Let’s build a plugin API.
+Let’s build a keyboard shortcut system.
+Let’s build a command palette.
+Let’s build a sync engine.
+Let’s build an offline mode.
+Let’s build an export feature.
+Let’s build a comment system.
+Let’s build a like button.
+Let’s build a timeline.
+Let’s build a progress bar.
+Let’s build a loading spinner.
+Let’s build a 404 page.
+Let’s build an about page.
+Let’s build a contact form.
+Let’s build a newsletter signup.
+Let’s build a waitlist.
+Let’s build a proof of concept.
+Let’s build a demo.
+Let’s build your dream project.
+Let’s build something nobody asked for.
+Let’s build something everyone needs.
+Let’s build something your friends will love.
+Let’s build something to show off.
+Let’s build something tiny and perfect.
+Let’s build something big, one piece at a time.
+Let’s build something that sparks joy.
+Let’s build something that solves a real problem.
+Let’s build something that just works.
+Let’s build something unexpected.
+Let’s build something open source.
+Let’s build something together.
+Big apps start with one file.
+Big wins start with small fixes.
+Great code is read more than written.
+Great products are shipped, not imagined.
+Great teams ship small and often.
+Simplicity is the ultimate sophistication.
+Clarity over cleverness.
+Users over ego.
+Tests over hope.
+Data over opinions.
+Curiosity over certainty.
+Kindness in code reviews.
+Courage in refactoring.
+Discipline in testing.
+Joy in building.
+Code is a craft.
+Code is a conversation.
+Code is a story.
+Code is a playground.
+Code is a superpower.
+Software eats the world. Let’s cook.
+Programs must be written for people to read.
+Measure twice, deploy once.
+Read twice, refactor once.
+Test twice, ship once.
+Commit early, commit often.
+Push small, push often.
+Debug calmly, fix permanently.
+Document clearly, onboard quickly.
+Name well, read easily.
+Cache wisely, invalidate carefully.
+Abstract carefully, inline freely.
+Fearless refactoring starts with tests.
+Confidence comes from coverage.
+Speed comes from simplicity.
+Clarity comes from naming.
+Stability comes from tests.
+Mastery comes from practice.
+Practice makes progress.
+Practice makes shipped.
+Every error is a clue.
+Every warning is a hint.
+Every review is a gift.
+Every refactor is a fresh start.
+Every test is a promise.
+Every user is a reason.
+Every keystroke is progress.
+Keep learning.
+Keep shipping.
+Keep exploring.
+Keep going, you’re doing great.
+You’re doing great.
+You’re closer than you think.
+You’re one fix away.
+You’re one test away.
+You’re on a roll.
+You’re in the zone.
+You’re a builder.
+You’re a problem solver.
+You’re the architect.
+You write the story. I’ll write the code.
+Captain, the code is ready.
+Reporting for duty.
+At your service.
+Standing by.
+Ready for orders.
+Mission control, ready.
+Assistant online.
+Copilot engaged.
+Brain warmed up.
+Gears turning.
+Compiler warmed up.
+Fingers stretched.
+Coffee poured.
+Tea steeped.
+Playlist on.
+Headphones on, world off.
+Notifications off. Let’s code.
+Deep work starts now.
+Flow state loading.
+Creativity loading.
+Ideas loading.
+Awesomeness loading.
+Loading greatness...
+Compiling brilliance...
+Deploying joy...
+Running happiness.exe
+Bootstrapping your next idea.
+Spinning up something new.
+Warming up the engines.
+Sharpening the tools.
+Polishing the keyboard.
+Setting the stage.
+Opening the workshop.
+The workshop is open.
+The lab is ready.
+The studio is yours.
+Welcome to the lab.
+Welcome to your build space.
+Welcome to the code side.
+Welcome in. Let’s build.
+Make yourself at home.
+Grab a coffee. Let’s code.
+Grab a snack. Let’s debug.
+Settle in. Let’s build.
+Take a breath. Let’s begin.
+Clear your mind. Open your editor.
+No rush. Let’s do it right.
+No pressure. Just progress.
+No idea too small.
+No question too basic.
+No feature too wild.
+No worries, let’s fix it.
+Zero bugs is a journey.
+Version one starts now.
+Version two will be even better.
+The next version starts here.
+Let’s make version one.
+Let’s improve version one.
+Chapter one: the first commit.
+Page one of your next project.
+Episode one: the bug hunt.
+Step one: say what you need.
+First, a plan.
+First, a question.
+First, a prototype.
+First things first.
+Start anywhere.
+Start simple.
+Start with why.
+Start with the user.
+Start with the data.
+Start with a sketch.
+Start with a sentence.
+Begin where you are.
+Begin with a bug.
+Begin with a dream.
+Just start.
+Just ship it.
+Just ask.
+Just build.
+Just one more feature.
+Just one more test.
+Just one more commit.
+Just a quick change?
+Just a small tweak?
+Just exploring?
+Just here to learn?
+Just here to build?
+Quick fix? Let’s do it.
+Quick prototype? Let’s go.
+Quick refactor? Let’s tidy.
+Quick win incoming.
+Big refactor? Let’s plan it.
+Big bug? Let’s corner it.
+Big idea? Let’s scope it.
+Big day? Let’s start small.
+Hard problem? Even better.
+Tough bug? Bring it.
+Strange behavior? Let’s trace it.
+Slow page? Let’s profile.
+Messy code? Let’s clean.
+New stack? Let’s learn it.
+New repo? Let’s set it up.
+New idea? Let’s test it.
+New day, new code.
+New chat, new possibilities.
+New bug, new lesson.
+New commit, new progress.
+Fresh eyes, fresh code.
+Fresh start, fresh ideas.
+Fresh coffee, fresh commits.
+Clean branch, clean mind.
+Clean tree, clean slate.
+Clean code, happy team.
+Happy coding.
+Happy building.
+Happy debugging.
+Happy hacking.
+Happy testing.
+Happy creating.
+Enjoy the build.
+Enjoy the flow.
+Enjoy the craft.
+Have fun shipping.
+Have fun breaking things.
+Have a great build.
+May your tests pass.
+May your bugs be shallow.
+May your deploys be boring.
+May your code compile first try.
+May your logs be helpful.
+May your focus be deep.
+May your diffs be small.
+Clear skies, clean code.
+Smooth sailing ahead.
+Fair winds and passing tests.
+Looking good. Let’s build.
+Looks like a great day to code.
+Feels like a refactor day.
+Feels like a bug-fixing day.
+Feels like a feature day.
+Feels like a building day.
+Smells like fresh code.
+Sounds like fun. Let’s build.
+That sounds doable.
+That sounds fun.
+Consider it built.
+Consider it fixed.
+Consider it tested.
+Say the word.
+Say what you need.
+Say it, and we’ll build it.
+Speak your mind.
+Type your bug.
+Type your dream.
+Type it out.
+Spell it out. I’ll code it up.
+Describe the feature.
+Describe the dream.
+Describe the problem.
+Explain it like I’m a compiler.
+Talk code to me.
+Let’s talk shop.
+Let’s talk tradeoffs.
+Let’s talk performance.
+Let’s talk design.
+Let’s talk about that bug.
+Let’s brainstorm.
+Let’s riff on it.
+Let’s jam on some code.
+Let’s hack on something.
+Let’s noodle on it.
+Let’s play with it.
+Let’s kick the tires.
+Let’s take it for a spin.
+Let’s give it a shot.
+Let’s take a crack at it.
+Let’s take the first step.
+Let’s pick up where you left off.
+Let’s continue the journey.
+Let’s finish what we started.
+Let’s close the loop.
+Let’s tie up loose ends.
+Let’s check it off.
+Let’s get it done.
+Let’s call it done.
+Let’s make it official.
+Let’s make it live.
+Let’s go to production.
+Let’s go build.
+Code awaits.
+Greatness awaits.
+Progress awaits.
+Your users await.
+Something great is about to happen.
+Something new is about to begin.
+This is where the magic happens.
+This is where ideas become apps.
+This is your space to build.
+This is your moment.
+This chat is ready.
+Here’s to great code.
+Here’s to clean commits.
+Here’s to shipping.
+Here’s to the builders.
+Here’s to the dreamers.
+Here’s to the next release.
+Cheers to clean code.
+Raise a mug to the build.
+Toast to the tests.
+To infinity and beyond the backlog.
+Beyond the bug lies the feature.
+Behind every bug is a lesson.
+Behind every great product is a lot of commits.
+Under the hood, it’s all ideas.
+Over the hump, into the flow.
+Across the stack, one layer at a time.
+Around the bug, through the code.
+Below the surface, clean code.
+Within reach: your next feature.
+Within reach: a green build.
+On the menu today: features.
+On the agenda: shipping.
+Up next: something great.
+Coming up: your best commit yet.
+Now playing: focus mode.
+Now serving: fresh code.
+Now accepting: ideas, bugs and dreams.
+Open for bugs.
+Open for business.
+Open source, open mind.
+Always learning.
+Always shipping.
+Never stop building.
+Never stop learning.
+Never stop shipping.
+Onward.
+Forward.
+Onward to the next commit.
+Forward to the next feature.
+`.trim().split('\n');
+const boardGreeting = () => BOARD_GREETINGS[Math.floor(Math.random() * BOARD_GREETINGS.length)];
+
 /* ----- Holidays: the signature sky (launch and Home) takes the day's colours (launch.css) ----- */
 // Month-day keys as in GREET_DATES. main.js has the same list for the splash window, which runs no scripts.
 const HOLIDAYS: Record<string, string> = {

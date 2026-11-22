@@ -879,12 +879,14 @@ function rotatePlaceholder(ta: HTMLTextAreaElement, home: string, list: string[]
   place(); sync();
   const r = { ta, list, layer };
   let hoverTimer: TimeoutId | undefined;
-  ta.addEventListener('pointerenter', () => {
+  // Hovering anywhere on the composer counts, not just the one-line textarea inside it.
+  const hoverEl = ta.closest<HTMLElement>('.composer-box') ?? ta;
+  hoverEl.addEventListener('pointerenter', () => {
     nextPlaceholder(r);
     clearInterval(hoverTimer);
-    hoverTimer = powerSaver() ? undefined : setInterval(() => nextPlaceholder(r), 5000); // the saver shows one example and leaves it
+    hoverTimer = powerSaver() ? undefined : setInterval(() => nextPlaceholder(r), 10_000); // the saver shows one example and leaves it
   });
-  ta.addEventListener('pointerleave', () => { clearInterval(hoverTimer); hoverTimer = undefined; });
+  hoverEl.addEventListener('pointerleave', () => { clearInterval(hoverTimer); hoverTimer = undefined; });
   // Typing mid-swap: drop the swap so the placeholder can blur away at once.
   ta.addEventListener('input', () => layer.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); }));
 }

@@ -600,7 +600,7 @@ const CODE_SIZE_MIN = 10, CODE_SIZE_MAX = 24, CODE_SIZE_DEFAULT = 14;
 let codeSize = clamp(Math.round(Number(store.get<number>('breeze.codeSize', CODE_SIZE_DEFAULT)) || CODE_SIZE_DEFAULT), CODE_SIZE_MIN, CODE_SIZE_MAX);
 // Settings → Appearance → Text. [id, label, CSS family stack]; the id is the stored value. Every code font ships
 // with Breeze (assets/fonts, @font-face in breeze.css and termwin.css); Google Sans Code is the default. Of the
-// interface fonts the first two ship too; the rest are system fonts, offered only when installed (fontInstalled).
+// interface fonts the first three ship too; the rest are system fonts, offered only when installed (fontInstalled).
 type FontChoice = [string, string, string];
 const CODE_FONTS: FontChoice[] = [
   ['google-sans-code', 'Google Sans Code', '"Google Sans Code", "Google Sans", Consolas, monospace'],
@@ -613,12 +613,10 @@ const CODE_FONTS: FontChoice[] = [
 const UI_FONTS: FontChoice[] = [
   ['instrument-sans', 'Instrument Sans', '"Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'],
   ['google-sans', 'Google Sans', '"Google Sans", "Instrument Sans", "Segoe UI", sans-serif'],
+  ['inter', 'Inter', 'Inter, "Instrument Sans", "Segoe UI", sans-serif'],
   ['system-ui', 'System default', 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'],
   ['segoe-ui', 'Segoe UI', '"Segoe UI Variable Text", "Segoe UI", sans-serif'],
-  ['inter', 'Inter', 'Inter, "Segoe UI", sans-serif'],
   ['roboto', 'Roboto', 'Roboto, "Segoe UI", sans-serif'],
-  ['arial', 'Arial', 'Arial, sans-serif'],
-  ['verdana', 'Verdana', 'Verdana, sans-serif'],
 ];
 const pickFont = (list: FontChoice[], id: unknown): FontChoice => list.find(f => f[0] === id) ?? list[0];
 let codeFont = pickFont(CODE_FONTS, store.get<string>('breeze.codeFont', CODE_FONTS[0][0]))[0];

@@ -216,3 +216,33 @@ test('partialString reads a string field from arguments that are still arriving'
   assert.deepEqual(brain.partialString(String.raw`{"content":"a\\b"}`, 'content'), { text: String.raw`a\b`, done: true });
   assert.equal(brain.partialString(String.raw`{"content":"x \"path\": \"y"`, 'path'), null); // a key inside the text isn't one
 });
+
+test('readInstructions imports Claude and Codex instruction files, project last, without duplicates', () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-instr-'));
+  const dir = (...p) => { const d = path.join(tmp, ...p); fs.mkdirSync(d, { recursive: true }); return d; };
+  const homes = { claudeHome: dir('claude'), codexHome: dir('codex') }, base = dir('proj');
+  fs.writeFileSync(path.join(homes.claudeHome, 'CLAUDE.md'), 'Use tabs.');
+  fs.writeFileSync(path.join(homes.codexHome, 'AGENTS.md'), 'ignored: the override wins');
+  fs.writeFileSync(path.join(homes.codexHome, 'AGENTS.override.md'), 'Write tests.');
+  fs.writeFileSync(path.join(dir('proj', '.claude'), 'CLAUDE.md'), 'Same rules.');
+  fs.writeFileSync(path.join(base, 'AGENTS.md'), 'Same rules.');
+  const got = brain.readInstructions(base, homes);
+  assert.deepEqual(got.map(i => i.text), ['Use tabs.', 'Write tests.', 'Same rules.']);
+  assert.match(got[2].label, /^CLAUDE\.md/);
+  const cut = brain.readInstructions(base, homes, 12);
+  assert.equal(cut.length, 2);
+  assert.match(cut[1].text, /^Wri\n\[… cut/);
+  assert.deepEqual(brain.readInstructions(dir('empty'), { claudeHome: dir('x'), codexHome: dir('y') }), []);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('systemPrompt adds the environment, and the user instructions only when there are some', () => {
+  const env = { project: 'app', base: '/w/app', platform: 'linux', shell: '/bin/sh', date: '2026-11-22', instructions: [] };
+  const plain = brain.systemPrompt(env);
+  assert.match(plain, /^You are Breeze/);
+  assert.match(plain, /# Environment[\s\S]*Today's date: 2026-11-22/);
+  assert.doesNotMatch(plain, /user's instructions/);
+  const withUser = brain.systemPrompt({ ...env, instructions: [{ label: 'CLAUDE.md (this project)', text: 'Use tabs.' }] });
+  assert.match(withUser, /OVERRIDE[\s\S]*Contents of CLAUDE\.md \(this project\):\n\nUse tabs\.$/);
+});

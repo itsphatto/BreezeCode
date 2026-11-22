@@ -69,6 +69,41 @@ const extOpen = () => !extPop.hidden && !extPop.classList.contains('closing');
 const EXT_LOADING = '<p class="side-note">Looking for skills…</p>';
 let extShown = ''; // the list as last put in: a refresh that finds the same leaves it, and its rise-in, alone
 
+// Add belongs to the MCP tab only. On a tab switch it pops in beside the search, which glides over to make room,
+// and shrinks back out (pinned where it stood) as the search glides back. Transforms only; from wherever it is, so a
+// quick switch back mid-way just turns it around.
+const extAdd = $('#extAdd'), extSearchBox = $('.ext-search', extPop);
+let extAddOut: Animation | null = null;
+function setExtAdd(show: boolean, morph: boolean): void {
+  if (show === (!extAdd.hidden && !extAddOut)) return;
+  morph &&= !motionReduced();
+  const x0 = extSearchBox.getBoundingClientRect().left;
+  const cs = getComputedStyle(extAdd);
+  const from = extAdd.hidden ? { opacity: 0, transform: 'scale(.5)', filter: 'blur(4px)' }
+    : { opacity: cs.opacity, transform: cs.transform, filter: cs.filter };
+  extAdd.getAnimations().forEach(a => a.cancel());
+  extSearchBox.getAnimations().forEach(a => a.cancel());
+  extAddOut = null;
+  extAdd.style.position = extAdd.style.left = extAdd.style.top = '';
+  if (show || !morph) extAdd.hidden = !show;
+  else { // out of the row at once, so the search can take the room, but still drawn where it was while it goes
+    const r = extAdd.getBoundingClientRect(), head = extAdd.parentElement!.getBoundingClientRect();
+    Object.assign(extAdd.style, { position: 'absolute', left: `${r.left - head.left}px`, top: `${r.top - head.top}px` });
+  }
+  if (!morph) return;
+  const opts = { duration: 420, easing: SPRING };
+  const dx = x0 - extSearchBox.getBoundingClientRect().left;
+  if (Math.abs(dx) > .5) extSearchBox.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], opts);
+  if (show) { extAdd.animate([from, { opacity: 1, transform: 'none', filter: 'none' }], opts); return; }
+  const out = extAddOut = extAdd.animate([from, { opacity: 0, transform: 'scale(.5)', filter: 'blur(4px)' }], { duration: 200, easing: 'ease-in' });
+  out.onfinish = () => {
+    if (extAddOut !== out) return;
+    extAddOut = null;
+    extAdd.hidden = true;
+    extAdd.style.position = extAdd.style.left = extAdd.style.top = '';
+  };
+}
+
 const extMatches = (...text: (string | undefined)[]) => !extQuery || text.some(t => t?.toLowerCase().includes(extQuery));
 function extSection(title: string, count: number, rows: string, empty: string): string {
   return `<div class="ext-section"><span>${esc(title)}</span><span class="n">${count}</span></div>${rows || `<p class="side-note">${esc(extQuery ? 'Nothing matches your search.' : empty)}</p>`}`;
@@ -82,7 +117,7 @@ function renderSkills(rise = false): void {
     b.classList.toggle('on', on);
     b.setAttribute('aria-selected', String(on));
   });
-  $('#extAdd').hidden = extTab !== 'mcp';
+  setExtAdd(extTab === 'mcp', false);
   let html: string;
   if (!skillData) html = EXT_LOADING;
   else if (extTab === 'skills') {
@@ -118,13 +153,22 @@ async function refreshSkills(): Promise<void> {
   renderSkills();
 }
 
-function openExtensions(tab: ExtTab): void {
+// The viewport point the pop-up grows out of and shrinks back into: where it was clicked open, else the middle.
+let extFrom: [number, number] | null = null;
+function aimExt(): void {
+  const pop = $('.ext-pop', extPop);
+  const [x, y] = extFrom ?? [innerWidth / 2, innerHeight / 2];
+  pop.style.transformOrigin = `${x - pop.offsetLeft}px ${y - pop.offsetTop}px`;
+}
+function openExtensions(tab: ExtTab, from?: [number, number]): void {
   extTab = tab;
   if (!extOpen()) {
     extQuery = '';
     extSearch.value = '';
+    extFrom = from ?? null;
     extPop.classList.remove('closing');
     extPop.hidden = false;
+    aimExt();
     staggerIn($('.ext-head', extPop).children); // marked once; showing the pop-up again replays their rise
   }
   renderSkills(true);
@@ -133,16 +177,21 @@ function openExtensions(tab: ExtTab): void {
 }
 function closeExtensions(): void {
   if (!extOpen()) return;
+  aimExt(); // the window may have been resized since it opened
   extPop.classList.add('closing');
-  // As a closing dialog (closeModal): gone once its fade has run, while the roll-up is still finishing out of sight.
+  // As a closing dialog (closeModal): gone once the shrink has run.
   setTimeout(() => { if (extPop.classList.contains('closing')) { extPop.hidden = true; extPop.classList.remove('closing'); } }, 380);
 }
-$$<HTMLElement>('[data-ext-open]').forEach(b => b.onclick = () => openExtensions(b.dataset.extOpen as ExtTab));
+$$<HTMLElement>('[data-ext-open]').forEach(b => b.onclick = e => {
+  const r = b.getBoundingClientRect(); // a keyboard click (detail 0) has no pointer: grow out of the button's middle
+  openExtensions(b.dataset.extOpen as ExtTab, e.detail ? [e.clientX, e.clientY] : [r.left + r.width / 2, r.top + r.height / 2]);
+});
 // The highlight glides from the old tab to the new one, and the new list rises in.
 $$<HTMLButtonElement>('[data-ext-tab]', extPop).forEach(b => b.onclick = () => {
   if (b.dataset.extTab === extTab) return;
   const from = extPop.querySelector('.ext-tab.on')?.getBoundingClientRect();
   extTab = b.dataset.extTab as ExtTab;
+  setExtAdd(extTab === 'mcp', true);
   renderSkills(true);
   slideSelected(b, from);
 });

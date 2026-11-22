@@ -333,3 +333,76 @@ termInput.addEventListener('input', () => { updateGhost(); if (suggest?.owner ==
 termInput.addEventListener('blur', () => { termGhost.innerHTML = ''; hideSuggest(); });
 termInput.addEventListener('focus', updateGhost);
 
+
+/* ----- Every other textbox: words you typed before, plus the words in open files ----- */
+// Tab or a click takes a word; Enter still sends or submits. Fields that look like they hold a secret are never learned from.
+type Textbox = HTMLInputElement | HTMLTextAreaElement;
+const learned = new Map<string, number>(store.get<[string, number][]>('breeze.words', []));
+let learnSave = 0;
+function isTextbox(el: EventTarget | null): el is Textbox {
+  const ok = el instanceof HTMLTextAreaElement ? !el.classList.contains('code-input')
+    : el instanceof HTMLInputElement && ['text', 'search'].includes(el.type) && el !== termInput && !el.matches('#qoIn, .menu input'); // those two arrow through their own lists
+  return ok && !(el as Textbox).readOnly && !(el as Textbox).disabled;
+}
+function learnWord(el: Textbox, word: string): void {
+  if (word.length < 3 || word.length > 30 || /\d/.test(word) || /key|token|secret|pass/i.test(`${el.id} ${el.name} ${el.placeholder} ${el.getAttribute('aria-label') ?? ''}`)) return;
+  learned.set(word, (learned.get(word) ?? 0) + 1);
+  clearTimeout(learnSave);
+  learnSave = window.setTimeout(() => store.set('breeze.words', [...learned].sort((a, b) => b[1] - a[1]).slice(0, 2000)), 1000);
+}
+function textboxCandidates(prefix: string): Suggestion[] {
+  const lower = prefix.toLowerCase(), words = new Map<string, number>();
+  for (const [w, n] of learned) words.set(w, n * 3);
+  for (const b of buffers.values()) if (b.kind === 'text') for (const [w, n] of fileWords(b)) words.set(w, (words.get(w) ?? 0) + n);
+  return [...words]
+    .filter(([w]) => w.length > prefix.length && w.toLowerCase().startsWith(lower))
+    .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)
+    .slice(0, 6)
+    .map(([w]) => ({ text: w }));
+}
+// Where `pos` sits on screen: measured in a hidden copy of a textarea, or by text width in a one-line input.
+function caretBox(el: Textbox, pos: number): { x: number; top: number; bottom: number } {
+  const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+  if (el instanceof HTMLInputElement) {
+    const x = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft) + textWidth(el.value.slice(0, pos), el) - el.scrollLeft;
+    return { x, top: r.top, bottom: r.bottom };
+  }
+  const copy = document.createElement('div'), mark = document.createElement('span');
+  copy.style.cssText = `position:fixed;left:0;top:0;visibility:hidden;white-space:pre-wrap;overflow-wrap:break-word;box-sizing:border-box;width:${r.width}px;font:${cs.font};letter-spacing:${cs.letterSpacing};line-height:${cs.lineHeight};padding:${cs.padding};border:${cs.border}`;
+  copy.textContent = el.value.slice(0, pos);
+  mark.textContent = '​';
+  copy.append(mark);
+  document.body.append(copy);
+  const m = mark.getBoundingClientRect();
+  copy.remove();
+  return { x: r.left + m.left, top: r.top + m.top - el.scrollTop, bottom: r.top + m.bottom - el.scrollTop };
+}
+let textboxAccepting = false;
+document.addEventListener('input', e => {
+  const el = e.target;
+  if (!isTextbox(el) || textboxAccepting) return;
+  const ie = e as InputEvent, pos = el.selectionStart ?? 0;
+  if (ie.inputType !== 'insertText' || el.selectionEnd !== pos) { if (suggest?.owner === el) hideSuggest(); return; }
+  const before = el.value.slice(Math.max(0, pos - 60), pos);
+  // A word just ended: remember it.
+  if (ie.data && !/[\w-]/.test(ie.data)) { const done = /(?:^|[^@/#\w-])([A-Za-z][\w-]*)$/.exec(before.slice(0, -ie.data.length)); if (done) learnWord(el, done[1]); }
+  // @mentions, /commands and #refs have their own menus; mid-word typing gets none.
+  const m = /(?:^|[^@/#\w-])([A-Za-z][\w-]*)$/.exec(before);
+  if (!m || m[1].length < 2 || /[\w-]/.test(el.value[pos] ?? '')) { if (suggest?.owner === el) hideSuggest(); return; }
+  const prefix = m[1], from = pos - prefix.length, at = caretBox(el, from);
+  showSuggest({
+    owner: el, items: textboxCandidates(prefix), sel: 0, typed: prefix.length,
+    accept: s => {
+      hideSuggest();
+      el.setSelectionRange(from, el.selectionStart ?? pos);
+      textboxAccepting = true;
+      document.execCommand('insertText', false, s.text); // keeps Ctrl+Z, and fires 'input' for the field's own listeners
+      textboxAccepting = false;
+    },
+  }, at.x - 8, at.bottom + 4, at.top - 4);
+});
+document.addEventListener('keydown', e => {
+  if (!suggest || suggest.owner !== e.target || !isTextbox(e.target)) return;
+  if (e.key === 'Enter') hideSuggest(); else suggestKeys(e, e.target);
+}, true); // before the field's own keys, so Tab and the arrows reach the list first
+document.addEventListener('focusout', e => { if (suggest?.owner === e.target && isTextbox(e.target)) hideSuggest(); });

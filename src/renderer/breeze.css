@@ -8,6 +8,14 @@
 }
 
 @font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../../assets/fonts/Inter-Variable.woff2') format('woff2');
+}
+
+@font-face {
   font-family: 'Unbounded';
   font-style: normal;
   font-weight: 500;
@@ -15024,6 +15032,45 @@ body.layout-animating #previewPane {
     margin-block: -28px -12px;
   }
 
+  /* And for the chats side bars and the Skills / Plugins / MCP dialog's list. The side list has no padding; the
+     dialog's is 12px above, 14px at the sides, 18px below. */
+  :is(.box-side-list, .ext-body) {
+    mask-image: linear-gradient(to bottom, transparent calc(var(--fade-top) * 12px), #000 calc(var(--fade-top) * 40px), #000 calc(100% - var(--fade-bot) * 40px), transparent calc(100% - var(--fade-bot) * 12px));
+    animation: setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0 48px, calc(100% - 48px) 100%;
+  }
+
+  :is(.box-side-list, .ext-body)::before,
+  :is(.box-side-list, .ext-body)::after {
+    content: "";
+    position: sticky;
+    z-index: 4;
+    display: block;
+    height: 40px;
+    pointer-events: none;
+  }
+
+  .box-side-list::before {
+    top: 0;
+    margin-block: 0 -40px;
+  }
+
+  .box-side-list::after {
+    bottom: 0;
+    margin-block: -40px 0;
+  }
+
+  .ext-body::before {
+    top: -12px;
+    margin: -12px -14px -28px;
+  }
+
+  .ext-body::after {
+    bottom: -18px;
+    margin: -22px -14px -18px;
+  }
+
   /* And for Breeze Space's terminal output. Not its conversation: a mask there would stop your messages' blur
      reaching the sky behind (a masked parent is all a backdrop-filter sees); its blurred edge layers below stay. */
   #box > .terminal .term-body {
@@ -15054,7 +15101,7 @@ body.layout-animating #previewPane {
     margin: -34px -14px -6px;
   }
 
-  :is(.set-main, .set-nav, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body)::before {
+  :is(.set-main, .set-nav, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-side-list, .ext-body)::before {
     mask-image: linear-gradient(#000, transparent);
     opacity: 0;
     backdrop-filter: url(#squeeze-top) blur(4px);
@@ -15063,7 +15110,7 @@ body.layout-animating #previewPane {
     animation-range: 0 48px;
   }
 
-  :is(.set-main, .set-nav, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body)::after {
+  :is(.set-main, .set-nav, #tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-side-list, .ext-body)::after {
     mask-image: linear-gradient(transparent, #000);
     opacity: 0;
     backdrop-filter: url(#squeeze-bot) blur(4px);
@@ -15112,8 +15159,8 @@ body.layout-animating #previewPane {
 
   /* Under a dialog the layers go (the plain fade stays): its blur hides them, and the page under a dialog is drawn
      again on every frame the dialog changes, so they were costing Settings frames as it scrolled. */
-  body.modal-up :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::before,
-  body.modal-up :is(#tree, #searchResults, #skillList, #scm, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::after {
+  body.modal-up :is(#tree, #searchResults, #skillList, #scm, .box-side-list, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::before,
+  body.modal-up :is(#tree, #searchResults, #skillList, #scm, .box-side-list, .box-main, #box > .terminal .term-body, .box-composer .prompt-field)::after {
     display: none;
   }
 
@@ -20465,7 +20512,7 @@ input.dbg-edit.bad:focus-visible {
   font-size: clamp(16px, 4.4cqi, 24px);
 }
 
-/* The logo sits on the first line's capitals (Instrument Sans caps are .72em tall; the h4 is trimmed to them). */
+/* The logo sits on the first line's capitals (Unbounded caps are about .7em tall; the h4 is trimmed to them). */
 .board-hello-row > :first-child {
   margin-top: calc(.36em - 14px);
 }
@@ -20487,8 +20534,7 @@ input.dbg-edit.bad:focus-visible {
 .agent-tab-panel > .board-hello h4 {
   margin: 0;
   min-width: 0;
-  /* Regular weight: the bundled Unbounded (500 and 700 only) reads bold, so the greeting is set in the UI face. */
-  font: 400 1em/1.3 var(--font-ui);
+  font: 500 1em/1.3 'Unbounded', var(--font-ui);
   letter-spacing: -.01em;
   /* Trimmed to the capitals, so the row centers the logo on the letters, not on the line box's empty descender. */
   text-box: trim-both cap alphabetic;
@@ -20497,11 +20543,10 @@ input.dbg-edit.bad:focus-visible {
   animation: rise .525s var(--spring);
 }
 
-/* Optical centre: the greeting and prompt sit a little above the middle; mathematically centred they look low. */
+/* The greeting and prompt sit in the middle of the box. */
 .board-box.fresh .board-box-main {
   container-type: inline-size;
   justify-content: center;
-  padding-bottom: 14%;
 }
 
 .board-box.fresh .board-chat {
@@ -21396,8 +21441,8 @@ body > .board-preview.full {
   place-items: center;
 }
 
-/* Opens and closes as Settings does (.scrim, .modal): the dim and blur on a layer of their own, the panel unrolling
-   down from its top strip and rolling back up into it. */
+/* The dim and blur on a layer of their own; the panel grows out of the point it was clicked open from and shrinks
+   back into it (skills.ts aimExt sets its transform-origin). */
 .ext-scrim::before {
   content: "";
   position: absolute;
@@ -21419,10 +21464,30 @@ body > .board-preview.full {
   height: min(760px, calc(100vh - 64px));
   background: var(--bg-1);
   border: 1px solid var(--line);
-  border-radius: 16px; /* a dialog's, and the round of modalGrow's clip */
+  border-radius: 16px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
   overflow: hidden;
-  animation: modalGrow .5s var(--spring);
+  animation: extGrow .5s var(--spring);
+}
+
+@keyframes extGrow {
+  from {
+    opacity: 0;
+    transform: scale(.1);
+  }
+  35% {
+    opacity: 1;
+  }
+}
+
+@keyframes extShrink {
+  50% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: scale(.1);
+  }
 }
 
 .ext-scrim.closing {
@@ -21435,10 +21500,11 @@ body > .board-preview.full {
 
 .ext-scrim.closing .ext-pop {
   will-change: transform, opacity;
-  animation: settingsRoll .54s var(--spring) both, settingsFade .36s both;
+  animation: extShrink .32s cubic-bezier(.4, 0, 1, 1) both;
 }
 
 .ext-head {
+  position: relative; /* the Add button is pinned against it while it shrinks out (setExtAdd, skills.ts) */
   display: flex;
   align-items: center;
   gap: 10px;
