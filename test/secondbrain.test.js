@@ -205,6 +205,18 @@ test('the tools agents get are defined once', () => {
   for (const t of BRAIN_TOOL_DEFS) assert.equal(t.schema.type, 'object');
 });
 
+test('the second brain view has search, labels, a detail panel with Focus, and a list', () => {
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'src/renderer/breeze/brain.ts'), 'utf8');
+  // Search dims and highlights instead of hiding, and Enter opens the best match.
+  for (const s of ['function brainSearch(', 'function brainOpenBest(', "e.key === 'Enter'"]) assert.ok(ui.includes(s), s);
+  // Names never overlap: each label checks the boxes already placed.
+  assert.match(ui, /placed\.some\(p => box\[0\] < p\[2\]/);
+  // A click opens the panel with linked memories; Focus shows one neighbourhood; List shows everything as text.
+  for (const s of ['function brainSelect(', 'Linked memories', "data-act=\"focus\"", 'function brainList(', 'data-mode="list"']) assert.ok(ui.includes(s), s);
+  // Keys: / searches, F fits, + and - zoom; reduced motion skips the camera move.
+  for (const s of ["e.key === '/'", "e.key === 'f'", "e.key === '+'", 'if (brainStill()) { brain.view = to;']) assert.ok(ui.includes(s), s);
+});
+
 test('main, preload and the board are wired', () => {
   const src = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   const main = src('src/main/main.ts');

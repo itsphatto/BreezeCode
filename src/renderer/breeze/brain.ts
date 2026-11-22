@@ -1,13 +1,16 @@
-/* ===================== Second brain: a folder's memory as a graph =====================
+/* ===================== Second brain: a folder's memory as a graph or a list =====================
    Opened from the Agent board: right-click a folder's name in the chats side bar. Each dot is one memory that an
-   agent's compaction left behind (main secondbrain.ts); a line means two memories name the same file or share words.
-   Dots grow with their links, files are hubs, and memories linked to nothing drift on a ring at the edge.
-   Drawn on one canvas with a small force layout: wheel zooms at the pointer, dragging the background pans,
-   dragging a dot moves it, hovering one shows what it says, clicking it keeps that card open. */
+   agent's compaction, a prompt or Summarize left behind (main secondbrain.ts); a line means two memories name the
+   same file, share words, or an agent linked them. Dots grow with their links, files are hubs, and memories linked to
+   nothing drift on a ring at the edge.
+   What it borrows from graph tools and research on them: search highlights and dims instead of hiding (Obsidian's
+   most asked-for graph change), names fade in as you zoom and never overlap (semantic zoom), a click opens a card with
+   the memory's links to hop along, Focus shows one memory's neighbourhood (a local graph), and a plain List view,
+   which many people read faster than any graph. */
 
 interface BrainDot extends BrainNode { x: number; y: number; vx: number; vy: number; deg: number; r: number; fixed: boolean }
 const BRAIN_KINDS: { kind: BrainKind; label: string }[] = [
-  { kind: 'decision', label: 'Decisions' }, { kind: 'fact', label: 'Facts' }, { kind: 'task', label: 'Tasks' }, { kind: 'file', label: 'Files' },
+  { kind: 'decision', label: 'Decisions' }, { kind: 'task', label: 'Tasks' }, { kind: 'fact', label: 'Facts' }, { kind: 'file', label: 'Files' },
 ];
 const brain = {
   el: null as HTMLElement | null,
@@ -21,13 +24,23 @@ const brain = {
   view: { x: 0, y: 0, k: 1 },
   alpha: 0,
   frame: 0,
-  hover: null as BrainDot | null,
-  pinned: null as BrainDot | null,
+  fly: 0,
+  hover: null as BrainDot | null, // under the pointer: a ring only
+  held: null as BrainDot | null, // hovered for BRAIN_HOLD_MS: its links light up, fading in by heldT
+  heldT: 0,
+  holdTimer: 0,
+  heldFrame: 0,
+  pinned: null as BrainDot | null, // the memory open in the side panel
+  focus: false, // Focus: only the open memory and what it links to
+  query: '',
+  matches: null as Set<string> | null, // null: no search
+  mode: 'graph' as 'graph' | 'list',
   colors: {} as Record<string, string>,
   back: null as HTMLElement | null,
   off: null as (() => void) | null,
 };
 const brainStill = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const brainQ = <T extends HTMLElement = HTMLElement>(sel: string) => brain.el!.querySelector<T>(sel)!;
 
 function brainBuild(): HTMLElement {
   const el = document.createElement('div');
@@ -38,28 +51,60 @@ function brainBuild(): HTMLElement {
   el.setAttribute('aria-labelledby', 'brainTitle');
   el.innerHTML = `<header class="brain-head">
       <div class="brain-heading"><h2 class="brain-title" id="brainTitle">Second brain</h2><div class="brain-sub"></div></div>
-      <div class="brain-legend" role="group" aria-label="Show or hide each kind of memory">${BRAIN_KINDS.map(k =>
-        `<button type="button" class="brain-chip" data-kind="${k.kind}" aria-pressed="true"><i></i><span>${k.label}</span><b></b></button>`).join('')}</div>
       <button type="button" class="btn btn-sm brain-summarize" title="Your agent reads this folder's chats and adds what's worth remembering. Uses tokens; you see an estimate first."><span>Summarize chats</span></button>
       <button type="button" class="icon-btn brain-close" title="Close (Esc)" aria-label="Close second brain">${svgIcon('x', 16)}</button>
     </header>
-    <canvas class="brain-canvas" aria-label="Memory graph"></canvas>
-    <div class="brain-empty hidden"><h3>Nothing remembered yet</h3><p>Memories show up here when an agent's chat in this folder is compacted.</p></div>
-    <div class="brain-card hidden" role="tooltip"></div>
-    <div class="brain-hint">Scroll to zoom · drag to move · double-click to fit</div>`;
+    <div class="brain-bar">
+      <label class="brain-search">${svgIcon('search', 14)}<input type="search" placeholder="Search memories" aria-label="Search memories" spellcheck="false" autocomplete="off"><kbd>/</kbd><span class="brain-count" aria-live="polite"></span></label>
+      <div class="brain-legend" role="group" aria-label="Show or hide each kind of memory">${BRAIN_KINDS.map(k =>
+        `<button type="button" class="brain-chip" data-kind="${k.kind}" aria-pressed="true"><i></i><span>${k.label}</span><b></b></button>`).join('')}</div>
+      <span class="flex-1"></span>
+      <div class="brain-seg" role="tablist" aria-label="View"><button type="button" role="tab" data-mode="graph" aria-selected="true">Graph</button><button type="button" role="tab" data-mode="list" aria-selected="false">List</button></div>
+    </div>
+    <div class="brain-body">
+      <div class="brain-stage">
+        <canvas class="brain-canvas" aria-label="Memory graph. The List view shows the same memories as text."></canvas>
+        <div class="brain-list hidden" role="list" aria-label="Memories"></div>
+        <div class="brain-empty hidden"><h3>Nothing remembered yet</h3><p>Memories show up here as you prompt, when an agent's chat is compacted, or when you summarize this folder's chats.</p></div>
+        <div class="brain-hover hidden" aria-hidden="true"></div>
+        <div class="brain-zoom" role="group" aria-label="Zoom">
+          <button type="button" class="icon-btn" data-zoom="in" title="Zoom in (+)" aria-label="Zoom in">${svgIcon('plus', 14)}</button>
+          <button type="button" class="icon-btn" data-zoom="out" title="Zoom out (−)" aria-label="Zoom out">${svgIcon('minus', 14)}</button>
+          <button type="button" class="icon-btn" data-zoom="fit" title="Fit to screen (F)" aria-label="Fit to screen">${svgIcon('maximize', 14)}</button>
+        </div>
+        <div class="brain-hint">Drag to move · scroll to zoom · click a dot to open it</div>
+      </div>
+      <aside class="brain-panel" aria-label="Memory" aria-hidden="true"></aside>
+    </div>`;
   document.body.appendChild(el);
-  brain.canvas = el.querySelector('canvas')!;
-  el.querySelector('.brain-close')!.addEventListener('click', closeSecondBrain);
-  const sum = el.querySelector<HTMLButtonElement>('.brain-summarize')!;
+  brain.el = el;
+  brain.canvas = brainQ<HTMLCanvasElement>('canvas');
+  brainQ('.brain-close').addEventListener('click', closeSecondBrain);
+  const sum = brainQ<HTMLButtonElement>('.brain-summarize');
   sum.addEventListener('click', () => void brainSummarize(sum));
-  el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeSecondBrain(); } });
+  const input = brainQ<HTMLInputElement>('.brain-search input');
+  input.addEventListener('input', () => brainSearch(input.value));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); brainOpenBest(); }
+    else if (e.key === 'Escape' && input.value) { e.preventDefault(); e.stopPropagation(); input.value = ''; brainSearch(''); }
+  });
+  el.addEventListener('keydown', brainKeys);
   for (const chip of el.querySelectorAll<HTMLButtonElement>('.brain-chip')) chip.addEventListener('click', () => {
     const k = chip.dataset.kind as BrainKind;
     if (brain.hidden.has(k)) brain.hidden.delete(k); else brain.hidden.add(k);
     chip.setAttribute('aria-pressed', String(!brain.hidden.has(k)));
-    if (brain.pinned && brain.hidden.has(brain.pinned.kind)) brainPin(null);
-    brainDraw();
+    if (brain.pinned && brain.hidden.has(brain.pinned.kind)) brainSelect(null);
+    brainRefresh();
   });
+  for (const b of el.querySelectorAll<HTMLButtonElement>('.brain-seg button')) b.addEventListener('click', () => brainMode(b.dataset.mode as 'graph' | 'list'));
+  for (const b of el.querySelectorAll<HTMLButtonElement>('[data-zoom]')) b.addEventListener('click', () => {
+    if (b.dataset.zoom === 'fit') brainFlyFit(); else brainZoomBy(b.dataset.zoom === 'in' ? 1.4 : 1 / 1.4);
+  });
+  brainQ('.brain-list').addEventListener('click', e => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>('[data-id]');
+    if (row) brainSelect(brain.byId.get(row.dataset.id!) ?? null);
+  });
+  brainQ('.brain-panel').addEventListener('click', brainPanelClick);
   brainPointer(brain.canvas);
   new ResizeObserver(() => brainDraw()).observe(brain.canvas);
   return el;
@@ -68,23 +113,28 @@ function brainBuild(): HTMLElement {
 // The colors come from the theme (breeze.css --brain-*), read once per open so a theme change is picked up.
 function brainColors(): void {
   const cs = getComputedStyle(brain.el!);
-  for (const k of ['fact', 'decision', 'task', 'file', 'link', 'link-hi', 'ring']) brain.colors[k] = cs.getPropertyValue(`--brain-${k}`).trim() || '#888';
+  for (const k of ['fact', 'decision', 'task', 'file', 'link', 'link-hi', 'ring', 'label', 'halo']) brain.colors[k] = cs.getPropertyValue(`--brain-${k}`).trim() || '#888';
+  brain.colors.font = cs.getPropertyValue('--font-ui').trim() || 'sans-serif';
 }
 
 async function openSecondBrain(folder: string): Promise<void> {
   if (!folder) return;
   brain.back = document.activeElement as HTMLElement | null;
-  const el = brain.el ??= brainBuild();
+  const el = brain.el ?? brainBuild();
   brain.folder = folder;
   brain.view = { x: 0, y: 0, k: 1 };
   brain.dots = [];
-  brainPin(null);
-  el.querySelector('.brain-sub')!.textContent = folderName(folder);
+  brain.focus = false;
+  brainQ<HTMLInputElement>('.brain-search input').value = '';
+  brain.query = '';
+  brain.matches = null;
+  brainSelect(null);
+  brainQ('.brain-sub').textContent = folderName(folder);
   el.classList.remove('hidden', 'closing');
   el.classList.add('opening');
   requestAnimationFrame(() => el.classList.remove('opening'));
   brainColors();
-  (el.querySelector('.brain-close') as HTMLElement).focus();
+  brainQ('.brain-close').focus();
   brain.off?.();
   brain.off = api.brain.onChange(m => { if (m && folderKey(m.folder) === folderKey(brain.folder)) void brainLoad(true); });
   await brainLoad(false);
@@ -96,7 +146,8 @@ function closeSecondBrain(): void {
   brain.off?.();
   brain.off = null;
   cancelAnimationFrame(brain.frame);
-  brain.frame = 0;
+  cancelAnimationFrame(brain.fly);
+  brain.frame = brain.fly = 0;
   el.classList.add('closing');
   const done = () => { el.classList.add('hidden'); el.classList.remove('closing'); };
   if (brainStill()) done(); else setTimeout(done, 400);
@@ -128,20 +179,71 @@ async function brainLoad(keep: boolean): Promise<void> {
     brain.near.get(l.a.id)!.add(l.b.id);
     brain.near.get(l.b.id)!.add(l.a.id);
   }
-  if (brain.pinned && !brain.byId.has(brain.pinned.id)) brainPin(null);
-  else if (brain.pinned) brain.pinned = brain.byId.get(brain.pinned.id)!;
-  brain.hover = null;
-  const el = brain.el!;
-  el.querySelector('.brain-empty')!.classList.toggle('hidden', brain.dots.length > 0);
+  brainHover(null);
+  const still = brain.pinned && brain.byId.get(brain.pinned.id);
+  brainSelect(still || null, false);
+  brainQ('.brain-empty').classList.toggle('hidden', brain.dots.length > 0);
   const count = (k: BrainKind) => brain.dots.filter(d => d.kind === k).length;
-  for (const chip of el.querySelectorAll<HTMLElement>('.brain-chip')) chip.querySelector('b')!.textContent = String(count(chip.dataset.kind as BrainKind));
+  for (const chip of brain.el!.querySelectorAll<HTMLElement>('.brain-chip')) chip.querySelector('b')!.textContent = String(count(chip.dataset.kind as BrainKind));
   const mems = brain.dots.length - count('file');
-  el.querySelector('.brain-sub')!.textContent = `${folderName(brain.folder)} · ${mems} ${mems === 1 ? 'memory' : 'memories'}`;
+  brainQ('.brain-sub').textContent = `${folderName(brain.folder)} · ${mems} ${mems === 1 ? 'memory' : 'memories'}`;
+  brainSearch(brain.query);
   brain.alpha = keep ? Math.max(brain.alpha, 0.4) : 1;
   if (brainStill()) { for (let i = 0; i < 300 && brain.alpha > 0.01; i++) brainTick(); brain.alpha = 0; }
   else if (!keep) for (let i = 0; i < 40; i++) brainTick(); // a head start, so it opens shaped, not as a blob
   if (!keep) brainFit();
   brainRun();
+}
+
+/* ----- What's visible: kinds switched off, a search, Focus ----- */
+const brainShown = (d: BrainDot) => !brain.hidden.has(d.kind)
+  && (!brain.focus || !brain.pinned || d === brain.pinned || !!brain.near.get(brain.pinned.id)?.has(d.id));
+const brainMatch = (d: BrainDot) => !brain.matches || brain.matches.has(d.id);
+// Every word of the search must appear in the memory; files match on their path too.
+function brainSearch(q: string): void {
+  brain.query = q.trim();
+  const words = brain.query.toLowerCase().split(/\s+/).filter(Boolean);
+  brain.matches = words.length ? new Set(brain.dots.filter(d => { const t = d.text.toLowerCase(); return words.every(w => t.includes(w)); }).map(d => d.id)) : null;
+  const n = brain.matches ? brain.dots.filter(d => brain.matches!.has(d.id) && brainShown(d)).length : 0;
+  brainQ('.brain-count').textContent = brain.matches ? `${n} ${n === 1 ? 'match' : 'matches'}` : '';
+  brainQ('.brain-search').classList.toggle('has-query', !!brain.matches);
+  brainRefresh();
+}
+// Enter in the search: the best match (most linked) opens and the graph flies to it.
+function brainOpenBest(): void {
+  const best = brain.dots.filter(d => brain.matches?.has(d.id) && brainShown(d)).sort((a, b) => b.deg - a.deg || b.hits - a.hits)[0];
+  if (best) brainSelect(best);
+}
+function brainRefresh(): void {
+  if (brain.mode === 'list') brainList();
+  brainDraw();
+}
+function brainMode(mode: 'graph' | 'list'): void {
+  brain.mode = mode;
+  for (const b of brain.el!.querySelectorAll<HTMLElement>('.brain-seg button')) b.setAttribute('aria-selected', String(b.dataset.mode === mode));
+  brain.canvas!.classList.toggle('hidden', mode !== 'graph');
+  brainQ('.brain-zoom').classList.toggle('hidden', mode !== 'graph');
+  brainQ('.brain-hint').classList.toggle('hidden', mode !== 'graph');
+  brainQ('.brain-list').classList.toggle('hidden', mode !== 'list');
+  brainQ('.brain-hover').classList.add('hidden');
+  brainRefresh();
+}
+
+/* ----- Keys: / searches, F fits, + and − zoom, Esc clears, closes the card, then closes ----- */
+function brainKeys(e: KeyboardEvent): void {
+  const typing = (e.target as HTMLElement).matches('input, textarea');
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    if (brain.pinned) brainSelect(null);
+    else closeSecondBrain();
+    return;
+  }
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '/') { e.preventDefault(); brainQ<HTMLInputElement>('.brain-search input').focus(); }
+  else if (brain.mode !== 'graph') return;
+  else if (e.key === 'f' || e.key === 'F') brainFlyFit();
+  else if (e.key === '+' || e.key === '=') brainZoomBy(1.4);
+  else if (e.key === '-' || e.key === '_') brainZoomBy(1 / 1.4);
 }
 
 /* ----- Summarize: the user's agent reads this folder's chats; costs tokens, so it asks with an estimate first ----- */
@@ -236,102 +338,268 @@ function brainRun(): void {
 }
 function brainHeat(to: number): void { if (brainStill()) { brainDraw(); return; } brain.alpha = Math.max(brain.alpha, to); brainRun(); }
 
-/* ----- Drawing ----- */
+/* ----- The view: fit, zoom, and flying to a memory with the panel easing ----- */
 function brainSize(): { w: number; h: number; dpr: number } {
   const c = brain.canvas!, dpr = window.devicePixelRatio || 1;
   const w = c.clientWidth, h = c.clientHeight;
   if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
   return { w, h, dpr };
 }
-function brainFit(): void {
-  const shown = brain.dots.filter(d => !brain.hidden.has(d.kind));
+function brainFitView(): { x: number; y: number; k: number } {
+  const shown = brain.dots.filter(brainShown);
   const { w, h } = brainSize();
-  if (!shown.length || !w || !h) { brain.view = { x: 0, y: 0, k: 1 }; return; }
+  if (!shown.length || !w || !h) return { x: 0, y: 0, k: 1 };
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const d of shown) { x0 = Math.min(x0, d.x - d.r); y0 = Math.min(y0, d.y - d.r); x1 = Math.max(x1, d.x + d.r); y1 = Math.max(y1, d.y + d.r); }
-  const k = Math.max(0.15, Math.min(3, Math.min((w - 80) / (x1 - x0 || 1), (h - 80) / (y1 - y0 || 1))));
-  brain.view = { k, x: -((x0 + x1) / 2) * k, y: -((y0 + y1) / 2) * k };
+  const k = Math.max(0.15, Math.min(2.5, Math.min((w - 120) / (x1 - x0 || 1), (h - 120) / (y1 - y0 || 1))));
+  return { k, x: -((x0 + x1) / 2) * k, y: -((y0 + y1) / 2) * k };
 }
+function brainFit(): void { brain.view = brainFitView(); }
+// The panel's curve, cubic-bezier(.32, .72, 0, 1), close enough for a camera move.
+const brainEase = (t: number) => 1 - Math.pow(1 - t, 4);
+function brainFlyTo(to: { x: number; y: number; k: number }): void {
+  cancelAnimationFrame(brain.fly);
+  if (brainStill()) { brain.view = to; brainDraw(); return; }
+  const from = { ...brain.view }, start = performance.now(), ms = 450;
+  const step = (now: number) => {
+    const t = brainEase(Math.min(1, (now - start) / ms));
+    brain.view = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, k: from.k + (to.k - from.k) * t };
+    brainDraw();
+    brain.fly = t < 1 ? requestAnimationFrame(step) : 0;
+  };
+  brain.fly = requestAnimationFrame(step);
+}
+function brainFlyFit(): void { brainFlyTo(brainFitView()); }
+function brainFlyToDot(d: BrainDot): void {
+  const k = Math.max(brain.view.k, 1.6);
+  brainFlyTo({ k, x: -d.x * k, y: -d.y * k });
+}
+function brainZoomBy(f: number): void {
+  const v = brain.view, k = Math.max(0.1, Math.min(6, v.k * f));
+  brainFlyTo({ k, x: (v.x / v.k) * k, y: (v.y / v.k) * k });
+}
+
+/* ----- Drawing ----- */
 function brainDraw(): void {
   const c = brain.canvas;
-  if (!c || !brain.el || brain.el.classList.contains('hidden')) return;
+  if (!c || !brain.el || brain.el.classList.contains('hidden') || brain.mode !== 'graph') return;
   const { w, h, dpr } = brainSize();
   const g = c.getContext('2d')!;
   const { x, y, k } = brain.view, col = brain.colors;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
   g.setTransform(dpr * k, 0, 0, dpr * k, dpr * (w / 2 + x), dpr * (h / 2 + y));
-  const focus = brain.pinned ?? brain.hover;
+  // A held dot (hovered a second) lights its links, fading in by t; an open memory stays lit (t = 1).
+  const held = brain.held && brainShown(brain.held) ? brain.held : null;
+  const focus = held ?? brain.pinned;
+  const t = held ? brain.heldT : focus ? 1 : 0;
   const near = focus ? brain.near.get(focus.id) ?? new Set<string>() : null;
-  const shown = (d: BrainDot) => !brain.hidden.has(d.kind);
+  const near1 = (d: BrainDot) => !!focus && (d === focus || near!.has(d.id));
+  const lit = (d: BrainDot) => (focus && t >= 0.5 ? near1(d) : brainMatch(d));
+  const searching = !!brain.matches;
+  const mix = (a: number, b: number) => a + (b - a) * t;
+  // Links: faint, the open or held memory's brighter; during a search only links between matches stay.
+  const base = searching ? 0.3 : 1;
   g.lineWidth = 1 / k;
   g.strokeStyle = col.link;
-  g.globalAlpha = focus ? 0.35 : 1;
+  g.globalAlpha = focus ? mix(base, 0.3) : base;
   g.beginPath();
-  for (const l of brain.links) if (shown(l.a) && shown(l.b) && !(focus && (l.a === focus || l.b === focus))) { g.moveTo(l.a.x, l.a.y); g.lineTo(l.b.x, l.b.y); }
+  for (const l of brain.links) {
+    if (!brainShown(l.a) || !brainShown(l.b) || (focus && (l.a === focus || l.b === focus))) continue;
+    if (searching && !(brainMatch(l.a) && brainMatch(l.b))) continue;
+    g.moveTo(l.a.x, l.a.y); g.lineTo(l.b.x, l.b.y);
+  }
   g.stroke();
   if (focus) {
-    g.globalAlpha = 1;
+    g.beginPath();
+    for (const l of brain.links) if ((l.a === focus || l.b === focus) && brainShown(l.a) && brainShown(l.b)) { g.moveTo(l.a.x, l.a.y); g.lineTo(l.b.x, l.b.y); }
+    if (t < 1) { g.globalAlpha = (1 - t) * base; g.stroke(); }
+    g.globalAlpha = t;
     g.strokeStyle = col['link-hi'];
     g.lineWidth = 1.5 / k;
-    g.beginPath();
-    for (const l of brain.links) if ((l.a === focus || l.b === focus) && shown(l.a) && shown(l.b)) { g.moveTo(l.a.x, l.a.y); g.lineTo(l.b.x, l.b.y); }
     g.stroke();
   }
   for (const d of brain.dots) {
-    if (!shown(d)) continue;
-    g.globalAlpha = !focus || d === focus || near!.has(d.id) ? 1 : 0.25;
+    if (!brainShown(d)) continue;
+    const plain = brainMatch(d) ? 1 : 0.16;
+    g.globalAlpha = focus ? mix(plain, near1(d) ? 1 : 0.16) : plain;
     g.fillStyle = col[d.kind];
     g.beginPath();
     g.arc(d.x, d.y, d.r, 0, Math.PI * 2);
     g.fill();
   }
-  if (focus && shown(focus)) {
+  // Search hits get a halo, so they stand out even zoomed out.
+  if (searching && t < 1) {
+    g.globalAlpha = 1 - t;
+    g.strokeStyle = col.halo;
+    g.lineWidth = 2 / k;
+    g.beginPath();
+    for (const d of brain.dots) if (brainShown(d) && brainMatch(d)) { g.moveTo(d.x + d.r + 3 / k, d.y); g.arc(d.x, d.y, d.r + 3 / k, 0, Math.PI * 2); }
+    g.stroke();
+  }
+  for (const d of [brain.pinned, brain.hover]) {
+    if (!d || !brainShown(d)) continue;
     g.globalAlpha = 1;
     g.strokeStyle = col.ring;
     g.lineWidth = 2 / k;
     g.beginPath();
-    g.arc(focus.x, focus.y, focus.r + 3 / k, 0, Math.PI * 2);
+    g.arc(d.x, d.y, d.r + 3 / k, 0, Math.PI * 2);
     g.stroke();
   }
   g.globalAlpha = 1;
-  brainCard();
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  brainLabels(g, w, h, lit, (!!focus && t >= 0.5) || searching);
+  brainHoverCard();
 }
 
-/* ----- The card: what a memory says ----- */
+// Names fade in as dots grow on screen; the open memory, its links and search hits are named first, then the most
+// linked. A name that would overlap one already placed is left out (semantic zoom: no overlapping labels).
+const brainLabelOf = (d: BrainDot) => {
+  const t = d.kind === 'file' ? d.text.split('/').pop()! : d.text.replace(/^[^\s:]+\.\w+:\s*/, '');
+  return t.length > 34 ? `${t.slice(0, 33)}…` : t;
+};
+function brainLabels(g: CanvasRenderingContext2D, w: number, h: number, lit: (d: BrainDot) => boolean, picking: boolean): void {
+  const { x, y, k } = brain.view, col = brain.colors;
+  const sx = (d: BrainDot) => w / 2 + x + d.x * k, sy = (d: BrainDot) => h / 2 + y + d.y * k;
+  const must = (d: BrainDot) => d === brain.pinned || (d === brain.held && brain.heldT >= 0.5) || (picking && lit(d));
+  // How much a name shows: by the dot's size on screen, unless it has to show.
+  // File hubs are named first; a memory's sentence waits until its dot is bigger on screen.
+  const fade = (d: BrainDot) => (must(d) ? 1 : picking ? 0 : Math.max(0, Math.min(1, (d.r * k - (d.kind === 'file' ? 4.5 : 7)) / 3)));
+  const order = brain.dots.filter(d => brainShown(d) && fade(d) > 0)
+    .sort((a, b) => Number(must(b)) - Number(must(a)) || b.deg - a.deg || b.hits - a.hits);
+  g.font = `500 11px ${col.font}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'top';
+  const placed: [number, number, number, number][] = [];
+  for (const d of order.slice(0, 160)) {
+    const px = sx(d), py = sy(d) + d.r * k + 4;
+    if (px < -100 || px > w + 100 || py < -20 || py > h + 20) continue;
+    const text = brainLabelOf(d), tw = g.measureText(text).width;
+    const box: [number, number, number, number] = [px - tw / 2 - 3, py - 1, px + tw / 2 + 3, py + 14];
+    if (placed.some(p => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) continue;
+    placed.push(box);
+    g.globalAlpha = fade(d) * (lit(d) || !picking ? 1 : 0.3);
+    g.fillStyle = col.label;
+    g.fillText(text, px, py);
+  }
+  g.globalAlpha = 1;
+}
+
+/* ----- Hover: a small card beside the dot. Click opens the side panel. ----- */
 const BRAIN_KIND_NAME: Record<BrainKind, string> = { fact: 'Fact', decision: 'Decision', task: 'Task', file: 'File' };
 const BRAIN_AGENT_NAME: Record<string, string> = { you: 'Your prompt', claude: 'Claude Code', codex: 'Codex' };
-function brainCard(): void {
-  const card = brain.el!.querySelector<HTMLElement>('.brain-card')!;
-  const d = brain.pinned ?? brain.hover;
-  if (!d || brain.hidden.has(d.kind)) { card.classList.add('hidden'); delete card.dataset.id; return; }
-  if (card.dataset.id !== d.id || card.classList.contains('pinned') !== !!brain.pinned) {
+const brainWho = (d: BrainNode) => BRAIN_AGENT_NAME[d.agent] ?? agentNameOf(d.agent);
+const brainWhen = (d: BrainNode) => new Date(d.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+function brainHoverCard(): void {
+  const card = brainQ('.brain-hover');
+  const d = brain.held === brain.hover ? brain.held : null;
+  if (!d || d === brain.pinned || !brainShown(d) || brain.mode !== 'graph') { card.classList.add('hidden'); delete card.dataset.id; return; }
+  if (card.dataset.id !== d.id) {
     card.dataset.id = d.id;
-    card.classList.toggle('pinned', !!brain.pinned);
-    const when = new Date(d.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    const links = brain.near.get(d.id)?.size ?? 0;
-    card.innerHTML = `<div class="brain-card-kind" data-kind="${d.kind}"><i></i>${BRAIN_KIND_NAME[d.kind]}</div>
-      <p class="brain-card-text">${esc(d.text)}</p>
-      <div class="brain-card-meta">${esc(BRAIN_AGENT_NAME[d.agent] ?? agentNameOf(d.agent))} · ${esc(when)} · ${links} ${links === 1 ? 'link' : 'links'}${d.hits > 1 ? ` · seen ${d.hits} times` : ''}</div>
-      ${brain.pinned ? '<button type="button" class="btn btn-sm brain-forget">Forget</button>' : ''}`;
-    card.querySelector('.brain-forget')?.addEventListener('click', async () => {
-      const id = d.id;
-      brainPin(null);
-      if (await api.brain.remove(brain.folder, id)) void brainLoad(true);
-    });
+    card.innerHTML = `<div class="brain-kind" data-kind="${d.kind}"><i></i>${BRAIN_KIND_NAME[d.kind]}</div><p>${esc(d.text)}</p><div class="brain-meta">${esc(brainWho(d))} · ${esc(brainWhen(d))} · click to open</div>`;
   }
-  // Beside the dot, kept inside the canvas.
   const { w, h } = brainSize();
   const sx = w / 2 + brain.view.x + d.x * brain.view.k, sy = h / 2 + brain.view.y + d.y * brain.view.k;
   const cw = card.offsetWidth, ch = card.offsetHeight, gap = d.r * brain.view.k + 12;
   const left = sx + gap + cw > w - 12 ? sx - gap - cw : sx + gap;
   const top = Math.max(12, Math.min(h - ch - 12, sy - ch / 2));
-  card.style.transform = `translate(${Math.round(Math.max(12, left))}px, ${Math.round(top + brain.canvas!.offsetTop)}px)`;
+  card.style.transform = `translate(${Math.round(Math.max(12, left))}px, ${Math.round(top)}px)`;
   card.classList.remove('hidden');
 }
-function brainPin(d: BrainDot | null): void {
+
+/* ----- The side panel: one memory, what it links to, Focus, Copy, Forget ----- */
+function brainSelect(d: BrainDot | null, fly = true): void {
   brain.pinned = d;
+  if (!d) brain.focus = false;
+  const panel = brainQ('.brain-panel');
+  brain.el!.classList.toggle('panel-open', !!d);
+  panel.setAttribute('aria-hidden', String(!d));
+  if (d) {
+    const links = [...(brain.near.get(d.id) ?? [])].map(id => brain.byId.get(id)!).filter(Boolean)
+      .sort((a, b) => BRAIN_KINDS.findIndex(k => k.kind === a.kind) - BRAIN_KINDS.findIndex(k => k.kind === b.kind) || b.deg - a.deg);
+    panel.innerHTML = `<div class="brain-panel-top"><div class="brain-kind" data-kind="${d.kind}"><i></i>${BRAIN_KIND_NAME[d.kind]}</div>
+        <button type="button" class="icon-btn" data-act="close" title="Close (Esc)" aria-label="Close this memory">${svgIcon('x', 14)}</button></div>
+      <p class="brain-panel-text">${esc(d.text)}</p>
+      <div class="brain-meta">${esc(brainWho(d))} · ${esc(brainWhen(d))}${d.hits > 1 ? ` · seen ${d.hits} times` : ''}</div>
+      <div class="brain-panel-acts">
+        <button type="button" class="btn btn-sm" data-act="focus" aria-pressed="${brain.focus}" title="Show only this memory and what it links to">${brain.focus ? 'Show all' : 'Focus'}</button>
+        <button type="button" class="btn btn-sm" data-act="copy">Copy</button>
+        ${brain.mode === 'list' ? '<button type="button" class="btn btn-sm" data-act="graph">Show in graph</button>' : ''}
+        <span class="flex-1"></span>
+        <button type="button" class="btn btn-sm brain-forget" data-act="forget">Forget</button>
+      </div>
+      <h4 class="brain-panel-h">Linked memories <b>${links.length}</b></h4>
+      ${links.length ? `<div class="brain-links" role="list">${links.map(n => brainRow(n)).join('')}</div>`
+        : '<p class="brain-panel-none">Nothing links here yet. Memories link when they name the same file or share words, or when an agent links them.</p>'}`;
+    if (fly && brain.mode === 'graph') brainFlyToDot(d);
+  }
+  brainRefresh();
+}
+// A memory written under a file ("src/a.ts: what it does") shows the file as a small tag, not as part of the sentence.
+function brainRow(n: BrainDot, q = ''): string {
+  const pre = n.kind === 'file' ? null : /^([^\s:]+\.\w+):\s+(.+)$/s.exec(n.text);
+  const body = pre ? pre[2] : n.text;
+  let text = esc(body);
+  for (const w of q.toLowerCase().split(/\s+/).filter(Boolean)) {
+    const at = body.toLowerCase().indexOf(w);
+    if (at >= 0) { text = `${esc(body.slice(0, at))}<mark>${esc(body.slice(at, at + w.length))}</mark>${esc(body.slice(at + w.length))}`; break; }
+  }
+  const links = brain.near.get(n.id)?.size ?? 0;
+  const file = pre ? `<span class="brain-row-file" title="${escAttr(pre[1])}">${esc(pre[1].split('/').pop()!)}</span>` : '';
+  return `<button type="button" class="brain-row${n === brain.pinned ? ' on' : ''}" role="listitem" data-id="${n.id}" data-kind="${n.kind}"><i></i>
+    <span class="brain-row-text">${file}${text}</span><span class="brain-meta">${esc(brainWho(n))} · ${esc(brainWhen(n))} · ${links} ${links === 1 ? 'link' : 'links'}</span></button>`;
+}
+function brainPanelClick(e: MouseEvent): void {
+  const t = e.target as HTMLElement;
+  const row = t.closest<HTMLElement>('.brain-row');
+  if (row) { brainSelect(brain.byId.get(row.dataset.id!) ?? null); return; }
+  const act = t.closest<HTMLElement>('[data-act]')?.dataset.act, d = brain.pinned;
+  if (!act || !d) return;
+  if (act === 'close') brainSelect(null);
+  else if (act === 'focus') { brain.focus = !brain.focus; brainSelect(d, false); if (brain.mode === 'graph') brainFlyFit(); }
+  else if (act === 'copy') void navigator.clipboard?.writeText(d.text).then(() => toast('Copied'), () => {});
+  else if (act === 'graph') { brainMode('graph'); brainSelect(d); }
+  else if (act === 'forget') {
+    brainSelect(null);
+    void api.brain.remove(brain.folder, d.id).then(ok => { if (ok) { toast('Forgotten'); void brainLoad(true); } });
+  }
+}
+
+/* ----- The list: every memory as text, by kind, newest first; the same search and kind switches ----- */
+function brainList(): void {
+  const list = brainQ('.brain-list');
+  const shown = brain.dots.filter(d => brainShown(d) && brainMatch(d));
+  if (!brain.dots.length) { list.innerHTML = ''; return; }
+  if (!shown.length) { list.innerHTML = `<p class="brain-list-none">${brain.query ? `No memories match “${esc(brain.query)}”.` : 'Every kind is switched off.'}</p>`; return; }
+  list.innerHTML = BRAIN_KINDS.map(({ kind, label }) => {
+    const rows = shown.filter(d => d.kind === kind).sort((a, b) => b.at - a.at);
+    return rows.length ? `<section class="brain-group"><h4 class="brain-panel-h">${label} <b>${rows.length}</b></h4>${rows.map(d => brainRow(d, brain.query)).join('')}</section>` : '';
+  }).join('');
+}
+
+/* ----- Hover: a ring at once; links light up only after the pointer rests on a dot for a second,
+   so sweeping across the graph doesn't flash the whole thing on and off. ----- */
+const BRAIN_HOLD_MS = 1000;
+function brainHover(dot: BrainDot | null): void {
+  if (dot === brain.hover) return;
+  brain.hover = dot;
+  clearTimeout(brain.holdTimer);
+  if (dot) brain.holdTimer = window.setTimeout(() => { if (brain.hover === dot) { brain.held = dot; brainEaseHold(1); } }, BRAIN_HOLD_MS);
+  if (brain.held) brainEaseHold(0);
   brainDraw();
+}
+// Fades the held dot's links in (300ms) or out (200ms) with the panel easing's feel; reduced motion jumps.
+function brainEaseHold(to: 0 | 1): void {
+  cancelAnimationFrame(brain.heldFrame);
+  const done = () => { if (!to) brain.held = null; brainDraw(); };
+  if (brainStill()) { brain.heldT = to; done(); return; }
+  const from = brain.heldT, t0 = performance.now(), ms = to ? 300 : 200;
+  const step = (now: number) => {
+    const p = Math.min(1, (now - t0) / ms);
+    brain.heldT = from + (to - from) * (1 - (1 - p) ** 3);
+    if (p < 1) { brainDraw(); brain.heldFrame = requestAnimationFrame(step); } else done();
+  };
+  brain.heldFrame = requestAnimationFrame(step);
 }
 
 /* ----- Pointer: hover, drag a dot, pan, zoom ----- */
@@ -340,8 +608,8 @@ function brainAt(c: HTMLCanvasElement, e: MouseEvent): { wx: number; wy: number;
   const wx = (e.clientX - r.left - r.width / 2 - x) / k, wy = (e.clientY - r.top - r.height / 2 - y) / k;
   let best: BrainDot | null = null, bestD = Infinity;
   for (const d of brain.dots) {
-    if (brain.hidden.has(d.kind)) continue;
-    const dd = Math.hypot(d.x - wx, d.y - wy), reach = d.r + 5 / k;
+    if (!brainShown(d)) continue;
+    const dd = Math.hypot(d.x - wx, d.y - wy), reach = d.r + 6 / k;
     if (dd <= reach && dd < bestD) { best = d; bestD = dd; }
   }
   return { wx, wy, dot: best };
@@ -350,6 +618,7 @@ function brainPointer(c: HTMLCanvasElement): void {
   let drag: { dot: BrainDot | null; sx: number; sy: number; vx: number; vy: number; moved: boolean } | null = null;
   c.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
+    cancelAnimationFrame(brain.fly);
     const { dot } = brainAt(c, e);
     drag = { dot, sx: e.clientX, sy: e.clientY, vx: brain.view.x, vy: brain.view.y, moved: false };
     if (dot) dot.fixed = true;
@@ -360,11 +629,12 @@ function brainPointer(c: HTMLCanvasElement): void {
     if (!drag) {
       const { dot } = brainAt(c, e);
       c.classList.toggle('over-dot', !!dot);
-      if (dot !== brain.hover) { brain.hover = dot; brainDraw(); }
+      brainHover(dot);
       return;
     }
     const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
     if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+    if (!drag.moved) return;
     if (drag.dot) {
       const { wx, wy } = brainAt(c, e);
       drag.dot.x = wx; drag.dot.y = wy;
@@ -375,15 +645,17 @@ function brainPointer(c: HTMLCanvasElement): void {
   const up = () => {
     if (!drag) return;
     if (drag.dot) drag.dot.fixed = false;
-    if (!drag.moved) brainPin(drag.dot && drag.dot !== brain.pinned ? drag.dot : null);
+    // A click: a dot opens (or closes, if it is the open one); empty space closes the panel.
+    if (!drag.moved) brainSelect(drag.dot && drag.dot !== brain.pinned ? drag.dot : null, false);
     drag = null;
     c.classList.remove('grabbing');
   };
   c.addEventListener('pointerup', up);
   c.addEventListener('pointercancel', up);
-  c.addEventListener('pointerleave', () => { if (!drag && brain.hover) { brain.hover = null; brainDraw(); } });
+  c.addEventListener('pointerleave', () => { if (!drag) brainHover(null); });
   c.addEventListener('wheel', e => {
     e.preventDefault();
+    cancelAnimationFrame(brain.fly);
     const r = c.getBoundingClientRect(), v = brain.view;
     const px = e.clientX - r.left - r.width / 2, py = e.clientY - r.top - r.height / 2;
     const k = Math.max(0.1, Math.min(6, v.k * Math.exp(-e.deltaY * 0.0015)));
@@ -391,5 +663,5 @@ function brainPointer(c: HTMLCanvasElement): void {
     v.x = px - ((px - v.x) / v.k) * k; v.y = py - ((py - v.y) / v.k) * k; v.k = k;
     brainDraw();
   }, { passive: false });
-  c.addEventListener('dblclick', () => { brainFit(); brainDraw(); });
+  c.addEventListener('dblclick', e => { if (!brainAt(c, e).dot) brainFlyFit(); });
 }
