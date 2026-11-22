@@ -549,7 +549,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
   return [{ label: 'Switch Model', enabled: () => false }, ...models, ...effort];
 }
 
-/* ----- Agent bar: one chip per installed agent; a chip inserts its @mention ----- */
+/* ----- Agents: names, mentions and the default agent ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
 const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local']]);
 function agentShortName(a: DetectedAgent): string {
@@ -577,16 +577,6 @@ function makeDefaultAgent(ag: DetectedAgent): void {
   renderAgentBar();
   updateScmGenBtn();
 }
-function agentChipMenuItems(ag: DetectedAgent): MenuItem[] {
-  // The agent's chip is where its model and effort are picked, as in Breeze Space's agent menu.
-  const models: MenuItem[] = ag.models?.length ? [...modelPickerItems(ag, true), { sep: true }] : [];
-  return [
-    ...models,
-    { label: 'Make default', checked: () => ag.id === appState.agent, enabled: () => ag.id !== appState.agent, run: () => makeDefaultAgent(ag) },
-    { sep: true },
-    { label: 'Manage agents', run: openAgentPicker },
-  ];
-}
 // Opens (or, if it is already open, closes) a popup under a chip.
 function openChipMenu(chip: HTMLElement, items: MenuItem[]): void {
   if (menuWasOpen(chip)) {
@@ -599,124 +589,8 @@ function openChipMenu(chip: HTMLElement, items: MenuItem[]): void {
   popupMenu(r.left, r.bottom + 4, items, () => chip.classList.remove('open'), chip);
 }
 
-function agentChipHtml(a: DetectedAgent, on: boolean): string {
-  const short = agentShortName(a);
-  const logo = BRAND_ICONS[a.id] ? `<img class="pill-logo" src="../../assets/icons/${BRAND_ICONS[a.id]}" alt="" draggable="false">` : '';
-  return `<button type="button" class="agent-chip${on ? ' on' : ''}" data-agent="${escAttr(a.id)}" aria-label="Mention @${escAttr(short)}" aria-pressed="${on}">${logo}<span class="chip-name">${esc(short)}</span><span class="chip-more" role="button" aria-label="Options for ${escAttr(short)}" aria-haspopup="menu">${svgIcon('chevronDown', 10)}</span></button>`;
-}
-
-// Chips that do not fit the bar move into a trailing "+N" chip. As the bar is squeezed or widened, a chip that
-// folds away shrinks out where it stood, one that comes back grows in, and the "+N" chip grows in or pops its count.
-let agentBarFolded = new Set<string>();
-let agentBarRest = 0; // the "+N" count last shown, 0 for none
-function fitAgentBar(): void {
-  const bar = $('#agentBar');
-  const before = new Map($$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar).map(c => [c.dataset.agent as string, c]));
-  const rects = new Map([...before].map(([id, c]) => [id, c.getBoundingClientRect()]));
-  layoutAgentBar(bar);
-  bar.classList.remove('measuring');
-  const nowFolded = new Set($$<HTMLElement>('.agent-chip[data-agent].hidden', bar).map(c => c.dataset.agent as string));
-  const rest = bar.querySelector<HTMLElement>('.chip-rest');
-  const restCount = rest ? nowFolded.size : 0;
-  // Not while the window itself resizes (layout.ts): the chips just take their places as the screen grows.
-  if (bar.offsetParent && !document.documentElement.classList.contains('win-resizing')) {
-    const grow = { duration: 390, easing: SPRING_BOUNCE };
-    for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
-      if (agentBarFolded.has(c.dataset.agent as string)) c.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
-    }
-    for (const id of nowFolded) {
-      const from = before.get(id), r = rects.get(id);
-      if (from && r && !agentBarFolded.has(id)) shrinkOut(bar, from, r);
-    }
-    if (rest && !agentBarRest) rest.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], grow);
-    else if (rest && restCount !== agentBarRest) rest.animate([{ transform: 'scale(1.12)' }, { transform: 'none' }], { duration: 330, easing: SPRING });
-  }
-  agentBarFolded = nowFolded;
-  agentBarRest = restCount;
-}
-// A copy of the chip, left in the bar where it stood, shrinks and fades while the real one is already folded away.
-// It stays inside the bar so it keeps the bar's chip styles, and drops data-agent so the bar never counts it.
-function shrinkOut(bar: HTMLElement, chip: HTMLElement, r: DOMRect): void {
-  const ghost = chip.cloneNode(true) as HTMLElement;
-  ghost.classList.remove('hidden', 'open');
-  ghost.classList.add('chip-ghost');
-  ghost.removeAttribute('data-agent');
-  ghost.setAttribute('aria-hidden', 'true');
-  if (getComputedStyle(bar).position === 'static') bar.style.position = 'relative';
-  const b = bar.getBoundingClientRect();
-  Object.assign(ghost.style, { position: 'absolute', left: `${r.left - b.left + bar.scrollLeft}px`, top: `${r.top - b.top + bar.scrollTop}px`, width: `${r.width}px`, height: `${r.height}px`, margin: '0', pointerEvents: 'none' });
-  bar.append(ghost);
-  ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 200, easing: SPRING, fill: 'forwards' }).onfinish = () => ghost.remove();
-  setTimeout(() => ghost.remove(), 300); // a hidden window doesn't run animations, so a timer makes sure it goes
-}
-function layoutAgentBar(bar: HTMLElement): void {
-  bar.querySelector('.chip-rest')?.remove();
-  const chips = $$('.agent-chip[data-agent]', bar);
-  chips.forEach(c => c.classList.remove('hidden'));
-  // Measured at full size: in a tight bar the kept chip may shrink (see .agent-bar), which mustn't skew the fit.
-  bar.classList.add('measuring');
-  const _reflow = bar.offsetWidth;
-  const avail = bar.clientWidth;
-  if (chips.length < 2 || avail <= 0) return;
-  const gap = Number.parseFloat(getComputedStyle(bar).columnGap) || 0;
-  const widths = chips.map(c => c.offsetWidth);
-  if (widths.reduce((sum, w) => sum + w, 0) + gap * (chips.length - 1) <= avail) return;
-  // A chip still fits if its logo, arrow and a few letters of its name do: the chips then shrink their names
-  // (with an ellipsis) to share the room, rather than folding one away while there's space for most of it.
-  const minWidths = chips.map((c, i) => {
-    const name = c.querySelector<HTMLElement>('.chip-name');
-    return name ? widths[i] - name.scrollWidth + Math.min(name.scrollWidth, 30) : widths[i];
-  });
-  if (minWidths.reduce((sum, w) => sum + w, 0) + gap * (chips.length - 1) <= avail) return;
-  const rest = document.createElement('button');
-  rest.type = 'button';
-  rest.className = 'agent-chip chip-rest';
-  rest.setAttribute('aria-haspopup', 'menu');
-  rest.textContent = `+${chips.length}`; // the widest label it can get
-  bar.append(rest);
-  let used = rest.offsetWidth;
-  let keep = 0;
-  for (const w of minWidths) {
-    if (used + gap + w > avail) break;
-    used += gap + w;
-    keep++;
-  }
-  keep = Math.max(keep, 1);
-  const hiddenChips = chips.slice(keep);
-  hiddenChips.forEach(c => c.classList.add('hidden'));
-  rest.textContent = `+${hiddenChips.length}`;
-  rest.dataset.hidden = hiddenChips.map(c => c.dataset.agent).join(',');
-  rest.setAttribute('aria-label', `${hiddenChips.length} more agents`);
-}
-
 function renderAgentBar(): void {
   const a = selectedAgent();
-  const bar = $('#agentBar');
-  const found = (appState.detect?.agents ?? []).filter(x => x.found);
-  // The default agent comes first, so it is the last chip to be folded into "+N".
-  found.sort((x, y) => Number(y.id === a?.id) - Number(x.id === a?.id));
-  // Where each chip was, so a new default can glide to the front instead of jumping there.
-  const before = new Map($$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar).map(c => [c.dataset.agent, c.getBoundingClientRect().left]));
-  if (found.length) {
-    bar.innerHTML = found.map(x => agentChipHtml(x, x.id === a?.id)).join('');
-  } else {
-    bar.innerHTML = '<button type="button" class="agent-chip on chip-choose">Choose an agent</button>';
-  }
-  const prev = bar.dataset.current;
-  bar.dataset.current = a?.id ?? '';
-  const on = bar.querySelector<HTMLElement>('.agent-chip.on');
-  if (on && prev && prev !== bar.dataset.current) {
-    on.classList.add('agent-swap');
-    on.addEventListener('animationend', () => on.classList.remove('agent-swap'), { once: true });
-  }
-  fitAgentBar();
-  if (prev !== bar.dataset.current) {
-    for (const c of $$<HTMLElement>('.agent-chip[data-agent]:not(.hidden)', bar)) {
-      const x = before.get(c.dataset.agent);
-      const dx = x == null ? 0 : x - c.getBoundingClientRect().left;
-      if (dx) c.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: 480, easing: SPRING });
-    }
-  }
   const model = a?.api && a.version ? ' · ' + a.version : '';
   const label = a ? a.name + model : 'Choose an agent';
   // The agent's logo first, as in the menu it opens.
@@ -730,49 +604,6 @@ function renderAgentBar(): void {
   if (typeof renderModeSwitch === 'function') renderModeSwitch(); // the switcher's Agent Board half wears the default agent's logo
 }
 
-$('#agentBar').addEventListener('click', e => {
-  const t = e.target as HTMLElement;
-  const chip = t.closest<HTMLElement>('.agent-chip');
-  if (!chip) return;
-  if (chip.classList.contains('chip-choose')) { closeMenu(); openAgentPicker(); return; }
-  if (chip.classList.contains('chip-rest')) {
-    const ids = (chip.dataset.hidden ?? '').split(',');
-    const hidden = (appState.detect?.agents ?? []).filter(x => ids.includes(x.id));
-    // Each agent opens its own options (model, effort, default), the same menu as its chip's arrow.
-    openChipMenu(chip, hidden.map(x => ({ label: agentShortName(x), icon: brandMark('menu-ico', x.id, x.name[0]), run: () => insertMention(x), sub: () => agentChipMenuItems(x), clickRuns: true })));
-    const m = chip.classList.contains('open') ? $('#menuRoot .menu') : null;
-    if (m) {
-      m.style.minWidth = '160px';
-      m.style.left = `${Math.max(8, Math.min(chip.getBoundingClientRect().left, innerWidth - m.offsetWidth - 8))}px`;
-    }
-    return;
-  }
-  const ag = appState.detect?.agents.find(x => x.id === chip.dataset.agent);
-  if (!ag) return;
-  if (t.closest('.chip-more')) { openChipMenu(chip, agentChipMenuItems(ag)); return; }
-  closeMenu();
-  insertMention(ag);
-});
-$('#agentBar').addEventListener('keydown', e => {
-  const chip = (e.target as HTMLElement).closest<HTMLElement>('.agent-chip[data-agent]');
-  const ag = chip && appState.detect?.agents.find(x => x.id === chip.dataset.agent);
-  // Once its menu is open the arrows walk the menu (menuKeys); here ArrowDown toggled it shut again.
-  if (chip && ag && e.key === 'ArrowDown' && !chip.classList.contains('open')) { e.preventDefault(); openChipMenu(chip, agentChipMenuItems(ag)); }
-});
-// Refits live, while a sash is still being dragged (the observer fires at most once a frame).
-new ResizeObserver(() => fitAgentBar()).observe($('#agentBar'));
-
-// Inserts "@<Short> " where the caret is in the agents panel's prompt (a space before it if the text there needs one).
-function insertMention(a: DetectedAgent): void {
-  const ta = SURFACES.ide.prompt;
-  const from = ta.selectionStart ?? ta.value.length;
-  const to = ta.selectionEnd ?? from;
-  const before = ta.value.slice(0, from);
-  const text = `${before && !/\s$/.test(before) ? ' ' : ''}@${agentShortName(a)} `;
-  ta.setRangeText(text, from, to, 'end');
-  ta.focus();
-  ta.dispatchEvent(new Event('input', { bubbles: true }));
-}
 
 function openAgentPicker(): void {
   openModal(`<h3>Choose your AI agent</h3><p class="sub">Installed coding agents are found automatically. A local LLM connects by its server address.</p>
