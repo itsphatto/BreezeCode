@@ -8,6 +8,7 @@ interface MenuItem {
   clickRuns?: boolean;        // with `sub`: a click runs the item, hovering still opens the submenu
   slider?: MenuSlider;        // a row with a stepped slider in place of a label
   search?: (q: string) => MenuItem[]; // a filter field (label: its placeholder); typing swaps the rows under it for these
+  searchFirst?: boolean;      // with `search`: the field always shows, and takes the keys when its menu opens (the model picker)
   tip?: string;               // a longer explanation, shown in a card beside the menu while the row is hovered or picked by keys
 }
 // Steps picked by dragging or clicking along a track; the menu stays open while it changes.
@@ -801,7 +802,7 @@ function menuItemHtml(it: MenuItem, i: number): string {
   if (it.sep) return `<div class="menu-sep" data-style="--i:${i}"></div>`;
   if (it.header) return menuHeaderHtml(it.header);
   if (it.slider) return menuSliderHtml(it.slider, i);
-  if (it.search) return `<div class="menu-search" data-style="--i:${i}"><input class="input" data-mse="${i}" aria-label="${escAttr(it.label ?? 'Search')}" placeholder="${escAttr(it.label ?? 'Search')}" spellcheck="false" autocomplete="off"></div>`;
+  if (it.search) return `<div class="menu-search"${it.searchFirst ? ' data-keep' : ''} data-style="--i:${i}"><input class="input" data-mse="${i}" aria-label="${escAttr(it.label ?? 'Search')}" placeholder="${escAttr(it.label ?? 'Search')}" spellcheck="false" autocomplete="off"></div>`;
   const cls =['menu-item', it.checked?.() ? 'checked' : '', it.sub ? 'has-sub' : '', i === kbIdx ? 'kb' : ''].filter(Boolean).join(' ');
   const disabled = it.enabled && !it.enabled() ? ' disabled' : '';
   const key = it.key ? `<span class="key">${esc(it.key)}</span>` : '';
@@ -871,6 +872,8 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
     };
   });
   hoverGlide(m, '.menu-item');
+  // A top-level menu that leads with its search field opens ready to type in it (a submenu opened by hover doesn't take the keys).
+  if (!depth) m.querySelector<HTMLInputElement>('.menu-search[data-keep] input')?.focus({ preventScroll: true });
   return m;
 }
 // The card beside a menu with the hovered (or keyed) row's `tip`: the whole explanation, where the row has room only
@@ -900,7 +903,7 @@ let keepSearch = false;
 function fitMenuHeight(m: HTMLElement): void {
   if (m.scrollHeight <= Math.min(MENU_MAX_H, innerHeight - 16)) {
     // Every row already shows, so a filter field is just clutter (unless it's being typed in: see the search redraw).
-    if (!keepSearch) m.querySelector('.menu-search')?.remove();
+    if (!keepSearch) m.querySelector('.menu-search:not([data-keep])')?.remove();
     return;
   }
   const box = document.createElement('div');

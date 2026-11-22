@@ -572,7 +572,22 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
     set: i => apply(current(), EFFORTS[i]),
     hint: i => EFFORT_HINTS[EFFORTS[i]],
   } }];
-  return [{ label: 'Switch Model', enabled: () => false }, ...models, ...effort];
+  const list: MenuItem[] = [{ label: 'Switch Model', enabled: () => false }, ...models, ...effort];
+  // The search field on top finds a model by name across this agent and, with `others`, every other one found.
+  const pool = [a, ...(others ? (appState.detect?.agents ?? []).filter(b => b.id !== a.id && b.found) : [])];
+  const hits = (q: string): MenuItem[] => {
+    const found = pool.flatMap(b => (b.models ?? []).filter(m => m !== 'default').flatMap(m => {
+      const label = modelRowLabel(b, m, versionLabel(m));
+      const f = modelMatch(label, q) ?? modelMatch(m, q);
+      return f ? [{ b, m, label, score: f.score }] : [];
+    })).sort((x, y) => y.score - x.score).slice(0, 80);
+    return found.length ? found.map(({ b, m, label }): MenuItem => ({
+      label, icon: modelMark(b, m), key: b.id === a.id ? undefined : agentShortName(b),
+      checked: () => b.id === a.id && current() === m,
+      run: () => (b.id === a.id ? apply(m, effortNow()) : others!(b, m)),
+    })) : [{ label: 'No matching models', enabled: () => false }];
+  };
+  return [{ label: 'Search models', searchFirst: true, search: q => (q ? hits(q) : list) }, ...list];
 }
 
 /* ----- Agents: names, mentions and the default agent ----- */

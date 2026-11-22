@@ -893,10 +893,13 @@ const resetText = (sec: number) => {
   if (at.getTime() - now.getTime() < 6 * 86_400_000) return `${at.toLocaleDateString([], { weekday: 'short' })} ${time}`;
   return at.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
+// Agents that report no usage at all: a greyed row with no token count, so they don't just go missing.
+const NO_USAGE = new Set(['antigravity']);
 function usageHtml(agents: DetectedAgent[]): string {
   if (!agentUsage) return '<p class="set-sub shimmer-text">Loading usage</p>';
   const u = agentUsage;
   return agents.map(a => {
+    if (NO_USAGE.has(a.id)) return `<div class="usage-agent usage-off"><div class="usage-head">${brandMark('usage-mark', a.id, a.name[0])}<span class="set-title">${esc(a.name)}</span></div><div class="set-sub" data-k="${a.id}:none">${esc(a.name)} doesn't report usage</div></div>`;
     const wins = u.limits[a.id] ?? [];
     // Only Claude and Codex report their plan, when asked (notes says why it couldn't be); Codex signed in with an
     // API key only once it has run since the last reset.
@@ -976,8 +979,8 @@ function patchUsage(el: HTMLElement, html: string): void {
 // Fetches fresh numbers (agents used outside Breeze count too) and updates only if something changed.
 let usageShown = '';
 let usageTick = 0;
-// Antigravity reports neither limits nor tokens, so they're left out of Usage.
-const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found && a.id !== 'antigravity').sort((a, b) => agentRank(a) - agentRank(b));
+// Antigravity reports neither limits nor tokens: it shows as a greyed row that says so (NO_USAGE).
+const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found).sort((a, b) => agentRank(a) - agentRank(b));
 function updateUsage(el: HTMLElement): void {
   background(api.agent.usage().then(u => {
     agentUsage = u;

@@ -3141,8 +3141,11 @@ function claudeResult(runId: number, d: Loose, ctx: StreamCtx, mode: string): vo
   ctx.final = { t: 'done', ok: true, tokens: ctx.tokens };
 }
 // How full the chat's context window is: the last request's whole prompt (cached parts too) and its reply, out of the
-// model's window. A 1M-token model says so in its id; the result names the real window and corrects it.
-const claudeWindow = (model: unknown) => (/\[1m\]|-1m\b/i.test(String(model ?? '')) ? 1_000_000 : 200_000);
+// model's window: 1M tokens for current Claude models, 200k for Haiku. The result names the real window and corrects it.
+const claudeWindow = (model: unknown) => {
+  const id = String(model ?? '');
+  return /haiku/i.test(id) && !/\[1m\]|-1m\b/i.test(id) ? 200_000 : 1_000_000;
+};
 function claudeContextUse(runId: number, d: Loose, ctx: StreamCtx): void {
   const u = d.message?.usage;
   if (!u) return;

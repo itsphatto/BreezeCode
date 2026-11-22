@@ -16206,6 +16206,11 @@ body.layout-animating #previewPane {
   margin: 0 0 0 32px;
 }
 
+/* An agent that reports no usage (Antigravity): greyed, with the reason under its name. */
+.usage-agent.usage-off {
+  opacity: .55;
+}
+
 .usage-win {
   display: grid;
   grid-template-columns: 104px minmax(0, 1fr) 230px;
@@ -20824,7 +20829,7 @@ input.dbg-edit.bad:focus-visible {
   white-space: nowrap;
 }
 
-/* The box's Context button beside its name; a click shows how full the chat is and its model. */
+/* The box's context readout beside its name: how full the chat is (board.ts paintBoxContext). */
 .board-box-model {
   display: inline-flex;
   align-items: center;
@@ -20839,14 +20844,9 @@ input.dbg-edit.bad:focus-visible {
   font: inherit;
   font-size: 12px;
   white-space: nowrap;
-  cursor: pointer;
-  transition: background .15s, color .15s;
-}
-
-.board-box-model:hover,
-.board-box-model.open {
-  background: var(--bg-2);
-  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  transition: color .15s;
 }
 
 .board-box-model .bbm-label {
@@ -21019,7 +21019,7 @@ input.dbg-edit.bad:focus-visible {
   }
 }
 
-/* The Context button: amber from 80% full. */
+/* The context readout: amber from 80% full. */
 .board-box-model.low {
   color: var(--warn);
 }

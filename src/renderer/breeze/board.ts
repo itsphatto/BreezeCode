@@ -666,7 +666,7 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     <header class="board-box-head">
       ${brandMark('board-box-logo', agent, agentNameOf(agent)[0] ?? '?')}
       <b class="board-box-name"></b>
-      <button class="board-box-model" type="button" title="Context" aria-haspopup="menu"><span class="bbm-label">Context</span><svg data-i="chevronRight" data-size="11"></svg></button>
+      <span class="board-box-model" role="status" title="Context"><span class="bbm-label"></span></span>
       <span class="board-dot" role="status"></span>
       <span class="flex-1"></span>
       <button class="board-owns" type="button" title="Files this box owns"></button>
@@ -769,7 +769,6 @@ function wireBox(box: BoardBox): void {
   $('.board-box-preview', el).onclick = () => showBoxSide(box, 'preview');
   wireLiveSash(box);
   $('.board-owns', el).onclick = e => ownsMenu(box, e.currentTarget as HTMLElement);
-  $('.board-box-model', el).onclick = e => openChipMenu(e.currentTarget as HTMLElement, boxContextItems(box));
   $('.board-box-head', el).addEventListener('dblclick', e => {
     if ((e.target as HTMLElement).closest('button')) return;
     toggleMaxBox(box);
@@ -844,28 +843,23 @@ function boardPickOf(key: string): { model?: string; effort?: string } {
   const model = b.model ? boxModelOf(b) : '';
   return { ...(model ? { model } : {}), ...(b.effort ? { effort: b.effort } : {}) };
 }
-// The header's Context button: how full the box's chat is, the share of its model's context window the last request
-// used (a `ctx` event from main, for Claude and Codex). Amber from 80%, when the agent will soon compact or forget the
-// start of the chat. The model is picked in the prompt's chip, or from this button's menu.
+// The header's context readout: how full the box's chat is, the share of its model's context window the last request
+// used (a `ctx` event from main). Shown as is, no menu: "12% · 24k / 1M". Amber from 80%, when the agent will soon
+// compact or forget the start of the chat. Agents that never report it (Antigravity) show nothing. The model is picked
+// in the prompt's chip.
 const ctxTokens = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
 const ctxPct = (c: BoxContext) => Math.max(0, Math.min(100, Math.round((c.used / c.window) * 100)));
 function paintBoxContext(box: BoardBox): void {
-  const btn = $('.board-box-model', box.el), c = box.ctx;
+  const el = $('.board-box-model', box.el), c = box.ctx;
   const pct = c ? ctxPct(c) : 0;
-  btn.classList.toggle('low', pct >= 80);
-  btn.title = c ? `Context window: ${ctxTokens(c.used)} of ${ctxTokens(c.window)} tokens used (${pct}%)` : 'Context';
-  btn.setAttribute('aria-label', `${btn.title}. Show context`);
+  el.classList.toggle('low', pct >= 80);
+  el.classList.toggle('hidden', NO_CONTEXT.has(box.agent));
+  const text = c ? `${pct}% · ${ctxTokens(c.used)} / ${ctxTokens(c.window)}` : 'Context 0%';
+  if ($('.bbm-label', el).textContent !== text) $('.bbm-label', el).textContent = text;
+  el.title = c ? `Context window: ${ctxTokens(c.used)} of ${ctxTokens(c.window)} tokens used (${pct}%)` : 'No context used yet';
 }
-function boxContextItems(box: BoardBox): MenuItem[] {
-  const c = box.ctx, ag = boxAgent(box);
-  const items: MenuItem[] = [{
-    label: c ? `${ctxPct(c)}% used · ${ctxTokens(c.used)} of ${ctxTokens(c.window)} tokens` : 'No context used yet',
-    enabled: () => false,
-  }];
-  const model = ag ? versionLabel(boxModelOf(box)) : '';
-  if (ag && model) items.push({ sep: true }, { label: `Model: ${model}${ag.api ? '' : ` · ${boxEffortOf(box)}`}`, sub: () => modelPickerItems(ag, false, boxModelTarget(box), (to, m) => switchBoxAgent(box, to, m)) });
-  return items;
-}
+// Agents that never report how full their context is.
+const NO_CONTEXT = new Set(['antigravity']);
 // A model of another agent picked in a box's menu: the box swaps to that agent, keeping its place and its chat.
 // The new agent starts its own session (sessions are kept per agent), so it doesn't see the old one's context.
 function switchBoxAgent(box: BoardBox, to: DetectedAgent, model: string): void {
