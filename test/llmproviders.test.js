@@ -1,0 +1,81 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const llm = require('../src/main/llmproviders');
+
+test('filterModels gemini keeps chat models and strips models/', () => {
+  const json = { data: [
+    { id: 'models/gemini-2.5-flash' }, { id: 'models/gemini-2.5-pro' }, { id: 'models/text-embedding-004' },
+    { id: 'models/gemini-2.5-flash-preview-tts' }, { id: 'models/gemini-2.5-flash-image' }, { id: 'models/gemini-live-2.5-flash' },
+  ] };
+  assert.deepEqual(llm.filterModels('gemini', json).models, ['gemini-2.5-flash', 'gemini-2.5-pro']);
+});
+
+test('filterModels openrouter keeps tool models with their context', () => {
+  const json = { data: [
+    { id: 'google/gemini-2.5-flash', context_length: 1048576, supported_parameters: ['tools', 'temperature'] },
+    { id: 'x/no-tools', context_length: 8000, supported_parameters: ['temperature'] },
+  ] };
+  const r = llm.filterModels('openrouter', json);
+  assert.deepEqual(r.models, ['google/gemini-2.5-flash']);
+  assert.deepEqual(r.contexts, { 'google/gemini-2.5-flash': 1048576 });
+});
+
+test('filterModels local reads data or models', () => {
+  assert.deepEqual(llm.filterModels('local', { models: [{ name: 'llama3.1' }] }).models, ['llama3.1']);
+  assert.deepEqual(llm.filterModels('local', { data: [{ id: 'qwen2.5-coder' }] }).models, ['qwen2.5-coder']);
+});
+
+test('filterModels throws on an empty list', () => {
+  assert.throws(() => llm.filterModels('gemini', { data: [] }));
+  assert.throws(() => llm.filterModels('local', {}), /ollama pull llama3\.1/);
+});
+
+test('defaultModel gemini picks the newest flash', () => {
+  assert.equal(llm.defaultModel('gemini', ['gemini-2.0-flash', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']), 'gemini-2.5-flash');
+  assert.equal(llm.defaultModel('gemini', ['gemini-2.5-pro']), 'gemini-2.5-pro');
+});
+
+test('defaultModel openrouter takes the first', () => {
+  assert.equal(llm.defaultModel('openrouter', ['a/b', 'c/d']), 'a/b');
+});
+
+test('contextWindow follows each provider', () => {
+  assert.equal(llm.contextWindow('local', { url: 'http://127.0.0.1:11434/v1' }), 4096);
+  assert.equal(llm.contextWindow('local', { url: 'http://127.0.0.1:1234/v1' }), 8192);
+  assert.equal(llm.contextWindow('local', { url: 'http://127.0.0.1:11434/v1', override: 32000 }), 32000);
+  assert.equal(llm.contextWindow('gemini', { url: 'x' }), 128000);
+  assert.equal(llm.contextWindow('gemini', { url: 'x', override: 32000 }), 128000);
+  assert.equal(llm.contextWindow('openrouter', { url: 'x', model: 'm', contexts: { m: 1048576 } }), 128000);
+  assert.equal(llm.contextWindow('openrouter', { url: 'x', model: 'm', contexts: { m: 32768 } }), 32768);
+  assert.equal(llm.contextWindow('openrouter', { url: 'x', model: 'gone', contexts: { m: 32768 } }), 128000);
+});
+
+test('friendlyError explains key, quota and credit problems', () => {
+  assert.match(llm.friendlyError('gemini', 429, {}).message, /free limit/i);
+  for (const status of [401, 403]) {
+    const m = llm.friendlyError('gemini', status, {}).message;
+    assert.match(m, /rejected the key/i);
+    assert.match(m, /aistudio\.google\.com\/apikey/);
+  }
+  const credits = llm.friendlyError('openrouter', 402, {}).message;
+  assert.match(credits, /credits/i);
+  assert.match(credits, /openrouter\.ai\/credits/);
+  assert.match(llm.friendlyError('openrouter', 401, {}).message, /rejected the key/i);
+  assert.equal(llm.friendlyError('gemini', 500, { error: { message: 'boom' } }).message, 'boom');
+  assert.equal(llm.friendlyError('gemini', 500, [{ error: { message: 'wrapped' } }]).message, 'wrapped');
+  assert.equal(llm.friendlyError('local', 500, {}).message, 'The server answered with status 500');
+  assert.equal(llm.friendlyError('gemini', 429, {}).status, 429);
+});
+
+test('extraHeaders only for openrouter', () => {
+  assert.deepEqual(llm.extraHeaders('openrouter'), { 'HTTP-Referer': 'https://breezecode.site/', 'X-Title': 'Breeze Code' });
+  assert.deepEqual(llm.extraHeaders('gemini'), {});
+});
+
+test('isLlmAgent knows only the API providers', () => {
+  assert.equal(llm.isLlmAgent('gemini'), true);
+  assert.equal(llm.isLlmAgent('local'), true);
+  assert.equal(llm.isLlmAgent('claude'), false);
+  assert.equal(llm.isLlmAgent(undefined), false);
+  assert.equal(llm.isLlmAgent('__proto__'), false);
+});
