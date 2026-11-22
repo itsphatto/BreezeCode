@@ -626,6 +626,10 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   --tint: #a78bfa;
 }
 
+.tint-openrouter {
+  --tint: #94a3b8;
+}
+
 .tint-youtube {
   --tint: #ff3b30;
 }
@@ -2822,6 +2826,10 @@ body.resizing-h iframe {
   background: currentColor;
   -webkit-mask: url(../../assets/icons/openai.svg) center / contain no-repeat;
   mask: url(../../assets/icons/openai.svg) center / contain no-repeat;
+}
+
+.model-mark.mm-gemini {
+  background: url(../../assets/icons/gemini.svg) center / contain no-repeat;
 }
 
 .menu-item:disabled .model-mark {

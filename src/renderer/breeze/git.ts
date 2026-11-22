@@ -156,7 +156,7 @@ function lowestModelFor(a: DetectedAgent): { model?: string } {
   if (a.id === 'claude') return { model: 'haiku' };
   if (a.api) {
     const models = a.models ?? [];
-    const low = models.find(m => /(1\.5b|3b|mini|small)/i.test(m)) || models[0];
+    const low = models.find(m => /(1\.5b|3b|mini|small|lite|flash)/i.test(m)) || models[0];
     return { model: low || a.version || undefined };
   }
   return { model: a.models?.at(-1) };

@@ -102,6 +102,8 @@ const AGENT_STYLE: Record<string, { letter: string; tint: string }> = {
   opencode: { letter: 'Oc', tint: 'opencode' },
   local: { letter: 'Ol', tint: 'local' },
   ollama: { letter: 'Ol', tint: 'local' },
+  gemini: { letter: 'Ge', tint: 'gemini' },
+  openrouter: { letter: 'Or', tint: 'openrouter' },
 };
 let detecting: Promise<Detection> | null = null;
 
@@ -147,22 +149,29 @@ function fixSelectedAgent(): void {
 }
 
 const pillClass = (on: boolean) => (on ? 'blue' : 'ok');
-// The local LLM card: an API key to connect with (the server is found on this computer),
-// or (once connected) its address and a model picker.
+// An API agent's card. Ollama: an optional API key to connect with (the server is found on this computer).
+// Gemini and OpenRouter: a link to get a key and the key field. Once connected: a model picker and Remove.
+// Every card carries data-llm-card so its controls are bound to it alone.
 function localAgentHtml(a: DetectedAgent, on: boolean, mark: string): string {
   const name = `<span class="nm">${esc(a.name)} <small>API</small></span>`;
+  const cloud = !!a.keyUrl;
   if (!a.found) {
-    return `<div class="agent-opt api missing">${mark}${name}
-      <button class="get side" data-get="${escAttr(a.url)}"><span class="get-label">Get Ollama</span></button>
-      <span class="sub">Finds Ollama or LM Studio running on this computer</span>
-      <div class="key-row"><input class="input" type="password" data-llm-key aria-label="API key" placeholder="API key" autocomplete="off" spellcheck="false"><button class="btn btn-sm" data-llm-connect>Connect</button></div>
+    const get = cloud ? 'Get a key' : 'Get Ollama';
+    const sub = cloud ? a.sub ?? '' : 'Finds Ollama or LM Studio running on this computer';
+    const hint = cloud ? `${a.name} API key` : 'API key';
+    return `<div class="agent-opt api missing" data-llm-card="${escAttr(a.id)}">${mark}${name}
+      <button class="get side" data-get="${escAttr(a.keyUrl ?? a.url)}"><span class="get-label">${get}</span></button>
+      <span class="sub">${esc(sub)}</span>
+      <div class="key-row"><input class="input" type="password" data-llm-key aria-label="${escAttr(hint)}" placeholder="${escAttr(hint)}" autocomplete="off" spellcheck="false"><button class="btn btn-sm" data-llm-connect>Connect</button></div>
       <div class="key-err hidden"></div></div>`;
   }
   const label = on ? 'Selected' : 'Ready';
   const options = (a.models ?? []).map(m => `<option value="${escAttr(m)}"${m === a.version ? ' selected' : ''}>${esc(m)}</option>`).join('');
-  return `<div class="agent-opt api ${on ? 'on' : ''}" role="button" tabindex="0" data-agent="${a.id}">${mark}${name}
-    <span class="side row gap-6"><span class="pill ${pillClass(on)}">${label}</span><button class="get" data-llm-off title="Forget this server"><span class="get-label">Remove</span></button></span>
-    <span class="sub" title="${escAttr(a.path ?? '')}">${esc(a.path ?? '')}</span>
+  const sub = cloud ? a.sub ?? '' : a.path ?? '';
+  const off = cloud ? `Forget your ${a.name} key` : 'Forget this server';
+  return `<div class="agent-opt api ${on ? 'on' : ''}" role="button" tabindex="0" data-agent="${escAttr(a.id)}" data-llm-card="${escAttr(a.id)}">${mark}${name}
+    <span class="side row gap-6"><span class="pill ${pillClass(on)}">${label}</span><button class="get" data-llm-off title="${escAttr(off)}"><span class="get-label">Remove</span></button></span>
+    <span class="sub" title="${escAttr(a.path ?? '')}">${esc(sub)}</span>
     <div class="key-row"><select class="select" data-llm-model aria-label="Model">${options}</select></div></div>`;
 }
 // A version number reads "v2.1.4"; a one-word model alias ("haiku") reads as a name, "Haiku". Anything else
@@ -207,43 +216,48 @@ function agentOptionsHtml(d: Detection): string {
     return a.api ? localAgentHtml(a, on, mark) : cliAgentHtml(a, on, mark, !!d.demo);
   }).join('');
 }
+// Each API card's controls, bound inside that card only, so two cards never share a key field.
 function bindLocalLlm(root: HTMLElement, onChange: () => void): void {
-  const local = () => appState.detect?.agents.find(a => a.id === 'local');
-  const connect = root.querySelector<HTMLButtonElement>('[data-llm-connect]');
-  if (connect) {
-    const key = $<HTMLInputElement>('[data-llm-key]', root);
-    const save = async () => {
-      const err = root.querySelector<HTMLElement>('.key-err');
-      connect.disabled = true; swapText(connect, 'Connecting');
-      try {
-        const r = await api.llm.connect('local', '', key.value);
-        Object.assign(local() ?? {}, { found: true, path: r.url ?? null, version: r.model, models: r.models });
-        if (!selectedAgent()) appState.agent = 'local';
-        saveApp();
-        toast(`Connected · ${r.model}`);
-        onChange();
-      } catch (e) {
-        connect.disabled = false; swapText(connect, 'Connect');
-        if (err) { err.textContent = errMsg(e); err.classList.remove('hidden'); }
-      }
-    };
-    connect.onclick = () => void save();
-    key.onkeydown = e => { if (e.key === 'Enter') void save(); };
-  }
-  const model = root.querySelector<HTMLSelectElement>('[data-llm-model]');
-  if (model) model.onchange = () => background(api.llm.setModel('local', model.value).then(() => {
-    Object.assign(local() ?? {}, { version: model.value });
-    saveApp();
-    renderAgentBar();
-    toast(`Ollama model · ${model.value}`);
-  }));
-  root.querySelector<HTMLElement>('[data-llm-off]')?.addEventListener('click', e => {
-    e.stopPropagation();
-    background(api.llm.disconnect('local').then(() => {
-      Object.assign(local() ?? {}, { found: false, path: null, version: null, models: [] });
-      fixSelectedAgent();
-      onChange();
+  $$('[data-llm-card]', root).forEach(card => {
+    const id = card.dataset.llmCard ?? '';
+    const agent = () => appState.detect?.agents.find(a => a.id === id);
+    const nameOf = () => agent()?.name ?? id;
+    const connect = card.querySelector<HTMLButtonElement>('[data-llm-connect]');
+    const key = card.querySelector<HTMLInputElement>('[data-llm-key]');
+    if (connect && key) {
+      const save = async () => {
+        const err = card.querySelector<HTMLElement>('.key-err');
+        connect.disabled = true; swapText(connect, 'Connecting');
+        try {
+          const r = await api.llm.connect(id, '', key.value);
+          Object.assign(agent() ?? {}, { found: true, path: r.url ?? null, version: r.model, models: r.models });
+          if (!selectedAgent()) appState.agent = id;
+          saveApp();
+          toast(`${nameOf()} connected · ${r.model}`);
+          onChange();
+        } catch (e) {
+          connect.disabled = false; swapText(connect, 'Connect');
+          if (err) { err.textContent = errMsg(e); err.classList.remove('hidden'); }
+        }
+      };
+      connect.onclick = () => void save();
+      key.onkeydown = e => { if (e.key === 'Enter') void save(); };
+    }
+    const model = card.querySelector<HTMLSelectElement>('[data-llm-model]');
+    if (model) model.onchange = () => background(api.llm.setModel(id, model.value).then(() => {
+      Object.assign(agent() ?? {}, { version: model.value });
+      saveApp();
+      renderAgentBar();
+      toast(`${nameOf()} model · ${model.value}`);
     }));
+    card.querySelector<HTMLElement>('[data-llm-off]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      background(api.llm.disconnect(id).then(() => {
+        Object.assign(agent() ?? {}, { found: false, path: null, version: null, models: [] });
+        fixSelectedAgent();
+        onChange();
+      }));
+    });
   });
 }
 function bindAgentOptions(root: HTMLElement, onChange: () => void): void {
@@ -426,7 +440,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
     a.version = model;
     saveApp();
     renderAgentBar();
-    toast(`Ollama model set to ${model}`); // a local server has no effort setting
+    toast(`${a.name} model set to ${model}`); // an API model has no effort setting
   }
 }
 
@@ -486,6 +500,7 @@ function modelMark(a: DetectedAgent, m: string): string {
   const last = (full.split('/').pop() ?? '').replace(/^~/, '');
   if (a.id === 'claude' || /(^|\/)~?anthropic\//.test(full) || last.startsWith('claude')) return '<span class="model-mark mm-claude" aria-hidden="true"></span>';
   if (a.id === 'codex' || /(^|\/)~?openai\//.test(full) || /^(gpt|chatgpt|o\d|codex)/.test(last)) return '<span class="model-mark mm-openai" aria-hidden="true"></span>';
+  if (a.id === 'gemini' || /(^|\/)~?google\//.test(full) || last.startsWith('gemini')) return '<span class="model-mark mm-gemini" aria-hidden="true"></span>';
   return brandMark('menu-ico', a.id, a.name[0] ?? '?');
 }
 // Claude Code's aliases carry the maker's name in the picker: "Claude Opus 5.5".
@@ -551,7 +566,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
 
 /* ----- Agents: names, mentions and the default agent ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
-const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local']]);
+const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter']]);
 function agentShortName(a: DetectedAgent): string {
   return AGENT_SHORT_NAMES.get(a.id) || a.name;
 }

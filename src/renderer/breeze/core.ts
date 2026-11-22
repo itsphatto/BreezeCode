@@ -105,7 +105,9 @@ interface RootInfo { root: string; name: string; }
 // A folder opened from Explorer's "Open with Breeze Code", with the file that was right-clicked (project-relative).
 interface LaunchInfo extends RootInfo { open: string | null; launched: true; }
 interface SearchHit { path: string; line: number; col: number; text: string; }
-interface DetectedAgent { id: string; name: string; vendor: string; url: string; found: boolean; path: string | null; version: string | null; api?: boolean; models?: string[]; install?: string | null; }
+interface DetectedAgent { id: string; name: string; vendor: string; url: string; found: boolean; path: string | null; version: string | null; api?: boolean; models?: string[]; install?: string | null;
+  // A cloud API agent (Gemini, OpenRouter): where to get a key, the Setup card's line, and who bills the usage.
+  keyUrl?: string; sub?: string; billedBy?: string | null; }
 // Tokens each agent used this month (counted by Breeze), and the plan windows the agent itself reports (percent used).
 interface LimitWindow { label: string; used: number; resetsAt: number | null; }
 interface AgentUsage { usage: Record<string, number>; limits: Record<string, LimitWindow[]>; notes: Record<string, string | null>; }

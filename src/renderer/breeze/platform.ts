@@ -400,14 +400,20 @@ function demoApi(): BreezeApi {
     sys: {
       async detect() {
         await wait(500);
-        const llm = store.get<string | null>('breeze.demoLlm', null);
+        const demoLlm = (id: string) => {
+          const model = store.get<string | null>(demoLlmKey(id), null);
+          const d = DEMO_LLMS[id];
+          return { found: !!model, path: model ? d.url : null, version: model, models: model ? d.models : [] };
+        };
         return {
           demo: true, platform: 'browser',
           agents: [
             { id: 'antigravity', name: 'Antigravity', vendor: 'Google DeepMind', url: 'https://antigravity.google/', found: false, path: null, version: 'claude-sonnet-4-6', models: ['claude-sonnet-4-6', 'gemini-3.8-flash-high', 'claude-opus-4-6-thinking', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low', 'gpt-oss-120b-medium'] },
             { id: 'codex', name: 'Codex', vendor: 'OpenAI', url: 'https://developers.openai.com/codex/cli', found: false, path: null, version: null, install: 'npm install -g @openai/codex' },
             { id: 'claude', name: 'Claude', vendor: 'Anthropic', url: 'https://claude.com/claude-code', found: false, path: null, version: 'opus', models: ['fable', 'opus', 'sonnet', 'haiku'], install: 'npm install -g @anthropic-ai/claude-code' },
-            { id: 'local', name: 'Ollama', vendor: 'Ollama, LM Studio or any OpenAI-compatible server', url: 'https://ollama.com/download', api: true, found: !!llm, path: llm ? 'http://127.0.0.1:11434/v1' : null, version: llm, models: llm ? ['llama3.1', 'qwen2.5-coder'] : [] },
+            { id: 'local', name: 'Ollama', vendor: 'Ollama, LM Studio or any OpenAI-compatible server', url: 'https://ollama.com/download', api: true, ...demoLlm('local') },
+            { id: 'gemini', name: 'Gemini', vendor: 'Google', url: 'https://aistudio.google.com/apikey', api: true, keyUrl: 'https://aistudio.google.com/apikey', sub: 'Free tier · needs a Google account', billedBy: 'Google', ...demoLlm('gemini') },
+            { id: 'openrouter', name: 'OpenRouter', vendor: 'OpenRouter', url: 'https://openrouter.ai/keys', api: true, keyUrl: 'https://openrouter.ai/keys', sub: 'One key for hundreds of models · pay as you go', billedBy: 'OpenRouter', ...demoLlm('openrouter') },
           ],
           tools: [{ id: 'git', name: 'Git', found: true, version: null }, { id: 'node', name: 'Node.js', found: true, version: null },
           { id: 'dotnet', name: 'C#', found: false, version: null, optional: true, hint: 'winget install Microsoft.DotNet.SDK.10', url: 'https://dotnet.microsoft.com/download' }],
@@ -440,13 +446,14 @@ function demoApi(): BreezeApi {
     })(),
     // Browser preview only: canned answers so every panel can be tried without the desktop app.
     llm: {
-      async connect(_provider, url) {
+      async connect(provider, url) {
         await wait(500);
-        store.set('breeze.demoLlm', 'llama3.1');
-        return { url: url.trim() || 'http://127.0.0.1:11434/v1', model: 'llama3.1', models: ['llama3.1', 'qwen2.5-coder'] };
+        const demo = DEMO_LLMS[provider] ?? DEMO_LLMS.local;
+        store.set(demoLlmKey(provider), demo.models[0]);
+        return { url: provider === 'local' ? url.trim() || demo.url : demo.url, model: demo.models[0], models: demo.models };
       },
-      async setModel(_provider, model) { store.set('breeze.demoLlm', model); },
-      async disconnect() { store.del('breeze.demoLlm'); },
+      async setModel(provider, model) { store.set(demoLlmKey(provider), model); },
+      async disconnect(provider) { store.del(demoLlmKey(provider)); },
     },
     agent: {
       async run({ mode }) {
@@ -877,7 +884,15 @@ const BRAND_ICONS: Record<string, string> = {
   instagram: 'instagram.png', facebook: 'facebook.png',
   local: 'ollama.svg',
   ollama: 'ollama.svg',
+  gemini: 'gemini.svg',
 };
+// Browser preview only: each API agent's canned models once "connected". Ollama keeps its old storage key.
+const DEMO_LLMS: Record<string, { url: string; models: string[] }> = {
+  local: { url: 'http://127.0.0.1:11434/v1', models: ['llama3.1', 'qwen2.5-coder'] },
+  gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
+  openrouter: { url: 'https://openrouter.ai/api/v1', models: ['google/gemini-2.5-flash', 'anthropic/claude-sonnet-4.5', 'openai/gpt-5-mini', 'x-ai/grok-4'] },
+};
+const demoLlmKey = (provider: string) => (provider === 'local' ? 'breeze.demoLlm' : `breeze.demoLlm.${provider}`);
 // Logos that are a shape rather than a square tile; they show whole instead of clipped to the tile's corners.
 const BARE_ICONS = new Set(['facebook']);
 function brandMark(cls: string, id: string, fallback: string): string {

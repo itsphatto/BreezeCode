@@ -900,7 +900,7 @@ function usageHtml(agents: DetectedAgent[]): string {
     const wins = u.limits[a.id] ?? [];
     // Only Claude and Codex report their plan, when asked (notes says why it couldn't be); Codex signed in with an
     // API key only once it has run since the last reset.
-    const none = a.api ? 'No limit · runs on this computer'
+    const none = a.api ? (a.billedBy ? `Billed by ${a.billedBy}` : 'No limit · runs on this computer')
       : u.notes[a.id] ?? (a.id in u.limits ? 'Plan limits show up after its next run' : `${a.name} doesn't share its limits`);
     // data-k names each part that can change, so a refresh updates it in place (see patchUsage).
     const plan = wins.length ? wins.map(w => {
