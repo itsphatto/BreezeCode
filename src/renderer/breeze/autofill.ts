@@ -80,12 +80,12 @@ const EDITOR_WORDS: Record<string, string[]> = {
   json: ['true', 'false', 'null'],
   ...Object.fromEntries(Object.entries({ go: GO_KW, rb: RB_KW, kt: KT_KW, swift: SWIFT_KW, dart: DART_KW, zig: ZIG_KW, scala: SCALA_KW, groovy: GROOVY_KW, ex: EX_KW, hs: HS_KW, r: R_KW, pl: PL_KW }).map(([id, kw]) => [id, kw.split(' ')])),
 };
-// Word counts per open file, refreshed at most every second and a half while typing.
+// Word counts per open file, refreshed while typing: small files almost every keystroke, so a word just typed is offered.
 const wordCache = new WeakMap<EditorBuffer, { at: number; counts: Map<string, number> }>();
 function fileWords(b: EditorBuffer): Map<string, number> {
   const cached = wordCache.get(b);
   // Big files are counted less often: the count takes longer and a few new words barely change it.
-  if (cached && Date.now() - cached.at < Math.max(1500, b.text.length / 50)) return cached.counts;
+  if (cached && Date.now() - cached.at < Math.max(150, b.text.length / 50)) return cached.counts;
   const counts = new Map<string, number>();
   for (const m of b.text.slice(0, LINT_MAX).matchAll(/[A-Za-z_$][\w$-]{2,}/g)) counts.set(m[0], (counts.get(m[0]) ?? 0) + 1);
   wordCache.set(b, { at: Date.now(), counts });
@@ -97,9 +97,9 @@ function editorCandidates(b: EditorBuffer, prefix: string): Suggestion[] {
   const words = new Map<string, number>();
   for (const w of EDITOR_WORDS[langOf(b.path)[0]] ?? []) words.set(w, 1000);
   for (const [w, n] of counts) words.set(w, (words.get(w) ?? 0) + n);
-  // The word being typed counts once in the file; it isn't a suggestion by itself.
+  // The word being typed is in the file too; it isn't a suggestion by itself. (A word written once elsewhere still is.)
   return [...words]
-    .filter(([w, n]) => w.toLowerCase().startsWith(lower) && w !== prefix && !(n === 1 && counts.get(w) === 1 && w.startsWith(prefix)))
+    .filter(([w]) => w.toLowerCase().startsWith(lower) && w !== prefix)
     .sort((a, b2) => Number(b2[0].startsWith(prefix)) - Number(a[0].startsWith(prefix)) || b2[1] - a[1] || a[0].length - b2[0].length)
     .slice(0, 8)
     .map(([w, n]) => ({ text: w, hint: n >= 1000 ? 'keyword' : '' }));
@@ -339,26 +339,153 @@ termInput.addEventListener('focus', updateGhost);
 type Textbox = HTMLInputElement | HTMLTextAreaElement;
 const learned = new Map<string, number>(store.get<[string, number][]>('breeze.words', []));
 let learnSave = 0;
+// So there is something to offer before anything is learned: everyday English, then app and code words. Ranked below
+// your own words and the open files'.
+const COMMON_WORDS = (
+  'about above across actually after again against almost alone along already also although always among another ' +
+  'answer anything anyone anywhere appear around asked away back because become been before began begin behind ' +
+  'being believe below better between both bring brought build built business called came cannot change check ' +
+  'children clear close come coming could country course create current different does doing done down during ' +
+  'each early either else enough even ever every everything example face fact family feel find first follow ' +
+  'following found from full gave general give given going good great group hand happen hard have having head ' +
+  'hear help here high himself hold home house however idea important include instead into issue just keep kind ' +
+  'knew know known large last later learn least leave left less letter life light like line list little live long ' +
+  'look looking made make making many matter maybe mean might mind minute moment money more morning most mother ' +
+  'move much must myself name need never next nice night nothing number often okay once only open order other ' +
+  'others otherwise over own part people perhaps person place plan play point possible probably problem public ' +
+  'question quick quickly quite rather read ready real really reason remember right room said same saying school ' +
+  'second seem seen sentence several should show side since small something sometimes soon sorry sound start ' +
+  'state still stop story such sure take taken talk tell than thank thanks that their them themselves then there ' +
+  'these they thing things think this those though thought through time today together told tomorrow took toward ' +
+  'tried true trying turn under understand until upon used useful using usually very want wanted water week well ' +
+  'went were what whatever when where whether which while white whole whose why will with within without word ' +
+  'words work working world would write writing wrong year years yesterday young your yourself account action ' +
+  'active add added adding address agent agents allow animation application apply array assets async attach audio ' +
+  'await backend background branch break browser buffer bug button cache call callback cancel changes class clean ' +
+  'click client clone code command comment commit component config configure connect console const content ' +
+  'context copy correct crash css data database debug default define delete deploy design dialog directory ' +
+  'disable display document download dropdown editor element empty enable endpoint error event export extension ' +
+  'feature fetch field file files filter fix folder font format frontend function github handle handler header ' +
+  'height hidden history hover html icon image implement import index input install interface item javascript ' +
+  'json key layout library limit link loading local logic login logout main menu merge message method model ' +
+  'module notification null object option output package padding page parameter password path performance ' +
+  'permission pixel plugin popup position preview private project prompt property pull push query react readme ' +
+  'refactor refresh release remove rename render repository request reset response return review route run save ' +
+  'screen script scroll search select selected server session setting settings setup shortcut sidebar size source ' +
+  'spacing string style submit support switch sync system table task template terminal test testing text theme ' +
+  'title toggle token tooltip transition type typescript update upload user value variable version view width ' +
+  'window workspace'
+).split(' ');
 function isTextbox(el: EventTarget | null): el is Textbox {
   const ok = el instanceof HTMLTextAreaElement ? !el.classList.contains('code-input')
     : el instanceof HTMLInputElement && ['text', 'search'].includes(el.type) && el !== termInput && !el.matches('#qoIn, .menu input'); // those two arrow through their own lists
   return ok && !(el as Textbox).readOnly && !(el as Textbox).disabled;
 }
-function learnWord(el: Textbox, word: string): void {
-  if (word.length < 3 || word.length > 30 || /\d/.test(word) || /key|token|secret|pass/i.test(`${el.id} ${el.name} ${el.placeholder} ${el.getAttribute('aria-label') ?? ''}`)) return;
+// Which word follows which, so after one word the list offers the next, like a search box. Learned pairs count three
+// times a seed pair. The seeds are everyday requests, so there is something to offer before anything is learned.
+const pairs = new Map<string, Map<string, number>>();
+const addPair = (a: string, b: string, n: number) => { const m = pairs.get(a) ?? new Map<string, number>(); m.set(b, (m.get(b) ?? 0) + n); pairs.set(a, m); };
+const SEED_TEXT = [
+  'can you help me fix the bug in the login page', 'can you please add a button to the settings page', 'please make the sidebar collapsible',
+  'i want to add dark mode to the app', 'how do i run the tests', 'what does this function do', 'explain how this code works',
+  'refactor the code to use async await', 'write a test for the parser', 'update the readme with the new commands',
+  'remove the unused imports', 'rename the variable to something clearer', 'it still does not work', 'the build is failing again',
+  'show me the error message', 'thank you so much', 'let me know if you have any questions', 'add a fade transition to the menu',
+  'make it look better on mobile', 'fix the layout on small screens', 'create a new file for the component',
+  'move the logic into a helper function', 'check why the page is slow', 'the app crashes when i click the button',
+  'i think the problem is in the server', 'can you make it faster', 'use the same style as the other buttons', 'keep the old behavior',
+  'do not change the api', 'commit the changes and open a pull request', 'what is the best way to do this', 'is there a better way',
+  'it should work like the other one', 'when the user clicks the button it should open the dialog', 'add error handling for the network request',
+  'the text is too small', 'the icon is not showing', 'replace the logo with the new one', 'this is a good idea', 'i would like to know',
+  'we need to talk about the design', 'you can use the existing helper', 'i need to deploy the website', 'make sure the tests pass',
+].join(' . ');
+const SEED_WORDS = SEED_TEXT.split(' ');
+const seedPairs = new Map<string, number>();
+SEED_WORDS.forEach((w, i) => {
+  const next = SEED_WORDS[i + 1];
+  if (!next || w === '.' || next === '.') return;
+  addPair(w, next, 1);
+  seedPairs.set(`${w} ${next}`, (seedPairs.get(`${w} ${next}`) ?? 0) + 1);
+});
+for (const [a, b, n] of store.get<[string, string, number][]>('breeze.pairs', [])) addPair(a, b, n * 3);
+let pairSave = 0;
+const secretField = (el: Textbox) => /key|token|secret|pass/i.test(`${el.id} ${el.name} ${el.placeholder} ${el.getAttribute('aria-label') ?? ''}`);
+function learnWord(word: string, prev?: string): void {
+  if (/\d/.test(word) || word.length > 30) return;
+  if (prev && !/\d/.test(prev)) {
+    addPair(prev.toLowerCase(), word.toLowerCase(), 3);
+    clearTimeout(pairSave);
+    // Only the learned share is saved: the seeds come from the list above on every run.
+    pairSave = window.setTimeout(() => {
+      const out: [string, string, number][] = [];
+      for (const [a, m] of pairs) for (const [w, n] of m) { const own = Math.round((n - (seedPairs.get(`${a} ${w}`) ?? 0)) / 3); if (own >= 1) out.push([a, w, own]); }
+      store.set('breeze.pairs', out.sort((x, y) => y[2] - x[2]).slice(0, 3000));
+    }, 1000);
+  }
+  if (word.length < 3) return;
   learned.set(word, (learned.get(word) ?? 0) + 1);
   clearTimeout(learnSave);
   learnSave = window.setTimeout(() => store.set('breeze.words', [...learned].sort((a, b) => b[1] - a[1]).slice(0, 2000)), 1000);
 }
-function textboxCandidates(prefix: string): Suggestion[] {
-  const lower = prefix.toLowerCase(), words = new Map<string, number>();
-  for (const [w, n] of learned) words.set(w, n * 3);
-  for (const b of buffers.values()) if (b.kind === 'text') for (const [w, n] of fileWords(b)) words.set(w, (words.get(w) ?? 0) + n);
+// Every word of `text`, each with the one before it. Punctuation ends a run; @mentions, /commands, #refs, numbers and
+// code aren't words and end one too.
+function learnText(text: string): void {
+  let prev: string | undefined;
+  for (const token of text.split(/\s+/)) {
+    const m = /^["'(\[]*([A-Za-z](?:[\w'-]*\w)?)([^\w\s]*)$/.exec(token);
+    if (!m || /\d/.test(m[1])) { prev = undefined; continue; }
+    learnWord(m[1], prev);
+    prev = m[2] ? undefined : m[1];
+  }
+}
+// What you send is your wording: a box is learned from when Enter sends it or you leave it, not keystroke by keystroke,
+// so fixed typos and pasted text count as they end up. Only what's new since the last time is learned.
+const learnedText = new WeakMap<Textbox, string>();
+function commitTextbox(el: Textbox): void {
+  const v = el.value, old = learnedText.get(el) ?? '';
+  if (v === old || secretField(el)) return;
+  learnedText.set(el, v);
+  let cut = v.startsWith(old) ? old.length : 0;
+  while (cut > 0 && /[\w'-]/.test(v[cut - 1])) cut--; // a word that was half typed last time is learned whole
+  learnText(v.slice(cut));
+}
+// Once: the requests in your saved chats, so the suggestions sound like you from the start.
+if (!store.get('breeze.wordsFromChats', false)) {
+  store.set('breeze.wordsFromChats', true);
+  requestIdleCallback(() => {
+    try {
+      for (const key of Object.keys(localStorage).filter(k => k.startsWith('breeze.history:'))) {
+        for (const chat of store.get<{ html?: string }[]>(key, [])) {
+          if (!chat.html) continue;
+          for (const msg of new DOMParser().parseFromString(chat.html, 'text/html').querySelectorAll('.msg.user .body')) learnText(msg.textContent ?? '');
+        }
+      }
+    } catch { /* storage blocked: start from the seeds */ }
+  });
+}
+const commonRank = new Map(COMMON_WORDS.map((w, i) => [w, 1 - i / COMMON_WORDS.length]));
+// Words that finish `prefix`, the ones that often follow `prev` first. With no prefix, only the ones that follow `prev`.
+function textboxCandidates(prefix: string, prev?: string): Suggestion[] {
+  const lower = prefix.toLowerCase(), words = new Map<string, number>(), next = prev ? pairs.get(prev.toLowerCase()) : undefined;
+  if (prefix) {
+    COMMON_WORDS.forEach((w, i) => words.set(w, 0.9 - i / COMMON_WORDS.length / 2));
+    for (const w of SEED_WORDS) if (w !== '.') words.set(w, Math.min(1.5, Math.max(words.get(w) ?? 0, 0.8) + 0.1)); // "can" and "the" by how often they come up
+    for (const [w, n] of learned) words.set(w, n * 3);
+    for (const b of buffers.values()) if (b.kind === 'text') for (const [w, n] of fileWords(b)) words.set(w, (words.get(w) ?? 0) + n);
+  }
+  // Ties between next words go to the more common one ("help" over "so" after "can you").
+  for (const [w, n] of next ?? []) words.set(w, (words.get(w) ?? 0) + n * 10 + (commonRank.get(w) ?? 0));
+  // Your own spelling of a word ("React", "GitHub") over the lowercase one the pairs and the lists keep; "i" is "I".
+  const form = new Map<string, [string, number]>();
+  for (const [w, n] of learned) { const k = w.toLowerCase(), f = form.get(k); if (!f || n > f[1]) form.set(k, [w, n]); }
+  const spell = (w: string) => form.get(w.toLowerCase())?.[0] ?? (w === 'i' ? 'I' : w);
   return [...words]
     .filter(([w]) => w.length > prefix.length && w.toLowerCase().startsWith(lower))
     .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)
+    .filter(([w], i, all) => all.findIndex(([x]) => x.toLowerCase() === w.toLowerCase()) === i) // "Hello" and "hello" once
     .slice(0, 6)
-    .map(([w]) => ({ text: w }));
+    .map(([w]) => spell(w))
+    .map(w => ({ text: /^[A-Z]/.test(prefix) && /^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w })); // "He" offers "Hello"
 }
 // Where `pos` sits on screen: measured in a hidden copy of a textarea, or by text width in a one-line input.
 function caretBox(el: Textbox, pos: number): { x: number; top: number; bottom: number } {
@@ -378,31 +505,49 @@ function caretBox(el: Textbox, pos: number): { x: number; top: number; bottom: n
   return { x: r.left + m.left, top: r.top + m.top - el.scrollTop, bottom: r.top + m.bottom - el.scrollTop };
 }
 let textboxAccepting = false;
+// The word being typed (two letters at least) or, right after a word and a space, the next word.
+function textboxSuggest(el: Textbox): void {
+  const pos = el.selectionStart ?? 0;
+  const before = el.value.slice(Math.max(0, pos - 80), pos);
+  // @mentions, /commands and #refs have their own menus; mid-word typing gets none.
+  const m = /(?:^|[^@/#\w'-])(?:([A-Za-z][\w'-]*) )?([A-Za-z][\w'-]*)?$/.exec(before);
+  const prefix = m?.[2] ?? '', prev = m?.[1];
+  const ok = m && (prefix ? prefix.length >= 2 : !!prev && before.endsWith(' ')) && !/[\w'-]/.test(el.value[pos] ?? '');
+  const items = ok ? textboxCandidates(prefix, prev) : [];
+  if (!items.length) { if (suggest?.owner === el) hideSuggest(); return; }
+  const from = pos - prefix.length, at = caretBox(el, from);
+  showSuggest({
+    owner: el, items, sel: 0, typed: prefix.length,
+    accept: s => {
+      hideSuggest();
+      el.setSelectionRange(from, el.selectionStart ?? pos);
+      textboxAccepting = true;
+      // The word and a space, then on to the next word. execCommand keeps Ctrl+Z and fires 'input' for the field's own listeners.
+      document.execCommand('insertText', false, el.value[el.selectionEnd ?? pos] === ' ' ? s.text : `${s.text} `);
+      textboxAccepting = false;
+      textboxSuggest(el);
+    },
+  }, at.x - 8, at.bottom + 4, at.top - 4);
+}
 document.addEventListener('input', e => {
   const el = e.target;
   if (!isTextbox(el) || textboxAccepting) return;
   const ie = e as InputEvent, pos = el.selectionStart ?? 0;
   if (ie.inputType !== 'insertText' || el.selectionEnd !== pos) { if (suggest?.owner === el) hideSuggest(); return; }
-  const before = el.value.slice(Math.max(0, pos - 60), pos);
-  // A word just ended: remember it.
-  if (ie.data && !/[\w-]/.test(ie.data)) { const done = /(?:^|[^@/#\w-])([A-Za-z][\w-]*)$/.exec(before.slice(0, -ie.data.length)); if (done) learnWord(el, done[1]); }
-  // @mentions, /commands and #refs have their own menus; mid-word typing gets none.
-  const m = /(?:^|[^@/#\w-])([A-Za-z][\w-]*)$/.exec(before);
-  if (!m || m[1].length < 2 || /[\w-]/.test(el.value[pos] ?? '')) { if (suggest?.owner === el) hideSuggest(); return; }
-  const prefix = m[1], from = pos - prefix.length, at = caretBox(el, from);
-  showSuggest({
-    owner: el, items: textboxCandidates(prefix), sel: 0, typed: prefix.length,
-    accept: s => {
-      hideSuggest();
-      el.setSelectionRange(from, el.selectionStart ?? pos);
-      textboxAccepting = true;
-      document.execCommand('insertText', false, s.text); // keeps Ctrl+Z, and fires 'input' for the field's own listeners
-      textboxAccepting = false;
-    },
-  }, at.x - 8, at.bottom + 4, at.top - 4);
+  textboxSuggest(el);
 });
 document.addEventListener('keydown', e => {
-  if (!suggest || suggest.owner !== e.target || !isTextbox(e.target)) return;
-  if (e.key === 'Enter') hideSuggest(); else suggestKeys(e, e.target);
+  const el = e.target;
+  if (!isTextbox(el)) return;
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    commitTextbox(el); // before the field's own Enter sends and clears it
+    setTimeout(() => { if (!el.value) learnedText.delete(el); }); // sent: the next message is all new, even if it's the same
+  }
+  if (suggest?.owner !== el) return;
+  if (e.key === 'Enter') hideSuggest(); else suggestKeys(e, el);
 }, true); // before the field's own keys, so Tab and the arrows reach the list first
-document.addEventListener('focusout', e => { if (suggest?.owner === e.target && isTextbox(e.target)) hideSuggest(); });
+document.addEventListener('focusout', e => {
+  if (!isTextbox(e.target)) return;
+  commitTextbox(e.target);
+  if (suggest?.owner === e.target) hideSuggest();
+});

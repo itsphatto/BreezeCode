@@ -1807,7 +1807,7 @@ async function detectAgent(a: AgentDef) {
     version = loadState().antigravityModel || models[0] || 'claude-sonnet-4-6';
   } else if (a.id === 'claude') {
     // "default" stays a valid --model value for old saved picks, but the picker offers only named models.
-    const fable = !!bin && await claudeOffersFable(bin);
+    const fable = !!bin && await claudeOffersFable(bin) && await claudeHasFable();
     models = CLAUDE_MODELS.filter(m => m !== 'default' && (fable || m !== 'fable'));
     const saved = loadState().claudeModel;
     version = models.includes(saved) ? saved : 'opus';
@@ -2600,6 +2600,12 @@ async function claudeUsedFable() {
     return true;
   }
   return false;
+}
+// Can this account run Fable? Claude's usage reply lists a Fable week only for plans that include it; when no live reply
+// comes (offline, signed out, rate-limited) the last saved one decides. A past Fable session doesn't count: plans change.
+async function claudeHasFable() {
+  const live = await claudeLiveLimits();
+  return live ? live.some(w => w.label === FABLE_WEEK) : !!loadState().claudeLimits?.seven_day_overage_included;
 }
 // A Codex session keeps a running total; this month's share is its last total less the last one from before the month.
 async function codexTokens() {
