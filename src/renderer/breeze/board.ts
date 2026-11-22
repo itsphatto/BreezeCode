@@ -619,6 +619,31 @@ function dropAgent(key: string, agent: string): void {
 }
 
 /* ----- A filled box: header, chat, prompt ----- */
+// A new chat greets you as Home does (the same line, greetings.ts) beside the agent's own logo, with the prompt
+// right under it in the middle of the box. The first message sends the prompt back down (watchBoxFresh).
+// The logo is the maker's bare mark, as in the model picker (no tile): Claude's starburst, OpenAI's knot for Codex.
+const HELLO_MARKS: Record<string, string> = { claude: 'mm-claude', codex: 'mm-openai', gemini: 'mm-gemini' };
+function boxHelloHtml(agent: string): string {
+  const mark = HELLO_MARKS[agent];
+  const logo = mark ? `<span class="model-mark board-hello-mark ${mark}" aria-hidden="true"></span>` : brandMark('board-hello-logo', agent, agentNameOf(agent)[0] ?? '?');
+  return `<div class="empty board-hello"><div class="board-hello-row">${logo}<h4>${esc(timeGreeting())}</h4></div></div>`;
+}
+// `fresh` while the chat is only its greeting. The prompt glides between the middle and the bottom (FLIP).
+function watchBoxFresh(el: HTMLElement, panel: HTMLElement): void {
+  const comp = $('.board-composer', el);
+  const sync = () => {
+    const fresh = !!panel.querySelector(':scope > .board-hello');
+    if (fresh === el.classList.contains('fresh')) return;
+    const before = el.isConnected ? comp.getBoundingClientRect() : null;
+    el.classList.toggle('fresh', fresh);
+    if (!before || motionReduced()) return;
+    const dy = before.top - comp.getBoundingClientRect().top;
+    if (dy) comp.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 450, easing: 'cubic-bezier(.32, .72, 0, 1)' });
+  };
+  new MutationObserver(sync).observe(panel, { childList: true });
+  sync();
+}
+
 // `entry`: a chat from another list (an old Breeze Space chat), shown as it was; it is filed in this folder from then on.
 function fillBox(key: string, agent: string, saved?: { historyId?: string; sessions?: Record<string, string>; model?: string; effort?: string; liveFrac?: number; side?: BoxSide; ctx?: BoxContext; entry?: ChatEntry }): BoardBox {
   const el = document.createElement('section');
@@ -679,7 +704,7 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
   tab.sessions = { ...(saved?.sessions ?? {}) };
   activeTabId[s.name] = tab.id;
   tab.panel.classList.add('active');
-  if (!entry) tab.panel.innerHTML = `<div class="empty"><div>${brandMark('board-empty-logo', agent, agentNameOf(agent)[0] ?? '?')}<h4>${esc(agentNameOf(agent))} is ready</h4><div class="empty-line">Its files stay its own. It asks the other boxes for changes in theirs.</div></div></div>`;
+  if (!entry) tab.panel.innerHTML = boxHelloHtml(agent);
   const liveEl = $('.board-live', el);
   const live = new LivePane(liveEl, $('.box-live-head', liveEl), $('.box-live-body', liveEl),
     path => { leaveBoard(); openFile(path); }, () => paintBoardLive());
@@ -694,6 +719,7 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
   paintLiveWidth(box);
   boardBoxes.set(key, box);
   wireBox(box);
+  watchBoxFresh(el, tab.panel);
   if (box.side) openBoxSide(box, box.side);
   paintBox(box);
   renderBoard();
@@ -838,7 +864,7 @@ function switchBoxAgent(box: BoardBox, to: DetectedAgent, model: string): void {
   $('.board-box-logo', box.el).outerHTML = brandMark('board-box-logo', to.id, letter);
   box.surface.prompt.setAttribute('aria-label', `Message to ${agentNameOf(to.id)} in box ${boxNumber(box.key)}`);
   const empty = box.tab.historyId ? null : box.tab.panel.querySelector('.empty');
-  if (empty) empty.outerHTML = `<div class="empty"><div>${brandMark('board-empty-logo', to.id, letter)}<h4>${esc(agentNameOf(to.id))} is ready</h4><div class="empty-line">Its files stay its own. It asks the other boxes for changes in theirs.</div></div></div>`;
+  if (empty) empty.outerHTML = boxHelloHtml(to.id);
   if (box.kit) renderPromptModels(box.kit);
   paintBox(box);
   renderBoard();

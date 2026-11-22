@@ -20291,7 +20291,96 @@ input.dbg-edit.bad:focus-visible {
   border-radius: 12px;
 }
 
-:is(.board-chip-logo, .board-box-logo, .board-empty-logo) .brand-img {
+/* A new chat (board.ts boxHelloHtml): the agent's logo beside Home's greeting, the prompt right under them in the
+   middle of the box. The first message sends the prompt back down. */
+.board-hello-logo {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.board-hello-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  max-width: 100%;
+  /* Sized by the box, not the window: a narrow box keeps it to a line or two. */
+  font-size: clamp(16px, 4.4cqi, 24px);
+}
+
+/* The logo sits on the first line's capitals (Instrument Sans caps are .72em tall; the h4 is trimmed to them). */
+.board-hello-row > :first-child {
+  margin-top: calc(.36em - 14px);
+}
+
+.board-hello-row > .board-hello-logo {
+  margin-top: calc(.36em - 16px);
+}
+
+/* A bare mark reads smaller than a tile, so it stands a little taller than the capitals beside it. */
+.board-hello-mark {
+  width: 28px;
+  height: 28px;
+}
+
+.board-hello-mark.mm-openai {
+  color: var(--text);
+}
+
+.agent-tab-panel > .board-hello h4 {
+  margin: 0;
+  min-width: 0;
+  /* Regular weight: the bundled Unbounded (500 and 700 only) reads bold, so the greeting is set in the UI face. */
+  font: 400 1em/1.3 var(--font-ui);
+  letter-spacing: -.01em;
+  /* Trimmed to the capitals, so the row centers the logo on the letters, not on the line box's empty descender. */
+  text-box: trim-both cap alphabetic;
+  color: var(--text);
+  text-wrap: balance;
+  animation: rise .525s var(--spring);
+}
+
+/* Optical centre: the greeting and prompt sit a little above the middle; mathematically centred they look low. */
+.board-box.fresh .board-box-main {
+  container-type: inline-size;
+  justify-content: center;
+  padding-bottom: 14%;
+}
+
+.board-box.fresh .board-chat {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.board-box.fresh .board-chat > .agent-tab-panel.active {
+  min-height: 0;
+}
+
+.board-box.fresh .agent-tab-panel > .board-hello {
+  min-height: 0;
+  padding: 0 16px 14px;
+}
+
+.board-composer {
+  width: 100%;
+  max-width: 100%;
+  margin-inline: auto;
+  transition: max-width .45s cubic-bezier(.32, .72, 0, 1);
+}
+
+.board-box.fresh .board-composer {
+  max-width: 680px;
+  border-top-color: transparent;
+}
+
+:is(.board-chip-logo, .board-box-logo, .board-empty-logo, .board-hello-logo) .brand-img {
   width: 100%;
   height: 100%;
   object-fit: contain;
