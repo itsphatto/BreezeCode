@@ -612,8 +612,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   --tint: #d97757;
 }
 
-.tint-codex,
-.tint-opencode {
+.tint-codex {
   --tint: #e4e4e7;
 }
 

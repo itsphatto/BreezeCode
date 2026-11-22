@@ -25,7 +25,7 @@ function applyDevMode(): void {
   queueDiscord();
 }
 // Agents the user has come first, then this order; anything else keeps its place after.
-const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'opencode', 'ollama'];
+const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'gemini', 'local', 'openrouter'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
 let settingsTab: SettingsTab = 'general';
 let agentFullAccess = true; // on unless turned off in Settings → Agents; the main process keeps the real value; read each time Settings opens
@@ -976,8 +976,8 @@ function patchUsage(el: HTMLElement, html: string): void {
 // Fetches fresh numbers (agents used outside Breeze count too) and updates only if something changed.
 let usageShown = '';
 let usageTick = 0;
-// Antigravity and OpenCode report neither limits nor tokens, so they're left out of Usage.
-const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found && a.id !== 'antigravity' && a.id !== 'opencode').sort((a, b) => agentRank(a) - agentRank(b));
+// Antigravity reports neither limits nor tokens, so they're left out of Usage.
+const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found && a.id !== 'antigravity').sort((a, b) => agentRank(a) - agentRank(b));
 function updateUsage(el: HTMLElement): void {
   background(api.agent.usage().then(u => {
     agentUsage = u;

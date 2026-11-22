@@ -6,7 +6,7 @@
 
 ### Blazing-fast, Rust Engine Code editor with Multi AI-Integration
 
-Ask for a change in plain words. Claude Code, Codex, Antigravity, OpenCode or a local model makes it,<br>
+Ask for a change in plain words. Claude Code, Codex, Antigravity, Gemini or a local model makes it,<br>
 and you see every file it reads, every edit and every command while it works.
 
 [**Download for Windows**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.site) &nbsp;·&nbsp; [FAQ](https://breezecode.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
@@ -36,7 +36,7 @@ and you see every file it reads, every edit and every command while it works.
 ## What it is
 
 - **An editor first.** Tabs, split editors, a terminal, Git, a debugger, live preview and language servers. All of it works with no agent connected.
-- **Agents you already have.** Breeze finds Claude Code, Codex, Antigravity and OpenCode on your PC and uses their own sign-in. Or point it at a local model.
+- **Agents you already have.** Breeze finds Claude Code, Codex and Antigravity on your PC and uses their own sign-in. Or point it at a local model.
 - **Free.** No plans or credits. You only pay for an agent if you pick a paid one, and a local model needs no internet at all.
 - **Local.** Your files stay on your PC. API keys and sign-in tokens are encrypted with the Windows keychain. Updates ask before they download.
 
@@ -47,7 +47,6 @@ and you see every file it reads, every edit and every command while it works.
 | <img src="assets/icons/claude.svg" height="16" alt=""> **Claude Code** | The `claude` CLI | Tokens this month, plus the 5-hour, weekly and weekly Fable limits |
 | <img src="assets/icons/codex.png" height="16" alt=""> **Codex** | The `codex` CLI | Tokens this month, plus its live plan window |
 | <img src="assets/icons/antigravity.png" height="16" alt=""> **Antigravity** | Antigravity's agent service | Antigravity doesn't report usage |
-| <img src="assets/icons/opencode.svg" height="16" alt=""> **OpenCode** | The `opencode` CLI | OpenCode doesn't report usage |
 | <img src="assets/icons/ollama.svg" height="16" alt=""> **Local model** | Ollama, LM Studio or any OpenAI-compatible server | None, it runs on your PC |
 
 Each prompt runs in one of three modes:
@@ -65,7 +64,7 @@ While an agent works:
 - **Pictures and test results.** Agents can show you an image or a preview screenshot. Test runs (node:test, Jest, Vitest, pytest, cargo test) appear as a card with the pass and fail counts and each failure.
 - **Image attachments.** Drop or paste images into a prompt. Pasted images go to a temp folder, so nothing is added to your project.
 
-Pick each agent's model and effort from its chip. Effort goes up to **Max** for Claude Code, OpenCode and Antigravity; Codex uses its highest level, `xhigh`. By default agents stay inside the project and keep out of `.env` and `.git`; the **Full access** switch in the agent menu lifts that.
+Pick each agent's model and effort from its chip. Effort goes up to **Max** for Claude Code and Antigravity; Codex uses its highest level, `xhigh`. By default agents stay inside the project and keep out of `.env` and `.git`; the **Full access** switch in the agent menu lifts that.
 
 The **plan usage meter** in the prompt box opens every plan window (5-hour, weekly) with a bar and a percentage, and turns to a warning colour when usage runs high.
 

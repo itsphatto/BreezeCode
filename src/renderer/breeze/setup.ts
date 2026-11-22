@@ -99,7 +99,6 @@ const AGENT_STYLE: Record<string, { letter: string; tint: string }> = {
   codex: { letter: 'Cx', tint: 'codex' },
   claude: { letter: 'Cc', tint: 'claude' },
   antigravity: { letter: 'Ag', tint: 'antigravity' },
-  opencode: { letter: 'Oc', tint: 'opencode' },
   local: { letter: 'Ol', tint: 'local' },
   ollama: { letter: 'Ol', tint: 'local' },
   gemini: { letter: 'Ge', tint: 'gemini' },
@@ -209,7 +208,7 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
   // A found agent shows just its name; the model and path stay in the tooltip.
   const attrs = a.found ? `role="button" tabindex="0" data-agent="${a.id}" title="${escAttr(sub)}"` : '';
   let modelOptions = '';
-  if (a.found && a.models?.length && !['codex', 'antigravity', 'claude', 'opencode'].includes(a.id)) {
+  if (a.found && a.models?.length && !['codex', 'antigravity', 'claude'].includes(a.id)) {
     const opts = a.models.map(m => {
       const sel = m === a.version ? ' selected' : '';
       return `<option value="${escAttr(m)}"${sel}>${esc(m)}</option>`;
@@ -299,7 +298,7 @@ function bindAgentOptions(root: HTMLElement, onChange: () => void): void {
         saveApp();
         renderAgentBar();
         toast(`Codex model · ${modelVal}`);
-      } else if (agId === 'antigravity' || agId === 'claude' || agId === 'opencode') {
+      } else if (agId === 'antigravity' || agId === 'claude') {
         await api.agent.setModel(agId, modelVal);
         if (targetAgent) targetAgent.version = modelVal;
         saveApp();
@@ -441,7 +440,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
     saveApp();
     renderAgentBar();
     toast(`Codex model set to ${versionLabel(model)} (${effort} effort)`);
-  } else if (a.id === 'antigravity' || a.id === 'claude' || a.id === 'opencode') {
+  } else if (a.id === 'antigravity' || a.id === 'claude') {
     await api.agent.setModel(a.id, model, effort.toLowerCase());
     a.version = model;
     saveApp();
@@ -523,7 +522,7 @@ function modelRowLabel(a: DetectedAgent, m: string, text: string): string {
 function agentModelRows(a: DetectedAgent, isChecked: (m: string) => boolean, pick: (m: string) => void): MenuItem[] {
   const all = (a.models ?? []).filter(m => m !== 'default');
   const row = (m: string, text = versionLabel(m)): MenuItem => ({ label: modelRowLabel(a, m, text), icon: modelMark(a, m), checked: () => isChecked(m), run: () => pick(m) });
-  // A long list (OpenCode lists every provider's models) gets nested submenus: provider, then vendor
+  // A long list (OpenRouter lists hundreds of models) gets nested submenus: provider, then vendor
   // (openrouter/~anthropic/…), each split only while it is still too long to scan, each with a search field on top.
   const rest = (m: string, depth: number) => m.split('/').slice(depth).join('/');
   const grouped = (list: string[], depth: number): MenuItem[] => {
@@ -542,7 +541,7 @@ function agentModelRows(a: DetectedAgent, isChecked: (m: string) => boolean, pic
   // A long list with no providers to split it by keeps the search box at the top level.
   return top.some(it => it.sub) ? top : [{ label: 'Search models…', run: () => searchModels(all, all.find(isChecked) ?? '', pick) }, ...top];
 }
-// The other agents' models, listed under the current one's: a short list inline, a long one (OpenCode) as a submenu.
+// The other agents' models, listed under the current one's: a short list inline, a long one (OpenRouter) as a submenu.
 function otherAgentRows(a: DetectedAgent, switchTo: (b: DetectedAgent, m: string) => void): MenuItem[] {
   const others = (appState.detect?.agents ?? []).filter(b => b.id !== a.id && b.found && (b.models ?? []).some(m => m !== 'default'));
   return others.flatMap((b): MenuItem[] => {
@@ -578,7 +577,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
 
 /* ----- Agents: names, mentions and the default agent ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
-const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter']]);
+const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter']]);
 function agentShortName(a: DetectedAgent): string {
   return AGENT_SHORT_NAMES.get(a.id) || a.name;
 }
@@ -726,8 +725,8 @@ const dayTotal = (d?: TokenDay) => (d ? d.input + d.output + d.cacheWrite + d.ca
 function dashAgents(): DetectedAgent[] {
   const all = appState.detect?.agents ?? [];
   const used = new Set(Object.keys(dashHistory?.agents ?? {}));
-  // Antigravity and OpenCode are left off this page, even as the default agent (as on Settings → Usage).
-  const list = all.filter(a => a.id !== 'antigravity' && a.id !== 'opencode' && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
+  // Antigravity is left off this page, even as the default agent (as on Settings → Usage).
+  const list = all.filter(a => a.id !== 'antigravity' && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
   const def = list.findIndex(a => a.id === appState.agent);
   if (def > 0) list.unshift(...list.splice(def, 1));
   return list;

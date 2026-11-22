@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { cleanRel, parseClaim, findClashes, ownerOf, claimFirstTouch, claudeDenyArgs, opencodeDenyRules, notesFor, claimPrompt, buildBrief, snapshot, addToSnapshot, restore, changedSince, TeamCoordinator } = require('../src/main/team');
+const { cleanRel, parseClaim, findClashes, ownerOf, claimFirstTouch, claudeDenyArgs, notesFor, claimPrompt, buildBrief, snapshot, addToSnapshot, restore, changedSince, TeamCoordinator } = require('../src/main/team');
 
 /* ----- Claims and ownership ----- */
 test('parseClaim reads the last json block', () => {
@@ -76,10 +76,6 @@ test('claudeDenyArgs', () => {
   assert.ok(args.includes('Write(x.js)'));
   assert.ok(args.includes('NotebookEdit(server/**)'));
   assert.ok(!args.some(a => a.includes('web')));
-});
-
-test('opencodeDenyRules', () => {
-  assert.deepEqual(opencodeDenyRules({ 'web/': 'opencode', 'server/': 'codex', 'x.js': 'claude' }, 'opencode'), { 'server/*': 'deny', 'x.js': 'deny' });
 });
 
 test('notesFor', () => {
