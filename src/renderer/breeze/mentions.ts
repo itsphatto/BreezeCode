@@ -302,8 +302,9 @@ function animatePromptHeight(kit: PromptKit, fromH: number): void {
    up with the sash as it is dragged. Boxes that size themselves as you type (textareas) ease too. ----- */
 const GROW_SEL = 'textarea, button, .btn, p, h1, h2, h3, h4, label, .side-note, .scm-row, .commit, .card, .agent-card, .quick-card, .pill, .chip, .empty';
 // Things with their own size animation, or that must never lag: the agent prompt, the code editors, terminals, menus,
-// and the one-line rows of the file tree and search results (redrawn often, never rewrapped).
-const GROW_SKIP = '#prompt, #boxPrompt, .ta, .editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, #tree, #searchResults, [data-no-grow]';
+// and the one-line rows of the file tree and search results (redrawn often, never rewrapped), and onboarding's
+// ghosts (their copies resize every frame of a flight and must land exactly on the real piece).
+const GROW_SKIP = '#prompt, #boxPrompt, .ta, .editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, #tree, #searchResults, .ob-ghost, [data-no-grow]';
 interface GrowState { w: number; h: number; anim?: Animation }
 const growState = new WeakMap<Element, GrowState>();
 // Dragging a sash resizes hundreds of watched blocks every frame, so this stays cheap: it reads all the new heights

@@ -107,14 +107,26 @@ let detecting: Promise<Detection> | null = null;
 
 function detectTools(force = false): Promise<Detection> {
   if (detecting !== null) return detecting;
-  $('#obToolPill').className = 'pill'; swapText($('#obToolPill'), 'Scanning');
-  if (!appState.detect) $('#obToolList').innerHTML = '<div class="row text-3"><div class="spinner sm"></div>Checking this computer</div>';
+  // A list already showing (last scan's) stays as it is while this one runs: flashing "Scanning" over it then back
+  // read as a flicker.
+  if (!appState.detect) {
+    $('#obToolPill').className = 'pill'; swapText($('#obToolPill'), 'Scanning');
+    $('#obToolList').innerHTML = '<div class="row text-3"><div class="spinner sm"></div>Checking this computer</div>';
+  }
   detecting = api.sys.detect(force).then(d => {
     const replacesSpinner = !!$('#obToolList').querySelector('.spinner');
+    const moving = replacesSpinner && step === STEP.tools && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const card = $('.ob-tools'), before = moving ? card.getBoundingClientRect().height : 0;
     appState.detect = d;
     fixSelectedAgent(); // no agent step any more: the first agent found is the one Breeze starts with (Settings → Agents changes it)
     renderDetection();
-    if (replacesSpinner && step === STEP.tools && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches) $$('#obToolList > *').forEach((row, i) => riseIn(row, i * 40));
+    if (moving) {
+      // The card grows to the list rather than jumping to it (the step is centred, so a jump moved everything at once),
+      // and the rows rise in, all within the step's own motion.
+      const after = card.getBoundingClientRect().height;
+      if (Math.abs(after - before) > 1) card.animate([{ height: `${before}px` }, { height: `${after}px` }], { duration: 480, easing: 'cubic-bezier(.3, 0, .2, 1)' });
+      $$('#obToolList > *').forEach((row, i) => riseIn(row, Math.min(i * 22, 260)));
+    }
     return d;
   }).catch((e: unknown) => {
     $('#obToolPill').className = 'pill warn'; swapText($('#obToolPill'), 'Scan failed');
