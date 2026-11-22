@@ -2175,7 +2175,7 @@ function setSecret(name: string, value: string | null | undefined): void {
 }
 
 /* ================= LLM APIs (Ollama, LM Studio or any OpenAI-compatible server; Gemini; OpenRouter) ================= */
-import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, type LlmProviderId, type ModelList } from './llmproviders';
+import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, type LlmProviderId, type ModelList } from './llmproviders';
 // The usual addresses of Ollama and LM Studio, tried when nothing is configured yet.
 const LLM_DEFAULTS = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1'];
 // The server address without trailing slashes.
@@ -2221,12 +2221,19 @@ async function llmConfig(provider: LlmProviderId, probe?: boolean): Promise<LlmC
 // it). A cloud provider's own answer (a bad key, no quota) is passed on; only a network failure gets the generic text.
 async function llmReachable(cfg: LlmConfig): Promise<string[]> {
   const name = LLM_PROVIDERS[cfg.provider].name;
-  let models: string[];
-  try { ({ models } = await llmModels(cfg.provider, cfg.url, cfg.key, cfg.provider === 'local' ? 2500 : 8000)); }
+  let fresh: ModelList;
+  try { fresh = await llmModels(cfg.provider, cfg.url, cfg.key, cfg.provider === 'local' ? 2500 : 8000); }
   catch (err) {
     if (cfg.provider === 'local') throw new Error('The local LLM server is not running. Start Ollama or LM Studio again, or choose another agent.');
     if ((err as { status?: number }).status) throw err;
     throw new Error(`Couldn't reach ${name}. Check your internet connection.`);
+  }
+  const { models } = fresh;
+  // A cloud provider adds and drops models over time: the saved list (the Setup picker's) follows what it offers now.
+  if (cfg.provider !== 'local') {
+    const saved = loadState().llmProviders?.[cfg.provider];
+    const next = saved?.model ? refreshedEntry(saved, fresh) : null;
+    if (next) saveLlmProvider(cfg.provider, next);
   }
   if (cfg.model && !models.includes(cfg.model)) {
     throw new Error(cfg.provider === 'local'
@@ -2262,6 +2269,12 @@ handle('llm:connect', async (_e, provider, url, key) => {
     const p = LLM_PROVIDERS[id];
     if (!key) throw new Error(`Paste your ${p.name} API key first`);
     const { models, contexts } = await llmModels(id, p.url, key);
+    // Where the model list doesn't need a key, a separate call checks it, so a typo fails here and not mid-run.
+    const check = keyCheckPath(id);
+    if (check) {
+      const r = await fetch(`${p.url}${check}`, { headers: { ...llmHeaders(key), ...extraHeaders(id) }, signal: AbortSignal.timeout(5000) });
+      if (!r.ok) throw friendlyError(id, r.status, await r.json().catch(() => ({})));
+    }
     const model = defaultModel(id, models);
     setSecret(p.keySecret, key);
     saveLlmProvider(id, { model, models, contexts });

@@ -39,6 +39,23 @@ test('defaultModel openrouter takes the first', () => {
   assert.equal(llm.defaultModel('openrouter', ['a/b', 'c/d']), 'a/b');
 });
 
+test('defaultModel openrouter prefers the newest Gemini Flash over a newer premium model', () => {
+  assert.equal(llm.defaultModel('openrouter', ['x/brand-new-premium', 'google/gemini-2.0-flash', 'google/gemini-2.5-flash', 'google/gemini-2.5-pro']), 'google/gemini-2.5-flash');
+});
+
+test('keyCheckPath: only OpenRouter needs a separate key check', () => {
+  assert.equal(llm.keyCheckPath('openrouter'), '/key');
+  assert.equal(llm.keyCheckPath('gemini'), null);
+  assert.equal(llm.keyCheckPath('local'), null);
+});
+
+test('refreshedEntry saves a changed model list and keeps the chosen model', () => {
+  const saved = { model: 'a/b', models: ['a/b', 'c/d'], contexts: { 'a/b': 1000 } };
+  const fresh = { models: ['a/b', 'e/f'], contexts: { 'a/b': 1000, 'e/f': 2000 } };
+  assert.deepEqual(llm.refreshedEntry(saved, fresh), { model: 'a/b', models: ['a/b', 'e/f'], contexts: { 'a/b': 1000, 'e/f': 2000 } });
+  assert.equal(llm.refreshedEntry(saved, { models: ['a/b', 'c/d'], contexts: { 'a/b': 1000 } }), null);
+});
+
 test('contextWindow follows each provider', () => {
   assert.equal(llm.contextWindow('local', { url: 'http://127.0.0.1:11434/v1' }), 4096);
   assert.equal(llm.contextWindow('local', { url: 'http://127.0.0.1:1234/v1' }), 8192);

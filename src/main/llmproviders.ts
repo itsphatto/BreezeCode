@@ -72,17 +72,32 @@ export function filterModels(provider: LlmProviderId, json: unknown): ModelList 
   return { models, contexts };
 }
 
-// The model picked on connecting. Gemini starts on its newest Flash model, which the free tier allows.
+// The model picked on connecting: the newest Gemini Flash model when there is one. Gemini's free tier allows it,
+// and on OpenRouter (which lists its newest, often premium, models first) it is a cheap one that calls tools well.
 export function defaultModel(provider: LlmProviderId, models: string[]): string {
-  if (provider === 'gemini') {
+  if (provider !== 'local') {
+    const flash = provider === 'gemini' ? /^gemini-(\d+(?:\.\d+)?)-flash$/ : /^google\/gemini-(\d+(?:\.\d+)?)-flash$/;
     let best: string | null = null, bestVersion = -1;
     for (const m of models) {
-      const v = /^gemini-(\d+(?:\.\d+)?)-flash$/.exec(m);
+      const v = flash.exec(m);
       if (v && Number(v[1]) > bestVersion) { best = m; bestVersion = Number(v[1]); }
     }
     if (best) return best;
   }
   return models[0];
+}
+
+// OpenRouter's model list is public, so a wrong key still lists models: its /key endpoint is what checks the key.
+export function keyCheckPath(provider: LlmProviderId): string | null {
+  return provider === 'openrouter' ? '/key' : null;
+}
+
+// A saved cloud entry with a newer model list, or null when nothing changed. The chosen model stays as it is
+// (a run that finds it gone says so).
+export function refreshedEntry(saved: { model: string; models: string[]; contexts?: Record<string, number> }, fresh: ModelList): { model: string; models: string[]; contexts: Record<string, number> } | null {
+  const same = saved.models.length === fresh.models.length && saved.models.every((m, i) => m === fresh.models[i])
+    && JSON.stringify(saved.contexts ?? {}) === JSON.stringify(fresh.contexts);
+  return same ? null : { model: saved.model, models: fresh.models, contexts: fresh.contexts };
 }
 
 // Cloud models take far more than this, but every turn resends the history: a cap keeps free quotas and bills small.

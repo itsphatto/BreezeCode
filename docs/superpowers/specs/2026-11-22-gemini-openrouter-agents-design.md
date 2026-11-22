@@ -48,7 +48,8 @@ The module also holds:
   - Gemini: keep chat models (ids containing `gemini`, dropping embedding, TTS, image and live models) and strip a leading `models/`.
   - OpenRouter: keep models whose `supported_parameters` includes `tools`, and keep each one's `context_length`.
   - Ollama: unchanged.
-- `defaultModel(provider, models)`: Gemini prefers the newest `gemini-*-flash` (free-tier friendly). OpenRouter and Ollama take the first model.
+- `defaultModel(provider, models)`: Gemini prefers the newest `gemini-*-flash` (free-tier friendly). OpenRouter prefers the newest `google/gemini-*-flash` (cheap, good at tools; OpenRouter lists premium models first). Otherwise, and for Ollama, the first model.
+- On connect, OpenRouter's key is checked with `GET /key`, because its `/models` list is public. Each run refreshes a cloud provider's saved model list.
 - `friendlyError(provider, status, body)`:
   - 401/403: "Gemini rejected the key. Check it at aistudio.google.com/apikey."
   - 429: "Gemini's free limit is used up for now. Wait a minute, or add billing in Google AI Studio."
