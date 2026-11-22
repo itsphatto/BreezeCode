@@ -194,6 +194,11 @@ interface AgentTask {
 // project: an open or recent folder, or 'box' for the Breeze Space folder.
 interface AgentTaskInput { goal: string; project: string; agent: string; control: AgentControl; schedule?: AgentSchedule | null; trigger?: { kind: AgentTriggerKind; match?: string } | null }
 interface AgentIntent { agentic: boolean; goal: string; schedule: AgentSchedule | null; trigger: { kind: AgentTriggerKind; match?: string } | null; why: string }
+// Second brain (main secondbrain.ts): a folder's memories and the links between them.
+type BrainKind = 'fact' | 'decision' | 'task' | 'file';
+interface BrainNode { id: string; kind: BrainKind; text: string; at: number; agent: string; hits: number }
+interface BrainGraph { nodes: BrainNode[]; links: { a: string; b: string; w: number }[] }
+interface BrainChat { key: string; title: string; text: string }
 interface AgentMemoryItem { id: string; scope: string; project: string | null; text: string; at: number; used: number }
 type AgentTaskMsg =
   | { type: 'update'; task: AgentTask }
@@ -472,6 +477,14 @@ interface BreezeApi {
     clearMemory(): Promise<boolean>;
     setTray(on: boolean, startWithSystem?: boolean): Promise<{ tray: boolean; startWithSystem: boolean }>;
     onEvent(cb: (msg: AgentTaskMsg) => void): () => void;
+  };
+  brain: {
+    graph(folder: string): Promise<BrainGraph>;
+    remove(folder: string, id: string): Promise<boolean>;
+    onChange(cb: (msg: { folder: string }) => void): () => void;
+    summarizePlan(folder: string, chats: BrainChat[]): Promise<{ chats: number; requests: number; more: boolean; tokens: number; agent: string | null }>;
+    summarize(folder: string, chats: BrainChat[]): Promise<{ added: number; requests: number }>;
+    onProgress(cb: (msg: { folder: string; done: number; total: number }) => void): () => void;
   };
   // Power saver (power.ts): main decides when it is on and tells the page of every change.
   power: { get(): Promise<PowerInfo>; setMode(mode: PowerMode): Promise<PowerInfo>; onChange(cb: (info: PowerInfo) => void): () => void; };

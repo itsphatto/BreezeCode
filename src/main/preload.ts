@@ -173,6 +173,15 @@ contextBridge.exposeInMainWorld('breeze', {
     setTray: (on: unknown, startWithSystem?: unknown) => invoke('agent:setTray', on, startWithSystem),
     onEvent: (cb: Listener) => listen('agent:task', cb),
   },
+  // Second brain: each folder's memory from agents' compactions (main.ts "Second brain").
+  brain: {
+    graph: (folder: unknown) => invoke('brain:graph', folder),
+    remove: (folder: unknown, id: unknown) => invoke('brain:remove', folder, id),
+    onChange: (cb: Listener) => listen('brain:changed', cb),
+    summarizePlan: (folder: unknown, chats: unknown) => invoke('brain:summarizePlan', folder, chats),
+    summarize: (folder: unknown, chats: unknown) => invoke('brain:summarize', folder, chats),
+    onProgress: (cb: Listener) => listen('brain:progress', cb),
+  },
   skills: {
     list: () => invoke('skills:list'),
     read: (file: unknown) => invoke('skills:read', file),

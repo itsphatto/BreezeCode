@@ -160,6 +160,59 @@ const demoPrFiles: Record<number, GhFile[]> = {
 };
 
 let demoConnectDone: (() => void) | null = null;
+// Second brain in the browser preview: a made-up folder memory with a few file hubs, so the graph can be tried.
+function demoBrain(): BreezeApi['brain'] {
+  const files = ['src/main/main.ts', 'src/renderer/breeze/board.ts', 'src/main/agentbrain.ts', 'package.json', 'src/renderer/breeze/settings.ts', 'test/board.test.js'];
+  const said: [number, BrainKind, string][] = [
+    [0, 'fact', 'Agents run as child processes spawned from main'], [0, 'decision', 'Kept the stream parser per agent instead of one shared parser'],
+    [0, 'fact', 'The IPC handlers only answer the app window'], [0, 'task', 'Move the updater setup out of the main file'],
+    [0, 'decision', 'Fixed the run not stopping because the child was killed before its tree'], [0, 'fact', 'Claude Code runs with stream-json input and output'],
+    [1, 'fact', 'Each box keeps its own chat and agent'], [1, 'decision', 'Boxes animate with the panel easing, not a spring'],
+    [1, 'task', 'Let a chat be dragged onto a busy box'], [1, 'fact', 'The context readout turns amber from 80 percent'],
+    [1, 'fact', 'The side bar groups chats by folder, pinned first'], [1, 'decision', 'Chose to save boxes per folder so folders never mix'],
+    [2, 'fact', 'compactHistory trims old tool results before dropping exchanges'], [2, 'decision', 'Instruction files from Claude Code and Codex are read too'],
+    [2, 'task', 'Measure token use of the project map on big folders'], [2, 'fact', 'Reads come back as windows of numbered lines'],
+    [3, 'fact', 'npm test runs tsc before the node tests'], [3, 'decision', 'Switched the build to plain tsc with no bundler'],
+    [4, 'fact', 'Usage shows Antigravity greyed because it reports nothing'], [4, 'task', 'Add a search box to the model picker'],
+    [5, 'task', 'Cover dragging a chat between boxes'], [5, 'fact', 'Board tests read the source text of board.ts'],
+  ];
+  const loose = ['The user prefers plain words over jargon in the UI', 'Unbounded is used for headlines only', 'Windows paths are compared without case',
+    'The dev PC is a desktop with no battery', 'Gemini is listed right after Antigravity', 'Releases are published from GitHub'];
+  const t0 = Date.now();
+  const nodes: BrainNode[] = [
+    ...files.map((f, i) => ({ id: `f${i}`, kind: 'file' as BrainKind, text: f, at: t0 - i * 3_600_000, agent: 'claude', hits: 3 + (i % 3) })),
+    ...said.map(([f, kind, text], i) => ({ id: `m${i}`, kind, text: `${files[f]}: ${text}`, at: t0 - i * 5_400_000, agent: i % 3 ? 'claude' : 'codex', hits: 1 + (i % 4) })),
+    ...loose.map((text, i) => ({ id: `l${i}`, kind: 'fact' as BrainKind, text, at: t0 - i * 86_400_000, agent: 'claude', hits: 1 })),
+  ];
+  const links = said.map(([f], i) => ({ a: `m${i}`, b: `f${f}`, w: 1 }));
+  said.forEach(([f], i) => { const j = said.findIndex(([g], k) => k > i && g === f); if (j > 0 && i % 2) links.push({ a: `m${i}`, b: `m${j}`, w: 0.6 }); });
+  links.push({ a: 'f0', b: 'f2', w: 0.5 }, { a: 'm16', b: 'f0', w: 0.8 }, { a: 'l1', b: 'm7', w: 0.4 }, { a: 'm21', b: 'f1', w: 0.8 });
+  const listeners: ((m: { folder: string }) => void)[] = [];
+  const progress: ((m: { folder: string; done: number; total: number }) => void)[] = [];
+  return {
+    async graph() { return { nodes: nodes.map(n => ({ ...n })), links: links.filter(l => nodes.some(n => n.id === l.a) && nodes.some(n => n.id === l.b)) }; },
+    async remove(folder, id) { const i = nodes.findIndex(n => n.id === id); if (i < 0) return false; nodes.splice(i, 1); listeners.forEach(cb => cb({ folder })); return true; },
+    onChange(cb) { listeners.push(cb); return () => { const i = listeners.indexOf(cb); if (i >= 0) listeners.splice(i, 1); }; },
+    // Summarize in the preview: an estimate from the chats' length, then three made-up memories a second apart.
+    async summarizePlan(_folder, chats) {
+      const chars = chats.reduce((n, c) => n + c.text.length, 0);
+      return { chats: chats.length, requests: chars ? 1 : 0, more: false, tokens: chars ? Math.ceil(chars / 4) + 1300 : 0, agent: 'claude' };
+    },
+    async summarize(folder) {
+      const made = ['The landing page hero uses a full-bleed photo', 'Decided to keep the menu as plain HTML, no framework', 'Pending: add opening hours to the footer'];
+      for (let i = 0; i < made.length; i++) {
+        progress.forEach(cb => cb({ folder, done: i, total: made.length }));
+        await new Promise(r => setTimeout(r, 1000));
+        nodes.push({ id: `s${Date.now()}${i}`, kind: i === 1 ? 'decision' : i === 2 ? 'task' : 'fact', text: made[i], at: Date.now(), agent: 'claude', hits: 1 });
+        links.push({ a: nodes[nodes.length - 1].id, b: 'f1', w: 0.6 });
+        listeners.forEach(cb => cb({ folder }));
+      }
+      progress.forEach(cb => cb({ folder, done: made.length, total: made.length }));
+      return { added: made.length, requests: 1 };
+    },
+    onProgress(cb) { progress.push(cb); return () => { const i = progress.indexOf(cb); if (i >= 0) progress.splice(i, 1); }; },
+  };
+}
 // Agentic tasks in the browser preview: a message with several jobs plans, asks for approval on Space's own plan
 // card, and runs its steps on timers into the chat, so the flow can be tried without the app.
 const demoReplies = new Map<string, (reply: AskReply | null) => void>();
@@ -534,6 +587,7 @@ function demoApi(): BreezeApi {
       onEvent(cb) { agentListeners.push(cb); return () => { }; },
     },
     agentTask: demoAgentTasks(),
+    brain: demoBrain(),
     // MCP servers kept in the browser, so the preview can connect and remove them (nothing is started).
     mcp: {
       async list() {

@@ -33,6 +33,8 @@ import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
 import type { ToolReply, McpTool } from './breezemcp';
 import * as core from './agentcore';
 import { MemoryStore } from './agentmemory';
+import { BrainStore, claudeCompactSummary, codexCompactions, droppedReplies, summaryKey, summaryChunks, summarizePrompt, SUMMARY_MAX_CHUNKS, BRAIN_TOOL_DEFS, formatSearch } from './secondbrain';
+import type { ChatText } from './secondbrain';
 import { detectIntent } from './agentintent';
 import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal } from './agentimages';
 import { parseTestOutput } from './testresults';
@@ -2357,7 +2359,10 @@ function stopRun(runId: number | string): void {
   if (r.child) killTree(r.child);
   r.abort?.abort();
 }
-handle('agent:run', (_e, opts) => launchRun({ ...opts, team: null }));
+handle('agent:run', (_e, opts) => {
+  brainPrompt(opts?.taskBase || root || (opts?.box ? boxDir() : null), opts?.prompt);
+  return launchRun({ ...opts, team: null });
+});
 // One user message in Claude Code's stream-json input.
 const claudeUserLine = (text: string) => `${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })}\n`;
 // A message sent while the agent works, added to the task it is on. Only Claude Code takes one mid-task, and only
@@ -3163,6 +3168,8 @@ function claudeContextWindow(runId: number, d: Loose, ctx: StreamCtx): void {
 }
 function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
+  else if (d.type === 'system' && d.subtype === 'compact_boundary') brainFromClaude(runBase(runId), d.session_id);
+  else if (d.type === 'user' && d.isCompactSummary) brainTake(runBase(runId), brainText(d.message?.content), 'claude');
   else if (d.type === 'assistant') { claudeContextUse(runId, d, ctx); for (const c of d.message?.content || []) claudeContent(runId, c, ctx); }
   else if (d.type === 'user') claudeToolResults(runId, d, ctx);
   else if (d.type === 'result') { claudeContextWindow(runId, d, ctx); claudeResult(runId, d, ctx, mode); }
@@ -3341,6 +3348,7 @@ function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void
     if (mode === 'plan' && ctx.lastText) emit(runId, { t: 'plan', text: ctx.lastText });
     const ctxUse = ctx.session ? codexContext(ctx.session) : null;
     if (ctxUse) emit(runId, { t: 'ctx', ...ctxUse });
+    if (ctx.session) brainFromCodex(runBase(runId), ctx.session);
     emit(runId, { t: 'done', ok: true, tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0) });
   }
 }
@@ -3388,6 +3396,7 @@ const LLM_TOOLS = [
   { name: 'propose_plan', description: 'Show the user your plan and wait for their OK before you change files. Use it before a change that touches several files or is hard to undo; skip it for small, clear requests.', parameters: { type: 'object', properties: { plan: { type: 'string', description: 'A short numbered list of what you will change, file by file' } }, required: ['plan'] } },
   { name: 'capture_preview', description: 'Take a screenshot of a page of the project as the Preview pane shows it, and show it to the user. Use it to check a page you built or changed.', parameters: { type: 'object', properties: { page: { type: 'string', description: 'The .html or .md file; index.html when left out' }, width: { type: 'integer', description: 'Window width in pixels (1280 when left out)' }, height: { type: 'integer' } } } },
   { name: 'show_image', description: 'Show the user a picture from the project (png, jpg, gif, webp or svg) in the chat, such as one you made or a screenshot.', parameters: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string', description: 'One short line about it' } }, required: ['path'] } },
+  ...BRAIN_TOOL_DEFS.map(t => ({ name: t.name, description: t.description, parameters: t.schema })),
 ].map(fn => ({ type: 'function', function: fn }));
 const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'delete_file', 'move_file', 'run_command']);
 const LIST_MAX = 200;
@@ -3594,11 +3603,13 @@ const toolResultText = (content: unknown): string => typeof content === 'string'
   : Array.isArray(content) ? content.map(p => (p?.type === 'text' ? String(p.text ?? '') : '')).join('\n') : '';
 const breezeMcp = new BreezeMcpServer({
   call: (runId, name, args, signal) => {
+    if (BRAIN_TOOL_FNS[name]) return BRAIN_TOOL_FNS[name](runId, args);
     if (AGENT_TOOL_FNS[name]) return AGENT_TOOL_FNS[name](runId, args);
     if (!runs.has(runId)) throw new Error('That run has ended.');
     return BREEZE_TOOL_FNS[name](runId, args, signal);
   },
-  extra: runId => (taskRuns.has(runId) ? AGENT_TOOLS : []),
+  // Every run can search and add to its folder's second brain; agentic tasks also get the task and memory tools.
+  extra: runId => [...BRAIN_MCP_TOOLS, ...(taskRuns.has(runId) ? AGENT_TOOLS : [])],
 });
 
 /* ================= Agentic tasks in Breeze Space ================= */
@@ -3607,6 +3618,139 @@ const breezeMcp = new BreezeMcpServer({
 // run (startRun) in the task's own folder whose events reach Space's chat like any run; the planning run stays out
 // of the chat (its result shows as the plan card). Questions use the chat's own cards (QuestionDesk), answered
 // through agent:reply. Tasks and memory live in userData.
+/* ----- Second brain: each folder's memory, from what agents' compactions said (secondbrain.ts) ----- */
+// Claude Code reports a compaction in its stream and writes the summary to its session log; Codex writes it to its
+// rollout log; Breeze's local loop drops old replies to fit. Antigravity reports nothing. Kept in userData only.
+const secondBrain = new BrainStore(path.join(app.getPath('userData'), 'second-brain.json'));
+const runBase = (runId: number): string | null => imageRuns.get(runId)?.base ?? null;
+const brainText = (content: unknown): string => typeof content === 'string' ? content
+  : Array.isArray(content) ? content.map((c: Loose) => (typeof c?.text === 'string' ? c.text : '')).join('\n') : '';
+const brainChanged = (folder: string) => { if (win && !win.isDestroyed()) win.webContents.send('brain:changed', { folder }); };
+// True when the summary is new to this folder (and is now kept).
+function brainTake(folder: string | null, summary: string | null, agent: string): boolean {
+  if (!folder || !summary?.trim() || secondBrain.seen(summaryKey(`${folder}\n${summary}`))) return false;
+  if (secondBrain.addSummary(folder, summary, agent)) brainChanged(folder);
+  return true;
+}
+function brainFacts(folder: string | null, texts: string[], agent: string): void {
+  if (!folder) return;
+  const fresh = texts.filter(t => !secondBrain.seen(summaryKey(`${folder}\n${t}`)));
+  if (fresh.length && secondBrain.addFacts(folder, fresh, agent)) brainChanged(folder);
+}
+// The summary lands in the session log just after the stream says so: looked for a few times.
+function brainFromClaude(folder: string | null, session: unknown, tries = 4): void {
+  if (!folder || typeof session !== 'string' || !SAFE_ID.test(session)) return;
+  setTimeout(() => {
+    let lines: string[] = [];
+    try {
+      const projects = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude'), 'projects');
+      for (const dir of fs.readdirSync(projects)) {
+        const f = path.join(projects, dir, `${session}.jsonl`);
+        if (fs.existsSync(f)) { lines = fs.readFileSync(f, 'utf8').split('\n'); break; }
+      }
+    } catch { /* no log yet */ }
+    if (!brainTake(folder, claudeCompactSummary(lines), 'claude') && tries > 1) brainFromClaude(folder, session, tries - 1);
+  }, 1500);
+}
+// Codex's rollout log is filed under the day the thread started.
+function brainFromCodex(folder: string | null, thread: string): void {
+  if (!folder || !SAFE_ID.test(thread)) return;
+  try {
+    const base = path.join(process.env.CODEX_HOME || path.join(HOME, '.codex'), 'sessions');
+    for (let back = 0; back < 7; back++) {
+      const d = new Date(Date.now() - back * 86_400_000);
+      const dir = path.join(base, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
+      const name = fs.existsSync(dir) && fs.readdirSync(dir).find(n => n.endsWith(`${thread}.jsonl`));
+      if (!name) continue;
+      for (const s of codexCompactions(fs.readFileSync(path.join(dir, name), 'utf8').split('\n'))) brainTake(folder, s, 'codex');
+      return;
+    }
+  } catch { /* no log, or one being written */ }
+}
+handle('brain:graph', (_e, folder) => (typeof folder === 'string' && folder ? secondBrain.graph(folder) : { nodes: [], links: [] }));
+handle('brain:remove', (_e, folder, id) => {
+  if (typeof folder !== 'string' || typeof id !== 'string') return false;
+  const ok = secondBrain.remove(folder, id);
+  if (ok) brainChanged(folder);
+  return ok;
+});
+// Agents read and add to the second brain: Claude Code and Codex through Breeze's MCP server, the local loop as
+// its own tools (LLM_TOOLS). Both only ever see the folder the run works in.
+const BRAIN_MCP_TOOLS: McpTool[] = BRAIN_TOOL_DEFS.map(t => ({ name: t.name, description: t.description, inputSchema: t.schema,
+  ...(t.name === 'second_brain_search' ? { annotations: { readOnlyHint: true } } : {}) }));
+function brainSearchTool(runId: number, folder: string | null, a: Loose): string {
+  if (!folder) throw new Error('This run has no project folder.');
+  const query = String(a?.query ?? '').trim();
+  if (!query) throw new Error('Say what to look for.');
+  emit(runId, { t: 'tool', kind: 'read', label: `Searched the second brain for ${query.slice(0, 60)}` });
+  return formatSearch(secondBrain.search(folder, query, Number(a?.limit) || 8));
+}
+function brainRememberTool(runId: number, folder: string | null, a: Loose, agent: string): string {
+  if (!folder) throw new Error('This run has no project folder.');
+  const m = secondBrain.remember(folder, String(a?.text ?? ''), a?.kind, a?.related, agent);
+  brainChanged(folder);
+  emit(runId, { t: 'tool', kind: 'tool', label: 'Added to the second brain' });
+  return `Remembered as [${m.id}] (${m.kind}).`;
+}
+const BRAIN_TOOL_FNS: Record<string, (runId: number, args: Loose) => Promise<ToolReply>> = {
+  second_brain_search: async (runId, a) => ({ text: brainSearchTool(runId, runBase(runId), a) }),
+  second_brain_remember: async (runId, a) => ({ text: brainRememberTool(runId, runBase(runId), a, runs.get(runId)?.agent ?? 'agent') }),
+};
+// Every prompt sent to an agent, read by Breeze itself (no model, no tokens). Slash commands are skipped.
+function brainPrompt(folder: string | null, prompt: unknown): void {
+  if (!folder || typeof prompt !== 'string' || !prompt.trim() || prompt.trim().startsWith('/')) return;
+  brainFacts(folder, [prompt.slice(0, 4000)], 'you');
+}
+// Summarize: the user's agent reads the folder's chats (only what it hasn't read before) and its bullets become
+// memories. This one does cost tokens, so the page shows brain:summarizePlan's estimate and asks first.
+const brainBusy = new Set<string>();
+function brainChats(chats: unknown): ChatText[] {
+  if (!Array.isArray(chats)) return [];
+  let total = 0;
+  const out: ChatText[] = [];
+  for (const c of chats as Loose[]) {
+    if (typeof c?.key !== 'string' || typeof c?.text !== 'string' || !c.text.trim()) continue;
+    total += c.text.length;
+    if (total > 20_000_000) break;
+    out.push({ key: c.key.slice(0, 200), title: String(c.title ?? '').slice(0, 200), text: c.text });
+  }
+  return out;
+}
+handle('brain:summarizePlan', async (_e, folder, chats) => {
+  if (typeof folder !== 'string' || !folder) throw new Error('No folder');
+  const fresh = secondBrain.newText(folder, brainChats(chats));
+  const chunks = summaryChunks(fresh);
+  const used = chunks.slice(0, SUMMARY_MAX_CHUNKS);
+  const agent = await defaultCommitAgent();
+  // Read in, plus the prompt and about 1k tokens of bullets back, per request.
+  const tokens = Math.ceil(used.reduce((n, c) => n + c.text.length, 0) / 4) + used.length * 1300;
+  return { chats: fresh.length, requests: used.length, more: chunks.length > used.length, tokens, agent };
+});
+handle('brain:summarize', async (_e, folder, chats) => {
+  if (typeof folder !== 'string' || !folder) throw new Error('No folder');
+  const key = folder.toLowerCase();
+  if (brainBusy.has(key)) throw new Error('Already summarizing this folder');
+  const agent = await defaultCommitAgent();
+  if (!agent) throw new Error('No AI agent is available to summarize');
+  const chunks = summaryChunks(secondBrain.newText(folder, brainChats(chats))).slice(0, SUMMARY_MAX_CHUNKS);
+  const base = fs.existsSync(folder) ? folder : root || boxDir();
+  brainBusy.add(key);
+  let added = 0;
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      win?.webContents.send('brain:progress', { folder, done: i, total: chunks.length });
+      const reply = await COMMIT_WRITERS[agent](base, summarizePrompt(chunks[i].text), undefined, undefined, true);
+      added += secondBrain.addSummary(folder, String(reply ?? ''), agent);
+      secondBrain.markRead(folder, chunks[i].upTo);
+      brainChanged(folder);
+    }
+  } finally {
+    brainBusy.delete(key);
+    win?.webContents.send('brain:progress', { folder, done: chunks.length, total: chunks.length });
+  }
+  return { added, requests: chunks.length };
+});
+
 const AGENT_TASKS_FILE = () => path.join(app.getPath('userData'), 'agent-tasks.json');
 const agentMemory = new MemoryStore(path.join(app.getPath('userData'), 'agent-memory.json'));
 // Agents that can run a task: they reach Breeze's MCP server, so they get the task and memory tools.
@@ -3892,6 +4036,8 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
   // agentPath keeps the file tools' rules (inside the project, no .env or .git) before showImage checks it again.
   capture_preview: (ctx, a) => capturePreview(ctx.runId, a, ctx.signal).then(shot => shot.text),
   show_image: (ctx, a) => { agentPath(ctx, a.path); return Promise.resolve(showImage(ctx.runId, a.path, a.caption)); },
+  second_brain_search: (ctx, a) => Promise.resolve(brainSearchTool(ctx.runId, ctx.base, a)),
+  second_brain_remember: (ctx, a) => Promise.resolve(brainRememberTool(ctx.runId, ctx.base, a, runs.get(ctx.runId)?.agent ?? 'local')),
   async list_files(ctx, a) {
     const dir = agentPath(ctx, a.path || '.');
     emit(ctx.runId, { t: 'tool', kind: 'read', label: `Listed ${a.path && a.path !== '.' ? a.path : 'the project'}` });
@@ -4197,7 +4343,10 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
   let tokens = 0, lastText = '';
   // One request; only the assistant's text and tool calls are kept (servers add extra fields).
   const ask = async (withTools: boolean) => {
-    const body: Loose = { model: cfg.model, messages: brain.compactHistory(messages, budget), temperature: 0.2, stream: false };
+    const fitted = brain.compactHistory(messages, budget);
+    // Replies dropped to fit go to the folder's second brain, so what they said isn't lost.
+    if (fitted.length < messages.length) brainFacts(base, droppedReplies(messages, fitted), provider);
+    const body: Loose = { model: cfg.model, messages: fitted, temperature: 0.2, stream: false };
     if (withTools) body.tools = tools;
     // The text shows as it is written. Thinking isn't shown, only how long it took.
     const sent = Date.now();

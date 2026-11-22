@@ -1065,6 +1065,24 @@ function boardSideEntries(): ChatEntry[] {
   const logs = boardLogs.filter(e => !known.has(e.id) && !known.has(e.log!.session) && !hidden.has(e.id));
   return [...ours, ...logs.map(e => (names[e.id] ? { ...e, title: names[e.id] } : e))];
 }
+// Every chat filed under `folder`, as plain text, for the second brain's Summarize (brain.ts): Breeze's own chats
+// from their saved HTML (parsed, never run), Claude Code's and Codex's from their logs.
+async function boardFolderChats(folder: string): Promise<BrainChat[]> {
+  const out: BrainChat[] = [];
+  for (const e of boardSideEntries()) {
+    if (!e.folder || folderKey(e.folder) !== folderKey(folder)) continue;
+    let text = '';
+    if (e.log) {
+      const msgs = await api.agent.chatLog(e.log.agent, e.log.session).catch(() => null);
+      text = (msgs ?? []).map(m => `${m.role === 'user' ? 'User' : 'Agent'}: ${m.text}`).join('\n\n');
+    } else if (e.html) {
+      const html = e.html.replace(/<\/(?:p|div|li|h\d|pre|tr|blockquote)>|<br\s*\/?>/gi, '$&\n');
+      text = (new DOMParser().parseFromString(html, 'text/html').body.textContent ?? '').replace(/\n{3,}/g, '\n\n');
+    }
+    if (text.trim()) out.push({ key: e.id, title: e.title || 'Chat', text: text.trim() });
+  }
+  return out;
+}
 /* Claude Code's and Codex's own chats, read from their logs each time the board opens. Renaming one keeps the name in
    Breeze; deleting one only hides it here (the agent's own log is never changed). */
 const LOG_NAMES_KEY = 'breeze.board.logNames', LOG_HIDDEN_KEY = 'breeze.board.logHidden';
@@ -1242,6 +1260,14 @@ $('#boardSideList').addEventListener('dblclick', ev => {
   if (id) renameBoardChat(id);
 });
 $('#boardSideList').addEventListener('contextmenu', ev => {
+  // A folder's name: its second brain, the memory its agents' compactions left (brain.ts).
+  const folder = (ev.target as HTMLElement).closest<HTMLElement>('[data-folder]')?.dataset.folder;
+  if (folder !== undefined) {
+    if (!folder || folder === PINNED_GROUP) return;
+    ev.preventDefault();
+    popupMenu(ev.clientX, ev.clientY, [{ label: 'Second brain', run: () => void openSecondBrain(folder) }]);
+    return;
+  }
   const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-chat]')?.dataset.chat;
   const e = id ? boardSideEntries().find(x => x.id === id) : undefined;
   if (!id || !e) return;
