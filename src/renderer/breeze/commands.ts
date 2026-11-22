@@ -842,13 +842,13 @@ function renderMenu(x: number, y: number, items: MenuItem[], cls = 'menu', depth
     if (del && it.remove) { const remove = it.remove; holdToDelete(del, () => { closeMenu(); remove(); }); }
     b.addEventListener('pointerenter', () => showMenuTip(b));
     // Submenus open on hover at every level; hovering a plain row closes any deeper ones.
-    if (cls === 'menu' || it.sub) b.onmouseenter = () => (it.sub ? openSubmenu(b, it) : closeSubmenu(depth + 1));
-    else if (depth) b.onmouseenter = () => closeSubmenu(depth + 1);
+    if (cls === 'menu' || it.sub) b.onmouseenter = e => menuAim(b, e, () => (it.sub ? openSubmenu(b, it) : closeSubmenu(depth + 1)));
+    else if (depth) b.onmouseenter = e => menuAim(b, e, () => closeSubmenu(depth + 1));
   });
   // A search row redraws the menu in place with its matches, keeping the field focused; Enter picks the first match.
   $$<HTMLInputElement>('[data-mse]', m).forEach(input => {
     const at = Number(input.dataset.mse);
-    input.onmouseenter = () => closeSubmenu(depth + 1);
+    input.onmouseenter = e => menuAim(input, e, () => closeSubmenu(depth + 1));
     input.oninput = () => {
       closeSubmenu(depth + 1);
       keepSearch = true;
@@ -954,6 +954,53 @@ function openSubmenu(btn: HTMLElement, it: MenuItem): void {
     menu?.classList.add('subs-left'); // its arrows point the way its submenus open
   }
 }
+// The "safe triangle": heading from a row to its open submenu, the pointer crosses other rows. Hovering those waits
+// while the pointer stays in the triangle from where it was to the submenu's near edge, so the submenu isn't swapped
+// out on the way; it takes effect once the pointer leaves that triangle or rests there for AIM_WAIT.
+type Pt = { x: number; y: number };
+const AIM_WAIT = 300;
+const aimTrail: Pt[] = []; // the last few pointer positions, newest last
+let aimPending: { row: HTMLElement; sub: HTMLElement; from: Pt; act: () => void; timer: number } | null = null;
+function openSubOf(menu: HTMLElement): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`#menuRoot .menu[data-depth="${Number(menu.dataset.depth ?? 0) + 1}"]:not(.closing)`);
+}
+function inAim(sub: HTMLElement, from: Pt, p: Pt): boolean {
+  const r = sub.getBoundingClientRect();
+  const x = sub.classList.contains('go-left') ? r.right : r.left;
+  const a = { x, y: r.top - 4 }, b = { x, y: r.bottom + 4 };
+  const side = (p1: Pt, p2: Pt) => (p.x - p2.x) * (p1.y - p2.y) - (p1.x - p2.x) * (p.y - p2.y);
+  const d1 = side(from, a), d2 = side(a, b), d3 = side(b, from);
+  return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
+}
+function cancelAim(): void {
+  if (aimPending) clearTimeout(aimPending.timer);
+  aimPending = null;
+}
+function fireAim(): void {
+  const p = aimPending;
+  cancelAim();
+  if (p?.row.isConnected) p.act();
+}
+function menuAim(row: HTMLElement, e: MouseEvent, act: () => void): void {
+  const menu = row.closest<HTMLElement>('.menu');
+  const sub = menu && openSubOf(menu);
+  const at = { x: e.clientX, y: e.clientY };
+  // Where the pointer came from: the newest earlier position that isn't this one.
+  const from = aimPending?.sub === sub ? aimPending.from : [...aimTrail].reverse().find(q => q.x !== at.x || q.y !== at.y);
+  if (!sub || !from || row.classList.contains('sub-open') || !inAim(sub, from, at)) { cancelAim(); act(); return; }
+  if (aimPending) clearTimeout(aimPending.timer);
+  aimPending = { row, sub, from, act, timer: window.setTimeout(fireAim, AIM_WAIT) };
+}
+document.addEventListener('mousemove', e => {
+  aimTrail.push({ x: e.clientX, y: e.clientY });
+  if (aimTrail.length > 4) aimTrail.shift();
+  const p = aimPending;
+  if (!p) return;
+  if (p.sub.contains(e.target as Node) || !p.sub.isConnected) { cancelAim(); return; } // made it into the submenu
+  if (!inAim(p.sub, p.from, { x: e.clientX, y: e.clientY })) { fireAim(); return; }
+  clearTimeout(p.timer);
+  p.timer = window.setTimeout(fireAim, AIM_WAIT);
+}, { capture: true, passive: true });
 // Closes the submenus at `depth` and deeper (1, the default, is all of them).
 function closeSubmenu(depth = 1): void {
   for (const m of $$<HTMLElement>('#menuRoot .menu')) {
