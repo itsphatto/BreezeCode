@@ -440,12 +440,12 @@ function demoApi(): BreezeApi {
     })(),
     // Browser preview only: canned answers so every panel can be tried without the desktop app.
     llm: {
-      async connect(url) {
+      async connect(_provider, url) {
         await wait(500);
         store.set('breeze.demoLlm', 'llama3.1');
         return { url: url.trim() || 'http://127.0.0.1:11434/v1', model: 'llama3.1', models: ['llama3.1', 'qwen2.5-coder'] };
       },
-      async setModel(model) { store.set('breeze.demoLlm', model); },
+      async setModel(_provider, model) { store.set('breeze.demoLlm', model); },
       async disconnect() { store.del('breeze.demoLlm'); },
     },
     agent: {

@@ -137,9 +137,9 @@ contextBridge.exposeInMainWorld('breeze', {
     stop: () => invoke('live:stop'),
   },
   llm: {
-    connect: (url: unknown, key: unknown) => invoke('llm:connect', url, key),
-    setModel: (model: unknown) => invoke('llm:setModel', model),
-    disconnect: () => invoke('llm:disconnect'),
+    connect: (provider: unknown, url: unknown, key: unknown) => invoke('llm:connect', provider, url, key),
+    setModel: (provider: unknown, model: unknown) => invoke('llm:setModel', provider, model),
+    disconnect: (provider: unknown) => invoke('llm:disconnect', provider),
   },
   emmet: {
     expand: (abbr: unknown, syntax: unknown) => invoke('emmet:expand', abbr, syntax),

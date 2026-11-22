@@ -216,7 +216,7 @@ function bindLocalLlm(root: HTMLElement, onChange: () => void): void {
       const err = root.querySelector<HTMLElement>('.key-err');
       connect.disabled = true; swapText(connect, 'Connecting');
       try {
-        const r = await api.llm.connect('', key.value);
+        const r = await api.llm.connect('local', '', key.value);
         Object.assign(local() ?? {}, { found: true, path: r.url ?? null, version: r.model, models: r.models });
         if (!selectedAgent()) appState.agent = 'local';
         saveApp();
@@ -231,7 +231,7 @@ function bindLocalLlm(root: HTMLElement, onChange: () => void): void {
     key.onkeydown = e => { if (e.key === 'Enter') void save(); };
   }
   const model = root.querySelector<HTMLSelectElement>('[data-llm-model]');
-  if (model) model.onchange = () => background(api.llm.setModel(model.value).then(() => {
+  if (model) model.onchange = () => background(api.llm.setModel('local', model.value).then(() => {
     Object.assign(local() ?? {}, { version: model.value });
     saveApp();
     renderAgentBar();
@@ -239,7 +239,7 @@ function bindLocalLlm(root: HTMLElement, onChange: () => void): void {
   }));
   root.querySelector<HTMLElement>('[data-llm-off]')?.addEventListener('click', e => {
     e.stopPropagation();
-    background(api.llm.disconnect().then(() => {
+    background(api.llm.disconnect('local').then(() => {
       Object.assign(local() ?? {}, { found: false, path: null, version: null, models: [] });
       fixSelectedAgent();
       onChange();
@@ -422,7 +422,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
     renderAgentBar();
     toast(`${a.name} model set to ${versionLabel(model)} (${effort} effort)`);
   } else if (a.api) {
-    await api.llm.setModel(model);
+    await api.llm.setModel(a.id, model);
     a.version = model;
     saveApp();
     renderAgentBar();

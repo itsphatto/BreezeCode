@@ -1843,7 +1843,7 @@ async function detectAgent(a: AgentDef) {
 handle('sys:detect', async (_e, force) => {
   const agents: Record<string, unknown>[] = await Promise.all(AGENTS.map(detectAgent));
   // A local LLM server (Ollama, LM Studio…) speaks the OpenAI API instead of being a CLI.
-  let llm = await llmConfig(true).catch(() => null);
+  let llm = await llmConfig('local', true).catch(() => null);
   // A saved server may have been closed since: it only counts as found while it answers and still has the model.
   if (llm) llm = await llmReachable(llm).then(() => llm, () => null);
   agents.push({ id: 'local', name: 'Ollama', vendor: 'Ollama, LM Studio or any OpenAI-compatible server', url: 'https://ollama.com/download', api: true, found: !!llm, path: llm?.url ?? null, version: llm?.model ?? null, models: llm?.models ?? [], install: llm ? null : agentInstallCmd('local', process.platform) });
@@ -2166,7 +2166,8 @@ function setSecret(name: string, value: string | null | undefined): void {
   fs.writeFileSync(secretsPath(), JSON.stringify(all));
 }
 
-/* ================= Local LLM API (Ollama, LM Studio or any OpenAI-compatible server) ================= */
+/* ================= LLM APIs (Ollama, LM Studio or any OpenAI-compatible server; Gemini; OpenRouter) ================= */
+import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, type LlmProviderId, type ModelList } from './llmproviders';
 // The usual addresses of Ollama and LM Studio, tried when nothing is configured yet.
 const LLM_DEFAULTS = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1'];
 // The server address without trailing slashes.
@@ -2177,34 +2178,53 @@ function llmBase(url: unknown): string {
   return s.slice(0, end);
 }
 const llmHeaders = (key?: string | null): Record<string, string> => (key ? { Authorization: `Bearer ${key}` } : {});
+// HTTP statuses that mean the key, quota or credits are the problem: retrying without streaming or tools won't help.
+const LLM_ACCOUNT_STATUS = new Set([401, 402, 403, 429]);
+const accountError = (err: unknown): boolean => LLM_ACCOUNT_STATUS.has(Number((err as { status?: number })?.status));
 
-async function llmModels(url: unknown, key: string | null | undefined, timeout = 5000): Promise<string[]> {
-  const r = await fetch(`${llmBase(url)}/models`, { headers: llmHeaders(key), signal: AbortSignal.timeout(timeout) });
+async function llmModels(provider: LlmProviderId, url: unknown, key: string | null | undefined, timeout = 5000): Promise<ModelList> {
+  const r = await fetch(`${llmBase(url)}/models`, { headers: { ...llmHeaders(key), ...extraHeaders(provider) }, signal: AbortSignal.timeout(timeout) });
   const j: Loose = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error?.message || `The server answered with status ${r.status}`);
-  const ids = (j.data || j.models || []).map((m: Loose) => m.id || m.name).filter(Boolean);
-  if (!ids.length) throw new Error('The server has no models yet. Download one first, for example: ollama pull llama3.1');
-  return ids;
+  if (!r.ok) throw friendlyError(provider, r.status, j);
+  return filterModels(provider, j);
 }
-// The saved server; with `probe`, otherwise the first usual address that answers (it is then saved).
-interface LlmConfig { url: string; model?: string | null; models: string[]; key: string | null }
-async function llmConfig(probe?: boolean): Promise<LlmConfig | null> {
+// One API agent's saved setup. Ollama (`local`) keeps its own state keys (llmUrl…, secret llmKey) and, with `probe`,
+// is otherwise found at the first usual address that answers (it is then saved). Gemini and OpenRouter are saved
+// under llmProviders[id], with their key in the secrets file; they count as set up once a key and model are saved.
+interface LlmConfig { provider: LlmProviderId; url: string; model?: string | null; models: string[]; contexts: Record<string, number>; key: string | null }
+async function llmConfig(provider: LlmProviderId, probe?: boolean): Promise<LlmConfig | null> {
   const s = loadState();
-  if (s.llmUrl) return { url: s.llmUrl, model: s.llmModel, models: s.llmModels || [], key: getSecret('llmKey') };
+  if (provider !== 'local') {
+    const saved = s.llmProviders?.[provider];
+    const key = getSecret(LLM_PROVIDERS[provider].keySecret);
+    if (!saved?.model || !key) return null;
+    return { provider, url: LLM_PROVIDERS[provider].url!, model: saved.model, models: saved.models || [], contexts: saved.contexts || {}, key };
+  }
+  if (s.llmUrl) return { provider, url: s.llmUrl, model: s.llmModel, models: s.llmModels || [], contexts: {}, key: getSecret('llmKey') };
   if (!probe || s.llmOff) return null;
-  const answers = await Promise.all(LLM_DEFAULTS.map(u => llmModels(u, null, 700).then(models => ({ url: u, models }), () => null)));
+  const answers = await Promise.all(LLM_DEFAULTS.map(u => llmModels('local', u, null, 700).then(({ models }) => ({ url: u, models }), () => null)));
   const hit = answers.find(Boolean);
   if (!hit) return null;
   saveState({ llmUrl: hit.url, llmModel: hit.models[0], llmModels: hit.models });
-  return { url: hit.url, model: hit.models[0], models: hit.models, key: null };
+  return { provider, url: hit.url, model: hit.models[0], models: hit.models, contexts: {}, key: null };
 }
 
-// Checks that the saved server still answers and still has the chosen model (the user may have closed or unloaded it).
+// Checks that the saved server still answers and still has the chosen model (the user may have closed or unloaded
+// it). A cloud provider's own answer (a bad key, no quota) is passed on; only a network failure gets the generic text.
 async function llmReachable(cfg: LlmConfig): Promise<string[]> {
+  const name = LLM_PROVIDERS[cfg.provider].name;
   let models: string[];
-  try { models = await llmModels(cfg.url, cfg.key, 2500); }
-  catch { throw new Error('The local LLM server is not running. Start Ollama or LM Studio again, or choose another agent.'); }
-  if (cfg.model && !models.includes(cfg.model)) throw new Error(`${cfg.model} is no longer loaded on the local LLM server. Load it again or pick another model.`);
+  try { ({ models } = await llmModels(cfg.provider, cfg.url, cfg.key, cfg.provider === 'local' ? 2500 : 8000)); }
+  catch (err) {
+    if (cfg.provider === 'local') throw new Error('The local LLM server is not running. Start Ollama or LM Studio again, or choose another agent.');
+    if ((err as { status?: number }).status) throw err;
+    throw new Error(`Couldn't reach ${name}. Check your internet connection.`);
+  }
+  if (cfg.model && !models.includes(cfg.model)) {
+    throw new Error(cfg.provider === 'local'
+      ? `${cfg.model} is no longer loaded on the local LLM server. Load it again or pick another model.`
+      : `${name} no longer offers ${cfg.model}. Pick another model in Settings → Run Setup Again.`);
+  }
   return models;
 }
 
@@ -2212,28 +2232,57 @@ async function llmReachable(cfg: LlmConfig): Promise<string[]> {
 async function llmFind(key: string): Promise<{ url: string; models: string[] }> {
   const errors: Error[] = [];
   for (const u of LLM_DEFAULTS) {
-    try { return { url: u, models: await llmModels(u, key, 1500) }; } catch (err) { errors.push(err as Error); }
+    try { return { url: u, models: (await llmModels('local', u, key, 1500)).models }; } catch (err) { errors.push(err as Error); }
   }
   const answered = errors.find(e => !/fetch failed|timeout|aborted|ECONNREFUSED/i.test(e.message));
   throw answered || new Error('No local LLM server is running. Start Ollama or LM Studio, then connect again.');
 }
-handle('llm:connect', async (_e, url, key) => {
-  url = llmBase(url);
+function llmProvider(provider: unknown): LlmProviderId {
+  if (!isLlmAgent(provider)) throw new Error('Unknown model provider');
+  return provider;
+}
+// A cloud provider's saved entry, changed without touching the others'.
+function saveLlmProvider(provider: LlmProviderId, entry: { model: string; models: string[]; contexts: Record<string, number> } | null): void {
+  const all = { ...(loadState().llmProviders || {}) };
+  if (entry) all[provider] = entry; else delete all[provider];
+  saveState({ llmProviders: all });
+}
+handle('llm:connect', async (_e, provider, url, key) => {
+  const id = llmProvider(provider);
   key = String(key || '').trim();
+  if (id !== 'local') {
+    const p = LLM_PROVIDERS[id];
+    if (!key) throw new Error(`Paste your ${p.name} API key first`);
+    const { models, contexts } = await llmModels(id, p.url, key);
+    const model = defaultModel(id, models);
+    setSecret(p.keySecret, key);
+    saveLlmProvider(id, { model, models, contexts });
+    return { url: p.url, model, models };
+  }
+  url = llmBase(url);
   if (!url) ({ url } = await llmFind(key));
   if (!/^https?:\/\/[^\s/]+/i.test(url)) throw new Error('Enter the server address, for example http://localhost:11434/v1');
-  const models = await llmModels(url, key);
+  const { models } = await llmModels('local', url, key);
   setSecret('llmKey', key || null);
   saveState({ llmUrl: url, llmModel: models[0], llmModels: models, llmOff: false });
   return { url, model: models[0], models };
 });
-handle('llm:setModel', (_e, model) => {
+handle('llm:setModel', (_e, provider, model) => {
+  const id = llmProvider(provider);
+  if (id !== 'local') {
+    const saved = loadState().llmProviders?.[id];
+    if (!saved || !(saved.models || []).includes(model)) throw new Error(`${LLM_PROVIDERS[id].name} doesn't offer that model`);
+    saveLlmProvider(id, { ...saved, model });
+    return;
+  }
   if (!(loadState().llmModels || []).includes(model)) throw new Error('That model is not on the server');
   saveState({ llmModel: model });
 });
-// Forget the server, and stop looking for one until the user connects again.
-handle('llm:disconnect', () => {
-  setSecret('llmKey', null);
+// Forget the provider. For Ollama, also stop looking for a server until the user connects again.
+handle('llm:disconnect', (_e, provider) => {
+  const id = llmProvider(provider);
+  setSecret(LLM_PROVIDERS[id].keySecret, null);
+  if (id !== 'local') return saveLlmProvider(id, null);
   saveState({ llmUrl: null, llmModel: null, llmModels: null, llmOff: true });
 });
 
@@ -2722,7 +2771,7 @@ const teamDeps = { startRun: launchRun, stopRun, emit: sendEvent, setTimeout, cl
 
 // The agents a prompt can mention: the CLI agents the last scan found, and the local LLM once one is set up.
 async function teamAgents() {
-  const llm = await llmConfig(false).catch(() => null);
+  const llm = await llmConfig('local', false).catch(() => null);
   return [
     ...AGENTS.map(a => ({ id: a.id, name: a.name, found: agentBins.has(a.id) })),
     { id: 'local', name: 'Ollama', found: !!llm?.model },
@@ -3172,7 +3221,7 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null, pick: pick || null };
   runs.set(runId, run);
   imageRuns.set(runId, { base, agent, pending: '', shown: new Set() });
-  if (agent === 'local') return runLocal(runId, run, { mode, prompt, session, base });
+  if (agent === 'local') return runLocal(runId, run, { mode, prompt, session, base }, 'local');
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
   const bin = agentBins.get(agent);
   if (!bin) throw new Error('That agent was not found on this computer. Rescan from Settings → Run Setup Again.');
@@ -4081,12 +4130,12 @@ When the user asks for code or a file to keep (and you are not writing it into t
 async function llmPost(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefined): Promise<Loose> {
   const r = await fetch(`${cfg.url}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...llmHeaders(cfg.key) },
+    headers: { 'Content-Type': 'application/json', ...llmHeaders(cfg.key), ...extraHeaders(cfg.provider) },
     body: JSON.stringify(body),
     signal,
   });
   const j: Loose = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error?.message || j.error || `The server answered with status ${r.status}`);
+  if (!r.ok) throw friendlyError(cfg.provider, r.status, j);
   return j;
 }
 // One reply as it is written. `onDelta(text, thinking)` hears the text so far, and whether the model has been
@@ -4095,13 +4144,13 @@ async function llmPost(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefi
 async function llmStream(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefined, onDelta?: (text: string, thinking: boolean, calls: brain.ToolCall[]) => void): Promise<Loose> {
   const r = await fetch(`${cfg.url}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...llmHeaders(cfg.key) },
+    headers: { 'Content-Type': 'application/json', ...llmHeaders(cfg.key), ...extraHeaders(cfg.provider) },
     body: JSON.stringify({ ...body, stream: true, stream_options: { include_usage: true } }),
     signal,
   });
   if (!r.ok) {
     const j: Loose = await r.json().catch(() => ({}));
-    throw new Error(j.error?.message || j.error || `The server answered with status ${r.status}`);
+    throw friendlyError(cfg.provider, r.status, j);
   }
   if (!/event-stream/i.test(r.headers.get('content-type') || '')) return r.json(); // it answered in one piece
   const decoder = new TextDecoder();
@@ -4117,7 +4166,8 @@ async function llmRequest(ctx: Partial<LlmCtx> & { cfg: LlmConfig }, body: Loose
     try {
       return await llmStream(ctx.cfg, b, signal, onDelta);
     } catch (err) {
-      if (signal?.aborted || /tool/i.test((err as Error).message)) throw err; // a tool refusal is handled below
+      // A tool refusal is handled below; a key, quota or credit problem would only fail again.
+      if (signal?.aborted || accountError(err) || /tool/i.test((err as Error).message)) throw err;
       ctx.noStream = true;
       return llmPost(ctx.cfg, b, signal);
     }
@@ -4126,7 +4176,7 @@ async function llmRequest(ctx: Partial<LlmCtx> & { cfg: LlmConfig }, body: Loose
   try {
     return await post(body);
   } catch (err) {
-    if (!/tool/i.test((err as Error).message)) throw err;
+    if (accountError(err) || !/tool/i.test((err as Error).message)) throw err;
     ctx.noTools = true;
     if (ctx.runId !== undefined) emit(ctx.runId, { t: 'note', text: `${ctx.cfg.model} can't use tools, so it answers without looking at your files.` });
     return post({ ...body, tools: undefined });
@@ -4151,10 +4201,9 @@ function textToolCalls(text: unknown, toolNames: string[]): brain.ToolCall[] | n
 }
 const LLM_MAX_TURNS = 24;
 const LLM_REPLY_RESERVE = 1500; // tokens left free for the model's own reply
-// Ollama runs models with a small context unless it was raised on the server; other servers usually allow more.
-// `llmContext` in the saved state overrides the guess.
+// The provider's context window (see contextWindow); `llmContext` in the saved state overrides a local server's guess.
 function llmBudget(cfg: LlmConfig): number {
-  const window = Number(loadState().llmContext) || (/:11434\b/.test(cfg.url) ? 4096 : 8192);
+  const window = contextWindow(cfg.provider, { url: cfg.url, model: cfg.model, contexts: cfg.contexts, override: Number(loadState().llmContext) || undefined });
   return Math.max(1500, window - LLM_REPLY_RESERVE - brain.tokensOf(JSON.stringify(LLM_TOOLS)));
 }
 // Reasoning models (Qwen 3, DeepSeek R1…) put their thinking in <think> tags: it is neither shown nor kept.
@@ -4173,9 +4222,12 @@ async function executeLlmTurns(ctx: LlmCtx, run: Run, ask: (tools: boolean) => P
   }
 }
 
-async function runLocal(runId: number, run: Run, { mode, prompt, session, base }: RunParams): Promise<void> {
-  let cfg = await llmConfig(false);
-  if (!cfg?.model) throw new Error('Connect a local LLM server first (Settings → Run Setup Again).');
+async function runLocal(runId: number, run: Run, { mode, prompt, session, base }: RunParams, provider: LlmProviderId): Promise<void> {
+  let cfg = await llmConfig(provider, false);
+  if (!cfg?.model) {
+    throw new Error(provider === 'local' ? 'Connect a local LLM server first (Settings → Run Setup Again).'
+      : `Connect ${LLM_PROVIDERS[provider].name} first (Settings → Run Setup Again).`);
+  }
   // An Agent board box's own model, when the server has it.
   if (run.pick?.model && cfg.models?.includes(run.pick.model)) cfg = { ...cfg, model: run.pick.model };
   await llmReachable(cfg);
@@ -4718,7 +4770,7 @@ handle('git:sync', async (_e, op) => {
 // The first agent that can write a commit message when none is picked: installed CLIs first, then a local LLM.
 async function defaultCommitAgent() {
   for (const id of ['antigravity', 'codex', 'claude']) if (agentBins.get(id)) return id;
-  return (await llmConfig(true).catch(() => null)) ? 'local' : null;
+  return (await llmConfig('local', true).catch(() => null)) ? 'local' : null;
 }
 // Agents tend to wrap the message in a code fence or quotes; the commit box wants the bare text.
 function cleanCommitText(text: unknown, fallback: string): string {
@@ -4787,9 +4839,9 @@ function antigravityCommitMsg(base: string, prompt: string, model?: string, effo
     service.start().catch(reject);
   });
 }
-async function localCommitMsg(base: string, prompt: string, model?: string, effort?: string, ask?: boolean): Promise<string> {
-  const cfg = await llmConfig(true).catch(() => null);
-  if (!cfg) throw new Error('No Ollama server is connected');
+async function localCommitMsg(provider: LlmProviderId, base: string, prompt: string, model?: string, effort?: string, ask?: boolean): Promise<string> {
+  const cfg = await llmConfig(provider, provider === 'local').catch(() => null);
+  if (!cfg) throw new Error(`${LLM_PROVIDERS[provider].name} is not connected`);
   const body = {
     model: model || cfg.model,
     messages: [
@@ -4873,7 +4925,7 @@ function opencodeCommitMsg(base: string, prompt: string, model?: string, _effort
   };
   return runCommitCli(bin, args, base, prompt, finish);
 }
-const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: localCommitMsg, codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
+const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: (...a) => localCommitMsg('local', ...a), codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
 handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
   const base = root;
   if (!base) throw new Error('Open a folder first');
