@@ -1842,11 +1842,19 @@ async function detectAgent(a: AgentDef) {
 // `force` (the Rescan buttons) looks for the compilers again; otherwise the lookup made at startup is reused.
 handle('sys:detect', async (_e, force) => {
   const agents: Record<string, unknown>[] = await Promise.all(AGENTS.map(detectAgent));
-  // A local LLM server (Ollama, LM Studio…) speaks the OpenAI API instead of being a CLI.
-  let llm = await llmConfig('local', true).catch(() => null);
-  // A saved server may have been closed since: it only counts as found while it answers and still has the model.
-  if (llm) llm = await llmReachable(llm).then(() => llm, () => null);
-  agents.push({ id: 'local', name: 'Ollama', vendor: 'Ollama, LM Studio or any OpenAI-compatible server', url: 'https://ollama.com/download', api: true, found: !!llm, path: llm?.url ?? null, version: llm?.model ?? null, models: llm?.models ?? [], install: llm ? null : agentInstallCmd('local', process.platform) });
+  // The API agents (a local LLM server, Gemini, OpenRouter) speak the OpenAI API instead of being a CLI.
+  for (const id of LLM_PROVIDER_IDS) {
+    const p = LLM_PROVIDERS[id];
+    let llm = await llmConfig(id, id === 'local').catch(() => null);
+    // A saved local server may have been closed since: it only counts as found while it answers and still has the
+    // model. A cloud agent counts from its saved key, so being offline doesn't hide it (a run checks it).
+    if (llm && id === 'local') llm = await llmReachable(llm).then(() => llm, () => null);
+    agents.push({
+      id, name: p.name, vendor: p.vendor, url: p.getUrl, api: true, found: !!llm?.model, path: llm?.url ?? null, version: llm?.model ?? null,
+      models: llm?.models ?? [], install: llm ? null : agentInstallCmd(id, process.platform),
+      ...(p.needsKey ? { keyUrl: p.keyUrl, sub: p.sub, billedBy: p.billedBy } : {}),
+    });
+  }
   const { tools: found, pathValue } = await getTools(!!force);
   const tools: Record<string, unknown>[] = await Promise.all([['git', 'Git'], ['node', 'Node.js']].map(async ([cmd, name]) => {
     const bin = await which(cmd, pathValue);
@@ -2769,13 +2777,10 @@ const MAX_TASK = 20000;
 const TEAM_FINISHED = 'That team has finished.';
 const teamDeps = { startRun: launchRun, stopRun, emit: sendEvent, setTimeout, clearTimeout };
 
-// The agents a prompt can mention: the CLI agents the last scan found, and the local LLM once one is set up.
+// The agents a prompt can mention: the CLI agents the last scan found, and each API agent once it is set up.
 async function teamAgents() {
-  const llm = await llmConfig('local', false).catch(() => null);
-  return [
-    ...AGENTS.map(a => ({ id: a.id, name: a.name, found: agentBins.has(a.id) })),
-    { id: 'local', name: 'Ollama', found: !!llm?.model },
-  ];
+  const llms = await Promise.all(LLM_PROVIDER_IDS.map(async id => ({ id, name: LLM_PROVIDERS[id].name, found: !!(await llmConfig(id, false).catch(() => null))?.model })));
+  return [...AGENTS.map(a => ({ id: a.id, name: a.name, found: agentBins.has(a.id) })), ...llms];
 }
 function dropTeam(id: string): void {
   const t = teams.get(id);
@@ -2833,7 +2838,7 @@ handle('board:run', async (_e, o) => {
 function boardPick(o: Loose, agent: string): { model?: string; effort?: string } | null {
   const pick: { model?: string; effort?: string } = {};
   const m = o?.model;
-  if (typeof m === 'string' && (agent === 'local' ? m.length > 0 && m.length <= 200 : (agent === 'opencode' ? OPENCODE_MODEL : SAFE_MODEL).test(m))) pick.model = m;
+  if (typeof m === 'string' && (isLlmAgent(agent) ? m.length > 0 && m.length <= 200 : (agent === 'opencode' ? OPENCODE_MODEL : SAFE_MODEL).test(m))) pick.model = m;
   if (typeof o?.effort === 'string' && effortArg(o.effort)) pick.effort = o.effort;
   return pick.model || pick.effort ? pick : null;
 }
@@ -3221,7 +3226,7 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null, pick: pick || null };
   runs.set(runId, run);
   imageRuns.set(runId, { base, agent, pending: '', shown: new Set() });
-  if (agent === 'local') return runLocal(runId, run, { mode, prompt, session, base }, 'local');
+  if (isLlmAgent(agent)) return runLocal(runId, run, { mode, prompt, session, base }, agent);
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
   const bin = agentBins.get(agent);
   if (!bin) throw new Error('That agent was not found on this computer. Rescan from Settings → Run Setup Again.');
@@ -3566,7 +3571,7 @@ function watchImages(runId: number, ev: Loose): void {
   }
   if (ir.pending) { const text = ir.pending; ir.pending = ''; imagesIn(runId, text); }
   // Claude reports a file before writing it ('written' follows); Codex and the local model once it is written.
-  const written = ev.t === 'written' || (ev.t === 'file' && (ev.written || ir.agent === 'local'));
+  const written = ev.t === 'written' || (ev.t === 'file' && (ev.written || isLlmAgent(ir.agent)));
   if (written && IMAGE_EXT.test(String(ev.path ?? ''))) { try { showImage(runId, ev.path); } catch { /* deleted, or off limits */ } }
   if (ev.t === 'done') imageRuns.delete(runId);
 }
@@ -4767,10 +4772,12 @@ handle('git:sync', async (_e, op) => {
   throw new Error('Unknown sync operation');
 });
 
-// The first agent that can write a commit message when none is picked: installed CLIs first, then a local LLM.
+// The first agent that can write a commit message when none is picked: installed CLIs first, then the API agents,
+// a free local model before a cloud one that may be billed.
 async function defaultCommitAgent() {
   for (const id of ['antigravity', 'codex', 'claude']) if (agentBins.get(id)) return id;
-  return (await llmConfig('local', true).catch(() => null)) ? 'local' : null;
+  for (const id of LLM_PROVIDER_IDS) if (await llmConfig(id, id === 'local').catch(() => null)) return id;
+  return null;
 }
 // Agents tend to wrap the message in a code fence or quotes; the commit box wants the bare text.
 function cleanCommitText(text: unknown, fallback: string): string {
@@ -4925,7 +4932,7 @@ function opencodeCommitMsg(base: string, prompt: string, model?: string, _effort
   };
   return runCommitCli(bin, args, base, prompt, finish);
 }
-const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: (...a) => localCommitMsg('local', ...a), codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
+const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: (...a) => localCommitMsg('local', ...a), gemini: (...a) => localCommitMsg('gemini', ...a), openrouter: (...a) => localCommitMsg('openrouter', ...a), codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
 handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
   const base = root;
   if (!base) throw new Error('Open a folder first');
