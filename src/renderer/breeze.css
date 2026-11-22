@@ -1111,6 +1111,96 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   pointer-events: none;
 }
 
+/* A piece on its way between steps (morphPieces, onboarding.ts): a box moving and resizing from the old piece's place
+   to the new one's, holding a copy of each (styles written onto them) that cross-fade. The box draws nothing itself.
+   The copies add (plus-lighter, inside the ghost's own group): at any moment old + new opacity is 1, so an opaque
+   piece never turns see-through mid-change and a translucent one goes straight from its old strength to its new. */
+.ob-btn-ghost {
+  z-index: 2;
+  isolation: isolate;
+}
+
+.ob-layer {
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: plus-lighter;
+}
+
+/* Two different logo pictures travelling together, wind on wind (glideLogo): additive too. */
+.ob-logo-ghost {
+  z-index: 2;
+  isolation: isolate;
+  left: 0;
+  top: 0;
+}
+
+.ob-logo-ghost img {
+  position: fixed;
+  mix-blend-mode: plus-lighter;
+}
+
+/* Every step sits in the same grid cell, so the one being left (goStep) and the one arriving can both show while the
+   first fades, neither moving: the only in-flow children of .onboard are its steps. */
+.onboard > .ob-step {
+  grid-area: 1 / 1;
+}
+
+.onboard .ob-step.ob-leaving {
+  pointer-events: none;
+}
+
+/* Drawn ahead, nearly invisible, in the shared cell (prewarmSteps, prepareHome): the GPU has its shaders and the step's
+   picture before it first shows, so its first frame isn't a stall and its fade-in doesn't start late and then jump. It
+   keeps .hidden, so everything that asks whether the step is showing (the title bar, Home's shortcuts, the :has()
+   rules) still hears no; only its display comes back. */
+.onboard .ob-step.hidden.ob-prewarm {
+  display: block !important;
+  opacity: .01;
+  pointer-events: none;
+  animation: none;
+}
+
+.onboard .ob-step.setup.prefs.hidden.ob-prewarm {
+  display: flex !important;
+}
+
+.onboard .ob-step.home-step.hidden.ob-prewarm {
+  display: grid !important;
+}
+
+.ob-prewarm-probe {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 40px;
+  height: 40px;
+  opacity: .01;
+  isolation: isolate;
+  pointer-events: none;
+}
+
+.ob-prewarm-probe i {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
+  mix-blend-mode: plus-lighter;
+}
+
+
+/* A real piece under its ghost until the ghost lands (morphPieces): unseen, and the pointer passes through it. */
+.ob-held {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Measuring where a piece lands: its transitions end at once, so it's read as it will look (shootButton). */
+.ob-settle,
+.ob-settle * {
+  transition: none !important;
+}
+
 /* A flight starts past the window's edge; that mustn't flash a scrollbar (or hide the dots, syncDots). */
 .onboard.ob-flying {
   overflow: hidden;
@@ -1225,29 +1315,32 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 
 /* The account screen has no card: a soft white bloom on the sky carries its dark text instead. It lives on the
    backdrop rather than the step, so it swells in from the name screen and melts away again on either side.
-   The layer never moves or scales (its edges would show as a box): --bloom grows the gradient's own size and
-   strength, from nothing to full. */
-@property --bloom {
-  syntax: "<number>";
-  inherits: false;
-  initial-value: 0;
-}
-
+   One gradient drawn once, grown and faded by scale and opacity, which the compositor animates without repainting
+   (growing the gradient itself repainted the whole window every frame). The layer is larger than the window and the
+   gradient fades to nothing inside it, so its edges never show as a box while it's scaled down. It runs on the step
+   motion's clock (OB_D, OB_EASE in onboarding.ts), and starts the moment the step changes: a step on its way out
+   (.ob-leaving) or being drawn ahead (.ob-prewarm) doesn't count. It swells in over a whole flight but melts away
+   with the old step's own fade (OB_D × .36): the tools card's glass blurs whatever is behind it, and a bloom still
+   fading there for the whole flight had it re-blurred every frame (a dropped frame every few). */
 .ob-bloom {
-  --bloom: 0;
   position: fixed;
-  inset: 0;
+  inset: -30vh -20vw;
   pointer-events: none;
-  background: radial-gradient(ellipse calc(20% + 38% * var(--bloom)) calc(24% + 48% * var(--bloom)) at 50% 48%,
-      rgba(255, 255, 255, calc(.97 * var(--bloom))) 0%,
-      rgba(255, 255, 255, calc(.92 * var(--bloom))) 42%,
-      rgba(255, 255, 255, calc(.6 * var(--bloom))) 68%,
+  background: radial-gradient(ellipse 58vw 72vh at 50% 78vh,
+      rgba(255, 255, 255, .97) 0%,
+      rgba(255, 255, 255, .92) 42%,
+      rgba(255, 255, 255, .6) 68%,
       rgba(255, 255, 255, 0) 100%);
-  transition: --bloom 1s cubic-bezier(.65, 0, .35, 1);
+  opacity: 0;
+  transform: scale(.36);
+  transform-origin: 50% 78vh;
+  transition: opacity .356s cubic-bezier(.4, 0, .2, 1), transform .356s cubic-bezier(.4, 0, .2, 1);
 }
 
-.onboard:has(.ob-account:not(.hidden)) .ob-bloom {
-  --bloom: 1;
+.onboard:has(.ob-account:not(.hidden, .ob-leaving)) .ob-bloom {
+  opacity: 1;
+  transform: none;
+  transition: opacity .988s cubic-bezier(.4, 0, .2, 1), transform .988s cubic-bezier(.3, 0, .2, 1);
 }
 
 .ob-form {
@@ -1319,6 +1412,47 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   background: #fff;
   border-color: #4f5bff;
   box-shadow: 0 0 0 2px rgba(79, 91, 255, .35);
+}
+
+/* Setup's white-button look (blue words, a lift with no transition of its own here, the app-wide grey hover layer)
+   outranks the rules above. The providers keep dark words, the GitHub mark with them (it's drawn in currentColor), and
+   their lift eases in and out instead of snapping. */
+:root .onboard .ob-step:not(.home-step) .ob-form .signin-btns .btn:not(.btn-ghost) {
+  color: var(--text);
+  transition: transform .45s var(--spring), box-shadow .35s cubic-bezier(.2, .8, .2, 1), background-color .2s ease, border-color .2s ease;
+}
+
+:root .onboard .ob-step:not(.home-step) .ob-form .signin-btns .btn:not(.btn-ghost):hover:not(:disabled) {
+  transform: scale(1.02);
+  box-shadow: 0 12px 30px rgba(10, 30, 120, .3);
+}
+
+:root .onboard .ob-step:not(.home-step) .ob-form .signin-btns .btn:not(.btn-ghost):active:not(:disabled) {
+  transform: scale(.98);
+  transition-duration: .18s;
+}
+
+.ob-form .signin-btns .btn:hover::after {
+  opacity: 0; /* white stays white: no --hover-dim layer ("Interaction feedback") */
+}
+
+/* A press reads on every setup button (the hover rule above outranked .ob-start:active). */
+:root .onboard .ob-step:not(.home-step) .btn:not(.btn-ghost):active:not(:disabled) {
+  transform: scale(.97);
+  transition-duration: .18s;
+}
+
+/* Just landed under a pointer that hasn't moved since (morphPieces): it stays at rest, no lift, until the pointer
+   moves; otherwise the landing was followed at once by a second beat. */
+:root .onboard .ob-step:not(.home-step) .btn.ob-landed:not(.btn-ghost):hover:not(:disabled),
+:root .onboard .ob-step:not(.home-step) .ob-form .signin-btns .btn.ob-landed:not(.btn-ghost):hover:not(:disabled) {
+  transform: none;
+  box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
+}
+
+.ob-form .signin-btns .btn.ob-landed:hover :is(svg, img),
+.onboard .btn.ob-landed:hover svg {
+  transform: none;
 }
 
 /* Signed in, the "or continue without one" line (and its gap) goes, so the row keeps the title at a distance itself. */
@@ -1422,13 +1556,14 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   transform: translate3d(0, 0, 0);
 }
 
+/* Snug around the 18px box: a wider circle ran over the "I" of the sentence beside it. */
 .ob-terms .check::before {
   content: "";
   position: absolute;
-  top: -15px;
-  left: -15px;
-  width: 48px;
-  height: 48px;
+  top: -5px;
+  left: -5px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   opacity: 0; /* no grey halo behind the tick; only the keyboard focus ring below uses this circle */
   transition: opacity .2s ease;
@@ -1447,14 +1582,18 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   transition: all .3s var(--spring);
 }
 
+/* Unticking plays the tick in reverse: the tick draws back out first, then the circle winds itself back round. (The
+   transitions here are the ones going to unticked; the :checked rules below carry the way in.) */
 .ob-terms .check path {
   stroke-dasharray: 60;
   stroke-dashoffset: 0;
+  transition: stroke-dashoffset .3s linear .14s;
 }
 
 .ob-terms .check polyline {
   stroke-dasharray: 22;
   stroke-dashoffset: 66;
+  transition: stroke-dashoffset .18s linear;
 }
 
 .ob-terms:hover .check svg,
@@ -1545,6 +1684,17 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 .ob-tool-list {
   min-height: 0;
   overflow-y: auto;
+}
+
+/* The list scrolls inside its card; its edges fade while there's more that way (Settings' pane does the same, with
+   the same scroll-driven --fade-top/--fade-bot and keyframes), so the last row doesn't look cut off. */
+@supports (animation-timeline: scroll()) {
+  .ob-tool-list {
+    mask-image: linear-gradient(to bottom, transparent 0, #000 calc(var(--fade-top) * 28px), #000 calc(100% - var(--fade-bot) * 36px), transparent 100%);
+    animation: setFadeTop linear both, setFadeBot linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0 40px, calc(100% - 40px) 100%;
+  }
 }
 
 .ob-tool-group {
