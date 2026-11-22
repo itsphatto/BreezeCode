@@ -2986,8 +2986,33 @@ body.resizing-h iframe {
   mask: url(../../assets/icons/openai.svg) center / contain no-repeat;
 }
 
+/* Gemini's colour logo and its white one sit in the same spot; the blue hover row would swallow the colours,
+   so they crossfade to the white one there. */
 .model-mark.mm-gemini {
+  display: inline-grid;
+}
+
+.model-mark.mm-gemini::before,
+.model-mark.mm-gemini::after {
+  content: "";
+  grid-area: 1 / 1;
   background: url(../../assets/icons/gemini.svg) center / contain no-repeat;
+  transition: opacity .15s ease;
+}
+
+.model-mark.mm-gemini::after {
+  background-image: url(../../assets/icons/gemini_white.png);
+  opacity: 0;
+}
+
+.menu-item:hover:not(:disabled) .model-mark.mm-gemini::before,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .model-mark.mm-gemini::before {
+  opacity: 0;
+}
+
+.menu-item:hover:not(:disabled) .model-mark.mm-gemini::after,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .model-mark.mm-gemini::after {
+  opacity: 1;
 }
 
 .menu-item:disabled .model-mark {
@@ -7323,9 +7348,11 @@ textarea:not(:placeholder-shown) + .ph-rot {
   }
 }
 
-.scrim.closing .settings-modal .stagger-item {
-  animation: staggerRowOut .2s var(--spring) both;
-  animation-delay: calc(max(0, 10 - min(var(--i, 0), 10)) * 8ms);
+/* Settings' rows leave as a dropdown's do (.menu.stagger.closing > *): one after another, last first. The extra
+   classes outrank the grow-from rule above, which drops every part at once. */
+.scrim.closing .modal .settings-modal .stagger-item {
+  animation: staggerRowOut .14s var(--spring) forwards;
+  animation-delay: calc(max(0, 6 - var(--i, 0)) * 10ms);
 }
 
 .scrim.top {
@@ -16790,15 +16817,15 @@ body.layout-animating #previewPane {
   background: #1d1d1f;
 }
 
-/* The blue hover row would swallow Antigravity's blue logo, so it crossfades to the white one there
+/* The blue hover row would swallow Antigravity's and Gemini's logos, so they crossfade to a white one there
    (the white logo sits on top in the same spot, hidden until then). */
-.menu-ico.tint-antigravity .brand-img,
-.menu-ico.tint-antigravity::after {
+.menu-ico:is(.tint-antigravity, .tint-gemini) .brand-img,
+.menu-ico:is(.tint-antigravity, .tint-gemini)::after {
   grid-area: 1 / 1;
   transition: opacity .15s ease;
 }
 
-.menu-ico.tint-antigravity::after {
+.menu-ico:is(.tint-antigravity, .tint-gemini)::after {
   content: "";
   width: 100%;
   height: 100%;
@@ -16807,13 +16834,17 @@ body.layout-animating #previewPane {
   pointer-events: none;
 }
 
-.menu-item:hover:not(:disabled) .menu-ico.tint-antigravity .brand-img,
-.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico.tint-antigravity .brand-img {
+.menu-ico.tint-gemini::after {
+  background-image: url("../../assets/icons/gemini_white.png");
+}
+
+.menu-item:hover:not(:disabled) .menu-ico:is(.tint-antigravity, .tint-gemini) .brand-img,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico:is(.tint-antigravity, .tint-gemini) .brand-img {
   opacity: 0;
 }
 
-.menu-item:hover:not(:disabled) .menu-ico.tint-antigravity::after,
-.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico.tint-antigravity::after {
+.menu-item:hover:not(:disabled) .menu-ico:is(.tint-antigravity, .tint-gemini)::after,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico:is(.tint-antigravity, .tint-gemini)::after {
   opacity: 1;
 }
 

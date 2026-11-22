@@ -1412,6 +1412,11 @@ function bindSettings(m: HTMLElement): void {
   const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, els]) => [k, els.map(el => el?.textContent ?? '')])) : null;
   // The usage bars keep their place through a redraw of the same section (Full access flipped): rebuilt, they filled again.
   const keptUsage = pane.dataset.tab === settingsTab ? pane.querySelector('#sUsage') : null;
+  // How far the rows' entrance has got, if a redraw of the same section lands mid-way (accounts answer ~70ms after
+  // Settings opens): the new rows carry on from there instead of all popping in at once.
+  const entering = pane.dataset.tab === settingsTab
+    ? $$<HTMLElement>('.stagger-item', pane).at(-1)?.getAnimations().find(a => (a as CSSAnimation).animationName === 'staggerRowIn')?.currentTime
+    : null;
   pane.innerHTML = settingsBody(settingsTab);
   if (keptUsage) {
     // Put back into the page, its entrance (staggerIn's class) would play again: it is already in.
@@ -1439,11 +1444,12 @@ function bindSettings(m: HTMLElement): void {
   const joke = pane.querySelector<HTMLElement>('[data-theme-pick="light"] .set-sub');
   for (let i = 0; joke && joke.scrollWidth > joke.clientWidth && i < 40; i++) joke.textContent = lightJoke = pickOther(LIGHT_JOKES, lightJoke);
   // A new section's rows come in one after another; redraws of the same section (a switch flipped) just appear.
-  if (pane.dataset.tab !== settingsTab) {
+  if (pane.dataset.tab !== settingsTab || entering != null) {
     pane.dataset.tab = settingsTab;
     staggerIn(pane.children);
     staggerIn(pane.querySelectorAll('.set-agents > *, .set-tools > *, .set-themes > *, .set-bd > *, .set-syn > *, .set-syn-picks > *'), 2);
     pane.querySelector('.set-themes')?.classList.add('grow'); // the theme pictures' code lines grow in
+    if (entering != null) for (const el of pane.querySelectorAll('.stagger-item')) for (const a of el.getAnimations()) if ((a as CSSAnimation).animationName === 'staggerRowIn') a.currentTime = entering;
   }
   // Just switched accounts: the account card turns over to the new one and Active pops onto its row.
   if (justSwitched) {

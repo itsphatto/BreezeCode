@@ -182,7 +182,8 @@ function hoverGlide(box: HTMLElement, rows: string, skip = ':disabled'): void {
 }
 function staggerModal(m: HTMLElement): void {
   const settings = m.querySelector('.settings-modal');
-  if (settings) { staggerIn(settings.querySelectorAll('.set-nav > *')); staggerIn(settings.querySelectorAll('.set-pane > *'), 2); return; }
+  // Row by row, as a dropdown's rows come in, not the side tab in three blocks.
+  if (settings) { staggerIn(settings.querySelectorAll('.set-profile, .set-search, .set-group > *, .set-sep')); staggerIn(settings.querySelectorAll('.set-pane > *'), 2); return; }
   const kids = [...m.children];
   staggerIn(kids.length === 1 ? kids[0].children : kids);
 }
