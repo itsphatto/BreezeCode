@@ -705,7 +705,7 @@ function wireBox(box: BoardBox): void {
   const { el, surface: s } = box;
   // The prompt works as the Agents tab's: its text drawn by a layer, the agent's model chip and Full access once
   // something is typed, "/skill" suggestions, examples in the placeholder, and a height that eases as it grows.
-  const kit: PromptKit = { ta: s.prompt, hl: $('.prompt-hl', el), models: $('.prompt-models', el), picked: () => { const a = boxAgent(box); return a ? [a] : []; }, mentions: false, anim: null, target: () => boxModelTarget(box) };
+  const kit: PromptKit = { ta: s.prompt, hl: $('.prompt-hl', el), models: $('.prompt-models', el), picked: () => { const a = boxAgent(box); return a ? [a] : []; }, mentions: false, anim: null, target: () => boxModelTarget(box), switchAgent: (_from, to, m) => switchBoxAgent(box, to, m) };
   box.kit = kit;
   wirePromptKit(kit);
   wireSlash(s); // before the send handler below, so Enter picks a skill instead of sending
@@ -824,8 +824,26 @@ function boxContextItems(box: BoardBox): MenuItem[] {
     enabled: () => false,
   }];
   const model = ag ? versionLabel(boxModelOf(box)) : '';
-  if (ag && model) items.push({ sep: true }, { label: `Model: ${model}${ag.api ? '' : ` · ${boxEffortOf(box)}`}`, sub: () => modelPickerItems(ag, false, boxModelTarget(box)) });
+  if (ag && model) items.push({ sep: true }, { label: `Model: ${model}${ag.api ? '' : ` · ${boxEffortOf(box)}`}`, sub: () => modelPickerItems(ag, false, boxModelTarget(box), (to, m) => switchBoxAgent(box, to, m)) });
   return items;
+}
+// A model of another agent picked in a box's menu: the box swaps to that agent, keeping its place and its chat.
+// The new agent starts its own session (sessions are kept per agent), so it doesn't see the old one's context.
+function switchBoxAgent(box: BoardBox, to: DetectedAgent, model: string): void {
+  if (boxBusy(box)) { refuseDrop(box); return; }
+  box.agent = to.id;
+  box.tab.agentId = to.id;
+  box.model = model;
+  const letter = agentNameOf(to.id)[0] ?? '?';
+  $('.board-box-logo', box.el).outerHTML = brandMark('board-box-logo', to.id, letter);
+  box.surface.prompt.setAttribute('aria-label', `Message to ${agentNameOf(to.id)} in box ${boxNumber(box.key)}`);
+  const empty = box.tab.historyId ? null : box.tab.panel.querySelector('.empty');
+  if (empty) empty.outerHTML = `<div class="empty"><div>${brandMark('board-empty-logo', to.id, letter)}<h4>${esc(agentNameOf(to.id))} is ready</h4><div class="empty-line">Its files stay its own. It asks the other boxes for changes in theirs.</div></div></div>`;
+  if (box.kit) renderPromptModels(box.kit);
+  paintBox(box);
+  renderBoard();
+  saveBoard();
+  toast(`${boxName(box)} will use ${versionLabel(model)}`);
 }
 // Fresh numbers when the board opens (at most every 30 s) and after each run, when they have moved.
 let boardUsageAt = 0;

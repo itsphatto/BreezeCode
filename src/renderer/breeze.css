@@ -2806,6 +2806,28 @@ body.resizing-h iframe {
   font-weight: 700;
 }
 
+/* A model's maker in the model picker: Claude's starburst in its own orange, OpenAI's knot in the text colour. */
+.model-mark {
+  flex: none;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+}
+
+.model-mark.mm-claude {
+  background: url(../../assets/icons/claude-mark.svg) center / contain no-repeat;
+}
+
+.model-mark.mm-openai {
+  background: currentColor;
+  -webkit-mask: url(../../assets/icons/openai.svg) center / contain no-repeat;
+  mask: url(../../assets/icons/openai.svg) center / contain no-repeat;
+}
+
+.menu-item:disabled .model-mark {
+  opacity: .45;
+}
+
 /* Antigravity's mark is a bare shape where the others are full tiles: a white tile keeps it apart in the overlap. */
 .skill-mark.tint-antigravity.has-img {
   background: #fff !important;

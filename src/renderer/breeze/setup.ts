@@ -173,6 +173,8 @@ function versionLabel(v: string | null | undefined): string {
   if (!v) return '';
   if (CLAUDE_ALIAS_LABELS[v.toLowerCase()]) return CLAUDE_ALIAS_LABELS[v.toLowerCase()];
   if (/^\d/.test(v)) return `v${v}`;
+  // "gpt-6.1-sol" reads "GPT 6.1 Sol".
+  if (/^gpt-[\w.-]+$/i.test(v)) return v.split('-').map((p, i) => (i === 0 ? 'GPT' : p[0].toUpperCase() + p.slice(1))).join(' ');
   return /^[a-z]+$/.test(v) ? v[0].toUpperCase() + v.slice(1) : v;
 }
 function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean): string {
@@ -478,24 +480,29 @@ function searchModels(models: string[], current: string, pick: (m: string) => vo
     render();
   }, undefined, 'top');
 }
-function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelTarget): MenuItem[] {
-  const current = () => target?.model() || a.version || a.models?.[0] || '';
-  const effortNow = () => (target ? target.effort() : agentEffort(a));
-  const apply = (m: string, eff: EffortLevel) => {
-    if (target) { target.set(m, eff); return; }
-    background(applyModelAndEffort(a, m, eff).then(() => {
-      if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
-    }));
-  };
-  const all = a.models ?? [];
-  const row = (m: string, label = versionLabel(m)): MenuItem => ({ label, checked: () => current() === m, run: () => apply(m, effortNow()) });
+// The maker's mark in front of a model: Claude's starburst, OpenAI's knot, else the agent's own logo.
+function modelMark(a: DetectedAgent, m: string): string {
+  const full = m.toLowerCase();
+  const last = (full.split('/').pop() ?? '').replace(/^~/, '');
+  if (a.id === 'claude' || /(^|\/)~?anthropic\//.test(full) || last.startsWith('claude')) return '<span class="model-mark mm-claude" aria-hidden="true"></span>';
+  if (a.id === 'codex' || /(^|\/)~?openai\//.test(full) || /^(gpt|chatgpt|o\d|codex)/.test(last)) return '<span class="model-mark mm-openai" aria-hidden="true"></span>';
+  return brandMark('menu-ico', a.id, a.name[0] ?? '?');
+}
+// Claude Code's aliases carry the maker's name in the picker: "Claude Opus 5.5".
+function modelRowLabel(a: DetectedAgent, m: string, text: string): string {
+  return a.id === 'claude' && CLAUDE_ALIAS_LABELS[m.toLowerCase()] ? `Claude ${text}` : text;
+}
+// One agent's models as menu rows, each with its maker's mark. "default" (Claude Code's own pick) is never offered.
+function agentModelRows(a: DetectedAgent, isChecked: (m: string) => boolean, pick: (m: string) => void): MenuItem[] {
+  const all = (a.models ?? []).filter(m => m !== 'default');
+  const row = (m: string, text = versionLabel(m)): MenuItem => ({ label: modelRowLabel(a, m, text), icon: modelMark(a, m), checked: () => isChecked(m), run: () => pick(m) });
   // A long list (OpenCode lists every provider's models) gets nested submenus: provider, then vendor
   // (openrouter/~anthropic/…), each split only while it is still too long to scan, each with a search field on top.
   const rest = (m: string, depth: number) => m.split('/').slice(depth).join('/');
   const grouped = (list: string[], depth: number): MenuItem[] => {
     if (list.length <= MODEL_MENU_FLAT) return list.map(m => row(m, rest(m, depth)));
     return [...modelGroups(list, depth)].flatMap(([key, ms]): MenuItem[] => key
-      ? [{ label: key, checked: () => ms.includes(current()), sub: () => [{ label: 'Search models', search: q => found(ms, q, depth + 1) }, ...grouped(ms, depth + 1)] }]
+      ? [{ label: key, icon: modelMark(a, `${key}/`), checked: () => ms.some(isChecked), sub: () => [{ label: 'Search models', search: q => found(ms, q, depth + 1) }, ...grouped(ms, depth + 1)] }]
       : ms.map(m => row(m, rest(m, depth))));
   };
   const found = (ms: string[], q: string, depth: number): MenuItem[] => {
@@ -503,13 +510,36 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
     const hits = ms.flatMap(m => { const f = modelMatch(rest(m, depth), q); return f ? [{ m, score: f.score }] : []; }).sort((x, y) => y.score - x.score);
     return hits.length ? hits.slice(0, 80).map(h => row(h.m, rest(h.m, depth))) : [{ label: 'No matching models', enabled: () => false }];
   };
+  if (all.length <= MODEL_MENU_FLAT) return all.map(m => row(m));
   const top = grouped(all, 0);
   // A long list with no providers to split it by keeps the search box at the top level.
-  const models: MenuItem[] = all.length <= MODEL_MENU_FLAT ? all.map(m => row(m)) : top.some(it => it.sub) ? top : [
-    { label: 'Search models…', run: () => searchModels(all, current(), m => apply(m, effortNow())) },
-    ...top,
-  ];
-  const effort: MenuItem[] = a.api ? [] : [{ slider: {
+  return top.some(it => it.sub) ? top : [{ label: 'Search models…', run: () => searchModels(all, all.find(isChecked) ?? '', pick) }, ...top];
+}
+// The other agents' models, listed under the current one's: a short list inline, a long one (OpenCode) as a submenu.
+function otherAgentRows(a: DetectedAgent, switchTo: (b: DetectedAgent, m: string) => void): MenuItem[] {
+  const others = (appState.detect?.agents ?? []).filter(b => b.id !== a.id && b.found && (b.models ?? []).some(m => m !== 'default'));
+  return others.flatMap((b): MenuItem[] => {
+    const rows = agentModelRows(b, () => false, m => switchTo(b, m));
+    const inline = (b.models ?? []).length <= MODEL_MENU_FLAT;
+    return [{ sep: true }, ...(inline ? rows : [{ label: agentShortName(b), icon: brandMark('menu-ico', b.id, b.name[0] ?? '?'), sub: () => rows }])];
+  });
+}
+// Picking another agent's model: it gets that model and becomes the default agent.
+function switchToAgentModel(b: DetectedAgent, m: string): void {
+  background(applyModelAndEffort(b, m, agentEffort(b)).then(() => { if (b.id !== appState.agent) makeDefaultAgent(b); }));
+}
+// `others`: also list every other agent's models under this one's; picking one calls it.
+function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelTarget, others?: (b: DetectedAgent, m: string) => void): MenuItem[] {
+  const current = () => target?.model() || a.version || a.models?.find(m => m !== 'default') || '';
+  const effortNow = () => (target ? target.effort() : agentEffort(a));
+  const apply = (m: string, eff: EffortLevel) => {
+    if (target) { target.set(m, eff); return; }
+    background(applyModelAndEffort(a, m, eff).then(() => {
+      if (makeDefault && a.id !== appState.agent) makeDefaultAgent(a);
+    }));
+  };
+  const models = [...agentModelRows(a, m => current() === m, m => apply(m, effortNow())), ...(others ? otherAgentRows(a, others) : [])];
+  const effort: MenuItem[] = a.api ? [] : [...(others ? [{ sep: true }] : []), { slider: {
     label: `${agentShortName(a)} effort`,
     steps: EFFORTS,
     value: () => EFFORTS.indexOf(effortNow()),

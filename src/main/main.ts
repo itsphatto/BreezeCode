@@ -1823,9 +1823,11 @@ async function detectAgent(a: AgentDef) {
     models = bin ? await antigravityModels(bin) : [...AntigravityAgentService.DEFAULT_MODELS];
     version = loadState().antigravityModel || models[0] || 'claude-sonnet-4-6';
   } else if (a.id === 'claude') {
-    models = bin && await claudeOffersFable(bin) ? CLAUDE_MODELS : CLAUDE_MODELS.filter(m => m !== 'fable');
+    // "default" stays a valid --model value for old saved picks, but the picker offers only named models.
+    const fable = !!bin && await claudeOffersFable(bin);
+    models = CLAUDE_MODELS.filter(m => m !== 'default' && (fable || m !== 'fable'));
     const saved = loadState().claudeModel;
-    version = models.includes(saved) ? saved : 'default';
+    version = models.includes(saved) ? saved : 'opus';
   } else if (a.id === 'opencode') {
     models = bin ? await opencodeModels(bin) : [];
     const saved = loadState().opencodeModel;

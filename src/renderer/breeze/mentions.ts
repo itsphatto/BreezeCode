@@ -182,7 +182,8 @@ function mentionHtml(text: string, agents = true): string {
 const promptHl = $('#promptHl');
 // One prompt box built like the Agents tab's: its textarea, the layer that draws its text, the row of model chips,
 // and the agents those chips show for `text`. `mentions`: @agent words turn blue (the Agents tab only).
-interface PromptKit { ta: HTMLTextAreaElement; hl: HTMLElement; models: HTMLElement; picked: (text: string) => DetectedAgent[]; mentions: boolean; anim: Animation | null; target?: (a: DetectedAgent) => ModelTarget | undefined }
+// `switchAgent`: a chip's menu picked another agent's model (an Agent board box swaps its own agent).
+interface PromptKit { ta: HTMLTextAreaElement; hl: HTMLElement; models: HTMLElement; picked: (text: string) => DetectedAgent[]; mentions: boolean; anim: Animation | null; target?: (a: DetectedAgent) => ModelTarget | undefined; switchAgent?: (from: DetectedAgent, to: DetectedAgent, model: string) => void }
 // The installed agents @mentioned in `text`, once each, in the order they appear.
 function mentionedAgents(text: string): DetectedAgent[] {
   const agents = (appState.detect?.agents ?? []).filter(a => a.found);
@@ -263,7 +264,8 @@ function onPromptModelClick(e: MouseEvent, kit: PromptKit = IDE_KIT): void {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.prompt-model:not(.leaving)');
   const ag = chip && appState.detect?.agents.find(x => x.id === chip.dataset.agent);
   if (!chip || !ag) return;
-  openChipMenu(chip, modelPickerItems(ag, false, kit.target?.(ag)));
+  const switchAgent = kit.switchAgent ?? ideSwitchAgent;
+  openChipMenu(chip, modelPickerItems(ag, false, kit.target?.(ag), (to, m) => switchAgent(ag, to, m)));
   // The composer sits at the bottom of the window, so the menu opens upwards.
   const m = chip.classList.contains('open') ? $('#menuRoot .menu') : null;
   if (m) {
@@ -272,6 +274,20 @@ function onPromptModelClick(e: MouseEvent, kit: PromptKit = IDE_KIT): void {
     m.style.top = `${Math.max(8, r.top - m.offsetHeight - 4)}px`;
     m.classList.add('up');
   }
+}
+// The Agents tab: an agent tagged in the prompt has its @mention swapped for the new one; with none tagged, the new
+// agent becomes the default. Either way it gets the model picked.
+function ideSwitchAgent(from: DetectedAgent, to: DetectedAgent, model: string): void {
+  const ta = SURFACES.ide.prompt;
+  const text = ta.value;
+  const names = agentMentionNames(from);
+  const hits = mentionRanges(text).filter(([a, b]) => names.includes(text.slice(a + 1, b).toLowerCase()));
+  if (!hits.length) { switchToAgentModel(to, model); return; }
+  let out = text;
+  for (const [a, b] of hits.reverse()) out = `${out.slice(0, a)}@${agentShortName(to)}${out.slice(b)}`;
+  ta.value = out;
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+  background(applyModelAndEffort(to, model, agentEffort(to)));
 }
 $('#promptModels').addEventListener('click', e => onPromptModelClick(e));
 // The prompt grows with its text, up to a cap, then scrolls.

@@ -66,7 +66,7 @@ test("a board box's header shows its context, and its menu the model", () => {
   const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
   const setup = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/setup.ts'), 'utf8');
   assert.match(board, /function paintBoxContext\(box: BoardBox\)/);
-  assert.match(board, /modelPickerItems\(ag, false, boxModelTarget\(box\)\)/);
+  assert.match(board, /modelPickerItems\(ag, false, boxModelTarget\(box\), \(to, m\) => switchBoxAgent\(box, to, m\)\)/);
   assert.match(setup, /renderBoardModels\(\)/); // a model change elsewhere repaints the boxes
 });
 
@@ -105,7 +105,7 @@ test("a box's own model is saved, picked on its chip and header, and sent with i
   const teams = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/teams.ts'), 'utf8');
   assert.match(board, /model: b\.model, effort: b\.effort/); // saved with the board
   assert.match(board, /target: \(\) => boxModelTarget\(box\)/); // the prompt chip
-  assert.match(board, /modelPickerItems\(ag, false, boxModelTarget\(box\)\)/); // the header
+  assert.match(board, /modelPickerItems\(ag, false, boxModelTarget\(box\), \(to, m\) => switchBoxAgent\(box, to, m\)\)/); // the header
   assert.match(teams, /api\.board\.run\(\{[^}]*\.\.\.boardPickOf\(/);
 });
 

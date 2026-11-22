@@ -28,7 +28,7 @@ $('#homeAskModels').addEventListener('click', e => {
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.prompt-model');
   const ag = chip && appState.detect?.agents.find(x => x.id === chip.dataset.agent);
   if (!chip || !ag) return;
-  openChipMenu(chip, modelPickerItems(ag));
+  openChipMenu(chip, modelPickerItems(ag, false, undefined, switchToAgentModel));
   // The box sits at the bottom of the page, so the menu opens upwards.
   const m = chip.classList.contains('open') ? $('#menuRoot .menu') : null;
   if (m) {
