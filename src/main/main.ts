@@ -4059,18 +4059,17 @@ const LLM_MODE_NOTE: Record<string, string> = {
   plan: 'Plan mode: read only. Look at the code you need, then reply with a short numbered plan of the changes.',
   ask: 'Ask mode: read only. Answer the question directly.',
 };
-// Reliability rules adapted from the Gravitas skill (MIT, github.com/udaysharmadev/Gravitas), trimmed to the tools this agent has.
-const llmSystemPrompt = (base: string) => `You are Breeze, a coding agent working in the user's project "${path.basename(base)}".
-Work efficiently:
-- The first message has a map of the project. Use search_files to find code, then read_file only the lines you need.
-- Read code before you change it. Change files with edit_file; use write_file only for new files.
-- Never repeat a tool call with the same arguments. Stop calling tools as soon as you can answer.
-- Only say something works or is fixed if a tool result showed it. Say what you could not check.
-- Stay inside the project and do only what was asked.
-- If the request is unclear and a wrong guess would waste work, call ask_user with 2 to 4 short options instead of guessing.
-- Before a change that touches several files or is hard to undo, call propose_plan and wait for the user's OK.
-Reply short and plain. After changing files, list the files, what you checked, and why.
-When the user asks for code or a file to keep (and you are not writing it into the project), give it as one fenced block with the language and a file name, like \`\`\`html index.html, so it shows as a card they can copy or download.`;
+// Claude Code-style prompt (agentbrain.systemPrompt) plus the CLAUDE.md / AGENTS.md files the user wrote for Claude and Codex.
+// Reliability rules adapted from the Gravitas skill (MIT, github.com/udaysharmadev/Gravitas).
+function llmSystemPrompt(base: string, budget: number): { prompt: string; imported: string[] } {
+  // The user's files get at most a third of the context, so a small local model still has room to work.
+  const instructions = brain.readInstructions(base, skillDirs(), Math.min(12000, Math.floor(budget * 3.5 / 3)));
+  const prompt = brain.systemPrompt({
+    project: path.basename(base), base, platform: `${process.platform} (${os.type()} ${os.release()})`,
+    shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh', date: new Date().toISOString().slice(0, 10), instructions,
+  });
+  return { prompt, imported: instructions.map(i => i.label.split(' (')[0]) };
+}
 async function llmPost(cfg: LlmConfig, body: Loose, signal: AbortSignal | undefined): Promise<Loose> {
   const r = await fetch(`${cfg.url}/chat/completions`, {
     method: 'POST',
@@ -4177,10 +4176,14 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
   await llmReachable(cfg);
   const sid = session && loadLlmSession(session, base) ? session : crypto.randomUUID();
   const fresh = !llmSessions.has(sid);
-  const messages: brain.ChatMessage[] = llmSessions.get(sid) || [{ role: 'system', content: llmSystemPrompt(base) }];
+  const budget = llmBudget(cfg);
+  const messages: brain.ChatMessage[] = llmSessions.get(sid) || (() => {
+    const { prompt, imported } = llmSystemPrompt(base, budget);
+    if (imported.length) emit(runId, { t: 'note', text: `Following your instructions from ${imported.join(', ')}` });
+    return [{ role: 'system', content: prompt }];
+  })();
   llmSessions.set(sid, messages);
   emit(runId, { t: 'session', id: sid, model: cfg.model });
-  const budget = llmBudget(cfg);
   const map = fresh ? `Project map:\n${brain.projectMap((await listFiles(base)).map(f => relTo(base, f)), Math.min(2400, Math.floor(budget * 0.8)))}\n\n` : '';
   messages.push({ role: 'user', content: `${map}${prompt}\n\n(${LLM_MODE_NOTE[mode] ?? LLM_MODE_NOTE.ask})` });
   const tools = LLM_TOOLS.filter(t => mode === 'build' || !WRITE_TOOLS.has(t.function.name));

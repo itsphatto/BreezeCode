@@ -626,8 +626,21 @@ const HELLO_MARKS: Record<string, string> = { claude: 'mm-claude', codex: 'mm-op
 function boxHelloHtml(agent: string): string {
   const mark = HELLO_MARKS[agent];
   const logo = mark ? `<span class="model-mark board-hello-mark ${mark}" aria-hidden="true"></span>` : brandMark('board-hello-logo', agent, agentNameOf(agent)[0] ?? '?');
-  return `<div class="empty board-hello"><div class="board-hello-row">${logo}<h4>${esc(timeGreeting())}</h4></div></div>`;
+  return `<div class="empty board-hello"><div class="board-hello-row">${logo}<h4>${esc(boardGreeting())}</h4></div></div>`;
 }
+// Every 10 seconds each new chat's greeting fades to another line (greetings.ts BOARD_GREETINGS).
+decorInterval(() => {
+  for (const h of document.querySelectorAll<HTMLElement>('.board-hello h4')) {
+    const line = boardGreeting();
+    if (motionReduced()) { h.textContent = line; continue; }
+    const out = h.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
+    out.finished.then(() => {
+      h.textContent = line;
+      out.cancel();
+      h.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' });
+    }, () => {});
+  }
+}, 10_000, 10_000);
 // `fresh` while the chat is only its greeting. The prompt glides between the middle and the bottom (FLIP).
 function watchBoxFresh(el: HTMLElement, panel: HTMLElement): void {
   const comp = $('.board-composer', el);

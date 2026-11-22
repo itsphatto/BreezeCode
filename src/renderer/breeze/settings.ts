@@ -138,7 +138,7 @@ const segHtml = (id: string, opts: [string, string][], cur: string) =>
 // system fonts installed here.
 const fontSeen = new Map<string, boolean>();
 const fontOffered = ([id, label]: FontChoice, i: number, cur: string) => {
-  if (CODE_FONTS.some(f => f[0] === id) || i < 2 || id === cur || id.startsWith('system-')) return true;
+  if (CODE_FONTS.some(f => f[0] === id) || i < 3 || id === cur || id.startsWith('system-')) return true;
   if (!fontSeen.has(label)) fontSeen.set(label, fontInstalled(label));
   return fontSeen.get(label);
 };
