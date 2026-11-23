@@ -253,6 +253,26 @@ function openInBrowser(url: string): void {
   if (u.protocol === 'https:' || (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname))) shell.openExternal(u.href).catch(logError('openExternal'));
 }
 
+/* ================= The box browser's webviews ================= */
+const BROWSER_PARTITION = 'persist:breeze-browser';
+const isBrowserUrl = (url: string): boolean => /^https?:\/\//i.test(url);
+// A site may go anywhere on the web; a link that opens a new window opens in the same tab instead. Other schemes
+// (file:, the app's own pages, custom protocols) are refused. The session asks for no permissions on the user's behalf.
+app.on('web-contents-created', (_e, wc) => {
+  if (wc.getType() !== 'webview') return;
+  wc.setWindowOpenHandler(({ url }) => {
+    if (isBrowserUrl(url)) wc.loadURL(url).catch(logError('webview open'));
+    return { action: 'deny' };
+  });
+  wc.on('will-navigate', (e, url) => { if (!isBrowserUrl(url)) e.preventDefault(); });
+  wc.on('will-redirect', (e, url) => { if (!isBrowserUrl(url)) e.preventDefault(); });
+});
+app.whenReady().then(() => {
+  const ses = session.fromPartition(BROWSER_PARTITION);
+  ses.setPermissionRequestHandler((_wc, permission, done) => done(permission === 'fullscreen' || permission === 'clipboard-sanitized-write'));
+  ses.setPermissionCheckHandler((_wc, permission) => permission === 'fullscreen' || permission === 'clipboard-sanitized-write');
+}).catch(logError('browser session'));
+
 /* ================= Persisted main-process state ================= */
 const statePath = () => path.join(app.getPath('userData'), 'breeze-state.json');
 // What breeze-state.json keeps between runs. Other keys (window, sign-in and friends settings) live beside these.
@@ -431,6 +451,8 @@ function createWindow() {
       // Breeze's own clicks and chimes: without this Chromium can hold the audio back until a gesture, and
       // suspends it again when idle, so some sounds were silently dropped.
       autoplayPolicy: 'no-user-gesture-required',
+      // An Agent Board box's browser shows websites in <webview>s (boxbrowser.ts), locked down in will-attach-webview.
+      webviewTag: true,
       preload: path.join(__dirname, 'preload.js'),
       additionalArguments: [`--breeze-version=${app.getVersion()}`],
     },
@@ -480,6 +502,18 @@ function createWindow() {
   });
   win.webContents.on('will-navigate', (e, url) => {
     if (!isFileUrl(url, APP_PAGE)) e.preventDefault();
+  });
+  // The box browser's webviews: a web page and nothing more. No preload, no Node, sandboxed, in their own session,
+  // and only http(s) addresses (or a blank page) to start from.
+  win.webContents.on('will-attach-webview', (e, prefs, params) => {
+    delete prefs.preload;
+    prefs.nodeIntegration = false;
+    prefs.nodeIntegrationInSubFrames = false;
+    prefs.contextIsolation = true;
+    prefs.sandbox = true;
+    prefs.webSecurity = true;
+    params.partition = BROWSER_PARTITION;
+    if (!isBrowserUrl(params.src) && params.src !== 'about:blank') e.preventDefault();
   });
   // A reload or crash drops the renderer's terminal state, so nothing may keep running for it.
   win.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => {
