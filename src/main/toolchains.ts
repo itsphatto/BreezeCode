@@ -6,7 +6,7 @@ import type { ChildProcess } from 'node:child_process';
 export interface Tool { path: string; name: string; version: string }
 const TOOL_KEYS = ['cc', 'cxx', 'gdb', 'python', 'dotnet', 'java', 'rustc', 'cargo', 'node', 'lua', 'php', 'sqlite', 'go', 'ruby', 'kotlinc', 'swiftc', 'dart', 'zig', 'scala', 'elixir', 'runghc', 'rscript', 'perl', 'groovy', 'mvn', 'bash', 'zsh', 'pwsh'] as const;
 export type ToolKey = typeof TOOL_KEYS[number];
-export type Tools = Record<ToolKey, Tool | null> & { binDirs: string[] };
+export type Tools = Record<ToolKey, Tool | null> & { binDirs: string[]; dlv?: Tool | null }; // dlv: Delve, Go's debugger
 // What a program run returns: the exit code (null if it never ran) and what it printed.
 export interface RunResult { code: number | null; stdout?: string }
 export type RunFn = (file: string, args: string[]) => Promise<RunResult | null>;
@@ -23,7 +23,7 @@ export type Plan = { error: string; steps?: undefined } | { steps: Step[]; error
 export interface DebugPlan {
   error?: string; steps?: Step[]; exe?: string | null; entry?: string | null; cpp?: boolean;
 }
-interface PlanOpts { csproj?: string | null; cargoToml?: string | null }
+interface PlanOpts { csproj?: string | null; cargoToml?: string | null; goMod?: string | null }
 interface MissingEntry { lead: string; cmd?: string | null; url?: string }
 
 const pathFor = (platform: string) => (platform === 'win32' ? path.win32 : path.posix);
@@ -200,7 +200,20 @@ async function findTools(o: FindOptions): Promise<Tools> {
     return null;
   };
   const extra = (list: string[]) => withExtra(win ? list : []);
+  // Delve, Go's debugger: `go install .../dlv@latest` puts it in GOBIN, else GOPATH/bin (by default ~/go/bin), which
+  // is often not on the PATH. `go env GOPATH` has the final say when the environment doesn't set it.
+  const findDlv = async (goTool: Tool | null): Promise<Tool | null> => {
+    const home = win ? env?.USERPROFILE : env?.HOME;
+    const gopaths = [env?.GOPATH, home && P.join(home, 'go')];
+    if (goTool) {
+      const r = await run(goTool.path, ['env', 'GOPATH']).catch(() => null);
+      if (r && r.code === 0) gopaths.unshift(...String(r.stdout || '').trim().split(win ? ';' : ':'));
+    }
+    const binDirs = [env?.GOBIN, ...gopaths.filter(Boolean).map(g => P.join(clean(g as string), 'bin'))].filter(Boolean) as string[];
+    return tool(await probe(withExtra(binDirs), 'dlv', [], 'version'));
+  };
   const go = await find(extra(['C:\\Program Files\\Go\\bin']), ['go'], 'version');
+  const dlv = await findDlv(go);
   const ruby = await find(extra(['C:\\Ruby*\\bin']), ['ruby']);
   const kotlinc = await find(pathDirs, ['kotlinc']);
   const swiftc = await find(pathDirs, ['swiftc']);
@@ -225,7 +238,7 @@ async function findTools(o: FindOptions): Promise<Tools> {
     const d = P.dirname(t.path);
     if (!pathDirs.some((x) => same(x, d)) && !binDirs.some((x) => same(x, d))) binDirs.push(d);
   }
-  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, mvn, bash, zsh, pwsh, binDirs };
+  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, mvn, bash, zsh, pwsh, dlv, binDirs };
 }
 
 // Where bash, zsh and PowerShell live. On Windows bash means Git Bash: System32\bash.exe and the WindowsApps alias are
@@ -385,6 +398,8 @@ const MISSING: Record<string, Record<string, MissingEntry>> = {
     darwin: { lead: "PowerShell wasn't found. Install it with:", cmd: 'brew install --cask powershell', url: PWSH_URL },
     other: { lead: "PowerShell wasn't found. Install pwsh with your package manager or from Microsoft", url: PWSH_URL },
   },
+  // Delve, for debugging Go: one command wherever Go is installed.
+  dlv: { other: { lead: 'Debugging Go needs Delve. Install it with:', cmd: 'go install github.com/go-delve/delve/cmd/dlv@latest', url: 'https://github.com/go-delve/delve' } },
 };
 // The other languages' compilers and interpreters: name, download page, and the install command on Windows and macOS
 // where there is one. Elsewhere, the package manager.
@@ -476,6 +491,12 @@ function runPlan(absFile: string, tools: Tools, platform: string, stdioHeader: s
         (m.cmd ? `\nUpdate with:\n${m.cmd}` : '') + download(m) + '\nOr make this folder a project with: dotnet new console' };
     }
     return { steps: [{ display: `dotnet run "${base}"`, file: dn.path, args: ['run', absFile], cwd, env }] };
+  }
+
+  // Inside a Go module, run the file's package (every .go file beside it), as `go run .` from its folder.
+  if (e === '.go' && opts.goMod) {
+    if (!tools.go) return { error: missing('go', platform) };
+    return { steps: [{ display: 'go run .', file: tools.go.path, args: ['run', '.'], cwd }] };
   }
 
   if (e === '.py') {

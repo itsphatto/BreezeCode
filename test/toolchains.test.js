@@ -167,7 +167,7 @@ test('findTools leaves cxx null without a twin, and everything null when nothing
   const none = await findTools(machine('win32', {}));
   assert.deepEqual(none, {
     cc: null, cxx: null, gdb: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null,
-    go: null, ruby: null, kotlinc: null, swiftc: null, dart: null, zig: null, scala: null, elixir: null, runghc: null, rscript: null, perl: null, groovy: null, mvn: null, bash: null, zsh: null, pwsh: null, binDirs: [],
+    go: null, ruby: null, kotlinc: null, swiftc: null, dart: null, zig: null, scala: null, elixir: null, runghc: null, rscript: null, perl: null, groovy: null, mvn: null, bash: null, zsh: null, pwsh: null, dlv: null, binDirs: [],
   });
 });
 

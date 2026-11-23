@@ -1506,6 +1506,7 @@ handle('run:file', async (_e, rel) => {
     const opts = {
       csproj: /\.cs$/i.test(abs) ? nearestProject(abs, n => /\.csproj$/i.test(n)) : null,
       cargoToml: /\.rs$/i.test(abs) ? nearestProject(abs, n => n === 'Cargo.toml') : null,
+      goMod: /\.go$/i.test(abs) ? nearestProject(abs, n => n === 'go.mod') : null,
     };
     let plan = runPlan(abs, tools, process.platform, stdioHeader, opts);
     if (plan.error && SOURCE_FILE.test(abs)) {
@@ -1649,7 +1650,9 @@ handle('debug:start', async (_e, rel, opts) => {
       breakpoints[abs] = cleanBps(list);
     }
   }
-  const { tools, pathValue } = await getTools();
+  let { tools, pathValue } = await getTools();
+  // Delve may have been installed since the tools were looked up (the debug page's Install runs it): look again.
+  if (/\.go$/i.test(file) && (!tools.dlv || !tools.go)) ({ tools, pathValue } = await getTools(true));
   const env = toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
   if (/\.py$/i.test(file)) env.PYTHONUTF8 = '1'; // as F5 does, so print("café ✓") survives a pipe on a non-UTF-8 code page
   const node = /\.(?:[cm]?js|[cm]?ts)$/i.test(file) ? await which('node', pathValue) : null;
@@ -1668,6 +1671,9 @@ handle('debug:start', async (_e, rel, opts) => {
     javac: tools.java ? path.join(path.dirname(tools.java.path), process.platform === 'win32' ? 'javac.exe' : 'javac') : 'javac',
     dotnet: tools.dotnet?.path || 'dotnet',
     netcoredbg: findNetcoredbg(pathValue) ?? undefined,
+    dlv: tools.dlv?.path || 'dlv',
+    go: tools.go?.path ?? null,
+    goMod: /\.go$/i.test(file) ? nearestProject(file, n => n === 'go.mod') : null,
     hookSrc: unpacked(path.join(ROOT, 'runtime', 'BreezeDebugHook')),
     hookDir: path.join(app.getPath('userData'), 'debug-hook'),
     project: /\.cs$/i.test(file) ? nearestProject(file, n => /\.csproj$/i.test(n)) : null,
@@ -1850,7 +1856,7 @@ handle('sys:detect', async (_e, force) => {
     return { id: cmd, name, found: !!bin, version: bin ? await versionOf(bin) : null, hint: bin ? null : installHint(cmd, process.platform), cmd: bin ? null : installCmd(cmd, process.platform), url: bin ? null : installUrl(cmd, process.platform) };
   }));
   const optionalTools: [string, string, Tool | null, string][] = [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs'], ['cargo', 'Cargo', found.cargo, 'rs'], ['maven', 'Maven', found.mvn, 'mvn'], ['lua', 'Lua', found.lua, 'lua'], ['php', 'PHP', found.php, 'php'], ['sqlite', 'SQLite', found.sqlite, 'sql'],
-    ['go', 'Go', found.go, 'go'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
+    ['go', 'Go', found.go, 'go'], ['dlv', 'Delve (Go debugger)', found.dlv ?? null, 'dlv'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
     ['dart', 'Dart', found.dart, 'dart'], ['zig', 'Zig', found.zig, 'zig'], ['scala', 'Scala', found.scala, 'scala'], ['elixir', 'Elixir', found.elixir, 'ex'],
     ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy'],
     ['bash', 'Bash', found.bash, 'sh'], ['zsh', 'Zsh', found.zsh, 'zsh'], ['powershell', 'PowerShell', found.pwsh, 'ps']];
@@ -1901,7 +1907,7 @@ handle('sys:runCommand', async (_e, cmd) => {
   if (typeof cmd !== 'string') return false;
   const command = cmd.trim();
   const allowed = [
-    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
+    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', 'dlv', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
     ...['claude', 'codex', 'local'].map(id => agentInstallCmd(id, process.platform)),
     ...lspInstalls(process.platform).map(i => i.cmd),
   ].filter(Boolean) as string[];
