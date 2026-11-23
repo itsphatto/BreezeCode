@@ -1478,7 +1478,7 @@ app.on('will-quit', () => kernels.stopAll());
 
 // Runs a source file Breeze knows how to run (toolchains.runPlan) in the open folder, streaming into the terminal under one id.
 let activeRun: { id: number; cancel: () => void } | null = null;
-const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy)$/i;
+const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy|sh|bash|zsh|ps1|bat|cmd)$/i;
 // The nearest project file (a .csproj, a Cargo.toml) in the file's folder or a folder above it, without leaving the open project.
 function nearestProject(abs: string, isProject: (name: string) => boolean): string | null {
   for (let dir = path.dirname(abs); ; dir = path.dirname(dir)) {
@@ -1852,7 +1852,8 @@ handle('sys:detect', async (_e, force) => {
   const optionalTools: [string, string, Tool | null, string][] = [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs'], ['cargo', 'Cargo', found.cargo, 'rs'], ['maven', 'Maven', found.mvn, 'mvn'], ['lua', 'Lua', found.lua, 'lua'], ['php', 'PHP', found.php, 'php'], ['sqlite', 'SQLite', found.sqlite, 'sql'],
     ['go', 'Go', found.go, 'go'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
     ['dart', 'Dart', found.dart, 'dart'], ['zig', 'Zig', found.zig, 'zig'], ['scala', 'Scala', found.scala, 'scala'], ['elixir', 'Elixir', found.elixir, 'ex'],
-    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy']];
+    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy'],
+    ['bash', 'Bash', found.bash, 'sh'], ['zsh', 'Zsh', found.zsh, 'zsh'], ['powershell', 'PowerShell', found.pwsh, 'ps']];
   for (const [id, name, t, kind] of optionalTools) {
     tools.push({ id, name, found: !!t, version: t ? versionIn(t.version) : null, optional: true, hint: t ? null : installHint(kind, process.platform), cmd: t ? null : installCmd(kind, process.platform), url: t ? null : installUrl(kind, process.platform) });
   }

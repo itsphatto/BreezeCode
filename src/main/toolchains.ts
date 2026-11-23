@@ -4,7 +4,7 @@ import { StringDecoder } from 'node:string_decoder';
 import type { ChildProcess } from 'node:child_process';
 
 export interface Tool { path: string; name: string; version: string }
-const TOOL_KEYS = ['cc', 'cxx', 'gdb', 'python', 'dotnet', 'java', 'rustc', 'cargo', 'node', 'lua', 'php', 'sqlite', 'go', 'ruby', 'kotlinc', 'swiftc', 'dart', 'zig', 'scala', 'elixir', 'runghc', 'rscript', 'perl', 'groovy', 'mvn'] as const;
+const TOOL_KEYS = ['cc', 'cxx', 'gdb', 'python', 'dotnet', 'java', 'rustc', 'cargo', 'node', 'lua', 'php', 'sqlite', 'go', 'ruby', 'kotlinc', 'swiftc', 'dart', 'zig', 'scala', 'elixir', 'runghc', 'rscript', 'perl', 'groovy', 'mvn', 'bash', 'zsh', 'pwsh'] as const;
 export type ToolKey = typeof TOOL_KEYS[number];
 export type Tools = Record<ToolKey, Tool | null> & { binDirs: string[] };
 // What a program run returns: the exit code (null if it never ran) and what it printed.
@@ -216,13 +216,62 @@ async function findTools(o: FindOptions): Promise<Tools> {
   const mavenHomes = [env?.MAVEN_HOME, env?.M2_HOME].filter(Boolean).map((h) => P.join(h as string, 'bin'));
   const mvn = await find(withExtra(mavenHomes), ['mvn']);
 
+  // Shell scripts: bash (.sh, .bash), zsh (.zsh) and PowerShell (.ps1). See findShells.
+  const { bash, zsh, pwsh } = await findShells({ platform, pathDirs, env: env || {}, exists, run, probe, same, clean });
+
   const binDirs: string[] = [];
-  for (const t of [cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, mvn]) {
+  for (const t of [cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, mvn, bash, zsh, pwsh]) {
     if (!t) continue;
     const d = P.dirname(t.path);
     if (!pathDirs.some((x) => same(x, d)) && !binDirs.some((x) => same(x, d))) binDirs.push(d);
   }
-  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, mvn, binDirs };
+  return { cc, cxx, gdb, python, dotnet, java, rustc, cargo, node, lua, php, sqlite, go, ruby, kotlinc, swiftc, dart, zig, scala, elixir, runghc, rscript, perl, groovy, mvn, bash, zsh, pwsh, binDirs };
+}
+
+// Where bash, zsh and PowerShell live. On Windows bash means Git Bash: System32\bash.exe and the WindowsApps alias are
+// WSL, which can't read Windows paths, so they come last (and a .sh then runs from its folder by relative path).
+type Prober = (candDirs: string[], name: string, pre?: string[], flag?: string) => Promise<(Tool & { dir: string }) | null>;
+interface ShellSearch {
+  platform: string; pathDirs: string[]; env: Env; exists: (p: string) => boolean; run: RunFn;
+  probe: Prober; same: (a: string, b: string) => boolean; clean: (d: string) => string;
+}
+const isWslBash = (p: string) => /[\\/](?:system32|windowsapps)[\\/]bash(?:\.exe)?$/i.test(p);
+async function findShells(o: ShellSearch): Promise<{ bash: Tool | null; zsh: Tool | null; pwsh: Tool | null }> {
+  const { platform, pathDirs, env, run, probe, same, clean } = o;
+  const win = platform === 'win32';
+  const P = pathFor(platform);
+  const add = (list: string[], ...more: (string | undefined)[]) => { for (const d of more) if (d && !list.some((x) => same(x, d))) list.push(d); return list; };
+  const strip = (t: (Tool & { dir: string }) | null): Tool | null => t && { path: t.path, name: t.name, version: t.version };
+
+  const posixDirs = ['/bin', '/usr/bin', '/usr/local/bin', '/opt/homebrew/bin'];
+  const bashDirs: string[] = [];
+  if (win) {
+    // Git for Windows: its usual install folders, then wherever `git` is (cmd\git.exe and mingw64\bin\git.exe sit one or two levels under it).
+    const roots = [env.ProgramFiles || 'C:\\Program Files', env['ProgramFiles(x86)'], env.LOCALAPPDATA && P.join(env.LOCALAPPDATA, 'Programs')];
+    for (const r of roots) if (r) add(bashDirs, P.join(r, 'Git', 'bin'));
+    const where = await run('where.exe', ['git']).catch(() => null);
+    for (const line of where && where.code === 0 ? String(where.stdout || '').split(/\r?\n/) : []) {
+      const g = line.trim();
+      if (!g) continue;
+      for (let up = P.dirname(P.dirname(g)), n = 0; n < 2; up = P.dirname(up), n++) add(bashDirs, P.join(up, 'bin'));
+    }
+    const wsl = (d: string) => isWslBash(P.join(d, 'bash.exe'));
+    add(bashDirs, ...pathDirs.filter((d) => !wsl(d)));
+    add(bashDirs, ...pathDirs.filter(wsl), P.join(env.SystemRoot || 'C:\\Windows', 'System32'));
+  } else {
+    add(bashDirs, ...pathDirs, ...posixDirs);
+  }
+  const bash = strip(await probe(bashDirs, 'bash'));
+  const zsh = strip(await probe(add([...pathDirs], ...(win ? [] : posixDirs)), 'zsh'));
+
+  // PowerShell 7 (pwsh) first; Windows PowerShell 5.1 ships with Windows. It has no --version, so it prints its own.
+  const pwshDirs = add([...pathDirs], ...(win ? [P.join(env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7')] : [...posixDirs, '/snap/bin', '/opt/microsoft/powershell/7']));
+  let pwsh = strip(await probe(pwshDirs, 'pwsh'));
+  if (!pwsh && win) {
+    const sys = P.join(env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0');
+    pwsh = strip(await probe(add([...pathDirs.map(clean)], sys), 'powershell', ['-NoProfile', '-Command'], '$PSVersionTable.PSVersion.ToString()'));
+  }
+  return { bash, zsh, pwsh };
 }
 
 async function freshPath(platform: string, run: RunFn): Promise<string> {
@@ -261,6 +310,8 @@ const NODE_URL = 'https://nodejs.org/en/download';
 const LUA_URL = 'https://www.lua.org/download.html';
 const PHP_URL = 'https://www.php.net/downloads';
 const SQLITE_URL = 'https://sqlite.org/download.html';
+const ZSH_URL = 'https://www.zsh.org/';
+const PWSH_URL = 'https://learn.microsoft.com/powershell/scripting/install/installing-powershell';
 const MISSING: Record<string, Record<string, MissingEntry>> = {
   git: {
     win32: { lead: "Git wasn't found. Install it with:", cmd: 'winget install Git.Git', url: GIT_URL },
@@ -318,6 +369,22 @@ const MISSING: Record<string, Record<string, MissingEntry>> = {
     other: { lead: 'Install SQLite with your package manager (e.g. sudo apt install sqlite3)', url: SQLITE_URL },
   },
   ...langMissing(),
+  // Bash comes with Git for Windows (Git Bash), and with macOS and most Linux systems.
+  sh: {
+    win32: { lead: "Bash wasn't found. Git for Windows includes it; install it with:", cmd: 'winget install Git.Git', url: GIT_URL },
+    darwin: { lead: "Bash wasn't found. Install it with:", cmd: 'brew install bash', url: 'https://www.gnu.org/software/bash/' },
+    other: { lead: "Bash wasn't found. Install it with your package manager (e.g. sudo apt install bash)", url: 'https://www.gnu.org/software/bash/' },
+  },
+  zsh: {
+    win32: { lead: "zsh wasn't found. Install it inside MSYS2 or WSL, or run .zsh files from a zsh shell.", url: ZSH_URL },
+    darwin: { lead: "zsh wasn't found. Install it with:", cmd: 'brew install zsh', url: ZSH_URL },
+    other: { lead: "zsh wasn't found. Install it with your package manager (e.g. sudo apt install zsh)", url: ZSH_URL },
+  },
+  ps: {
+    win32: { lead: "PowerShell wasn't found. Install it with:", cmd: 'winget install Microsoft.PowerShell', url: PWSH_URL },
+    darwin: { lead: "PowerShell wasn't found. Install it with:", cmd: 'brew install --cask powershell', url: PWSH_URL },
+    other: { lead: "PowerShell wasn't found. Install pwsh with your package manager or from Microsoft", url: PWSH_URL },
+  },
 };
 // The other languages' compilers and interpreters: name, download page, and the install command on Windows and macOS
 // where there is one. Elsewhere, the package manager.
@@ -341,7 +408,7 @@ function langMissing(): Record<string, Record<string, MissingEntry>> {
     [kind, { win32: one(name, url, win), darwin: one(name, url, mac), other: one(name, url, null, true) }]));
 }
 // The kinds of tool the Tools list shows an install button for (main.js allows only their commands).
-const LANG_KINDS = ['go', 'rb', 'kt', 'swift', 'dart', 'zig', 'scala', 'ex', 'hs', 'r', 'pl', 'groovy'];
+const LANG_KINDS = ['go', 'rb', 'kt', 'swift', 'dart', 'zig', 'scala', 'ex', 'hs', 'r', 'pl', 'groovy', 'sh', 'zsh', 'ps'];
 const entry = (kind: string, platform: string): MissingEntry => MISSING[kind][platform] || MISSING[kind].other;
 // The lead and command, then the download page when there is one.
 const download = (m: MissingEntry) => (m.url ? `\n${m.cmd ? 'Or download it from' : 'Download it from'} ${m.url}` : '');
@@ -466,6 +533,25 @@ function runPlan(absFile: string, tools: Tools, platform: string, stdioHeader: s
     if (!t) return { error: missing(kind, platform) };
     return plan({ display: [t.name, ...pre, `"${base}"`].join(' '), file: t.path, args: [...pre, absFile], cwd });
   }
+  // Shell scripts run from their own folder: bash for .sh and .bash, zsh for .zsh, PowerShell for .ps1 (-ExecutionPolicy
+  // Bypass so an unsigned local script runs), and cmd.exe for .bat and .cmd, which exist on Windows only.
+  if (e === '.sh' || e === '.bash' || e === '.zsh') {
+    const zsh = e === '.zsh';
+    const t = zsh ? tools.zsh : tools.bash;
+    if (!t) return { error: missing(zsh ? 'zsh' : 'sh', platform) };
+    // WSL's bash.exe can't read a Windows path: it starts in the folder, so the script goes by relative path.
+    return { steps: [{ display: `${zsh ? 'zsh' : 'bash'} "${base}"`, file: t.path, args: [platform === 'win32' && isWslBash(t.path) ? './' + base : absFile], cwd }] };
+  }
+  if (e === '.ps1') {
+    const t = tools.pwsh;
+    if (!t) return { error: missing('ps', platform) };
+    const flags = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'];
+    return { steps: [{ display: [t.name, ...flags, `"${base}"`].join(' '), file: t.path, args: [...flags, absFile], cwd }] };
+  }
+  if (e === '.bat' || e === '.cmd') {
+    if (platform !== 'win32') return { error: `Batch files (.bat, .cmd) only run on Windows (they need cmd.exe), so Breeze can't run ${base} on this system.` };
+    return plan({ display: `cmd /d /c "${base}"`, file: absFile, args: [], cwd });
+  }
   // Kotlin: kotlinc builds a jar with the Kotlin runtime inside, and the JDK's java runs it.
   if (e === '.kt') {
     if (!tools.kotlinc) return { error: missing('kt', platform) };
@@ -514,7 +600,7 @@ function runPlan(absFile: string, tools: Tools, platform: string, stdioHeader: s
   }
 
   const cpp = ['.cpp', '.cc', '.cxx'].includes(e);
-  if (e !== '.c' && !cpp) return { error: 'Breeze can run .c, .cpp, .cs, .dart, .ex, .exs, .go, .groovy, .hs, .java, .js, .kt, .kts, .lua, .php, .pl, .py, .r, .rb, .rs, .sc, .scala, .sql, .swift, .ts and .zig files' };
+  if (e !== '.c' && !cpp) return { error: 'Breeze can run .bash, .bat, .c, .cmd, .cpp, .cs, .dart, .ex, .exs, .go, .groovy, .hs, .java, .js, .kt, .kts, .lua, .php, .pl, .ps1, .py, .r, .rb, .rs, .sc, .scala, .sh, .sql, .swift, .ts, .zig and .zsh files' };
   const compiler = cpp ? tools.cxx : tools.cc;
   if (!compiler) return { error: missing('c', platform) };
 

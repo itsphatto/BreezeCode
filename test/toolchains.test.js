@@ -69,7 +69,7 @@ test('runPlan on linux has no .exe', () => {
 });
 
 test('runPlan rejects other files', () => {
-  assert.deepEqual(runPlan('C:\\p\\a.txt', tools, 'win32', H), { error: 'Breeze can run .c, .cpp, .cs, .dart, .ex, .exs, .go, .groovy, .hs, .java, .js, .kt, .kts, .lua, .php, .pl, .py, .r, .rb, .rs, .sc, .scala, .sql, .swift, .ts and .zig files' });
+  assert.deepEqual(runPlan('C:\\p\\a.txt', tools, 'win32', H), { error: 'Breeze can run .bash, .bat, .c, .cmd, .cpp, .cs, .dart, .ex, .exs, .go, .groovy, .hs, .java, .js, .kt, .kts, .lua, .php, .pl, .ps1, .py, .r, .rb, .rs, .sc, .scala, .sh, .sql, .swift, .ts, .zig and .zsh files' });
 });
 
 const WIN_C = 'No C/C++ compiler found. Install one with:\nwinget install BrechtSanders.WinLibs.POSIX.UCRT';
@@ -167,7 +167,7 @@ test('findTools leaves cxx null without a twin, and everything null when nothing
   const none = await findTools(machine('win32', {}));
   assert.deepEqual(none, {
     cc: null, cxx: null, gdb: null, python: null, dotnet: null, java: null, rustc: null, cargo: null, node: null, lua: null, php: null, sqlite: null,
-    go: null, ruby: null, kotlinc: null, swiftc: null, dart: null, zig: null, scala: null, elixir: null, runghc: null, rscript: null, perl: null, groovy: null, mvn: null, binDirs: [],
+    go: null, ruby: null, kotlinc: null, swiftc: null, dart: null, zig: null, scala: null, elixir: null, runghc: null, rscript: null, perl: null, groovy: null, mvn: null, bash: null, zsh: null, pwsh: null, binDirs: [],
   });
 });
 
@@ -668,4 +668,141 @@ test('findTools finds go by `go version`, R off the PATH and batch-file launcher
   assert.equal(r.rscript.path, 'C:\\Program Files\\R\\R-4.5.1\\bin\\Rscript.exe');
   assert.deepEqual(r.kotlinc, { path: 'C:\\bin\\kotlinc.bat', name: 'kotlinc', version: '' });
   assert.ok(r.binDirs.includes('C:\\Program Files\\R\\R-4.5.1\\bin'));
+});
+
+// Shell scripts: bash, zsh, PowerShell and batch files.
+const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe';
+const WSL_BASH = 'C:\\Windows\\System32\\bash.exe';
+
+test('findTools picks Git Bash on Windows over WSL bash', async () => {
+  const r = await findTools(machine('win32', { [GIT_BASH]: 'GNU bash, version 5.2.37(1)-release', [WSL_BASH]: 'GNU bash, version 5.1' }));
+  assert.deepEqual(r.bash, { path: GIT_BASH, name: 'bash', version: 'GNU bash, version 5.2.37(1)-release' });
+  assert.deepEqual(r.binDirs, ['C:\\Program Files\\Git\\bin']);
+});
+
+test('findTools finds Git Bash through where git, and prefers a PATH bash to the WindowsApps WSL alias', async () => {
+  const viaGit = await findTools(machine('win32', { 'where.exe': 'D:\\Tools\\Git\\cmd\\git.exe\r\nD:\\Tools\\Git\\mingw64\\bin\\git.exe\r\n', 'D:\\Tools\\Git\\bin\\bash.exe': 'GNU bash 5' }));
+  assert.equal(viaGit.bash.path, 'D:\\Tools\\Git\\bin\\bash.exe');
+  const apps = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps';
+  const onPath = await findTools(machine('win32', { [apps + '\\bash.exe']: 'GNU bash 5', 'C:\\bin\\bash.exe': 'GNU bash 5.2' }, { pathValue: `${apps};C:\\bin` }));
+  assert.equal(onPath.bash.path, 'C:\\bin\\bash.exe');
+});
+
+test('findTools falls back to WSL bash only when nothing else exists, and finds nothing otherwise', async () => {
+  assert.equal((await findTools(machine('win32', { [WSL_BASH]: 'GNU bash 5.1' }))).bash.path, WSL_BASH);
+  const r = await findTools(machine('win32', {}));
+  assert.deepEqual([r.bash, r.zsh, r.pwsh], [null, null, null]);
+});
+
+test('findTools finds PowerShell 7, else Windows PowerShell with its own version command', async () => {
+  const sys = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+  const both = await findTools(machine('win32', { 'C:\\bin\\pwsh.exe': 'PowerShell 7.5.0', [sys]: '5.1.26100.1' }));
+  assert.deepEqual(both.pwsh, { path: 'C:\\bin\\pwsh.exe', name: 'pwsh', version: 'PowerShell 7.5.0' });
+  const m = machine('win32', { [sys]: '5.1.26100.1\r\n' });
+  const only = await findTools(m);
+  assert.deepEqual(only.pwsh, { path: sys, name: 'powershell', version: '5.1.26100.1' });
+  assert.ok(m.calls.some(c => c[0] === sys && c[1] === '-NoProfile' && c[2] === '-Command'));
+  const seven = await findTools(machine('win32', { 'C:\\Program Files\\PowerShell\\7\\pwsh.exe': 'PowerShell 7.4.6' }));
+  assert.equal(seven.pwsh.name, 'pwsh');
+  assert.deepEqual(seven.binDirs, ['C:\\Program Files\\PowerShell\\7']);
+});
+
+test('findTools finds bash, zsh and pwsh on macOS and Linux, and never uses powershell.exe there', async () => {
+  const r = await findTools(machine('linux', { '/usr/bin/bash': 'GNU bash 5.2', '/bin/zsh': 'zsh 5.9', '/usr/bin/pwsh': 'PowerShell 7.5.0' }));
+  assert.equal(r.bash.path, '/usr/bin/bash');
+  assert.equal(r.zsh.path, '/bin/zsh');
+  assert.equal(r.pwsh.name, 'pwsh');
+  assert.equal((await findTools(machine('darwin', { '/bin/bash': 'GNU bash 3.2' }))).bash.path, '/bin/bash');
+  assert.equal((await findTools(machine('linux', { '/usr/bin/powershell': '5.1' }))).pwsh, null);
+});
+
+test('runPlan runs .sh and .bash with bash from the script folder', () => {
+  const t = { ...tools, bash: T(GIT_BASH, 'bash') };
+  assert.deepEqual(runPlan('C:\\my code\\build.sh', t, 'win32', H).steps, [{ display: 'bash "build.sh"', file: GIT_BASH, args: ['C:\\my code\\build.sh'], cwd: 'C:\\my code' }]);
+  assert.deepEqual(runPlan('/p/a.bash', { ...tools, bash: T('/bin/bash', 'bash') }, 'linux', H).steps, [{ display: 'bash "a.bash"', file: '/bin/bash', args: ['/p/a.bash'], cwd: '/p' }]);
+});
+
+test('runPlan passes WSL bash a relative path, since it cannot read a Windows one', () => {
+  const t = { ...tools, bash: T(WSL_BASH, 'bash') };
+  assert.deepEqual(runPlan('C:\\p\\a.sh', t, 'win32', H).steps[0].args, ['./a.sh']);
+});
+
+test('runPlan runs .zsh with zsh, and says how to get bash, zsh and PowerShell when missing', () => {
+  assert.deepEqual(runPlan('/p/a.zsh', { ...tools, zsh: T('/bin/zsh', 'zsh') }, 'darwin', H).steps, [{ display: 'zsh "a.zsh"', file: '/bin/zsh', args: ['/p/a.zsh'], cwd: '/p' }]);
+  assert.equal(runPlan('/p/a.zsh', { ...tools, bash: T('/bin/bash', 'bash') }, 'darwin', H).error, "zsh wasn't found. Install it with:\nbrew install zsh\nOr download it from https://www.zsh.org/");
+  assert.match(runPlan('C:\\p\\a.sh', tools, 'win32', H).error, /^Bash wasn't found\. Git for Windows includes it; install it with:\nwinget install Git\.Git/);
+  assert.match(runPlan('/p/a.sh', tools, 'linux', H).error, /^Bash wasn't found\. Install it with your package manager/);
+  assert.match(runPlan('C:\\p\\a.ps1', tools, 'win32', H).error, /^PowerShell wasn't found\. Install it with:\nwinget install Microsoft\.PowerShell/);
+});
+
+test('runPlan runs .ps1 with -NoProfile -ExecutionPolicy Bypass -File', () => {
+  const flags = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'];
+  const ps = T('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'powershell');
+  assert.deepEqual(runPlan('C:\\my code\\deploy.ps1', { ...tools, pwsh: ps }, 'win32', H).steps, [
+    { display: 'powershell -NoProfile -ExecutionPolicy Bypass -File "deploy.ps1"', file: ps.path, args: [...flags, 'C:\\my code\\deploy.ps1'], cwd: 'C:\\my code' },
+  ]);
+  const r = runPlan('/p/x.PS1', { ...tools, pwsh: T('/usr/bin/pwsh', 'pwsh') }, 'linux', H);
+  assert.equal(r.steps[0].display, 'pwsh -NoProfile -ExecutionPolicy Bypass -File "x.PS1"');
+  assert.deepEqual(r.steps[0].args, [...flags, '/p/x.PS1']);
+});
+
+test('runPlan runs .bat and .cmd through cmd.exe on Windows only', () => {
+  assert.deepEqual(runPlan('C:\\my code\\a.bat', tools, 'win32', H).steps, [
+    { display: 'cmd /d /c "a.bat"', file: '"C:\\my code\\a.bat"', args: [], cwd: 'C:\\my code', shell: true },
+  ]);
+  assert.equal(runPlan('C:\\p\\B.CMD', tools, 'win32', H).steps[0].shell, true);
+  assert.match(runPlan('C:\\100%\\a.bat', tools, 'win32', H).error, /%/);
+  for (const platform of ['linux', 'darwin']) assert.match(runPlan('/p/a.bat', tools, platform, H).error, /^Batch files \(\.bat, \.cmd\) only run on Windows/);
+});
+
+test('install hints for bash, zsh and PowerShell, and the tools list may run their commands', () => {
+  assert.equal(installCmd('sh', 'win32'), 'winget install Git.Git');
+  assert.equal(installCmd('ps', 'win32'), 'winget install Microsoft.PowerShell');
+  assert.equal(installCmd('ps', 'darwin'), 'brew install --cask powershell');
+  assert.equal(installCmd('zsh', 'linux'), null);
+  assert.equal(installUrl('ps', 'linux'), 'https://learn.microsoft.com/powershell/scripting/install/installing-powershell');
+  assert.match(installHint('zsh', 'linux'), /^zsh wasn't found/);
+  assert.ok(require('../src/main/toolchains').LANG_KINDS.includes('sh'));
+});
+
+// Real programs: a .sh, .ps1 and .bat run through runPlan and runSteps, from a folder with a space in its name.
+test('runSteps runs a real .sh, .ps1 and .bat plan, streams the output and reports the exit code', async (t) => {
+  const { spawn, spawnSync } = require('node:child_process');
+  const win = process.platform === 'win32';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze shell '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const works = (cmd, args) => { try { return spawnSync(cmd, args, { stdio: 'ignore' }).status === 0; } catch { return false; } };
+  const bash = win ? GIT_BASH : '/bin/bash';
+  const pwshName = works('pwsh', ['-NoProfile', '-Command', '1']) ? 'pwsh' : win ? 'powershell' : null;
+  const ran = async (file, tl) => {
+    const plan = runPlan(file, tl, process.platform, H);
+    assert.ok(plan.steps, plan.error);
+    let out = '', code;
+    await new Promise((res) => runSteps(plan.steps, { spawn, env: process.env, onStart: () => {}, onData: (s) => { out += s; }, onChild: () => {}, onDone: (c) => { code = c; res(); } }));
+    return { out, code };
+  };
+  if (fs.existsSync(bash)) {
+    const f = path.join(dir, 'a.sh');
+    fs.writeFileSync(f, 'echo "hello from $(basename "$0")"; echo "in $(basename "$(pwd)")"; exit 3\n');
+    const { out, code } = await ran(f, { ...tools, bash: T(bash, 'bash') });
+    assert.match(out, /hello from a\.sh/);
+    assert.match(out, /in breeze shell /);
+    assert.equal(code, 3);
+  }
+  if (pwshName) {
+    const f = path.join(dir, 'a.ps1');
+    fs.writeFileSync(f, 'Write-Output "ps hello"\r\nWrite-Output ("in " + (Split-Path -Leaf (Get-Location)))\r\nexit 4\r\n');
+    const { out, code } = await ran(f, { ...tools, pwsh: T(pwshName, pwshName) });
+    assert.match(out, /ps hello/);
+    assert.match(out, /in breeze shell /);
+    assert.equal(code, 4);
+  }
+  if (win) {
+    const f = path.join(dir, 'a.bat');
+    fs.writeFileSync(f, '@echo off\r\necho bat hello\r\necho in %CD%\r\nexit /b 5\r\n');
+    const { out, code } = await ran(f, tools);
+    assert.match(out, /bat hello/);
+    assert.ok(out.includes(dir));
+    assert.equal(code, 5);
+  }
 });
