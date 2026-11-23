@@ -31,7 +31,7 @@ export interface Host {
 }
 
 // What a backend's prepare() hands the manager for launching the program (a port, a flag, arguments).
-export interface Launch { port?: number; ts?: boolean; args?: string[]; [key: string]: unknown }
+export interface Launch { port?: number; ts?: boolean; args?: string[]; entry?: string; nodeArgs?: string[]; [key: string]: unknown }
 
 // One debugger backend: the manager spawns the process and owns its stdio; the backend speaks the debug protocol.
 export interface Backend {
