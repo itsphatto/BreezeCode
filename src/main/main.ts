@@ -1590,33 +1590,40 @@ app.on('before-quit', killDebug);
 
 // C# debugging uses netcoredbg (Samsung, MIT): one on the PATH, or the copy Breeze downloads into its data folder.
 // The download is a pinned release, checked against its SHA-256 before it is unpacked.
-const NETCOREDBG = {
-  url: 'https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-win64.zip',
-  sha256: '3c410a45fa502415203a94fcb88654af65bf8e3dac158a5527a722e7a6b9274a',
+const NETCOREDBG_BASE = 'https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/';
+// Keyed by `${platform}-${arch}`; the release has no Intel Mac or 32-bit builds.
+const NETCOREDBG: Record<string, { file: string; sha256: string }> = {
+  'win32-x64': { file: 'netcoredbg-win64.zip', sha256: '3c410a45fa502415203a94fcb88654af65bf8e3dac158a5527a722e7a6b9274a' },
+  'darwin-arm64': { file: 'netcoredbg-osx-arm64.zip', sha256: 'f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea' },
+  'linux-x64': { file: 'netcoredbg-linux-amd64.tar.gz', sha256: '080eb3b2d2152465f599d3b33d1ee6e747794e11cc0a3773ec689f5e5f2c5afa' },
+  'linux-arm64': { file: 'netcoredbg-linux-arm64.tar.gz', sha256: '065ff49badec8a695dbea2de6ab6a330c774a191e426a217ab8cc05250627ccb' },
 };
 const netcoredbgDir = () => path.join(app.getPath('userData'), 'netcoredbg');
 function findNetcoredbg(pathValue: string | undefined) {
-  const own = path.join(netcoredbgDir(), 'netcoredbg', 'netcoredbg.exe');
+  const own = path.join(netcoredbgDir(), 'netcoredbg', process.platform === 'win32' ? 'netcoredbg.exe' : 'netcoredbg');
   return exists(own) ? own : findOnPath(['netcoredbg'], pathValue);
 }
 let netcoredbgInstall: Promise<string> | null = null;
 handle('debug:installNetcoredbg', () => {
-  if (process.platform !== 'win32') throw new Error('Install netcoredbg from github.com/Samsung/netcoredbg');
+  const pick = NETCOREDBG[`${process.platform}-${process.arch}`];
+  if (!pick) throw new Error('Install netcoredbg from github.com/Samsung/netcoredbg');
   netcoredbgInstall ??= (async () => {
-    const res = await fetch(NETCOREDBG.url);
+    const res = await fetch(NETCOREDBG_BASE + pick.file);
     if (!res.ok) throw new Error(`The download failed (${res.status})`);
-    const zip = Buffer.from(await res.arrayBuffer());
-    if (crypto.createHash('sha256').update(zip).digest('hex') !== NETCOREDBG.sha256) throw new Error("The download didn't match the expected file, so it wasn't used");
+    const archive = Buffer.from(await res.arrayBuffer());
+    if (crypto.createHash('sha256').update(archive).digest('hex') !== pick.sha256) throw new Error("The download didn't match the expected file, so it wasn't used");
     const dir = netcoredbgDir();
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, 'netcoredbg.zip');
-    fs.writeFileSync(file, zip);
-    const tar = path.join(process.env.SystemRoot || String.raw`C:\Windows`, 'System32', 'tar.exe');
+    const file = path.join(dir, pick.file);
+    fs.writeFileSync(file, archive);
+    // Windows 10+ and macOS ship a bsdtar that reads zip; Linux gets a .tar.gz.
+    const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot || String.raw`C:\Windows`, 'System32', 'tar.exe') : 'tar';
     await new Promise<void>((resolve, reject) => execFile(tar, ['-xf', file, '-C', dir], { windowsHide: true }, e => (e ? reject(new Error(`Couldn't unpack netcoredbg: ${e.message}`)) : resolve())));
     fs.rmSync(file, { force: true });
     const exe = findNetcoredbg('');
     if (!exe) throw new Error("netcoredbg wasn't in the download");
+    if (process.platform !== 'win32') fs.chmodSync(exe, 0o755);
     return exe;
   })().finally(() => { netcoredbgInstall = null; });
   return netcoredbgInstall;

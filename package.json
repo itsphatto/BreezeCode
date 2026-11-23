@@ -12,6 +12,7 @@
     "watch": "tsc --watch",
     "test": "tsc && node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/termPreload.js && node --test \"test/**/*.test.js\"",
     "build:engine": "node scripts/build-engine.js",
+    "bench": "node scripts/bench.js",
     "test:engine": "cargo test --release --manifest-path engine/Cargo.toml -- --include-ignored",
     "dist": "tsc && electron-builder --win --publish never",
     "dist:mac": "tsc && electron-builder --mac",

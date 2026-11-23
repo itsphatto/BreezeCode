@@ -32,7 +32,7 @@ These four points are equally weighted and should not be traded against each oth
 
 ## Operating Context
 
-- Windows 10/11 64-bit desktop. The unsigned NSIS installer is about 110 MB, so SmartScreen shows a warning on first install.
+- Windows 10/11 x64, macOS on Apple Silicon (`.dmg`, `.zip`) and Linux x64 (`.AppImage`, `.deb`). Windows is built locally with `npm run dist`. macOS and Linux are built by `.github/workflows/release.yml` on a `v*` tag. The builds are unsigned, so SmartScreen (Windows) and Gatekeeper (macOS) warn on first open. The Windows installer is about 110 MB.
 - First-run setup scans for coding agents, Git and Node.js, and offers to use a local LLM with an API key.
 - Main surfaces:
   - **Home:** New File, Open Folder or Clone Repository, recent projects, GitHub contributions, and an Agent tab with 30 days of token use and what it would have cost at API prices (an estimate).
@@ -52,7 +52,7 @@ These four points are equally weighted and should not be traded against each oth
 - Jupyter notebooks: a `.ipynb` file opens as cells. Code cells run in a Python kernel Breeze ships (standard library only, so no Jupyter install), with text, tables, images and matplotlib plots as outputs; Markdown cells show formatted. View → Notebook View switches to the JSON.
 - Run with F5: C, C++, C# (.NET SDK), Python, Java (JDK 11+) and Rust (rustc, or cargo inside a Cargo project), using compilers Breeze finds on the machine. It explains how to install anything that's missing. JavaScript runs on Node in the terminal.
 - Live preview: HTML/CSS open beside the code and refresh as you go; right-click an element to inspect its tag, id and classes. Markdown files preview as rendered pages.
-- Debugger: step through Python, JavaScript, TypeScript, C, C++, C#, Rust and Java in a full-page view with breakpoints, a call stack, variables, a watch list and your program's output (and input). Python needs the free `debugpy` helper (Breeze offers to install it) and TypeScript needs Node 22.18 or newer. C, C++ and Rust need GCC and GDB 14+ (MinGW-w64 from MSYS2 or WinLibs). C# needs the .NET SDK (10+ for a lone .cs file) and netcoredbg, which Breeze downloads on request (a pinned release, checked by hash) into its data folder. Java needs a JDK; its console and watch list read variables and fields (`p.x`, `items[0]`) but can't evaluate other expressions, and its breakpoints can't have conditions. One debug session runs at a time, and it stops when you close the folder.
+- Debugger: step through Python, JavaScript, TypeScript, C, C++, C#, Rust and Java in a full-page view with breakpoints, a call stack, variables, a watch list and your program's output (and input). Python needs the free `debugpy` helper (Breeze offers to install it) and TypeScript needs Node 22.18 or newer. C, C++ and Rust need GCC and GDB 14+ (MinGW-w64 from MSYS2 or WinLibs). C# needs the .NET SDK (10+ for a lone .cs file) and netcoredbg, which Breeze downloads on request (a pinned release, checked by hash) into its data folder on Windows x64, Apple Silicon Macs and Linux x64/arm64. Java needs a JDK. Breeze works out Java expressions itself (`javaexpr.ts`) for the console, watches, breakpoint conditions, hit counts and logpoints: arithmetic, comparisons, `&&`/`||`/`!`, `?:`, fields, `arr[i]`, `arr.length` and String's side-effect-free methods. It doesn't call other methods. One debug session runs at a time, and it stops when you close the folder.
 - Command Palette (Ctrl+Shift+P or F1): type a few letters to find any menu command; recently used commands come first.
 - Multi-cursor editing (Alt+Click, Ctrl+D, Ctrl+Shift+L, Shift+Alt+drag for a column) and Emmet shortcuts (press Tab on something like `ul>li*3` in HTML, JSX or CSS). Emmet is off while several cursors are active.
 - Git: a full-page Source Control to stage, discard, commit and push, with a graph of checkpoints and branches. Files an agent is editing are marked in the explorer and tabs.
@@ -62,7 +62,7 @@ These four points are equally weighted and should not be traded against each oth
 - Local LLM loop is token-efficient (project map, ranged reads, snippet edits). It assumes a 4k-token context on Ollama and 8k elsewhere (`llmContext` in saved state overrides it).
 - Discord Rich Presence. Small synthesized sounds for clicks, typing and agents. Auto-updates via electron-updater, which asks before downloading. API keys and sign-in tokens are encrypted with the Windows keychain; expiring GitHub tokens renew themselves.
 - The agents are optional: the editor, terminal, Git and preview all work without one.
-- Stack: Electron 44, TypeScript 7 (`src/renderer/breeze/*.ts`, one file per feature, plus `editcore.ts` and `codeview.ts` for the editor, compiled to JS), and plain HTML/CSS. Current version 0.6.9. Windows is the only platform for now.
+- Stack: Electron 44, TypeScript 7 (`src/renderer/breeze/*.ts`, one file per feature, plus `editcore.ts` and `codeview.ts` for the editor, compiled to JS), and plain HTML/CSS. Current version 0.8.1. Windows, macOS (Apple Silicon) and Linux (x64); no Intel Mac build yet.
 
 ## Brand Commitments
 
@@ -75,8 +75,9 @@ These four points are equally weighted and should not be traded against each oth
 
 - Product screenshots: `docs/screenshots/` and `BreezeCode-Web/assets/screens/`.
 - Agent and language logos: `assets/icons/`, `BreezeCode-Web/assets/agents/`, `BreezeCode-Web/assets/langs/`.
-- **"Up to 12× less memory than a typical code editor" is a rough estimate, not a measurement.** Don't build stronger claims on it, and don't present it as a benchmark.
-- There are no user testimonials, usage numbers, press or benchmarks. Don't make any up.
+- **Measured benchmark (2026-11-23, README → Benchmarks, `reports/bench-2026-11-23.json`).** Windows, i5-12500H, clean profiles, no extensions, no agent running. With a TypeScript project open, Breeze used 522 MB against VS Code's 1,589 MB (about 3× less) and Antigravity's 1,900 MB (about 3.6× less). With a 500 MB file, Breeze used 841 MB and VS Code 881 MB, so they were about the same. VS Code started a project faster (2.27 s vs 4.76 s), and Breeze opened the 500 MB file faster (5.70 s vs 8.52 s). Claims may say "about 3× less memory than VS Code with a project open"; always name the comparison and the scenario.
+- **The old "up to 12× less memory" line is contradicted by that measurement.** Don't use it. `BreezeCode-Web/FAQ.html` still says it.
+- There are no user testimonials, usage numbers or press. Don't make any up.
 
 ## Product Principles
 
