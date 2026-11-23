@@ -101,7 +101,7 @@ function debugKind(path: string | null): DebugKind | null {
   if (/\.java$/i.test(path)) return 'java';
   if (/\.cs$/i.test(path)) return 'dotnet';
   if (/\.go$/i.test(path)) return 'go';
-  return /\.(?:[cm]?js|m?ts)$/i.test(path) ? 'node' : null;
+  return /\.(?:[cm]?js|[cm]?ts|[jt]sx)$/i.test(path) ? 'node' : null;
 }
 const DEBUG_LANGS = 'Python, JavaScript, TypeScript, C, C++, C#, Rust, Go or Java';
 

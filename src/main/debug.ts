@@ -24,7 +24,7 @@ export interface StartOptions {
   exceptions?: string;
   stopOnEntry?: boolean;
   env?: NodeJS.ProcessEnv;
-  python?: string; node?: string; gdb?: string; java?: string; javac?: string; dotnet?: string; netcoredbg?: string;
+  tsc?: string | null; jsRoot?: string | null; python?: string; node?: string; gdb?: string; java?: string; javac?: string; dotnet?: string; netcoredbg?: string;
   dlv?: string; go?: string | null; goMod?: string | null; // Go: Delve, the go tool, and the go.mod the file is in
   build?: GdbBuild; buildError?: string;
   hookSrc?: string; hookDir?: string; project?: string | null;
@@ -60,7 +60,7 @@ function killTree(child: ChildProcess): void {
   else child.kill('SIGTERM');
 }
 
-const NODE_EXTS = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts']);
+const NODE_EXTS = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx']);
 const NATIVE_EXTS = new Set(['.c', '.cpp', '.cc', '.cxx', '.rs']);
 function debugKind(file: unknown): 'python' | 'native' | 'java' | 'dotnet' | 'go' | 'node' | null {
   const ext = path.extname(String(file || '')).toLowerCase();
@@ -72,13 +72,14 @@ function debugKind(file: unknown): 'python' | 'native' | 'java' | 'dotnet' | 'go
   return NODE_EXTS.has(ext) ? 'node' : null;
 }
 const UNSUPPORTED = 'Breeze can debug Python, JavaScript, TypeScript, C, C++, C#, Rust, Go and Java files';
-const isTs = (file: string) => /\.m?ts$/i.test(file);
+const isTs = (file: string) => /\.[cm]?ts$/i.test(file);
+const isJsx = (file: string) => /\.[jt]sx$/i.test(file); // compiled first (toolchains.jsxBuild), then debugged through its source map
 
-function launchArgs(kind: string, file: string, { port, ts, args }: Launch = {}): { args: string[] } {
+function launchArgs(kind: string, file: string, { port, ts, args, entry, nodeArgs }: Launch = {}): { args: string[] } {
   if (kind === 'python') return { args: debugpyArgs(['--listen', `127.0.0.1:${port}`, '--wait-for-client', file]) };
   if (kind === 'native') return { args: [] }; // the built program, which waits for GDB itself
   if (kind === 'java' || kind === 'dotnet' || kind === 'go') return { args: args ?? [] }; // go: `dlv dap --listen=…`
-  return { args: ['--inspect-brk=127.0.0.1:0', ...(ts ? ['--experimental-strip-types'] : []), file] };
+  return { args: ['--inspect-brk=127.0.0.1:0', ...(ts ? ['--experimental-strip-types'] : []), ...(nodeArgs ?? []), entry ?? file] };
 }
 
 // Rejects with a clear message when `p` hasn't settled in `ms`; the call it stands for is simply abandoned.
@@ -140,7 +141,7 @@ class DebugManager extends EventEmitter {
       : kind === 'java' ? new JavaBackend(host, { java: opts.java || 'java', javac: opts.javac || 'javac', env: opts.env })
       : kind === 'go' ? new GoBackend(host, { dlv: opts.dlv || 'dlv', go: opts.go === undefined ? 'go' : opts.go, env: opts.env, goMod: opts.goMod ?? null })
       : kind === 'dotnet' ? new DotnetBackend(host, { dotnet: opts.dotnet || 'dotnet', netcoredbg: opts.netcoredbg, env: opts.env, hookSrc: opts.hookSrc!, hookDir: opts.hookDir!, project: opts.project ?? null })
-      : new NodeBackend(host, { node: opts.node || 'node', env: opts.env, ts: isTs(file) });
+      : new NodeBackend(host, { node: opts.node || 'node', env: opts.env, ts: isTs(file), jsx: isJsx(file) ? { tsc: opts.tsc ?? null, root: opts.jsRoot ?? null } : null });
     try {
       const launch = await within(s.backend.prepare(), CONNECT_MS, 'checking the debugger');
       if (s.dead) return;

@@ -23,7 +23,8 @@ export type Plan = { error: string; steps?: undefined } | { steps: Step[]; error
 export interface DebugPlan {
   error?: string; steps?: Step[]; exe?: string | null; entry?: string | null; cpp?: boolean;
 }
-interface PlanOpts { csproj?: string | null; cargoToml?: string | null; goMod?: string | null }
+// `tsc` is the TypeScript compiler Breeze ships and `jsRoot` the folder of the package.json a .jsx/.tsx file belongs to.
+interface PlanOpts { csproj?: string | null; cargoToml?: string | null; goMod?: string | null; tsc?: string | null; jsRoot?: string | null }
 interface MissingEntry { lead: string; cmd?: string | null; url?: string }
 
 const pathFor = (platform: string) => (platform === 'win32' ? path.win32 : path.posix);
@@ -66,6 +67,30 @@ function nodeSupportsTs(version: unknown): boolean {
   if (major === 23) return minor >= 6;
   if (major === 22) return minor >= 18;
   return false;
+}
+// .jsx and .tsx files: Node can't read JSX, so the bundled TypeScript compiler writes plain CommonJS JavaScript (and
+// source maps) into <package folder>/build/jsx, mirroring the source tree, and Node runs the entry from there. Only
+// syntax is checked (--noCheck): a type error or a missing @types/react must not stop a program from running.
+// `react` and friends resolve from the output folder upward, so the project's node_modules is found.
+// The program is CommonJS whatever the package.json says (an extensionless './App' import only works there), so the
+// output folder gets its own {"type":"commonjs"}; and imports spelled './App.jsx' are pointed at the App.js tsc wrote.
+const JSX_HOOK = "import M from 'node:module';const r=M._resolveFilename;M._resolveFilename=function(q,...a){return r.call(this,/^\\.{1,2}[\\\\/].*\\.jsx$/.test(q)?q.slice(0,-4)+'.js':q,...a)}";
+const JSX_PKG_SCRIPT = "require('fs').writeFileSync(process.argv[1],'{\"type\":\"commonjs\"}\\n')";
+interface JsxBuild { outDir: string; entry: string; pkg: string; tscArgs: string[]; nodeArgs: string[] }
+function jsxBuild(absFile: string, platform: string, rootDir?: string | null, extra: string[] = []): JsxBuild {
+  const P = pathFor(platform);
+  let root = rootDir || P.dirname(absFile);
+  const rel0 = P.relative(root, absFile);
+  if (rel0.startsWith('..') || P.isAbsolute(rel0)) root = P.dirname(absFile); // the package folder must hold the file
+  const rel = P.relative(root, absFile);
+  const outDir = P.join(root, 'build', 'jsx');
+  const entry = P.join(outDir, P.dirname(rel), P.parse(absFile).name + '.js');
+  return {
+    outDir, entry, pkg: P.join(outDir, 'package.json'),
+    tscArgs: [absFile, '--jsx', 'react-jsx', '--noCheck', '--allowJs', '--module', 'commonjs', '--target', 'es2022', '--esModuleInterop', '--resolveJsonModule',
+      '--rewriteRelativeImportExtensions', '--skipLibCheck', '--sourceMap', '--rootDir', root, '--outDir', outDir, ...extra],
+    nodeArgs: ['--enable-source-maps', '--import', 'data:text/javascript,' + encodeURIComponent(JSX_HOOK)],
+  };
 }
 // Newest version first when a wildcard matches several (jdk-21 before jdk-17).
 const newestFirst = (a: string, b: string) => b.localeCompare(a, undefined, { numeric: true });
@@ -509,6 +534,19 @@ function runPlan(absFile: string, tools: Tools, platform: string, stdioHeader: s
     };
   }
 
+  if (e === '.jsx' || e === '.tsx') {
+    const node = tools.node;
+    if (!node) return { error: missing('node', platform) };
+    if (!opts.tsc) return { error: `Running a ${e} file needs the TypeScript compiler that comes with Breeze, and it wasn't found. Reinstalling Breeze brings it back.` };
+    const b = jsxBuild(absFile, platform, opts.jsRoot);
+    const rel = (p: string) => P.relative(cwd, p);
+    return { steps: [
+      { display: `tsc "${base}" --jsx react-jsx --outDir "${rel(b.outDir)}"`, file: opts.tsc, args: b.tscArgs, cwd },
+      { display: `write "${rel(b.pkg)}"`, file: node.path, args: ['-e', JSX_PKG_SCRIPT, b.pkg], cwd },
+      { display: `node --enable-source-maps "${rel(b.entry)}"`, file: node.path, args: [...b.nodeArgs, b.entry], cwd },
+    ] };
+  }
+
   if (/^\.[cm]?[jt]s$/.test(e)) {
     const node = tools.node;
     if (!node) return { error: missing('node', platform) };
@@ -768,4 +806,4 @@ function ensureBuildIgnored(rootDir: string): void {
   fs.appendFileSync(file, (text === '' || text.endsWith('\n') ? '' : '\n') + 'build/\n');
 }
 
-export { LANG_KINDS, nodeSupportsTs, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };
+export { LANG_KINDS, nodeSupportsTs, jsxBuild, JSX_PKG_SCRIPT, JSX_HOOK, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };

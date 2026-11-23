@@ -18,8 +18,8 @@ const BOOM_JS = path.join(FIX, 'boom.js');
 test('debugKind: Python, JavaScript and TypeScript files, nothing else', () => {
   assert.equal(debugKind('app.py'), 'python');
   assert.equal(debugKind('C:\\x\\APP.PY'), 'python');
-  for (const f of ['a.js', 'a.mjs', 'a.cjs', 'a.ts', 'dir/a.mts']) assert.equal(debugKind(f), 'node', f);
-  for (const f of ['a.tsx', 'a.txt', 'Makefile', 'a.py.bak', '', 'js']) assert.equal(debugKind(f), null, f);
+  for (const f of ['a.js', 'a.mjs', 'a.cjs', 'a.ts', 'dir/a.mts', 'a.cts', 'a.jsx', 'a.tsx']) assert.equal(debugKind(f), 'node', f);
+  for (const f of ['a.txt', 'Makefile', 'a.py.bak', '', 'js']) assert.equal(debugKind(f), null, f);
 });
 
 test('nodeSupportsTs: 22.18+, 23.6+, any 24+', () => {

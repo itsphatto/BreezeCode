@@ -1478,7 +1478,7 @@ app.on('will-quit', () => kernels.stopAll());
 
 // Runs a source file Breeze knows how to run (toolchains.runPlan) in the open folder, streaming into the terminal under one id.
 let activeRun: { id: number; cancel: () => void } | null = null;
-const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy|sh|bash|zsh|ps1|bat|cmd)$/i;
+const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|[jt]sx|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy|sh|bash|zsh|ps1|bat|cmd)$/i;
 // The nearest project file (a .csproj, a Cargo.toml) in the file's folder or a folder above it, without leaving the open project.
 function nearestProject(abs: string, isProject: (name: string) => boolean): string | null {
   for (let dir = path.dirname(abs); ; dir = path.dirname(dir)) {
@@ -1487,6 +1487,13 @@ function nearestProject(abs: string, isProject: (name: string) => boolean): stri
     if (names.length) return path.join(dir, names[0]);
     if (path.relative(root!, dir) === '' || dir === path.dirname(dir)) return null;
   }
+}
+// What running or debugging a .jsx/.tsx file needs besides Node: the bundled TypeScript compiler, and the folder of the
+// package.json the file belongs to (its output goes in that folder's build/jsx, where node_modules is found).
+function jsxOpts(abs: string): { tsc: string | null; jsRoot: string | null } {
+  if (!/\.[jt]sx$/i.test(abs)) return { tsc: null, jsRoot: null };
+  const pkg = nearestProject(abs, n => n === 'package.json');
+  return { tsc: exists(TSC_EXE) ? TSC_EXE : null, jsRoot: pkg ? path.dirname(pkg) : null };
 }
 handle('run:file', async (_e, rel) => {
   if (activeRun) return { error: 'A program is still running — press Ctrl+C to stop it' };
@@ -1507,6 +1514,7 @@ handle('run:file', async (_e, rel) => {
       csproj: /\.cs$/i.test(abs) ? nearestProject(abs, n => /\.csproj$/i.test(n)) : null,
       cargoToml: /\.rs$/i.test(abs) ? nearestProject(abs, n => n === 'Cargo.toml') : null,
       goMod: /\.go$/i.test(abs) ? nearestProject(abs, n => n === 'go.mod') : null,
+      ...jsxOpts(abs),
     };
     let plan = runPlan(abs, tools, process.platform, stdioHeader, opts);
     if (plan.error && SOURCE_FILE.test(abs)) {
@@ -1655,7 +1663,7 @@ handle('debug:start', async (_e, rel, opts) => {
   if (/\.go$/i.test(file) && (!tools.dlv || !tools.go)) ({ tools, pathValue } = await getTools(true));
   const env = toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
   if (/\.py$/i.test(file)) env.PYTHONUTF8 = '1'; // as F5 does, so print("café ✓") survives a pipe on a non-UTF-8 code page
-  const node = /\.(?:[cm]?js|[cm]?ts)$/i.test(file) ? await which('node', pathValue) : null;
+  const node = /\.(?:[cm]?js|[cm]?ts|[jt]sx)$/i.test(file) ? await which('node', pathValue) : null;
   // C, C++ and Rust are built for the debugger first (toolchains.debugPlan); the build runs inside the session.
   let build: GdbBuild | null = null, buildError: string | null = null;
   if (/\.(?:c|cpp|cc|cxx|rs)$/i.test(file)) {
@@ -1679,6 +1687,7 @@ handle('debug:start', async (_e, rel, opts) => {
     project: /\.cs$/i.test(file) ? nearestProject(file, n => /\.csproj$/i.test(n)) : null,
     python: tools.python?.path || 'python',
     node: node || 'node',
+    ...jsxOpts(file),
     stopOnEntry: !!o.stopOnEntry,
     breakpoints: o.breakpoints ? breakpoints : undefined,
     exceptions: ['none', 'uncaught', 'all'].includes(o.exceptions) ? o.exceptions : undefined,
