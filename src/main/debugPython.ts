@@ -281,4 +281,4 @@ class PythonBackend implements Backend {
   }
 }
 
-export { PythonBackend, pythonHit, debugpyArgs, DEBUGPY_MAIN };
+export { PythonBackend, pythonHit, debugpyArgs, DEBUGPY_MAIN, freePort };

@@ -91,18 +91,19 @@ let debugStopped = false;                  // the user stopped the last run (its
 const EXC_KEY = 'breeze.debug.exceptions';
 let debugExceptions: ExceptionMode = ((m: unknown) => (m === 'none' || m === 'all' ? m : 'uncaught'))(store.get<unknown>(EXC_KEY, 'uncaught'));
 
-// Python, JavaScript/TypeScript run by Node, C/C++/Rust under GDB, Java, or C# under netcoredbg; null for anything else
+// Python, JavaScript/TypeScript run by Node, C/C++/Rust under GDB, Java, C# under netcoredbg, or Go under Delve; null for anything else
 // (main/debug.js decides the same way).
-type DebugKind = 'python' | 'node' | 'native' | 'java' | 'dotnet';
+type DebugKind = 'python' | 'node' | 'native' | 'java' | 'dotnet' | 'go';
 function debugKind(path: string | null): DebugKind | null {
   if (!path) return null;
   if (/\.py$/i.test(path)) return 'python';
   if (/\.(?:c|cpp|cc|cxx|rs)$/i.test(path)) return 'native';
   if (/\.java$/i.test(path)) return 'java';
   if (/\.cs$/i.test(path)) return 'dotnet';
+  if (/\.go$/i.test(path)) return 'go';
   return /\.(?:[cm]?js|m?ts)$/i.test(path) ? 'node' : null;
 }
-const DEBUG_LANGS = 'Python, JavaScript, TypeScript, C, C++, C#, Rust or Java';
+const DEBUG_LANGS = 'Python, JavaScript, TypeScript, C, C++, C#, Rust, Go or Java';
 
 // Ctrl+Shift+D: debug the open file (the page's own file while the page shows). With a session already going, it
 // just brings the page up.
