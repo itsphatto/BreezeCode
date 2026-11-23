@@ -1,0 +1,158 @@
+{
+  "date": "2026-11-23",
+  "machine": {
+    "os": "Windows_NT 10.0.19045",
+    "cpu": "12th Gen Intel(R) Core(TM) i5-12500H",
+    "cores": 16,
+    "ramGB": 16,
+    "node": "v24.18.0"
+  },
+  "runs": 3,
+  "settleMs": 20000,
+  "results": [
+    {
+      "app": "Breeze Code",
+      "scenario": "TypeScript project",
+      "ms": 4760,
+      "mb": 522,
+      "processes": 9,
+      "runs": [
+        {
+          "ms": 5270,
+          "mb": 602,
+          "processes": 9
+        },
+        {
+          "ms": 4760,
+          "mb": 522,
+          "processes": 9
+        },
+        {
+          "ms": 4708,
+          "mb": 522,
+          "processes": 9
+        }
+      ]
+    },
+    {
+      "app": "Breeze Code",
+      "scenario": "500 MB log file",
+      "ms": 5696,
+      "mb": 841,
+      "processes": 7,
+      "runs": [
+        {
+          "ms": 5912,
+          "mb": 850,
+          "processes": 7
+        },
+        {
+          "ms": 5534,
+          "mb": 841,
+          "processes": 7
+        },
+        {
+          "ms": 5696,
+          "mb": 831,
+          "processes": 7
+        }
+      ]
+    },
+    {
+      "app": "VS Code",
+      "scenario": "TypeScript project",
+      "ms": 2268,
+      "mb": 1589,
+      "processes": 15,
+      "runs": [
+        {
+          "ms": 2299,
+          "mb": 1589,
+          "processes": 15
+        },
+        {
+          "ms": 2268,
+          "mb": 1587,
+          "processes": 15
+        },
+        {
+          "ms": 2262,
+          "mb": 1595,
+          "processes": 15
+        }
+      ]
+    },
+    {
+      "app": "VS Code",
+      "scenario": "500 MB log file",
+      "ms": 8520,
+      "mb": 881,
+      "processes": 12,
+      "runs": [
+        {
+          "ms": 7199,
+          "mb": 896,
+          "processes": 12
+        },
+        {
+          "ms": 8520,
+          "mb": 874,
+          "processes": 12
+        },
+        {
+          "ms": 8592,
+          "mb": 881,
+          "processes": 12
+        }
+      ]
+    },
+    {
+      "app": "Antigravity IDE",
+      "scenario": "TypeScript project",
+      "ms": 3598,
+      "mb": 1900,
+      "processes": 15,
+      "runs": [
+        {
+          "ms": 3597,
+          "mb": 1900,
+          "processes": 15
+        },
+        {
+          "ms": 3598,
+          "mb": 1928,
+          "processes": 15
+        },
+        {
+          "ms": 4818,
+          "mb": 1809,
+          "processes": 15
+        }
+      ]
+    },
+    {
+      "app": "Antigravity IDE",
+      "scenario": "500 MB log file",
+      "ms": 5699,
+      "mb": 1271,
+      "processes": 12,
+      "runs": [
+        {
+          "ms": 14409,
+          "mb": 1134,
+          "processes": 16
+        },
+        {
+          "ms": 5452,
+          "mb": 1271,
+          "processes": 12
+        },
+        {
+          "ms": 5699,
+          "mb": 1275,
+          "processes": 12
+        }
+      ]
+    }
+  ]
+}

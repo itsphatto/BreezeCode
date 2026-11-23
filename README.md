@@ -9,12 +9,14 @@
 Ask for a change in plain words. Claude Code, Codex, Antigravity, OpenCode or a local model makes it,<br>
 and you see every file it reads, every edit and every command while it works.
 
-[**Download for Windows**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.site) &nbsp;·&nbsp; [FAQ](https://breezecode.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
+[**Download for Windows, macOS or Linux**](https://github.com/itsphatto/BreezeCode/releases/latest) &nbsp;·&nbsp; [Website](https://breezecode.site) &nbsp;·&nbsp; [FAQ](https://breezecode.site/FAQ.html) &nbsp;·&nbsp; [Report a bug](https://github.com/itsphatto/BreezeCode/issues)
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.7.9-007AFF?style=for-the-badge)
-![Platform](https://img.shields.io/badge/Windows_10_%26_11-64--bit-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
+![Version](https://img.shields.io/badge/version-0.8.1-007AFF?style=for-the-badge)
+![Windows](https://img.shields.io/badge/Windows_10_%26_11-x64-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
+![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1d1d1f?style=for-the-badge&logo=apple&logoColor=f5f5f7)
+![Linux](https://img.shields.io/badge/Linux-x64-1d1d1f?style=for-the-badge&logo=linux&logoColor=f5f5f7)
 ![Price](https://img.shields.io/badge/price-free-1d1d1f?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-source--available-1d1d1f?style=for-the-badge)
 <br>
@@ -23,7 +25,7 @@ and you see every file it reads, every edit and every command while it works.
 ![Rust](https://img.shields.io/badge/Rust-document_engine-1d1d1f?style=flat-square&logo=rust&logoColor=f74c00)
 ![Size](https://img.shields.io/badge/installer-~110_MB-1d1d1f?style=flat-square)
 
-<sub>[Agents](#agents) · [Several agents at once](#several-agents-in-one-prompt) · [Agent Board](#agent-board) · [The editor](#the-editor) · [Git](#git-and-pull-requests) · [Breeze Space](#breeze-space) · [Settings](#settings-and-usage) · [Everything else](#everything-else) · [Getting started](#getting-started) · [Project layout](#project-layout) · [License](#license)</sub>
+<sub>[Agents](#agents) · [Several agents at once](#several-agents-in-one-prompt) · [Agent Board](#agent-board) · [The editor](#the-editor) · [Git](#git-and-pull-requests) · [Breeze Space](#breeze-space) · [Settings](#settings-and-usage) · [Everything else](#everything-else) · [Benchmarks](#benchmarks) · [Getting started](#getting-started) · [Project layout](#project-layout) · [License](#license)</sub>
 
 <br>
 
@@ -38,7 +40,8 @@ and you see every file it reads, every edit and every command while it works.
 - **An editor first.** Tabs, split editors, a terminal, Git, a debugger, live preview and language servers. All of it works with no agent connected.
 - **Agents you already have.** Breeze finds Claude Code, Codex, Antigravity and OpenCode on your PC and uses their own sign-in. Or point it at a local model.
 - **Free.** No plans or credits. You only pay for an agent if you pick a paid one, and a local model needs no internet at all.
-- **Local.** Your files stay on your PC. API keys and sign-in tokens are encrypted with the Windows keychain. Updates ask before they download.
+- **Local.** Your files stay on your PC. API keys and sign-in tokens are encrypted with the system keychain (Windows DPAPI, macOS Keychain, or the Linux secret store). Updates ask before they download.
+- **Windows, macOS and Linux.** Every release ships a Windows installer, a macOS `.dmg` and `.zip` for Apple Silicon, and a Linux `.AppImage` and `.deb` for x64.
 
 ## Agents
 
@@ -131,8 +134,8 @@ Run agents side by side. Open the board with `Ctrl+Shift+B`, the board button in
 | Python | `debugpy` (Breeze offers to install it) |
 | JavaScript, TypeScript | Node. TypeScript needs Node 22.18 or newer |
 | C, C++, Rust | GCC and GDB 14 or newer (MinGW-w64 from MSYS2 or WinLibs) |
-| C# | The .NET SDK. Breeze downloads the netcoredbg debugger when you ask |
-| Java | A JDK. Watches read variables and fields but don't evaluate other expressions |
+| C# | The .NET SDK. Breeze downloads the netcoredbg debugger when you ask (Windows x64, Apple Silicon Macs, Linux x64 and arm64) |
+| Java | A JDK. Conditions, hit counts, logpoints and watches all work. Breeze works out expressions itself (arithmetic, comparisons, `&&`/`||`, `?:`, fields, `arr[i]`, `arr.length` and String methods such as `equals()` and `startsWith()`). It doesn't call other methods, since that would run your program's code while it's paused |
 
 </details>
 
@@ -205,6 +208,22 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 | **Discord** | Rich Presence shows what you're working on |
 | **Sounds** | Small sounds for clicks, typing and agents, with a volume slider |
 
+## Benchmarks
+
+Measured with [`scripts/bench.js`](scripts/bench.js) (`npm run bench`) on November 23, 2026. Each editor had its own clean profile with no extensions. It opened the same TypeScript project (Breeze's own `src/main`, 55 files) or one 500 MB log file. Times run from launch until the file's first line is drawn, read over the Chrome DevTools Protocol. Memory is the whole process tree's private working set (Task Manager's Memory column) 20 seconds later. Each number is the median of 3 warm starts after one warm-up run that isn't counted.
+
+| Editor | TypeScript project: start-up | TypeScript project: memory | 500 MB file: start-up | 500 MB file: memory |
+| --- | ---: | ---: | ---: | ---: |
+| **Breeze Code 0.8.1** | 4.76 s | **522 MB** | 5.70 s | **841 MB** |
+| VS Code 1.146 | **2.27 s** | 1,589 MB | 8.52 s | 881 MB |
+| Antigravity IDE 1.1.3 | 3.60 s | 1,900 MB | 5.70 s | 1,271 MB |
+
+<sub>Windows 10 22H2, Intel Core i5-12500H, 16 GB RAM. Raw runs: [`reports/bench-2026-11-23.json`](reports/bench-2026-11-23.json).</sub>
+
+- **Memory:** with a project open, Breeze used about **3× less** than VS Code and **3.6× less** than Antigravity. With the 500 MB file the three are much closer, and Breeze and VS Code are within 5%.
+- **Start-up:** VS Code opens a project about 2.5 s sooner than Breeze. Breeze opens the 500 MB file about 2.8 s sooner than VS Code.
+- These are one machine's numbers with no agents running. An agent session adds its own CLI process (Claude Code, Codex and so on), which these numbers leave out. Run `npm run bench` on your own machine to compare; it finds VS Code, Cursor, Windsurf and Antigravity if they're installed.
+
 ## Getting started
 
 You need [Node.js](https://nodejs.org/) 20 or newer. To build the document engine you also need [Rust](https://rustup.rs/).
@@ -229,6 +248,9 @@ npm start
 | `npm test` | Compile, syntax-check the main process and run the tests |
 | `npm run test:engine` | Run the engine's Rust tests |
 | `npm run dist` | Build the Windows installer into `dist/` |
+| `npm run dist:mac` | Build the macOS `.dmg` and `.zip` (run on a Mac) |
+| `npm run dist:linux` | Build the Linux `.AppImage` and `.deb` (run on Linux) |
+| `npm run bench` | Time start-up and measure memory against other editors installed on this machine (see [Benchmarks](#benchmarks)) |
 
 ### Configuration
 
@@ -262,10 +284,12 @@ Environment variables override the config file. Both `breeze.config.json` and `.
 npm run dist
 ```
 
-This writes `breeze.config.json` from your `.env` (`scripts/write-config.js`), builds the engine, then builds `dist/Breeze Code Setup <version>.exe` with electron-builder.
+This writes `breeze.config.json` from your `.env` (`scripts/write-config.js`), builds the engine, then builds `dist/Breeze-Code-Setup-<version>.exe` with electron-builder. `npm run dist:mac` and `npm run dist:linux` do the same for macOS and Linux. They have to run on that system, because the Rust engine is compiled for the machine it's built on.
+
+Pushing a `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the macOS (Apple Silicon) and Linux builds on GitHub's runners and attaches them to the release. Linux builds need `libxdo-dev libxkbcommon-dev libxcb1-dev libx11-dev libxtst-dev` for the `hands/` helper; the workflow installs them.
 
 > [!WARNING]
-> The installer is unsigned, so Windows SmartScreen may warn on other machines. Anything bundled into an installer can be extracted by whoever has it, so only put public client ids (and Google's desktop-app secret, which isn't confidential) in `.env` when building.
+> The builds are unsigned unless you set the `CSC_LINK` signing secrets, so Windows SmartScreen and macOS Gatekeeper may warn on other machines (on a Mac, right-click the app and choose Open the first time). Anything bundled into an installer can be extracted by whoever has it, so only put public client ids (and Google's desktop-app secret, which isn't confidential) in `.env` when building.
 
 ## Project layout
 

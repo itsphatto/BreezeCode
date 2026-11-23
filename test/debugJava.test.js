@@ -82,7 +82,9 @@ withJdk('java: input, a breakpoint, locals, fields of an array, evaluate, step i
   assert.equal(nums.value, 'int[2]');
   assert.deepEqual((await m.children(nums.ref)).map(v => v.value), ['4', '5']);
   assert.equal((await m.evaluate('nums[1]', p.frames[0].id, 'watch')).value, '5');
-  await assert.rejects(m.evaluate('x + 1', p.frames[0].id, 'repl'), /variables/);
+  assert.equal((await m.evaluate('x + nums[1] * 2', p.frames[0].id, 'repl')).value, '12');
+  assert.equal((await m.evaluate('name.equals("bob") && nums.length == 2', p.frames[0].id, 'repl')).value, 'true');
+  await assert.rejects(m.evaluate('name.hashCode()', p.frames[0].id, 'repl'), /can't run methods/);
   assert.equal((await m.setValue(locals.ref, 'x', '200')).value, '200');
   await m.step('into');
   const p2 = await r.next(e => e.type === 'paused', 30000, 'pause in add');
@@ -92,6 +94,35 @@ withJdk('java: input, a breakpoint, locals, fields of an array, evaluate, step i
   await m.continue();
   await r.next(e => e.type === 'exited', 30000, 'exit');
   assert.match(r.output(), /hi bob 205/);
+});
+
+withJdk('java: a false condition and a logpoint go on, a true condition stops, a hit count not reached never stops', { timeout: 90000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({
+    file: FILE, root: FIX, java: JAVA, javac: JAVAC, breakpoints: {
+      [FILE]: [
+        { line: 4, enabled: true, hitCondition: '2' },
+        { line: 10, enabled: true, condition: 'x > 5' },
+        { line: 11, enabled: true, logMessage: 'z is {z}, name {name.toUpperCase()}' },
+        { line: 12, enabled: true, condition: 'z == 7 && name.startsWith("b")' },
+      ],
+    },
+  });
+  await r.next(e => e.type === 'breakpoints' && e.lines.length === 4, 60000, 'four verified breakpoints');
+  m.stdin('bob\n');
+  const p = await r.next(e => e.type === 'paused', 30000, 'pause');
+  assert.equal(p.frames[0].line, 12);
+  assert.match(r.output(), /z is 7, name BOB/);
+  await m.continue();
+  await r.next(e => e.type === 'exited', 30000, 'exit');
+});
+
+withJdk('java: a condition that does not parse leaves the breakpoint unverified', { timeout: 90000 }, async t => {
+  const m = new DebugManager();
+  const r = recorder(m, t);
+  await m.start({ file: FILE, root: FIX, java: JAVA, javac: JAVAC, breakpoints: { [FILE]: [{ line: 10, enabled: true, condition: 'x >' }, { line: 11, enabled: true }] } });
+  assert.deepEqual((await r.next(e => e.type === 'breakpoints' && e.lines.length > 0, 60000, 'breakpoints')).lines, [11]);
 });
 
 withJdk('java: stop on entry, then an uncaught exception pauses with its message', { timeout: 90000 }, async t => {

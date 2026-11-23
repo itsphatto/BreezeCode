@@ -1,7 +1,8 @@
 // The DebugManager's Java backend: the JVM's own debugger, JDWP (jdwp.js). prepare() compiles the file with javac -g
 // (so locals have names) into build/java; the manager starts `java -agentlib:jdwp=…,suspend=y` and owns its stdio;
 // connect() attaches, sets the breakpoints as their classes load and lets the program go.
-// JDWP has no expression evaluator: the console and watch list read variables and their fields (a.b, arr[0]).
+// JDWP has no expression evaluator, so javaexpr.ts computes expressions from the variables read here; it also
+// decides breakpoint conditions, hit counts and logpoints when a breakpoint fires (the VM is resumed if it shouldn't stop).
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as net from 'node:net';
@@ -10,6 +11,8 @@ import type { ExecFileException } from 'node:child_process';
 import { JdwpClient, TAG, OBJECT_TAGS, EV, isNull, connect } from './jdwp';
 import type { JdwpEvent, JdwpEvents, Location, TaggedValue, Writer, Reader } from './jdwp';
 import type { Backend, Bp, DebugFrame, DebugValue, Host, Launch } from './debugTypes';
+import { parse, evaluate as evalExpr, fromRow, show as showVal, hitMatches, formatLog, checkJavaBp } from './javaexpr';
+import type { Resolver, Val } from './javaexpr';
 
 interface MethodInfo { name: string; sig: string; mods: number }
 interface ClassInfo { sig: string; file: string | null; methods: Map<string, MethodInfo> }
@@ -74,6 +77,8 @@ class JavaBackend implements Backend {
   entrySet = false;
   why?: Map<number, string>;
   fieldsOf?: Map<string, FieldInfo[]>;
+  special = new Map<number, Bp>();                 // breakpoint request → its breakpoint, when it has a condition, hit count or log message
+  hits = new Map<number, number>();                // breakpoint request → times its condition held
 
   constructor(host: Host, { java, javac, env }: { java: string; javac: string; env?: NodeJS.ProcessEnv }) {
     this.host = host;
@@ -156,8 +161,36 @@ class JavaBackend implements Backend {
       else if (e.kind === EV.VM_DEATH) this.ended = true;
       else if (e.kind === EV.BREAKPOINT || e.kind === EV.STEP || e.kind === EV.EXCEPTION) stop ??= e;
     }
-    if (stop) { await this.stopped(stop); return; }
-    if (suspendPolicy === SUSPEND_ALL && !this.ended) await this.resumeVm().catch(() => { /* the VM ended */ });
+    if (stop && (stop.kind !== EV.BREAKPOINT || await this.shouldStop(stop))) { await this.stopped(stop); return; }
+    if (suspendPolicy === SUSPEND_ALL && !this.ended) {
+      this.frames.clear();
+      this.refs.clear();
+      await this.resumeVm().catch(() => { /* the VM ended */ });
+    }
+  }
+  // A plain breakpoint always stops. One with a condition stops when it is true (a condition that can't be worked
+  // out stops too, with the reason in the Output), then counts toward its hit count; a logpoint prints and goes on.
+  async shouldStop(e: JdwpEvent): Promise<boolean> {
+    const bp = this.special.get(e.requestId);
+    if (!bp) return true;
+    const top = (await this.framesOf(e.thread!))[0];
+    const r = this.resolver(top.id);
+    const cond = (bp.condition || '').trim().replace(/;$/, '');
+    if (cond) {
+      try {
+        const v = await evalExpr(parse(cond), r);
+        if (v.type !== 'boolean') throw new Error(`it gave ${showVal(v)}, not true or false`);
+        if (!v.value) return false;
+      } catch (err) {
+        this.host.output('console', `Breakpoint condition on line ${top.line} (${cond}) couldn't be worked out: ${(err as Error).message}\n`);
+        return true;
+      }
+    }
+    const hits = (this.hits.get(e.requestId) ?? 0) + 1;
+    this.hits.set(e.requestId, hits);
+    if (bp.hitCondition?.trim() && !hitMatches(bp.hitCondition, hits)) return false;
+    if (bp.logMessage) { this.host.output('console', (await formatLog(bp.logMessage, r)) + '\n'); return false; }
+    return true;
   }
 
   // ---- classes, lines and breakpoints ----
@@ -233,20 +266,22 @@ class JavaBackend implements Backend {
     this.queue = run.catch(() => {});
     return run;
   }
-  // Conditions and hit counts need an expression evaluator, which JDWP lacks: such breakpoints stay unverified.
+  // A condition or log message that doesn't parse leaves its breakpoint unverified.
   async applyBreakpoints(file: string, bps: Bp[]): Promise<void> {
     if (!this.client) return;
     const old = this.byFile.get(file);
-    for (const id of old?.requests ?? []) await this.clear(EV.BREAKPOINT, id);
+    for (const id of old?.requests ?? []) { await this.clear(EV.BREAKPOINT, id); this.special.delete(id); this.hits.delete(id); }
     const entry: { requests: number[]; lines: number[] } = { requests: [], lines: [] };
     this.byFile.set(file, entry);
     const classes = [...this.classes].filter(([, i]) => i.file && path.resolve(i.file) === path.resolve(file)).map(([id]) => id);
     for (const bp of bps) {
-      if (!bp || bp.enabled === false || !(bp.line >= 1) || bp.condition?.trim() || bp.hitCondition?.trim() || bp.logMessage) continue;
+      if (!bp || bp.enabled === false || !(bp.line >= 1) || checkJavaBp(bp)) continue;
       for (const cls of classes) {
         const loc = await this.locationAt(cls, bp.line);
         if (!loc) continue;
-        entry.requests.push(await this.breakAt(loc));
+        const id = await this.breakAt(loc);
+        if (bp.condition?.trim() || bp.hitCondition?.trim() || bp.logMessage) this.special.set(id, bp);
+        entry.requests.push(id);
         entry.lines.push(bp.line);
         break;
       }
@@ -439,27 +474,41 @@ class JavaBackend implements Backend {
     this.fieldsOf.set(obj, fields);
     return out;
   }
-  // A variable, field or element: name(.field | [n])*, read from the frame's locals and `this`.
+  // An expression (javaexpr.ts) over the frame's locals and `this`. A plain variable, field or element keeps its
+  // row, so it can still be expanded.
   async evaluate(expr: string, frameId: number | undefined, _context?: string): Promise<DebugValue> {
-    const parts = /^\s*([A-Za-z_$][\w$]*)((?:\s*\.\s*[A-Za-z_$][\w$]*|\s*\[\s*\d+\s*\])*)\s*$/.exec(expr);
-    if (!parts) throw new Error("Java's debugger shows variables and their fields: try a name like total, p.x or items[0]");
+    const node = parse(expr);
     if (typeof frameId !== 'number' || !this.frames.has(frameId)) throw new Error('Pause the program to read its variables');
-    const locals = await this.locals(frameId);
-    let found: DebugValue | undefined = locals.find(l => l.row.name === parts[1])?.row;
-    if (!found) {
-      const self = locals.find(l => l.row.name === 'this')?.row;
-      if (self?.ref) found = (await this.children(self.ref)).find(k => k.name === parts[1]);
-    }
-    if (!found) throw new Error(`${parts[1]} isn't a variable here`);
-    let row: DebugValue = found;
-    for (const step of parts[2].match(/\.\s*[A-Za-z_$][\w$]*|\[\s*\d+\s*\]/g) ?? []) {
-      if (!row.ref) throw new Error(`${row.name} has no ${step.replace(/^\.\s*/, '')}`);
-      const key = step.startsWith('.') ? step.replace(/^\.\s*/, '') : `[${/\d+/.exec(step)![0]}]`;
-      const next: DebugValue | undefined = (await this.children(row.ref)).find(k => k.name === key);
-      if (!next) throw new Error(`${row.name} has no ${key}`);
-      row = next;
-    }
-    return { ...row, name: expr };
+    const v = await evalExpr(node, this.resolver(frameId));
+    return v.row ? { ...v.row, name: expr } : { name: expr, value: showVal(v), type: v.type, ref: 0 };
+  }
+  // How javaexpr reads the paused program: locals (then fields of `this`), fields, and array elements by index.
+  resolver(frameId: number): Resolver {
+    let locals: Promise<Local[]> | null = null;
+    const rowOf = async (of: Val, name: string): Promise<DebugValue | undefined> => (of.row?.ref ? (await this.children(of.row.ref)).find(k => k.name === name) : undefined);
+    return {
+      name: async id => {
+        const all = await (locals ??= this.locals(frameId));
+        let row = all.find(l => l.row.name === id)?.row;
+        const self = all.find(l => l.row.name === 'this');
+        if (!row && self) row = await rowOf(fromRow(self.row), id);
+        if (!row) throw new Error(`${id} isn't a variable here`);
+        return fromRow(row);
+      },
+      field: async (of, name) => {
+        const row = await rowOf(of, name);
+        if (!row) throw new Error(`${of.row?.name ?? showVal(of)} has no field ${name}`);
+        return fromRow(row);
+      },
+      element: async (of, index) => {
+        const e = of.row?.ref ? this.refs.get(of.row.ref) : undefined;
+        if (e?.kind !== 'array' || index < 0 || index >= e.len) throw new Error(`ArrayIndexOutOfBoundsException: index ${index}, length ${e?.kind === 'array' ? e.len : 0}`);
+        const r = await this.request(13, 2, (w: Writer) => w.object(e.id).i32(index).i32(1));
+        const tag = r.u8();
+        r.i32();
+        return fromRow(await this.show(OBJECT_TAGS.has(tag) ? r.value() : r.untagged(tag), `[${index}]`));
+      },
+    };
   }
   // Locals and fields of a primitive type or String take a new value.
   async setValue(ref: number, name: string, value: string): Promise<DebugValue> {
