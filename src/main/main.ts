@@ -1478,7 +1478,7 @@ app.on('will-quit', () => kernels.stopAll());
 
 // Runs a source file Breeze knows how to run (toolchains.runPlan) in the open folder, streaming into the terminal under one id.
 let activeRun: { id: number; cancel: () => void } | null = null;
-const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy)$/i;
+const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|[jt]sx|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy|sh|bash|zsh|ps1|bat|cmd)$/i;
 // The nearest project file (a .csproj, a Cargo.toml) in the file's folder or a folder above it, without leaving the open project.
 function nearestProject(abs: string, isProject: (name: string) => boolean): string | null {
   for (let dir = path.dirname(abs); ; dir = path.dirname(dir)) {
@@ -1487,6 +1487,13 @@ function nearestProject(abs: string, isProject: (name: string) => boolean): stri
     if (names.length) return path.join(dir, names[0]);
     if (path.relative(root!, dir) === '' || dir === path.dirname(dir)) return null;
   }
+}
+// What running or debugging a .jsx/.tsx file needs besides Node: the bundled TypeScript compiler, and the folder of the
+// package.json the file belongs to (its output goes in that folder's build/jsx, where node_modules is found).
+function jsxOpts(abs: string): { tsc: string | null; jsRoot: string | null } {
+  if (!/\.[jt]sx$/i.test(abs)) return { tsc: null, jsRoot: null };
+  const pkg = nearestProject(abs, n => n === 'package.json');
+  return { tsc: exists(TSC_EXE) ? TSC_EXE : null, jsRoot: pkg ? path.dirname(pkg) : null };
 }
 handle('run:file', async (_e, rel) => {
   if (activeRun) return { error: 'A program is still running — press Ctrl+C to stop it' };
@@ -1506,6 +1513,8 @@ handle('run:file', async (_e, rel) => {
     const opts = {
       csproj: /\.cs$/i.test(abs) ? nearestProject(abs, n => /\.csproj$/i.test(n)) : null,
       cargoToml: /\.rs$/i.test(abs) ? nearestProject(abs, n => n === 'Cargo.toml') : null,
+      goMod: /\.go$/i.test(abs) ? nearestProject(abs, n => n === 'go.mod') : null,
+      ...jsxOpts(abs),
     };
     let plan = runPlan(abs, tools, process.platform, stdioHeader, opts);
     if (plan.error && SOURCE_FILE.test(abs)) {
@@ -1649,10 +1658,12 @@ handle('debug:start', async (_e, rel, opts) => {
       breakpoints[abs] = cleanBps(list);
     }
   }
-  const { tools, pathValue } = await getTools();
+  let { tools, pathValue } = await getTools();
+  // Delve may have been installed since the tools were looked up (the debug page's Install runs it): look again.
+  if (/\.go$/i.test(file) && (!tools.dlv || !tools.go)) ({ tools, pathValue } = await getTools(true));
   const env = toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
   if (/\.py$/i.test(file)) env.PYTHONUTF8 = '1'; // as F5 does, so print("café ✓") survives a pipe on a non-UTF-8 code page
-  const node = /\.(?:[cm]?js|[cm]?ts)$/i.test(file) ? await which('node', pathValue) : null;
+  const node = /\.(?:[cm]?js|[cm]?ts|[jt]sx)$/i.test(file) ? await which('node', pathValue) : null;
   // C, C++ and Rust are built for the debugger first (toolchains.debugPlan); the build runs inside the session.
   let build: GdbBuild | null = null, buildError: string | null = null;
   if (/\.(?:c|cpp|cc|cxx|rs)$/i.test(file)) {
@@ -1668,11 +1679,15 @@ handle('debug:start', async (_e, rel, opts) => {
     javac: tools.java ? path.join(path.dirname(tools.java.path), process.platform === 'win32' ? 'javac.exe' : 'javac') : 'javac',
     dotnet: tools.dotnet?.path || 'dotnet',
     netcoredbg: findNetcoredbg(pathValue) ?? undefined,
+    dlv: tools.dlv?.path || 'dlv',
+    go: tools.go?.path ?? null,
+    goMod: /\.go$/i.test(file) ? nearestProject(file, n => n === 'go.mod') : null,
     hookSrc: unpacked(path.join(ROOT, 'runtime', 'BreezeDebugHook')),
     hookDir: path.join(app.getPath('userData'), 'debug-hook'),
     project: /\.cs$/i.test(file) ? nearestProject(file, n => /\.csproj$/i.test(n)) : null,
     python: tools.python?.path || 'python',
     node: node || 'node',
+    ...jsxOpts(file),
     stopOnEntry: !!o.stopOnEntry,
     breakpoints: o.breakpoints ? breakpoints : undefined,
     exceptions: ['none', 'uncaught', 'all'].includes(o.exceptions) ? o.exceptions : undefined,
@@ -1850,9 +1865,10 @@ handle('sys:detect', async (_e, force) => {
     return { id: cmd, name, found: !!bin, version: bin ? await versionOf(bin) : null, hint: bin ? null : installHint(cmd, process.platform), cmd: bin ? null : installCmd(cmd, process.platform), url: bin ? null : installUrl(cmd, process.platform) };
   }));
   const optionalTools: [string, string, Tool | null, string][] = [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs'], ['cargo', 'Cargo', found.cargo, 'rs'], ['maven', 'Maven', found.mvn, 'mvn'], ['lua', 'Lua', found.lua, 'lua'], ['php', 'PHP', found.php, 'php'], ['sqlite', 'SQLite', found.sqlite, 'sql'],
-    ['go', 'Go', found.go, 'go'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
+    ['go', 'Go', found.go, 'go'], ['dlv', 'Delve (Go debugger)', found.dlv ?? null, 'dlv'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
     ['dart', 'Dart', found.dart, 'dart'], ['zig', 'Zig', found.zig, 'zig'], ['scala', 'Scala', found.scala, 'scala'], ['elixir', 'Elixir', found.elixir, 'ex'],
-    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy']];
+    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy'],
+    ['bash', 'Bash', found.bash, 'sh'], ['zsh', 'Zsh', found.zsh, 'zsh'], ['powershell', 'PowerShell', found.pwsh, 'ps']];
   for (const [id, name, t, kind] of optionalTools) {
     tools.push({ id, name, found: !!t, version: t ? versionIn(t.version) : null, optional: true, hint: t ? null : installHint(kind, process.platform), cmd: t ? null : installCmd(kind, process.platform), url: t ? null : installUrl(kind, process.platform) });
   }
@@ -1900,7 +1916,7 @@ handle('sys:runCommand', async (_e, cmd) => {
   if (typeof cmd !== 'string') return false;
   const command = cmd.trim();
   const allowed = [
-    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
+    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', 'dlv', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
     ...['claude', 'codex', 'local'].map(id => agentInstallCmd(id, process.platform)),
     ...lspInstalls(process.platform).map(i => i.cmd),
   ].filter(Boolean) as string[];

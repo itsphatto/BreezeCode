@@ -162,7 +162,7 @@ type DebugEvent =
   | { type: 'output'; stream: 'stdout' | 'stderr' | 'console'; text: string }
   | { type: 'breakpoints'; file: string; lines: number[] } // verified lines
   | { type: 'exited'; code: number | null }
-  | { type: 'error'; message: string; hint?: 'install-debugpy' | 'node-too-old' | 'not-found'; python?: string }; // python: the interpreter missing debugpy
+  | { type: 'error'; message: string; hint?: 'install-debugpy' | 'install-dlv' | 'install-go' | 'node-too-old' | 'not-found'; python?: string }; // python: the interpreter missing debugpy
 interface DebugStartOptions { stopOnEntry?: boolean; breakpoints?: Record<string, Bp[]>; exceptions?: 'none' | 'uncaught' | 'all'; }
 
 // The titlebar Update button's state, sent by main.js's updater.

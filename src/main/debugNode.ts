@@ -3,7 +3,10 @@
 // inspector's own lines from the Output, and maps CDP to the session API.
 import { execFile } from 'node:child_process';
 import type { ExecFileException } from 'node:child_process';
-import { nodeSupportsTs } from './toolchains';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { nodeSupportsTs, jsxBuild } from './toolchains';
+import { SourceMap, keyOf } from './sourcemap';
 import { CdpClient, urlRegexFor, cdpCondition, checkBp, valueOf, framesOf } from './cdp';
 import type { CallFrame, RemoteObject } from './cdp';
 import type { Backend, Bp, DebugFrame, DebugValue, Host, Launch } from './debugTypes';
@@ -19,6 +22,12 @@ interface Evaluated { result: RemoteObject; exceptionDetails?: { text?: string; 
 
 const CONNECT_MS = 15000;
 const DIAL_TRIES = 5;
+const BUILD_MS = 60000; // compiling a .jsx or .tsx file (tsc)
+
+// A .jsx/.tsx file's build: the generated file a source map belongs to.
+interface Generated { file: string; map: SourceMap }
+interface JsxOpts { tsc: string | null; root: string | null }
+
 
 
 // Lines the inspector writes to the program's stderr: not the program's output.
@@ -36,6 +45,9 @@ class NodeBackend implements Backend {
   cmd: string;
   baseEnv: NodeJS.ProcessEnv;
   ts: boolean;
+  jsx: JsxOpts | null;                    // a .jsx/.tsx file: compiled first, debugged through its source maps
+  built = new Map<string, Generated>();   // generated file (path key) → its map
+  bySource = new Map<string, Generated>(); // source file (path key) → the generated file that runs it
   client: CdpClient | null = null;
   scripts = new Map<string, string>();   // scriptId → url
   callFrames: PausedFrame[] = [];         // the current pause's frames: a DebugFrame id is an index here
@@ -53,11 +65,12 @@ class NodeBackend implements Backend {
   ended = false;
   killFirst = true;                       // V8 resumes a paused program when the inspector disconnects: stop kills, then closes
 
-  constructor(host: Host, { node, env, ts }: { node: string; env?: NodeJS.ProcessEnv; ts?: boolean }) {
+  constructor(host: Host, { node, env, ts, jsx }: { node: string; env?: NodeJS.ProcessEnv; ts?: boolean; jsx?: JsxOpts | null }) {
     this.host = host;
     this.cmd = node;
     this.baseEnv = env || process.env;
     this.ts = !!ts;
+    this.jsx = jsx ?? null;
   }
 
   env(): NodeJS.ProcessEnv { return { ...this.baseEnv }; }
@@ -70,7 +83,55 @@ class NodeBackend implements Backend {
       }));
       if (!nodeSupportsTs(v)) throw Object.assign(new Error(`Debugging TypeScript needs Node 22.18 or newer (this is ${v})`), { hint: 'node-too-old' });
     }
+    if (this.jsx) return this.build(this.jsx);
     return { ts: this.ts };
+  }
+
+  // Compiles the .jsx/.tsx file (the command F5 runs, plus a list of what was written) and reads the source maps.
+  // The compiler's complaints go to the Output, and the session ends.
+  async build({ tsc, root }: JsxOpts): Promise<Launch> {
+    const { host } = this;
+    if (!tsc) throw new Error("Debugging a .jsx or .tsx file needs the TypeScript compiler that comes with Breeze, and it wasn't found");
+    const b = jsxBuild(host.file, process.platform, root, ['--listEmittedFiles']);
+    const out = await new Promise<string>((resolve, reject) => execFile(tsc, b.tscArgs, { cwd: path.dirname(host.file), env: this.baseEnv, windowsHide: true, timeout: BUILD_MS, maxBuffer: 64 * 1024 * 1024 },
+      (e: ExecFileException | null, stdout: string, stderr: string) => {
+        if (!e) { resolve(String(stdout)); return; }
+        if (e.code === 'ENOENT') { reject(new Error(`The TypeScript compiler wasn't found (${tsc})`)); return; }
+        const text = [stdout, stderr].map(s => String(s).split(/\r?\n/).filter(l => l && !l.startsWith('TSFILE: ')).join('\n')).filter(Boolean).join('\n');
+        host.output('stderr', text ? text + '\n' : `${e.message}\n`);
+        reject(new Error(`${path.basename(host.file)} has errors that stop it compiling, so the debugger can't start (see the Output)`));
+      }));
+    fs.writeFileSync(b.pkg, '{"type":"commonjs"}\n');
+    for (const line of out.split(/\r?\n/)) {
+      const mapFile = /^TSFILE: (.+\.js\.map)$/.exec(line)?.[1];
+      if (!mapFile) continue;
+      let map: SourceMap | null = null;
+      try { map = SourceMap.parse(fs.readFileSync(mapFile, 'utf8'), path.resolve(mapFile)); } catch { /* no map: that file just can't be mapped */ }
+      if (!map) continue;
+      const gen: Generated = { file: path.resolve(mapFile.slice(0, -'.map'.length)), map };
+      this.built.set(keyOf(gen.file), gen);
+      for (const s of map.sources) this.bySource.set(keyOf(s), gen);
+    }
+    return { ts: false, entry: b.entry, nodeArgs: b.nodeArgs };
+  }
+
+  // Where `line` (1-based) of `file` lives in what Node runs: the file itself, or its generated JavaScript (0-based).
+  // Null when that line has no code of its own.
+  target(file: string, line: number): { file: string; line: number; col?: number } | null {
+    const gen = this.bySource.get(keyOf(path.resolve(file)));
+    if (!gen) return { file, line: line - 1 };
+    const g = gen.map.generated(file, line - 1);
+    return g ? { file: gen.file, line: g.line, col: g.col } : null;
+  }
+
+  // Frames in generated files, shown at their place in the source.
+  mapFrames(frames: DebugFrame[]): void {
+    for (const f of frames) {
+      if (!f.file) continue;
+      const gen = this.built.get(keyOf(path.resolve(this.host.root, f.file)));
+      const o = gen?.map.original(f.line - 1, f.col - 1);
+      if (o) { f.file = this.host.rel(o.source); f.line = o.line + 1; f.col = o.col + 1; }
+    }
   }
 
   // The program's stderr, minus the inspector's lines. Finds the inspector's URL on the way.
@@ -158,8 +219,10 @@ class NodeBackend implements Backend {
       const condition = cdpCondition(bp, id);
       const entry: NodeBreakpoint = { id, cdpId: null, line: bp.line, verified: false };
       list.push(entry);
+      const at = this.target(file, bp.line);
+      if (!at) continue; // no code on that line: it stays unverified
       try {
-        const r = await this.send<{ breakpointId: string; locations?: unknown[] }>('Debugger.setBreakpointByUrl', { lineNumber: bp.line - 1, urlRegex: urlRegexFor(file), ...(condition ? { condition } : {}) });
+        const r = await this.send<{ breakpointId: string; locations?: unknown[] }>('Debugger.setBreakpointByUrl', { lineNumber: at.line, ...(at.col === undefined ? {} : { columnNumber: at.col }), urlRegex: urlRegexFor(at.file), ...(condition ? { condition } : {}) });
         entry.cdpId = r.breakpointId;
         entry.verified = (r.locations ?? []).length > 0;
       } catch (e) { this.host.warn(e); }
@@ -189,7 +252,8 @@ class NodeBackend implements Backend {
     const hit = (p.hitBreakpoints ?? []).length > 0;
     const isException = p.reason === 'exception' || p.reason === 'promiseRejection';
     const callFrames = p.callFrames ?? [];
-    const frames = framesOf(callFrames, this.scripts, host.root);
+    const frames: DebugFrame[] = framesOf(callFrames, this.scripts, host.root);
+    this.mapFrames(frames);
     let reason: string;
     if (this.entry) {
       this.entry = false;
@@ -230,7 +294,9 @@ class NodeBackend implements Backend {
   // A one-off breakpoint, removed at the next pause, wherever that is.
   async runTo(file: string, line: number): Promise<void> {
     try {
-      const r = await this.send<{ breakpointId: string }>('Debugger.setBreakpointByUrl', { lineNumber: line - 1, urlRegex: urlRegexFor(file) });
+      const at = this.target(file, line);
+      if (!at) throw new Error('no code on that line');
+      const r = await this.send<{ breakpointId: string }>('Debugger.setBreakpointByUrl', { lineNumber: at.line, ...(at.col === undefined ? {} : { columnNumber: at.col }), urlRegex: urlRegexFor(at.file) });
       this.runToId = r.breakpointId;
     } catch { /* a breakpoint is already there: it will stop anyway */ }
     this.action = 'step';
