@@ -6126,6 +6126,105 @@ button.chat-img-cap:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* "1 subagent working" under the step a subagent works for (drawSteps). */
+.td-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+/* A question at the end of a reply, its answers as buttons (followUpCard). The first is filled and shows its key. */
+.followup-card {
+  position: relative;
+  padding: 12px 40px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-1);
+  animation: fu-in .25s cubic-bezier(.2, .8, .2, 1);
+}
+
+@keyframes fu-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
+
+.fu-q {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.fu-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fu-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-3);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, transform .1s ease;
+}
+
+.fu-opt:hover {
+  border-color: var(--text-3);
+}
+
+.fu-opt:active {
+  transform: scale(.97);
+}
+
+.fu-opt.first {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+}
+
+.fu-opt.first:hover {
+  opacity: .9;
+}
+
+.fu-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: .6;
+}
+
+.fu-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .followup-card { animation: none; }
+  .fu-opt:active { transform: none; }
+}
+
 /* Test results from a command the agent ran. */
 /* As one line of text (testsCard): what ran, then the counts; the arrow opens the failures under it. */
 .tests-line .tl-head {
