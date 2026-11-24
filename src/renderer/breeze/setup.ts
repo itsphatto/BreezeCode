@@ -99,6 +99,7 @@ const AGENT_STYLE: Record<string, { letter: string; tint: string }> = {
   codex: { letter: 'Cx', tint: 'codex' },
   claude: { letter: 'Cc', tint: 'claude' },
   antigravity: { letter: 'Ag', tint: 'antigravity' },
+  opencode: { letter: 'Oc', tint: 'opencode' },
   local: { letter: 'Ol', tint: 'local' },
   ollama: { letter: 'Ol', tint: 'local' },
   gemini: { letter: 'Ge', tint: 'gemini' },
@@ -208,7 +209,7 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
   // A found agent shows just its name; the model and path stay in the tooltip.
   const attrs = a.found ? `role="button" tabindex="0" data-agent="${a.id}" title="${escAttr(sub)}"` : '';
   let modelOptions = '';
-  if (a.found && a.models?.length && !['codex', 'antigravity', 'claude'].includes(a.id)) {
+  if (a.found && a.models?.length && !['codex', 'antigravity', 'claude', 'opencode'].includes(a.id)) {
     const opts = a.models.map(m => {
       const sel = m === a.version ? ' selected' : '';
       return `<option value="${escAttr(m)}"${sel}>${esc(m)}</option>`;
@@ -298,7 +299,7 @@ function bindAgentOptions(root: HTMLElement, onChange: () => void): void {
         saveApp();
         renderAgentBar();
         toast(`Codex model · ${modelVal}`);
-      } else if (agId === 'antigravity' || agId === 'claude') {
+      } else if (agId === 'antigravity' || agId === 'claude' || agId === 'opencode') {
         await api.agent.setModel(agId, modelVal);
         if (targetAgent) targetAgent.version = modelVal;
         saveApp();
@@ -357,11 +358,39 @@ const OB_TOOL_GROUPS: { title: string; note?: string; ids: string[] }[] = [
 const OB_TOOL_NAMES: Record<string, string> = { rust: 'Rust compiler (rustc)', cargo: 'Cargo', 'lsp-rust': 'rust-analyzer', cc: 'C/C++ compiler', java: 'Java JDK', maven: 'Maven', dotnet: 'C# (.NET SDK)' };
 function obToolRowHtml(t: DetectedTool): string {
   const name = esc(OB_TOOL_NAMES[t.id] ?? t.name);
-  if (t.found) return `<div class="ob-tool"><span class="ob-tool-dot" aria-hidden="true"></span><span><span class="ob-tool-name">${name}</span><span class="ob-tool-sub">${esc(versionLabel(t.version) || 'Installed')}</span></span><span class="pill ok">Ready</span></div>`;
+  if (t.found) return `<div class="ob-tool" data-tool="${escAttr(t.id)}"><span class="ob-tool-dot" aria-hidden="true"></span><span><span class="ob-tool-name">${name}</span><span class="ob-tool-sub">${esc(versionLabel(t.version) || 'Installed')}</span></span><span class="pill ok">Ready</span></div>`;
   const { attrs, does } = toolInstall(t);
   const label = attrs.startsWith('data-get') ? 'Download' : 'Install';
   const btn = attrs ? `<button class="btn btn-sm" ${attrs} title="${escAttr(does)}" aria-label="${escAttr(`${label} ${t.name}. ${does}`)}">${label}</button>` : '';
-  return `<div class="ob-tool missing"><span class="ob-tool-dot" aria-hidden="true"></span><span><span class="ob-tool-name">${name}</span><span class="ob-tool-sub">Not installed</span></span>${btn}</div>`;
+  return `<div class="ob-tool missing" data-tool="${escAttr(t.id)}"><span class="ob-tool-dot" aria-hidden="true"></span><span><span class="ob-tool-name">${name}</span><span class="ob-tool-sub">Not installed</span></span>${btn}</div>`;
+}
+// A tool installed while Breeze was away comes back from the rescan found: before the list is redrawn, its install
+// button is shot where it shows, so the redraw can grow it into the Ready pill (morphPieces, the steps' own morph)
+// instead of swapping one for the other. Only on the tools step, and only for buttons in the list's visible part: a
+// ghost from a row scrolled out of sight would float over the card.
+function obInstalledShots(list: HTMLElement, byId: Map<string, DetectedTool>): Map<string, ButtonShot> {
+  const shots = new Map<string, ButtonShot>();
+  if (step !== STEP.tools || motionOff() || reducedMotion()) return shots;
+  const box = list.getBoundingClientRect();
+  $$<HTMLElement>('.ob-tool.missing', list).forEach(row => {
+    const b = row.querySelector<HTMLElement>('.btn'), id = row.dataset.tool;
+    if (!b || !id || !byId.get(id)?.found) return;
+    const r = b.getBoundingClientRect();
+    if (r.height && r.top >= box.top && r.bottom <= box.bottom) shots.set(id, shootButton(b));
+  });
+  return shots;
+}
+// After the redraw: each shot button grows into its row's pill while the dot turns green and the new version line
+// fades in.
+function morphInstalled(list: HTMLElement, shots: Map<string, ButtonShot>): void {
+  shots.forEach((shot, id) => {
+    const row = list.querySelector<HTMLElement>(`.ob-tool[data-tool="${CSS.escape(id)}"]`);
+    const pill = row?.querySelector<HTMLElement>('.pill');
+    if (!row || !pill) return;
+    morphPieces([shot], [pill]);
+    obRun($('.ob-tool-dot', row), [{ backgroundColor: '#b45309' }, { backgroundColor: '#1a8f4c' }], { duration: OB_D * .6, easing: OB_FADE });
+    fadeAt($('.ob-tool-sub', row), 0, OB_D * .35);
+  });
 }
 function renderObTools(d: Detection): void {
   const byId = new Map<string, DetectedTool>([...d.tools, ...(d.servers ?? [])].map(t => [t.id, t]));
@@ -371,8 +400,10 @@ function renderObTools(d: Detection): void {
     missing += rows.filter(t => !t.found).length;
     return rows.length ? `<div class="ob-tool-group" role="group" aria-label="${escAttr(g.title)}">${esc(g.title)}${g.note ? ` <small>${esc(g.note)}</small>` : ''}</div>${rows.map(obToolRowHtml).join('')}` : '';
   }).join('');
-  $('#obToolList').innerHTML = html;
-  bindToolButtons($('#obToolList'));
+  const list = $('#obToolList'), shots = obInstalledShots(list, byId);
+  list.innerHTML = html;
+  bindToolButtons(list);
+  morphInstalled(list, shots);
   $('#obToolPill').className = missing ? 'pill warn' : 'pill ok';
   swapText($('#obToolPill'), missing ? `${missing} to install` : 'All set');
 }
@@ -440,7 +471,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
     saveApp();
     renderAgentBar();
     toast(`Codex model set to ${versionLabel(model)} (${effort} effort)`);
-  } else if (a.id === 'antigravity' || a.id === 'claude') {
+  } else if (a.id === 'antigravity' || a.id === 'claude' || a.id === 'opencode') {
     await api.agent.setModel(a.id, model, effort.toLowerCase());
     a.version = model;
     saveApp();
@@ -522,7 +553,7 @@ function modelRowLabel(a: DetectedAgent, m: string, text: string): string {
 function agentModelRows(a: DetectedAgent, isChecked: (m: string) => boolean, pick: (m: string) => void): MenuItem[] {
   const all = (a.models ?? []).filter(m => m !== 'default');
   const row = (m: string, text = versionLabel(m)): MenuItem => ({ label: modelRowLabel(a, m, text), icon: modelMark(a, m), checked: () => isChecked(m), run: () => pick(m) });
-  // A long list (OpenRouter lists hundreds of models) gets nested submenus: provider, then vendor
+  // A long list (OpenRouter and OpenCode list hundreds of models) gets nested submenus: provider, then vendor
   // (openrouter/~anthropic/…), each split only while it is still too long to scan, each with a search field on top.
   const rest = (m: string, depth: number) => m.split('/').slice(depth).join('/');
   const grouped = (list: string[], depth: number): MenuItem[] => {
@@ -541,7 +572,7 @@ function agentModelRows(a: DetectedAgent, isChecked: (m: string) => boolean, pic
   // A long list with no providers to split it by keeps the search box at the top level.
   return top.some(it => it.sub) ? top : [{ label: 'Search models…', run: () => searchModels(all, all.find(isChecked) ?? '', pick) }, ...top];
 }
-// The other agents' models, listed under the current one's: a short list inline, a long one (OpenRouter) as a submenu.
+// The other agents' models, listed under the current one's: a short list inline, a long one (OpenRouter, OpenCode) as a submenu.
 function otherAgentRows(a: DetectedAgent, switchTo: (b: DetectedAgent, m: string) => void): MenuItem[] {
   const others = (appState.detect?.agents ?? []).filter(b => b.id !== a.id && b.found && (b.models ?? []).some(m => m !== 'default'));
   return others.flatMap((b): MenuItem[] => {
@@ -592,7 +623,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
 
 /* ----- Agents: names, mentions and the default agent ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
-const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter']]);
+const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter']]);
 function agentShortName(a: DetectedAgent): string {
   return AGENT_SHORT_NAMES.get(a.id) || a.name;
 }
@@ -740,8 +771,8 @@ const dayTotal = (d?: TokenDay) => (d ? d.input + d.output + d.cacheWrite + d.ca
 function dashAgents(): DetectedAgent[] {
   const all = appState.detect?.agents ?? [];
   const used = new Set(Object.keys(dashHistory?.agents ?? {}));
-  // Antigravity is left off this page, even as the default agent (as on Settings → Usage).
-  const list = all.filter(a => a.id !== 'antigravity' && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
+  // Antigravity and OpenCode are left off this page, even as the default agent (as on Settings → Usage).
+  const list = all.filter(a => a.id !== 'antigravity' && a.id !== 'opencode' && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
   const def = list.findIndex(a => a.id === appState.agent);
   if (def > 0) list.unshift(...list.splice(def, 1));
   return list;
