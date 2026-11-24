@@ -9489,6 +9489,7 @@ body.vibing .ide {
 }
 
 .home-shell {
+  position: relative;
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
   min-height: 0;
@@ -9955,6 +9956,23 @@ body.vibing .ide {
   flex-direction: column;
   justify-content: center;
   padding-block: clamp(12px, 3vh, 40px);
+}
+
+/* The copyright, pinned to the panel's bottom right corner however far Home scrolls. It sits in the gap under the prompt
+   box, so a narrow window has room too. Agent and Friends fill that corner, so only the start page has it. */
+.home-shell:has(> .home-main > .home-view[data-view="session"].hidden) > .home-copyright {
+  display: none;
+}
+
+.home-copyright {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  z-index: 6;
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.2;
+  pointer-events: none;
 }
 
 /* At the bottom, a big window doesn't stretch the year across it: the squares stop at 13px and the graph sits
