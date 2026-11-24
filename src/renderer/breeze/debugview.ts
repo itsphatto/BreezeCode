@@ -312,8 +312,11 @@ async function installNetcoredbg(): Promise<void> {
 let dbgInstall: 'idle' | 'running' | 'failed' = 'idle';
 let dbgInstallProc: number | null = null;
 let dbgInstallCmd = '';
+let dbgInstallWhat = 'debugpy'; // or Delve, for Go
 // pip for the Python the debugger runs (main names it with the error), so debugpy lands where it is looked for.
 // Quoted for the terminal's shell when the path has spaces.
+// Delve installs with the go tool, into GOPATH/bin, where main looks for it.
+const INSTALL_DLV = 'go install github.com/go-delve/delve/cmd/dlv@latest';
 function installDebugpyCmd(): string {
   const py = debugError?.python || 'python';
   return `${/^[\w.:\\/-]+$/.test(py) ? py : `"${py}"`} -m pip install debugpy`;
@@ -323,8 +326,8 @@ function dbgNoteHtml(): { cls: string; html: string } | null {
   const target = debugTarget();
   if (s === 'stopped' && dbgInstall !== 'idle') {
     return dbgInstall === 'running'
-      ? { cls: 'info', html: `<b>Installing debugpy…</b><span>Breeze is running <code>${esc(dbgInstallCmd)}</code> in the terminal. Debugging starts again when it's done.</span>` }
-      : { cls: 'err', html: `<b>debugpy didn't install</b><span>The terminal shows what went wrong.</span><div class="dbg-note-acts"><button class="btn btn-sm" data-dbg="terminal">Show terminal</button><button class="btn btn-sm" data-dbg="retry">Try again</button></div>` };
+      ? { cls: 'info', html: `<b>Installing ${esc(dbgInstallWhat)}…</b><span>Breeze is running <code>${esc(dbgInstallCmd)}</code> in the terminal. Debugging starts again when it's done.</span>` }
+      : { cls: 'err', html: `<b>${esc(dbgInstallWhat)} didn't install</b><span>The terminal shows what went wrong.</span><div class="dbg-note-acts"><button class="btn btn-sm" data-dbg="terminal">Show terminal</button><button class="btn btn-sm" data-dbg="retry">Try again</button></div>` };
   }
   if (s === 'stopped' && debugError) {
     const e = debugError, kind = debugKind(debugFile), py = kind === 'python';
@@ -333,6 +336,11 @@ function dbgNoteHtml(): { cls: string; html: string } | null {
       fix = '<button class="btn btn-sm btn-primary" data-dbg="install">Install debugpy</button>';
       foot = `<small class="dbg-note-foot">Install runs <code>${esc(installDebugpyCmd())}</code> in the terminal.</small>`;
     }
+    else if (e.hint === 'install-dlv') {
+      fix = '<button class="btn btn-sm btn-primary" data-dbg="install-dlv">Install Delve</button>';
+      foot = `<small class="dbg-note-foot">Install runs <code>${esc(INSTALL_DLV)}</code> in the terminal.</small>`;
+    }
+    else if (e.hint === 'install-go') fix = `<button class="btn btn-sm btn-primary" data-dbg="golang">Get Go ${svgIcon('external', 12)}</button>`;
     else if (e.hint === 'install-netcoredbg') {
       fix = `<button class="btn btn-sm btn-primary" data-dbg="netcoredbg"${dbgNcdBusy ? ' disabled' : ''}>${dbgNcdBusy ? 'Downloading…' : 'Download netcoredbg'}</button>`;
       foot = '<small class="dbg-note-foot">netcoredbg is Samsung’s free, open-source .NET debugger (about 4 MB). Breeze keeps it in its own folder.</small>';
@@ -341,7 +349,8 @@ function dbgNoteHtml(): { cls: string; html: string } | null {
     else if (e.hint === 'install-jdk' || (e.hint === 'not-found' && kind === 'java')) fix = `<button class="btn btn-sm btn-primary" data-dbg="jdk">Get a JDK ${svgIcon('external', 12)}</button>`;
     else if (e.hint === 'node-too-old' || (e.hint === 'not-found' && kind === 'node')) fix = `<button class="btn btn-sm btn-primary" data-dbg="node">Get Node.js ${svgIcon('external', 12)}</button>`;
     else if (e.hint === 'not-found') fix = `<button class="btn btn-sm btn-primary" data-dbg="python">Get Python ${svgIcon('external', 12)}</button>`;
-    const intro = e.hint === 'install-debugpy' ? 'Debugging Python needs debugpy, a free helper you install once.' : '';
+    const intro = e.hint === 'install-debugpy' ? 'Debugging Python needs debugpy, a free helper you install once.'
+      : e.hint === 'install-dlv' ? 'Debugging Go needs Delve, the free Go debugger you install once.' : '';
     return { cls: 'err', html: `<b>Couldn't start debugging</b><span>${esc(intro || e.message)}</span><div class="dbg-note-acts">${fix}<button class="btn btn-sm" data-dbg="retry">Try again</button></div>${foot}` };
   }
   if (s === 'stopped') {
@@ -380,6 +389,8 @@ $('#dbgNote').addEventListener('click', e => {
   if (what === 'start') run('debug.start');
   else if (what === 'retry') { dbgInstall = 'idle'; if (debugFile) void startDebugFile(debugFile); else run('debug.start'); }
   else if (what === 'install') installDebugpy();
+  else if (what === 'install-dlv') installDebugpy(INSTALL_DLV, 'Delve');
+  else if (what === 'golang') background(api.sys.openExternal('https://go.dev/dl/'));
   else if (what === 'node') background(api.sys.openExternal('https://nodejs.org/en/download'));
   else if (what === 'python') background(api.sys.openExternal('https://www.python.org/downloads/'));
   else if (what === 'netcoredbg') void installNetcoredbg();
@@ -387,13 +398,14 @@ $('#dbgNote').addEventListener('click', e => {
   else if (what === 'jdk') background(api.sys.openExternal('https://adoptium.net/'));
   else if (what === 'terminal') { leaveDebugView(); run('term.focus'); }
 });
-// Runs pip in the IDE's terminal (it shows there) and starts again once it ends well.
-function installDebugpy(): void {
+// Runs pip (or `go install` for Delve) in the IDE's terminal (it shows there) and starts again once it ends well.
+function installDebugpy(cmd = installDebugpyCmd(), what = 'debugpy'): void {
   const session = activeTermSession;
   if (!session) { toast('Open the terminal first'); return; }
   if (session.proc != null) { toast('The terminal is busy. Stop what is running there, then try again.'); return; }
   dbgInstall = 'running';
-  dbgInstallCmd = installDebugpyCmd();
+  dbgInstallCmd = cmd;
+  dbgInstallWhat = what;
   renderDebug();
   void runCommand(dbgInstallCmd).then(() => {
     dbgInstallProc = session.proc;

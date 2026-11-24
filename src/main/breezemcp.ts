@@ -68,6 +68,9 @@ const PROPOSE_PLAN: McpTool = {
 const BREEZE_TOOLS: McpTool[] = [ASK_USER, PROPOSE_PLAN, SHOW_IMAGE, CAPTURE_PREVIEW];
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+// Sent with initialize: agents that read MCP instructions (Claude Code does) format a closing question so Breeze can
+// show its answers as buttons under the reply (followup.ts).
+const INSTRUCTIONS = 'When your reply ends with a question for the user that has a few likely answers, put the question on its own line and the answers right under it as a bulleted list: 2 to 4 items, each starting with a bold label of a few words. Breeze shows them as buttons the user can click instead of typing. For a question that needs the answer before you can go on, use ask_user instead.';
 const MAX_BODY = 1024 * 1024;
 const KEEPALIVE_MS = 15000;
 
@@ -81,7 +84,7 @@ async function handleRpc(msg: RpcMessage | null | undefined, tools: McpTool[], c
   const ok = (result: unknown) => ({ jsonrpc: '2.0', id: msg.id, result });
   if (msg.method === 'initialize') {
     const asked = String(msg.params?.protocolVersion ?? '');
-    return ok({ protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0], capabilities: { tools: {} }, serverInfo: { name: BREEZE_MCP, title: 'Breeze (built in)', version: '1.0.0' } });
+    return ok({ protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0], capabilities: { tools: {} }, serverInfo: { name: BREEZE_MCP, title: 'Breeze (built in)', version: '1.0.0' }, instructions: INSTRUCTIONS });
   }
   if (msg.method === 'ping') return ok({});
   if (msg.method === 'tools/list') return ok({ tools });

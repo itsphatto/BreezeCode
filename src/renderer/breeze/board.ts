@@ -24,7 +24,7 @@ interface BoardBox {
   liveFrac?: number;       // its width as a share of the box, once dragged (paintLiveWidth)
   side?: BoxSide;          // the side panel shows its terminal or a page preview instead of the code (paintBoardLive)
   term?: BoxTerminal;      // made the first time its terminal opens
-  preview?: PreviewView;   // made the first time its preview opens
+  preview?: BoxBrowser;    // made the first time its preview opens: a small browser (boxbrowser.ts)
   ctx?: BoxContext;        // how full its chat's context window was after the last request (paintBoxContext)
 }
 type BoxSide = 'term' | 'preview';
@@ -252,17 +252,7 @@ function openBoxSide(box: BoardBox, view: BoxSide): void {
     pane.append(box.term.root);
   }
   if (view === 'preview' && !box.preview) {
-    const root = $('.board-preview', pane);
-    const preview = box.preview = new PreviewView({
-      root,
-      frame: $<HTMLIFrameElement>('.preview-frame', root),
-      url: $('.url', root),
-      urlText: $('.bp-url-text', root),
-      inspect: $<HTMLButtonElement>('.bp-inspect', root),
-      full: $<HTMLButtonElement>('.bp-full', root),
-      empty: $('.bp-empty', root),
-      hint: $('.bp-hint', root),
-    }, {
+    const browser = box.preview = new BoxBrowser($('.board-preview', pane), {
       target: () => boxPreviewTarget(box),
       ask: text => {
         if (document.fullscreenElement) void document.exitFullscreen();
@@ -275,9 +265,7 @@ function openBoxSide(box: BoardBox, view: BoxSide): void {
       },
       detachFull: true,
     });
-    $('.bp-reload', root).onclick = () => void (preview.running ? preview.reload() : preview.start());
-    preview.render();
-    void preview.start();
+    void browser.begin(boxPreviewTarget(box));
   }
 }
 // The page a box previews: the page its agent last touched, else the project's index.html, else the first page found
@@ -713,17 +701,7 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     </div>
     <div class="board-live-sash" role="separator" aria-orientation="vertical" aria-label="Resize the code view" title="Drag to resize · double-click to reset"></div>
     <aside class="box-live board-live closed" aria-label="Side panel"><div class="box-live-head"></div><div class="box-live-body"></div>
-      <div class="board-preview">
-        <div class="board-side-bar preview-bar">
-          <span class="preview-label">Preview</span>
-          <span class="url" role="button" tabindex="0" aria-haspopup="menu" title="Switch page"><span class="bp-url-text">Not running</span></span>
-          <button class="icon-btn toggle bp-inspect" type="button" title="Inspect on Hover" aria-pressed="false"><svg data-i="mouse" data-size="14"></svg></button>
-          <button class="icon-btn toggle bp-full" type="button" title="Fullscreen" aria-pressed="false"><svg data-i="maximize" data-size="13"></svg></button>
-          <button class="icon-btn bp-reload" type="button" title="Reload Preview"><svg data-i="refresh" data-size="13"></svg></button>
-        </div>
-        <div class="empty bp-empty"><div><svg data-i="play" data-size="36"></svg><h4>Nothing to preview yet</h4><div class="bp-hint">Add an <b>index.html</b> to preview it here.</div></div></div>
-        <iframe class="preview-frame hidden" title="Preview"></iframe>
-      </div>
+      <div class="board-preview"></div>
     </aside>
     </div>`;
   paintIcons(el);

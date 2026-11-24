@@ -253,6 +253,26 @@ function openInBrowser(url: string): void {
   if (u.protocol === 'https:' || (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname))) shell.openExternal(u.href).catch(logError('openExternal'));
 }
 
+/* ================= The box browser's webviews ================= */
+const BROWSER_PARTITION = 'persist:breeze-browser';
+const isBrowserUrl = (url: string): boolean => /^https?:\/\//i.test(url);
+// A site may go anywhere on the web; a link that opens a new window opens in the same tab instead. Other schemes
+// (file:, the app's own pages, custom protocols) are refused. The session asks for no permissions on the user's behalf.
+app.on('web-contents-created', (_e, wc) => {
+  if (wc.getType() !== 'webview') return;
+  wc.setWindowOpenHandler(({ url }) => {
+    if (isBrowserUrl(url)) wc.loadURL(url).catch(logError('webview open'));
+    return { action: 'deny' };
+  });
+  wc.on('will-navigate', (e, url) => { if (!isBrowserUrl(url)) e.preventDefault(); });
+  wc.on('will-redirect', (e, url) => { if (!isBrowserUrl(url)) e.preventDefault(); });
+});
+app.whenReady().then(() => {
+  const ses = session.fromPartition(BROWSER_PARTITION);
+  ses.setPermissionRequestHandler((_wc, permission, done) => done(permission === 'fullscreen' || permission === 'clipboard-sanitized-write'));
+  ses.setPermissionCheckHandler((_wc, permission) => permission === 'fullscreen' || permission === 'clipboard-sanitized-write');
+}).catch(logError('browser session'));
+
 /* ================= Persisted main-process state ================= */
 const statePath = () => path.join(app.getPath('userData'), 'breeze-state.json');
 // What breeze-state.json keeps between runs. Other keys (window, sign-in and friends settings) live beside these.
@@ -431,6 +451,8 @@ function createWindow() {
       // Breeze's own clicks and chimes: without this Chromium can hold the audio back until a gesture, and
       // suspends it again when idle, so some sounds were silently dropped.
       autoplayPolicy: 'no-user-gesture-required',
+      // An Agent Board box's browser shows websites in <webview>s (boxbrowser.ts), locked down in will-attach-webview.
+      webviewTag: true,
       preload: path.join(__dirname, 'preload.js'),
       additionalArguments: [`--breeze-version=${app.getVersion()}`],
     },
@@ -480,6 +502,18 @@ function createWindow() {
   });
   win.webContents.on('will-navigate', (e, url) => {
     if (!isFileUrl(url, APP_PAGE)) e.preventDefault();
+  });
+  // The box browser's webviews: a web page and nothing more. No preload, no Node, sandboxed, in their own session,
+  // and only http(s) addresses (or a blank page) to start from.
+  win.webContents.on('will-attach-webview', (e, prefs, params) => {
+    delete prefs.preload;
+    prefs.nodeIntegration = false;
+    prefs.nodeIntegrationInSubFrames = false;
+    prefs.contextIsolation = true;
+    prefs.sandbox = true;
+    prefs.webSecurity = true;
+    params.partition = BROWSER_PARTITION;
+    if (!isBrowserUrl(params.src) && params.src !== 'about:blank') e.preventDefault();
   });
   // A reload or crash drops the renderer's terminal state, so nothing may keep running for it.
   win.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => {
@@ -1478,7 +1512,7 @@ app.on('will-quit', () => kernels.stopAll());
 
 // Runs a source file Breeze knows how to run (toolchains.runPlan) in the open folder, streaming into the terminal under one id.
 let activeRun: { id: number; cancel: () => void } | null = null;
-const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy)$/i;
+const SOURCE_FILE = /\.(?:c|cc|cpp|cxx|cs|java|py|rs|[cm]?js|[cm]?ts|[jt]sx|lua|php|sql|go|rb|kts?|swift|dart|zig|scala|sc|exs?|hs|r|pl|groovy|sh|bash|zsh|ps1|bat|cmd)$/i;
 // The nearest project file (a .csproj, a Cargo.toml) in the file's folder or a folder above it, without leaving the open project.
 function nearestProject(abs: string, isProject: (name: string) => boolean): string | null {
   for (let dir = path.dirname(abs); ; dir = path.dirname(dir)) {
@@ -1487,6 +1521,13 @@ function nearestProject(abs: string, isProject: (name: string) => boolean): stri
     if (names.length) return path.join(dir, names[0]);
     if (path.relative(root!, dir) === '' || dir === path.dirname(dir)) return null;
   }
+}
+// What running or debugging a .jsx/.tsx file needs besides Node: the bundled TypeScript compiler, and the folder of the
+// package.json the file belongs to (its output goes in that folder's build/jsx, where node_modules is found).
+function jsxOpts(abs: string): { tsc: string | null; jsRoot: string | null } {
+  if (!/\.[jt]sx$/i.test(abs)) return { tsc: null, jsRoot: null };
+  const pkg = nearestProject(abs, n => n === 'package.json');
+  return { tsc: exists(TSC_EXE) ? TSC_EXE : null, jsRoot: pkg ? path.dirname(pkg) : null };
 }
 handle('run:file', async (_e, rel) => {
   if (activeRun) return { error: 'A program is still running — press Ctrl+C to stop it' };
@@ -1506,6 +1547,8 @@ handle('run:file', async (_e, rel) => {
     const opts = {
       csproj: /\.cs$/i.test(abs) ? nearestProject(abs, n => /\.csproj$/i.test(n)) : null,
       cargoToml: /\.rs$/i.test(abs) ? nearestProject(abs, n => n === 'Cargo.toml') : null,
+      goMod: /\.go$/i.test(abs) ? nearestProject(abs, n => n === 'go.mod') : null,
+      ...jsxOpts(abs),
     };
     let plan = runPlan(abs, tools, process.platform, stdioHeader, opts);
     if (plan.error && SOURCE_FILE.test(abs)) {
@@ -1649,10 +1692,12 @@ handle('debug:start', async (_e, rel, opts) => {
       breakpoints[abs] = cleanBps(list);
     }
   }
-  const { tools, pathValue } = await getTools();
+  let { tools, pathValue } = await getTools();
+  // Delve may have been installed since the tools were looked up (the debug page's Install runs it): look again.
+  if (/\.go$/i.test(file) && (!tools.dlv || !tools.go)) ({ tools, pathValue } = await getTools(true));
   const env = toolEnv(process.env, [...tools.binDirs, ...agentDirs()], process.platform, pathValue);
   if (/\.py$/i.test(file)) env.PYTHONUTF8 = '1'; // as F5 does, so print("café ✓") survives a pipe on a non-UTF-8 code page
-  const node = /\.(?:[cm]?js|[cm]?ts)$/i.test(file) ? await which('node', pathValue) : null;
+  const node = /\.(?:[cm]?js|[cm]?ts|[jt]sx)$/i.test(file) ? await which('node', pathValue) : null;
   // C, C++ and Rust are built for the debugger first (toolchains.debugPlan); the build runs inside the session.
   let build: GdbBuild | null = null, buildError: string | null = null;
   if (/\.(?:c|cpp|cc|cxx|rs)$/i.test(file)) {
@@ -1668,11 +1713,15 @@ handle('debug:start', async (_e, rel, opts) => {
     javac: tools.java ? path.join(path.dirname(tools.java.path), process.platform === 'win32' ? 'javac.exe' : 'javac') : 'javac',
     dotnet: tools.dotnet?.path || 'dotnet',
     netcoredbg: findNetcoredbg(pathValue) ?? undefined,
+    dlv: tools.dlv?.path || 'dlv',
+    go: tools.go?.path ?? null,
+    goMod: /\.go$/i.test(file) ? nearestProject(file, n => n === 'go.mod') : null,
     hookSrc: unpacked(path.join(ROOT, 'runtime', 'BreezeDebugHook')),
     hookDir: path.join(app.getPath('userData'), 'debug-hook'),
     project: /\.cs$/i.test(file) ? nearestProject(file, n => /\.csproj$/i.test(n)) : null,
     python: tools.python?.path || 'python',
     node: node || 'node',
+    ...jsxOpts(file),
     stopOnEntry: !!o.stopOnEntry,
     breakpoints: o.breakpoints ? breakpoints : undefined,
     exceptions: ['none', 'uncaught', 'all'].includes(o.exceptions) ? o.exceptions : undefined,
@@ -1873,9 +1922,10 @@ handle('sys:detect', async (_e, force) => {
     return { id: cmd, name, found: !!bin, version: bin ? await versionOf(bin) : null, hint: bin ? null : installHint(cmd, process.platform), cmd: bin ? null : installCmd(cmd, process.platform), url: bin ? null : installUrl(cmd, process.platform) };
   }));
   const optionalTools: [string, string, Tool | null, string][] = [['cc', 'C/C++', found.cc, 'c'], ['python', 'Python', found.python, 'py'], ['dotnet', 'C#', found.dotnet, 'cs'], ['java', 'Java', found.java, 'java'], ['rust', 'Rust', found.rustc, 'rs'], ['cargo', 'Cargo', found.cargo, 'rs'], ['maven', 'Maven', found.mvn, 'mvn'], ['lua', 'Lua', found.lua, 'lua'], ['php', 'PHP', found.php, 'php'], ['sqlite', 'SQLite', found.sqlite, 'sql'],
-    ['go', 'Go', found.go, 'go'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
+    ['go', 'Go', found.go, 'go'], ['dlv', 'Delve (Go debugger)', found.dlv ?? null, 'dlv'], ['ruby', 'Ruby', found.ruby, 'rb'], ['kotlin', 'Kotlin', found.kotlinc, 'kt'], ['swift', 'Swift', found.swiftc, 'swift'],
     ['dart', 'Dart', found.dart, 'dart'], ['zig', 'Zig', found.zig, 'zig'], ['scala', 'Scala', found.scala, 'scala'], ['elixir', 'Elixir', found.elixir, 'ex'],
-    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy']];
+    ['haskell', 'Haskell', found.runghc, 'hs'], ['r', 'R', found.rscript, 'r'], ['perl', 'Perl', found.perl, 'pl'], ['groovy', 'Groovy', found.groovy, 'groovy'],
+    ['bash', 'Bash', found.bash, 'sh'], ['zsh', 'Zsh', found.zsh, 'zsh'], ['powershell', 'PowerShell', found.pwsh, 'ps']];
   for (const [id, name, t, kind] of optionalTools) {
     tools.push({ id, name, found: !!t, version: t ? versionIn(t.version) : null, optional: true, hint: t ? null : installHint(kind, process.platform), cmd: t ? null : installCmd(kind, process.platform), url: t ? null : installUrl(kind, process.platform) });
   }
@@ -1923,7 +1973,7 @@ handle('sys:runCommand', async (_e, cmd) => {
   if (typeof cmd !== 'string') return false;
   const command = cmd.trim();
   const allowed = [
-    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
+    ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', 'dlv', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
     ...['claude', 'codex', 'opencode', 'local'].map(id => agentInstallCmd(id, process.platform)),
     ...lspInstalls(process.platform).map(i => i.cmd),
   ].filter(Boolean) as string[];
@@ -3024,7 +3074,7 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number }
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number; subagents?: Set<string> }
 // `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
@@ -3154,8 +3204,14 @@ function emitTodos(runId: number, list: unknown): void {
   })).filter(x => x.text);
   if (todos.length) emit(runId, { t: 'todo', todos });
 }
+// Claude Code's tools that start a subagent ("Task" before Claude Code 2, "Agent" since). Each shows as
+// "1 subagent working" under the step card's current step until its tool_result comes back.
+const CLAUDE_SUBAGENT_TOOLS = new Set(['Task', 'Agent']);
 // One piece of an assistant message: text for the chat, or a tool call shown as a line (and the file it touched).
-function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
+// `sub`: the message came from a subagent. Its files still count, but its words, to-dos and tool lines stay out of the
+// chat: the step card says a subagent is working, and the main agent reports what it found.
+function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub = false): void {
+  if (sub && c.type === 'text') return;
   if (c.type === 'text' && c.text?.trim()) {
     ctx.lastText = c.text;
     emit(runId, { t: 'text', text: c.text });
@@ -3164,9 +3220,14 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx): void {
   if (c.type !== 'tool_use') return;
   // Breeze's own tool: what it does shows in the chat itself. ToolSearch is Claude Code looking that tool up.
   if (String(c.name).startsWith(`mcp__${BREEZE_MCP}__`) || c.name === 'ToolSearch') return;
-  if (c.name === 'TodoWrite') { emitTodos(runId, c.input?.todos); return; } // drawn as the step card, not a line
+  if (c.name === 'TodoWrite') { if (!sub) emitTodos(runId, c.input?.todos); return; } // drawn as the step card, not a line
+  if (CLAUDE_SUBAGENT_TOOLS.has(c.name) && c.id) {
+    (ctx.subagents ??= new Set()).add(c.id);
+    emit(runId, { t: 'subagent', id: c.id, text: String(c.input?.description ?? '').trim(), running: true });
+    return;
+  }
   const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
-  emit(runId, { t: 'tool', kind, label });
+  if (!sub) emit(runId, { t: 'tool', kind, label });
   if (CLAUDE_SHELL_TOOLS.includes(c.name) && c.id) {
     (ctx.shells ??= new Set()).add(c.id);
     shellEvent(runId, c.id, String(c.input?.command ?? ''));
@@ -3184,6 +3245,7 @@ function claudeToolResults(runId: number, d: Loose, ctx: StreamCtx): void {
   const content = d.message?.content;
   if (!Array.isArray(content)) return;
   for (const c of content) {
+    if (c?.type === 'tool_result' && ctx.subagents?.delete(c.tool_use_id)) emit(runId, { t: 'subagent', id: c.tool_use_id, running: false });
     // A command's output may name a picture it made, or hold test results: both show in the chat.
     if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) { shellEvent(runId, c.tool_use_id); commandOutput(runId, toolResultText(c.content)); }
     if (c?.type !== 'tool_result' || !ctx.writes?.has(c.tool_use_id)) continue;
@@ -3232,6 +3294,7 @@ function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): voi
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
   else if (d.type === 'system' && d.subtype === 'compact_boundary') brainFromClaude(runBase(runId), d.session_id);
   else if (d.type === 'user' && d.isCompactSummary) brainTake(runBase(runId), brainText(d.message?.content), 'claude');
+  else if (d.type === 'assistant' && d.parent_tool_use_id) { for (const c of d.message?.content || []) claudeContent(runId, c, ctx, true); }
   else if (d.type === 'assistant') { claudeContextUse(runId, d, ctx); for (const c of d.message?.content || []) claudeContent(runId, c, ctx); }
   else if (d.type === 'user') claudeToolResults(runId, d, ctx);
   else if (d.type === 'result') { claudeContextWindow(runId, d, ctx); claudeResult(runId, d, ctx, mode); }

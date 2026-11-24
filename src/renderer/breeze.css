@@ -6173,6 +6173,105 @@ button.chat-img-cap:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* "1 subagent working" under the step a subagent works for (drawSteps). */
+.td-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+/* A question at the end of a reply, its answers as buttons (followUpCard). The first is filled and shows its key. */
+.followup-card {
+  position: relative;
+  padding: 12px 40px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-1);
+  animation: fu-in .25s cubic-bezier(.2, .8, .2, 1);
+}
+
+@keyframes fu-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
+
+.fu-q {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.fu-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fu-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-3);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, transform .1s ease;
+}
+
+.fu-opt:hover {
+  border-color: var(--text-3);
+}
+
+.fu-opt:active {
+  transform: scale(.97);
+}
+
+.fu-opt.first {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+}
+
+.fu-opt.first:hover {
+  opacity: .9;
+}
+
+.fu-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: .6;
+}
+
+.fu-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .followup-card { animation: none; }
+  .fu-opt:active { transform: none; }
+}
+
 /* Test results from a command the agent ran. */
 /* As one line of text (testsCard): what ran, then the counts; the arrow opens the failures under it. */
 .tests-line .tl-head {
@@ -21185,6 +21284,198 @@ input.dbg-edit.bad:focus-visible {
 
 .board-preview .bp-empty {
   min-height: 0;
+}
+
+/* A box's browser (boxbrowser.ts): tabs, then back/forward/reload and the address, then the tab's page, site or
+   new-tab page. */
+.bb-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.bb-strip {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.bb-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 160px;
+  min-width: 72px;
+  height: 26px;
+  padding: 0 2px 0 8px;
+  border-radius: 6px;
+  color: var(--text-3);
+  font: 12px var(--font-ui);
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.bb-tab:hover { background: rgba(var(--ink), .04); color: var(--text-2); }
+.bb-tab.active { background: rgba(var(--ink), .08); color: var(--text); }
+
+.bb-tab-ico { display: flex; flex-shrink: 0; }
+
+.bb-tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bb-tab .bb-tab-x { width: 20px; height: 20px; opacity: 0; }
+.bb-tab:is(:hover, .active) .bb-tab-x { opacity: 1; }
+
+.bb-nav { gap: 2px; padding: 0 6px; }
+.bb-nav .icon-btn:disabled { opacity: .35; pointer-events: none; }
+.bb-reload.spin .ico-svg { animation: bb-spin 1s linear infinite; }
+
+@keyframes bb-spin { to { transform: rotate(360deg); } }
+
+.bb-addr {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  margin: 0 4px;
+  padding: 0 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text-2);
+  font: 12px var(--font-ui);
+  outline: none;
+  transition: border-color .15s ease;
+}
+
+.bb-addr:focus { border-color: var(--blue); color: var(--text); }
+
+.bb-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bb-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bb-web {
+  /* Electron's webview fills itself with an inner frame only while it is a flex box. */
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: #fff;
+}
+
+.bb-web.hidden { display: none; }
+
+/* The new-tab page: a search bar with the project's pages under it, in the middle of the panel. */
+.bb-home {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+}
+
+.bb-home-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(420px, 100%);
+  color: var(--text-3);
+}
+
+.bb-home-inner h4 {
+  margin: 10px 0 16px;
+  color: var(--text);
+  font: 600 14px var(--font-ui);
+}
+
+.bb-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  transition: border-color .15s ease;
+}
+
+.bb-search:focus-within { border-color: var(--blue); }
+
+.bb-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font: 13px var(--font-ui);
+}
+
+.bb-list {
+  width: 100%;
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.bb-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font: 13px var(--font-ui);
+  cursor: pointer;
+  transition: background-color .15s ease;
+}
+
+.bb-item:hover, .bb-item.sel { background: rgba(var(--ink), .06); color: var(--text); }
+.bb-item-name { white-space: nowrap; }
+
+.bb-item-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.bb-none {
+  padding: 12px 10px;
+  text-align: center;
+  color: var(--text-3);
+  font: 12px var(--font-ui);
 }
 
 /* Fullscreen (preview.ts): the pane moves to <body> and covers the window, under menus (70) and toasts (80). */

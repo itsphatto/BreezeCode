@@ -15,7 +15,7 @@ const archivedAs = new WeakMap<AgentTabState, string>();
 function archiveChatTab(s: Surface, tab: AgentTabState): void {
   if (s.name === 'ide' && !rootInfo) return;
   if (tab.panel.querySelector('.empty') && !tab.panel.querySelector('.msg')) return;
-  const html = [...tab.panel.children].filter(c => !c.classList.contains('thinking') && !c.classList.contains('team-strip')).map(c => c.outerHTML).join('');
+  const html = [...tab.panel.children].filter(c => !c.classList.contains('thinking') && !c.classList.contains('team-strip') && !c.classList.contains('followup-card')).map(c => c.outerHTML).join('');
   if (!html?.includes('class="msg')) return;
   const first = tab.panel.querySelector('.msg.user .body')?.textContent ?? '';
   // The tab's own name (typed, or the agent's), else the first request. A board box's "Box 3" is no name either.
@@ -48,7 +48,7 @@ function archiveChat(s: Surface): void {
 function chatHtml(s: Surface): string {
   const t = getActiveTab(s);
   if (t.panel.querySelector('.empty')) return '';
-  return [...t.panel.children].filter(c => !c.classList.contains('thinking') && !c.classList.contains('team-strip')).map(c => c.outerHTML).join('');
+  return [...t.panel.children].filter(c => !c.classList.contains('thinking') && !c.classList.contains('team-strip') && !c.classList.contains('followup-card')).map(c => c.outerHTML).join('');
 }
 let chatTimer: TimeoutId | undefined;
 function saveChat(tab?: AgentTabState): void {

@@ -354,6 +354,7 @@ function onTeamDone(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 
 async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, uiMode: string, tab: AgentTabState, announce = false): Promise<void> {
   const phase = phaseFor(mode);
+  dropFollowUp(tab);
   showThinking(`${speaker(phase, agentId).name} is reading your message`, phase, tab, agentId);
   tab.agentId = agentId;
   tab.uiMode = uiMode;
@@ -631,25 +632,102 @@ function testsCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 
 // The agent's own to-do list, as a card of steps: done ones ticked, the current one turning. Each update replaces the
 // last card and lands at the bottom of the chat, so the list stays in view while the agent works.
+// Subagents it started show under the current step ("1 subagent working"); with no list, each is a step of its own.
 const TODO_MARK = { completed: 'check', in_progress: '', pending: '' } as const;
 function todoCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const todos = ev.todos ?? [];
   if (!todos.length) return;
   r.lastMsg = undefined;
-  const done = todos.filter(t => t.status === 'completed').length;
-  const rows = todos.map(t => `<li class="td-row ${t.status}"><span class="td-mark" aria-hidden="true">${TODO_MARK[t.status] ? svgIcon(TODO_MARK[t.status], 10) : ''}</span><span class="td-text">${esc(t.text)}</span></li>`).join('');
+  r.todos = todos;
   tab.panel.querySelector('.todo-card.live')?.remove();
-  addMsg(`<div class="todo-card live" role="list" aria-label="Steps: ${done} of ${todos.length} done"><ul>${rows}</ul></div>`, tab);
+  drawSteps(r, tab);
   const cur = todos.find(t => t.status === 'in_progress');
   if (cur) setAgent(r.phase, 'working', cur.text, r.tools);
 }
-// The run ended: the card stays as a record, with nothing turning.
+const subagentsText = (n: number) => `${n} subagent${n === 1 ? '' : 's'} working`;
+// The live step card, drawn again in place (or added at the bottom of the chat when there is none).
+function drawSteps(r: Run, tab: AgentTabState): void {
+  const todos = r.todos ?? [];
+  const subs = [...(r.subagents?.values() ?? [])];
+  const old = tab.panel.querySelector('.todo-card.live');
+  if (!todos.length && !subs.length) { old?.remove(); return; }
+  // The step the subagents work for: the one in progress, else the next to do, else the last.
+  let at = todos.findIndex(t => t.status === 'in_progress');
+  if (at < 0) at = todos.findIndex(t => t.status === 'pending');
+  if (at < 0) at = todos.length - 1;
+  const rows = todos.length
+    ? todos.map((t, i) => ({ ...t, sub: i === at ? subs.length : 0 }))
+    : subs.map(text => ({ text: text || 'Working on part of the task', status: 'in_progress' as const, sub: 1 }));
+  const html = rows.map(t => `<li class="td-row ${t.status}"><span class="td-mark" aria-hidden="true">${TODO_MARK[t.status] ? svgIcon(TODO_MARK[t.status], 10) : ''}</span><span class="td-text">${esc(t.text)}${t.sub ? `<span class="td-sub">${subagentsText(t.sub)}</span>` : ''}</span></li>`).join('');
+  const done = todos.filter(t => t.status === 'completed').length;
+  const label = todos.length ? `Steps: ${done} of ${todos.length} done` : subagentsText(subs.length);
+  const card = `<div class="todo-card live${todos.length ? '' : ' subagents-only'}" role="list" aria-label="${label}"><ul>${html}</ul></div>`;
+  if (old) { old.outerHTML = card; saveChat(tab); } else addMsg(card, tab);
+}
+// A subagent started (Claude Code's Task / Agent tool) or came back.
+function onSubagent(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  if (!ev.id) return;
+  r.lastMsg = undefined;
+  if (ev.running) (r.subagents ??= new Map()).set(ev.id, ev.text ?? '');
+  else if (!r.subagents?.delete(ev.id)) return;
+  drawSteps(r, tab);
+  const n = r.subagents?.size ?? 0;
+  if (n) setAgent(r.phase, 'working', subagentsText(n), r.tools);
+}
+// The run ended: the card stays as a record, with nothing turning. A card that only showed subagents goes.
 function endTodoCard(tab: AgentTabState): void {
   const card = tab.panel.querySelector('.todo-card.live');
   if (!card) return;
+  if (card.classList.contains('subagents-only')) { card.remove(); saveChat(tab); return; }
+  card.querySelectorAll('.td-sub').forEach(x => x.remove());
   card.classList.remove('live');
   saveChat(tab);
 }
+
+// A question at the end of the reply, with its answers as buttons (followup.ts finds them): a click sends that answer
+// as the next message, Ctrl+Enter in an empty prompt sends the first. It goes when dismissed, answered, or the next
+// message is sent. Not saved with the chat (history.ts).
+function followUpCard(r: Run, tab: AgentTabState): void {
+  const fu = findFollowUp(r.lastText);
+  if (!fu) return;
+  dropFollowUp(tab);
+  const opts = fu.options.map((o, i) => `<button class="fu-opt${i ? '' : ' first'}" type="button" data-fu="${escAttr(o)}">${esc(o)}${i ? '' : '<kbd class="fu-key" aria-hidden="true">Ctrl <span>⏎</span></kbd>'}</button>`).join('');
+  const el = addMsg(`<div class="followup-card live" role="group" aria-label="Answer: ${escAttr(fu.question)}"><button class="icon-btn fu-close" type="button" title="Dismiss" aria-label="Dismiss">${svgIcon('x', 14)}</button><p class="fu-q">${esc(fu.question)}</p><div class="fu-opts">${opts}</div></div>`, tab);
+  $<HTMLButtonElement>('.fu-close', el).onclick = () => dropFollowUp(tab);
+  $$<HTMLButtonElement>('.fu-opt', el).forEach(b => b.onclick = () => background(sendFollowUp(tab, b.dataset.fu ?? '')));
+}
+function dropFollowUp(tab: AgentTabState): void {
+  tab.panel.querySelectorAll('.followup-card').forEach(c => c.remove());
+}
+// The answer goes out as if typed: whatever is in the prompt (and its attachments) stays there for later.
+async function sendFollowUp(tab: AgentTabState, text: string): Promise<void> {
+  const s = SURFACES[tab.surfaceName];
+  const c = s && composerOf(s);
+  if (!text || !c?.send || tabBusy(tab) || composerTab(c) !== tab) return;
+  if (!isBoardSurface(s.name) && s !== surface) return; // sendPrompt sends from the surface on screen
+  dropFollowUp(tab);
+  const draft = s.prompt.value, draftAtt = attachmentsMap[s.name] || [];
+  s.prompt.value = text;
+  attachmentsMap[s.name] = [];
+  try { await c.send(); } finally {
+    s.prompt.value = draft;
+    attachmentsMap[s.name] = draftAtt;
+    renderAttachments(s);
+    s.prompt.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+// Ctrl+Enter in an empty prompt picks the first answer. A prompt with text in it keeps Ctrl+Enter for queueing.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+  const focused = document.activeElement;
+  const s = Object.values(SURFACES).find(x => x.prompt === focused) ?? (focused === document.body ? surface : undefined);
+  if (!s || s.prompt.value.trim()) return;
+  const first = getActiveTab(s).panel.querySelector<HTMLButtonElement>('.followup-card.live .fu-opt');
+  if (!first) return;
+  e.preventDefault();
+  e.stopPropagation();
+  first.click();
+}, true);
 
 // The card stops taking answers and says how it ended.
 // The card's answer goes back to the waiting agent, and the card stops taking clicks.
@@ -754,6 +832,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   image: (r, ev, tab) => agentImage(r, ev, tab),
   tests: (r, ev, tab) => testsCard(r, ev, tab),
   todo: (r, ev, tab) => todoCard(r, ev, tab),
+  subagent: (r, ev, tab) => onSubagent(r, ev, tab),
   // The run stopped (or the agent gave up waiting) before anyone answered.
   'question-end': (_r, ev, tab) => { if (ev.id) endQuestion(tab.panel.querySelector(`[data-question="${CSS.escape(ev.id)}"]`), '✕ Not answered'); saveChat(tab); },
   note: (_r, ev, tab) => { if (ev.text) toolLine('note', ev.text, tab); },
@@ -778,7 +857,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
     AGENT_EVENTS.auth?.(r, ev, tab);
   },
   error: (r, ev, tab) => onAgentError(r, ev, tab),
-  done: (r, ev, tab) => { endTodoCard(tab); dropUnwrittenDrafts(r); finishRun(r, ev, tab); },
+  done: (r, ev, tab) => { r.subagents?.clear(); endTodoCard(tab); dropUnwrittenDrafts(r); finishRun(r, ev, tab); },
   crossing: (r, ev, tab) => crossingCard(r, ev, tab),
   'team-done': (r, ev, tab) => onTeamDone(r, ev, tab),
 };
@@ -993,6 +1072,7 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
     background(fillEditCounts(edits, files, tab));
   }
   addMsg(`<div class="run-done">${svgIcon('check', 14)}<span>${bits.length ? bits.join(' · ') : 'Done'}</span></div>`, tab);
+  followUpCard(r, tab);
   if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
   if (r.files.size && idePreview.running) autoReloadPreview();
 }

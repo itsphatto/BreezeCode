@@ -1,4 +1,4 @@
-// What the DebugManager (debug.ts) and its backends (debugPython, debugNode, debugGdb, debugJava, debugDotnet) share.
+// What the DebugManager (debug.ts) and its backends (debugPython, debugNode, debugGdb, debugJava, debugDotnet, debugGo) share.
 import type { DebugValue } from './cdp';
 
 export type { DebugValue };
@@ -31,7 +31,7 @@ export interface Host {
 }
 
 // What a backend's prepare() hands the manager for launching the program (a port, a flag, arguments).
-export interface Launch { port?: number; ts?: boolean; args?: string[]; [key: string]: unknown }
+export interface Launch { port?: number; ts?: boolean; args?: string[]; entry?: string; nodeArgs?: string[]; [key: string]: unknown }
 
 // One debugger backend: the manager spawns the process and owns its stdio; the backend speaks the debug protocol.
 export interface Backend {
@@ -40,6 +40,8 @@ export interface Backend {
   prepare(): Promise<Launch>;
   connect(): Promise<void>;
   stderr(text: string): string | null | undefined;
+  stdout?(text: string): string | null | undefined; // when the debugger itself shares the program's stdout (Delve)
+  exitCode?(): number | null | undefined;          // the program's exit code, when the process the manager runs is the debugger
   exited?(): void;
   close(): void;
   disconnect(): Promise<void>;

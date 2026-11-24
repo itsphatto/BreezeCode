@@ -7,6 +7,7 @@ const TOOLS_FOR_EXT: Record<string, string[]> = {
   py: ['python'], pyw: ['python'], ipynb: ['python'], cs: ['dotnet'], java: ['java'], rs: ['rust', 'cargo'], lua: ['lua'], php: ['php'],
   sql: ['sqlite'], go: ['go'], rb: ['ruby'], kt: ['kotlin'], kts: ['kotlin'], swift: ['swift'], dart: ['dart'], zig: ['zig'],
   scala: ['scala'], ex: ['elixir'], exs: ['elixir'], hs: ['haskell'], r: ['r'], pl: ['perl'], pm: ['perl'], groovy: ['groovy'],
+  sh: ['bash'], bash: ['bash'], zsh: ['zsh'], ps1: ['powershell'],
 };
 const toolLabel = (name: string) => name.replace('.js', '').replace('C/C++', 'C');
 

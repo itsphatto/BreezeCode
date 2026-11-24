@@ -105,6 +105,8 @@ interface Run {
   lastMsg?: HTMLElement;
   replied: boolean;
   announce: boolean;
+  todos?: AgentEvent['todos'];        // its to-do list, last as sent (todoCard)
+  subagents?: Map<string, string>;    // subagents working now: tool call id -> what it was asked to do
 }
 let agentRun: Run | null = null;
 // The team member whose event is being handled; addMsg gives its lines its logo and name. Null outside team tabs.
