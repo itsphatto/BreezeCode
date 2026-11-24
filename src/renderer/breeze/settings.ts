@@ -27,6 +27,13 @@ function applyDevMode(): void {
 // Agents the user has come first, then this order; anything else keeps its place after.
 const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'gemini', 'opencode', 'local', 'openrouter'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
+// Settings -> Agents -> API keys: each connected API agent with Remove; keys are added in the agent picker.
+function apiKeyRowsHtml(agents: DetectedAgent[]): string {
+  const apis = agents.filter(a => a.api && a.found);
+  if (!apis.length) return '<p class="set-sub">No API keys yet. Add one in Manage agents.</p>';
+  return apis.map(a => settingRow(a.name, [a.keyUrl ? 'Key saved' : a.path ?? 'Local server', a.version].filter(Boolean).join(' · '),
+    `<button class="btn btn-sm" data-llm-remove="${escAttr(a.id)}">Remove</button>`)).join('');
+}
 let settingsTab: SettingsTab = 'general';
 let agentFullAccess = true; // on unless turned off in Settings → Agents; the main process keeps the real value; read each time Settings opens
 let justSwitched = false;
@@ -1043,6 +1050,8 @@ function settingsBody(tab: SettingsTab): string {
       return `<h4>Agents</h4>
         <div class="set-agents">${list}</div>
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
+        <h5>API keys</h5>
+        ${apiKeyRowsHtml(agents)}
         <h5>Permissions</h5>
         ${settingRow('Full access', fullAccessSub(), switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
         <h5>Agent Board</h5>
@@ -1582,6 +1591,10 @@ function bindSettings(m: HTMLElement): void {
     finally { setTimeout(refreshSettings, 2500); }
   });
   on('sAgentPicker', () => openAgentPicker());
+  $$<HTMLButtonElement>('[data-llm-remove]', pane).forEach(b => b.onclick = () => {
+    b.disabled = true;
+    background(removeApiAgent(b.dataset.llmRemove ?? '').finally(refreshSettings));
+  });
   on('sFullAccess', () => setFullAccess(!agentFullAccess));
   // The Agent Board's switches (board.ts), here instead of in the board's bar.
   const flip = (el: HTMLElement, v: boolean) => { el.classList.toggle('on', v); el.setAttribute('aria-checked', String(v)); };

@@ -119,7 +119,9 @@ function detectTools(force = false): Promise<Detection> {
     const replacesSpinner = !!$('#obToolList').querySelector('.spinner');
     const moving = replacesSpinner && step === STEP.tools && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches;
     const card = $('.ob-tools'), before = moving ? card.getBoundingClientRect().height : 0;
+    const prev = appState.detect;
     appState.detect = d;
+    if (prev) announceAgentChanges(prev, d);
     fixSelectedAgent(); // no agent step any more: the first agent found is the one Breeze starts with (Settings → Agents changes it)
     renderDetection();
     if (moving) {
@@ -153,6 +155,16 @@ window.addEventListener('focus', () => {
   if (Date.now() - installStarted < 10 * 60_000) lastAutoScan = 0;
   autoRescan();
 });
+// A scan that finds an agent newly installed or connected, or one gone, says so, and the open picker redraws.
+function announceAgentChanges(prev: Detection, d: Detection): void {
+  const was = new Set(prev.agents.filter(a => a.found).map(a => a.id));
+  const now = new Set(d.agents.filter(a => a.found).map(a => a.id));
+  const added = d.agents.filter(a => a.found && !was.has(a.id)).map(a => a.name);
+  const gone = prev.agents.filter(a => a.found && !now.has(a.id)).map(a => a.name);
+  if (added.length) toast(`${added.join(', ')} added`);
+  if (gone.length) toast(`${gone.join(', ')} removed`);
+  if (added.length || gone.length) pickerRefresh?.();
+}
 // Keep the chosen agent if it is still usable, else fall back to the first one that is.
 function fixSelectedAgent(): void {
   const found = appState.detect?.agents.filter(a => a.found) ?? [];
@@ -161,22 +173,10 @@ function fixSelectedAgent(): void {
 }
 
 const pillClass = (on: boolean) => (on ? 'blue' : 'ok');
-// An API agent's card. Ollama: an optional API key to connect with (the server is found on this computer).
-// Gemini and OpenRouter: a link to get a key and the key field. Once connected: a model picker and Remove.
-// Every card carries data-llm-card so its controls are bound to it alone.
+// A connected API agent's card: a model picker and Remove. It carries data-llm-card so its controls are bound to it alone.
 function localAgentHtml(a: DetectedAgent, on: boolean, mark: string): string {
   const name = `<span class="nm">${esc(a.name)} <small>API</small></span>`;
   const cloud = !!a.keyUrl;
-  if (!a.found) {
-    const get = cloud ? 'Get a key' : 'Get Ollama';
-    const sub = cloud ? a.sub ?? '' : 'Finds Ollama or LM Studio running on this computer';
-    const hint = cloud ? `${a.name} API key` : 'API key';
-    return `<div class="agent-opt api missing" data-llm-card="${escAttr(a.id)}">${mark}${name}
-      <button class="get side" data-get="${escAttr(a.keyUrl ?? a.url)}"><span class="get-label">${get}</span></button>
-      <span class="sub">${esc(sub)}</span>
-      <div class="key-row"><input class="input" type="password" data-llm-key aria-label="${escAttr(hint)}" placeholder="${escAttr(hint)}" autocomplete="off" spellcheck="false"><button class="btn btn-sm" data-llm-connect>Connect</button></div>
-      <div class="key-err hidden"></div></div>`;
-  }
   const label = on ? 'Selected' : 'Ready';
   const options = (a.models ?? []).map(m => `<option value="${escAttr(m)}"${m === a.version ? ' selected' : ''}>${esc(m)}</option>`).join('');
   const sub = cloud ? a.sub ?? '' : a.path ?? '';
@@ -220,41 +220,78 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
     ${mark}<span class="nm">${esc(a.name)}</span>${side}
     ${a.found ? '' : `<span class="sub" title="${escAttr(sub)}">${esc(sub)}</span>`}${modelOptions}</div>`;
 }
+// Which API agent a pasted key is for, by its prefix. Anything else, or no key, goes to the local server (Ollama, LM Studio).
+function keyProvider(key: string): string {
+  if (/^sk-or-/i.test(key)) return 'openrouter';
+  if (/^AIza/.test(key)) return 'gemini';
+  return 'local';
+}
+// One key field for every API agent not connected yet; keyProvider picks the agent, and the connected one joins the list.
+function apiKeyHtml(apis: DetectedAgent[]): string {
+  if (!apis.length) return '';
+  const cloud = apis.filter(a => a.keyUrl).map(a => a.name);
+  const local = apis.some(a => !a.keyUrl);
+  const hint = cloud.length ? `Paste a ${cloud.join(' or ')} key${local ? ', or leave it empty to find Ollama or LM Studio' : ''}` : 'Finds Ollama or LM Studio running on this computer';
+  const links = apis.map(a => `<button class="get" data-get="${escAttr(a.keyUrl ?? a.url)}"><span class="get-label">${esc(a.keyUrl ? `${a.name} key` : `Get ${a.name}`)}</span></button>`).join('');
+  return `<div class="agent-opt api api-key missing" data-llm-key-card>
+    <span class="nm">API key</span>
+    <span class="sub">${esc(hint)}</span>
+    <div class="key-row"><input class="input" type="password" data-llm-key aria-label="API key" placeholder="API key" autocomplete="off" spellcheck="false"><button class="btn btn-sm" data-llm-connect>Connect</button></div>
+    <div class="key-err hidden"></div><div class="api-links">${links}</div></div>`;
+}
+// Selected first, then every agent found, then those not installed, then the one key field for the API agents.
 function agentOptionsHtml(d: Detection): string {
-  return d.agents.map(a => {
+  const rank = (a: DetectedAgent) => (!a.found ? 2 : a.id === appState.agent ? 0 : 1);
+  const rows = d.agents.filter(a => a.found || !a.api).sort((a, b) => rank(a) - rank(b)).map(a => {
     const st = AGENT_STYLE[a.id] ?? { letter: a.name[0], tint: 'default' };
     const on = a.found && a.id === appState.agent;
     const mark = brandMark('mark', st.tint, st.letter);
     return a.api ? localAgentHtml(a, on, mark) : cliAgentHtml(a, on, mark, !!d.demo);
   }).join('');
+  return rows + apiKeyHtml(d.agents.filter(a => a.api && !a.found));
 }
-// Each API card's controls, bound inside that card only, so two cards never share a key field.
+// Forgets an API agent's key or server (the picker's Remove, Settings -> Agents -> API keys).
+async function removeApiAgent(id: string): Promise<void> {
+  const a = appState.detect?.agents.find(x => x.id === id);
+  await api.llm.disconnect(id);
+  if (a) Object.assign(a, { found: false, path: null, version: null, models: [] });
+  fixSelectedAgent();
+  renderAgentBar();
+  toast(`${a?.name ?? id} removed`);
+  pickerRefresh?.();
+}
+// The key field, and each connected API card's controls bound inside that card only.
 function bindLocalLlm(root: HTMLElement, onChange: () => void): void {
+  const keyCard = root.querySelector<HTMLElement>('[data-llm-key-card]');
+  const connect = keyCard?.querySelector<HTMLButtonElement>('[data-llm-connect]');
+  const key = keyCard?.querySelector<HTMLInputElement>('[data-llm-key]');
+  if (keyCard && connect && key) {
+    const err = $('.key-err', keyCard);
+    const save = async () => {
+      const value = key.value.trim();
+      const target = appState.detect?.agents.find(a => a.api && a.id === keyProvider(value));
+      if (!target) { err.textContent = "Breeze doesn't recognise that key."; err.classList.remove('hidden'); return; }
+      connect.disabled = true; swapText(connect, 'Connecting');
+      try {
+        const r = await api.llm.connect(target.id, '', value);
+        Object.assign(target, { found: true, path: r.url ?? null, version: r.model, models: r.models });
+        if (!selectedAgent()) appState.agent = target.id;
+        saveApp();
+        toast(`${target.name} added · ${r.model}`);
+        key.value = ''; // else the redraw would carry it into the next field
+        onChange();
+      } catch (e) {
+        connect.disabled = false; swapText(connect, 'Connect');
+        err.textContent = errMsg(e); err.classList.remove('hidden');
+      }
+    };
+    connect.onclick = () => void save();
+    key.onkeydown = e => { if (e.key === 'Enter') void save(); };
+  }
   $$('[data-llm-card]', root).forEach(card => {
     const id = card.dataset.llmCard ?? '';
     const agent = () => appState.detect?.agents.find(a => a.id === id);
     const nameOf = () => agent()?.name ?? id;
-    const connect = card.querySelector<HTMLButtonElement>('[data-llm-connect]');
-    const key = card.querySelector<HTMLInputElement>('[data-llm-key]');
-    if (connect && key) {
-      const save = async () => {
-        const err = card.querySelector<HTMLElement>('.key-err');
-        connect.disabled = true; swapText(connect, 'Connecting');
-        try {
-          const r = await api.llm.connect(id, '', key.value);
-          Object.assign(agent() ?? {}, { found: true, path: r.url ?? null, version: r.model, models: r.models });
-          if (!selectedAgent()) appState.agent = id;
-          saveApp();
-          toast(`${nameOf()} connected · ${r.model}`);
-          onChange();
-        } catch (e) {
-          connect.disabled = false; swapText(connect, 'Connect');
-          if (err) { err.textContent = errMsg(e); err.classList.remove('hidden'); }
-        }
-      };
-      connect.onclick = () => void save();
-      key.onkeydown = e => { if (e.key === 'Enter') void save(); };
-    }
     const model = card.querySelector<HTMLSelectElement>('[data-llm-model]');
     if (model) model.onchange = () => background(api.llm.setModel(id, model.value).then(() => {
       Object.assign(agent() ?? {}, { version: model.value });
@@ -264,25 +301,19 @@ function bindLocalLlm(root: HTMLElement, onChange: () => void): void {
     }));
     card.querySelector<HTMLElement>('[data-llm-off]')?.addEventListener('click', e => {
       e.stopPropagation();
-      background(api.llm.disconnect(id).then(() => {
-        Object.assign(agent() ?? {}, { found: false, path: null, version: null, models: [] });
-        fixSelectedAgent();
-        onChange();
-      }));
+      background(removeApiAgent(id).then(onChange));
     });
   });
 }
 function bindAgentOptions(root: HTMLElement, onChange: () => void): void {
   $$('[data-agent]', root).forEach(el => {
     const pick = () => {
-      const from = root.querySelector('.agent-opt.on')?.getBoundingClientRect();
       appState.agent = el.dataset.agent ?? null;
       const curTab = surfaceTabs['ide']?.find(t => t.id === activeTabId['ide']);
       if (curTab && appState.agent) curTab.agentId = appState.agent;
       saveApp();
       onChange();
       updateScmGenBtn();
-      slideSelected(root.querySelector<HTMLElement>(`[data-agent="${CSS.escape(appState.agent ?? '')}"]`), from);
     };
     el.onclick = e => { if (!(e.target as HTMLElement).closest('button, input, select')) pick(); };
     el.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); pick(); } };
@@ -677,19 +708,41 @@ function renderAgentBar(): void {
 }
 
 
+// Redraws the agent picker while it is open (a scan found a change, an API agent was added or removed).
+let pickerRefresh: (() => void) | null = null;
+// No Scan button: the picker scans as it opens, and any scan that finds an agent added or gone redraws it and says so
+// (announceAgentChanges). Rows that change place slide there; a key half typed survives the redraw.
 function openAgentPicker(): void {
-  openModal(`<h3>Choose your AI agent</h3><p class="sub">Installed coding agents are found automatically. A local LLM connects by its server address.</p>
+  openModal(`<h3>Choose your AI agent</h3><p class="sub">Installed coding agents are found automatically. Paste an API key to add Gemini, OpenRouter or a local LLM.</p>
     <div class="agent-list" id="pickList"></div>
-    <div class="row between spaced"><button class="btn btn-sm btn-ghost" id="pickRescan">Scan again</button><button class="btn btn-primary" data-close>Done</button></div>`, m => {
-    const scanning = '<div class="text-3">Scanning</div>';
+    <div class="row end spaced"><button class="btn btn-primary" data-close>Done</button></div>`, m => {
+    const list = $('#pickList', m);
     const render = () => {
-      if (!appState.detect) { $('#pickList', m).innerHTML = scanning; return; }
-      $('#pickList', m).innerHTML = agentOptionsHtml(appState.detect);
-      bindAgentOptions($('#pickList', m), () => { render(); renderDetection(); });
+      if (!m.isConnected) { pickerRefresh = null; return; }
+      if (!appState.detect) { list.innerHTML = '<div class="text-3">Scanning</div>'; return; }
+      const key = list.querySelector<HTMLInputElement>('[data-llm-key]');
+      const typed = key?.value ?? '', focused = !!key && document.activeElement === key;
+      const tops = new Map($$('[data-agent]', list).map(el => [el.dataset.agent, el.getBoundingClientRect().top]));
+      list.innerHTML = agentOptionsHtml(appState.detect);
+      bindAgentOptions(list, () => { render(); renderDetection(); });
+      const nextKey = list.querySelector<HTMLInputElement>('[data-llm-key]');
+      if (nextKey && typed) nextKey.value = typed;
+      if (nextKey && focused) nextKey.focus();
+      if (!tops.size || motionOff() || reducedMotion()) return;
+      $$('[data-agent]', list).forEach(el => {
+        const top = tops.get(el.dataset.agent);
+        if (top === undefined) { riseIn(el); return; }
+        const dy = top - el.getBoundingClientRect().top;
+        if (Math.abs(dy) > 1) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 360, easing: 'cubic-bezier(.3, 0, .2, 1)' });
+      });
     };
+    pickerRefresh = render;
     render();
-    $('#pickRescan', m).onclick = () => { $('#pickList', m).innerHTML = scanning; detectTools(true).then(render, () => { /* shown in the agent card */ }); };
-  });
+    lastAutoScan = Date.now();
+    // The first scan of the session fills the list; later ones redraw it only on a change (announceAgentChanges).
+    const first = !appState.detect;
+    detectTools(!first).then(() => { if (first) render(); }, () => { /* shown in the agent card */ });
+  }, () => { pickerRefresh = null; });
 }
 
 /* ----- Home: jump back into a recent project, or start one ----- */
