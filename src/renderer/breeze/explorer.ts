@@ -252,23 +252,26 @@ $('#tree').addEventListener('dragstart', e => {
     e.dataTransfer.setData('application/x-breeze-tree-path', draggedTreePath);
     e.dataTransfer.setData('application/x-breeze-is-dir', draggedTreeIsDir ? '1' : '0');
 
-    // The browser's own drag image is a flat bitmap, so it can't blur what's behind it. It is swapped for an
-    // empty image and a real element follows the pointer instead, with a backdrop blur.
-    let ghost = document.getElementById('breezeDragGhost');
-    if (!ghost) {
-      ghost = document.createElement('div');
-      ghost.id = 'breezeDragGhost';
-      ghost.className = 'drag-file-ghost';
-      document.body.appendChild(ghost);
-    }
     const name = draggedTreePath.split('/').pop() || draggedTreePath;
     const iconHtml = draggedTreeIsDir ? folderIcon(name, false) : fileIcon(name);
-    ghost.innerHTML = `<span class="ico">${iconHtml}</span><span class="nm">${esc(name)}</span>`;
-    e.dataTransfer.setDragImage(emptyDragImage, 0, 0);
-    moveDragGhost(e.clientX, e.clientY);
-    ghost.classList.add('on');
+    showDragGhost(e, `<span class="ico">${iconHtml}</span><span class="nm">${esc(name)}</span>`);
   }
 });
+// The browser's own drag image is a flat bitmap, so it can't blur what's behind it. It is swapped for an
+// empty image and a real element follows the pointer instead, with a backdrop blur. Board chips use it too (board.ts).
+function showDragGhost(e: DragEvent, html: string): void {
+  let ghost = document.getElementById('breezeDragGhost');
+  if (!ghost) {
+    ghost = document.createElement('div');
+    ghost.id = 'breezeDragGhost';
+    ghost.className = 'drag-file-ghost';
+    document.body.appendChild(ghost);
+  }
+  ghost.innerHTML = html;
+  e.dataTransfer?.setDragImage(emptyDragImage, 0, 0);
+  moveDragGhost(e.clientX, e.clientY);
+  ghost.classList.add('on');
+}
 const emptyDragImage = new Image();
 emptyDragImage.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 function moveDragGhost(x: number, y: number): void {

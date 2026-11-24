@@ -3,7 +3,7 @@
 
 export interface Agent { id: string; name: string; found?: boolean }
 
-const SHORT_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', local: 'Local' };
+const SHORT_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode', local: 'Local' };
 
 const shortName = ({ id, name }: Pick<Agent, 'id' | 'name'>): string => SHORT_NAMES[id] || name;
 

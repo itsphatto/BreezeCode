@@ -934,6 +934,7 @@ const BRAND_ICONS: Record<string, string> = {
   codex: 'codex.png',
   claude: 'claude.svg',
   antigravity: 'antigravity.png',
+  opencode: 'opencode.svg',
   instagram: 'instagram.png', facebook: 'facebook.png',
   local: 'ollama.svg',
   ollama: 'ollama.svg',

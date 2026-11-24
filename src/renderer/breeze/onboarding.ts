@@ -332,7 +332,8 @@ function copyStyles(src: Element, dst: Element, memo = new Map<string, string>()
   let css = memo.get(key) ?? '';
   if (!css) {
     const cs = getComputedStyle(src);
-    for (const p of COPY_PROPS) css += `${p}:${cs.getPropertyValue(p)};`;
+    // Shared across a class, so no size: every letter took the first one's width and the heading spread apart mid-flight.
+    for (const p of COPY_PROPS) if (!key || (p !== 'width' && p !== 'height')) css += `${p}:${cs.getPropertyValue(p)};`;
     if (key) memo.set(key, css);
   }
   // No animation or transition of its own, and no blur: the pieces carry it over opaque white, where it shows nothing,

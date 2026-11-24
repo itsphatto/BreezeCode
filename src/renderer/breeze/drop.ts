@@ -712,6 +712,18 @@ function setFluidContainer(container: HTMLElement | null, clientX: number, clien
   }
 }
 
+// An agent or chat dragged over a board box lights it with the same fluid glow a file drag gives a panel (board.ts).
+function boardDragGlow(box: HTMLElement | null, clientX = 0, clientY = 0): void {
+  for (const [c, state] of fluidCanvases) {
+    if (c === box || !c.classList.contains('board-box')) continue;
+    if (state.active) { state.active = false; state.fadeStartTime = performance.now(); }
+    if (!c.isConnected) fluidCanvases.delete(c); // a box the board re-rendered away
+  }
+  if (!box) return;
+  if (!box.querySelector(':scope > .agent-fluid-canvas')) box.insertAdjacentHTML('beforeend', '<canvas class="agent-fluid-canvas" aria-hidden="true" tabindex="-1"></canvas>');
+  updateAgentDragPointer(box, clientX, clientY);
+}
+
 function stopAgentDragPointer(immediate = false): void {
   const now = performance.now();
   for (const state of fluidCanvases.values()) {

@@ -122,6 +122,7 @@ $('#boardRoster').addEventListener('dragstart', e => {
   if (!chip || !e.dataTransfer) return;
   e.dataTransfer.setData('text/breeze-agent', chip.dataset.agent!);
   e.dataTransfer.effectAllowed = 'copy';
+  showDragGhost(e, `${chip.querySelector('.board-chip-logo')?.outerHTML ?? ''}<span class="nm">${esc(chip.querySelector('b')?.textContent ?? '')}</span>`);
   boardGrid.classList.add('dragging');
   // The board opens a spot for it: the layout one more box makes (after the drag has started, or it is cancelled).
   setTimeout(() => { if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
@@ -147,6 +148,8 @@ const firstFreeKey = () => allBoxKeys().find(k => !boardBoxes.has(k) && !parkedB
 let boardDragging = false;
 function endBoardDrag(): void {
   boardGrid.classList.remove('dragging');
+  hideDragGhost();
+  boardDragGlow(null);
   for (const o of boardGrid.querySelectorAll<HTMLElement>('.drop-on')) o.classList.remove('drop-on'); // a cancelled drag
   if (!boardDragging) return;
   boardDragging = false;
@@ -470,6 +473,7 @@ function unparkBox(b: BoardBox): void {
 function finishParked(b: BoardBox): void {
   if (parkedBoxes.get(b.key) !== b || boxBusy(b)) return;
   parkedBoxes.delete(b.key);
+  if (b.tab.historyId) unreadChats.add(b.tab.historyId);
   dropRelaysFor(b.key);
   background(api.board.clearBox(b.key));
   removeBox(b);
@@ -540,11 +544,17 @@ boardGrid.addEventListener('dragover', e => {
   const side = dropSideOf(e, el);
   const entering = !el.classList.contains('drop-on');
   if (side) el.dataset.dropSide = side; else delete el.dataset.dropSide;
+  // Over the middle it glows as a file drag does (drop.ts); a side drop keeps the panel, which shows the half.
+  const glow = !side && !powerSaver();
+  el.classList.toggle('drop-glow', glow);
+  boardDragGlow(glow ? el : null, e.clientX, e.clientY);
   if (entering) { void el.offsetWidth; el.classList.add('drop-on'); }
 });
+// The ghost chip (explorer.ts) follows the pointer anywhere on the page while a chip or chat is dragged.
+document.addEventListener('dragover', e => { if (boardGrid.classList.contains('dragging')) moveDragGhost(e.clientX, e.clientY); }, true);
 boardGrid.addEventListener('dragleave', e => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('.board-box');
-  if (el && !el.contains(e.relatedTarget as Node)) el.classList.remove('drop-on');
+  if (el && !el.contains(e.relatedTarget as Node)) { el.classList.remove('drop-on'); boardDragGlow(null); }
 });
 boardGrid.addEventListener('drop', e => {
   if (!boardDragging && !boardDrag(e)) return; // files: drop.ts attaches them to the box
@@ -554,6 +564,7 @@ boardGrid.addEventListener('drop', e => {
   boardGrid.classList.remove('dragging');
   boardDragging = false; // the open spot becomes the new box (or closes, dropped on a filled one) in the same morph
   el?.classList.remove('drop-on');
+  boardDragGlow(null);
   const side = el && e.dataTransfer ? dropSideOf(e, el) : null;
   const entry = chat ? boardSideEntries().find(x => x.id === chat) : undefined;
   if (!el || (!agent && !entry)) { morphBoard(renderBoard); return; }
@@ -616,14 +627,26 @@ function boxHelloHtml(agent: string): string {
   const logo = mark ? `<span class="model-mark board-hello-mark ${mark}" aria-hidden="true"></span>` : brandMark('board-hello-logo', agent, agentNameOf(agent)[0] ?? '?');
   return `<div class="empty board-hello"><div class="board-hello-row">${logo}<h4>${esc(boardGreeting())}</h4></div></div>`;
 }
+// A wrapped heading's box stays as wide as the row, leaving the logo far from the text: shrink it to its widest line.
+function fitHello(row: Element | null): void {
+  const h = row?.querySelector<HTMLElement>('h4');
+  if (!h) return;
+  h.style.width = '';
+  const r = document.createRange();
+  r.selectNodeContents(h);
+  const widest = Math.max(0, ...Array.from(r.getClientRects(), (l) => l.width));
+  if (widest) h.style.width = `${Math.ceil(widest) + 1}px`; // +1: subpixel slack so the lines don't rewrap
+}
+const helloFit = new ResizeObserver((es) => es.forEach((e) => fitHello(e.target)));
 // Every 10 seconds each new chat's greeting fades to another line (greetings.ts BOARD_GREETINGS).
 decorInterval(() => {
   for (const h of document.querySelectorAll<HTMLElement>('.board-hello h4')) {
     const line = boardGreeting();
-    if (motionReduced()) { h.textContent = line; continue; }
+    if (motionReduced()) { h.textContent = line; fitHello(h.parentElement); continue; }
     const out = h.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
     out.finished.then(() => {
       h.textContent = line;
+      fitHello(h.parentElement);
       out.cancel();
       h.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' });
     }, () => {});
@@ -632,8 +655,11 @@ decorInterval(() => {
 // `fresh` while the chat is only its greeting. The prompt glides between the middle and the bottom (FLIP).
 function watchBoxFresh(el: HTMLElement, panel: HTMLElement): void {
   const comp = $('.board-composer', el);
+  let row: Element | null = null;
   const sync = () => {
-    const fresh = !!panel.querySelector(':scope > .board-hello');
+    const now = panel.querySelector(':scope > .board-hello .board-hello-row');
+    if (now !== row) { if (row) helloFit.unobserve(row); row = now; if (row) helloFit.observe(row); }
+    const fresh = !!now;
     if (fresh === el.classList.contains('fresh')) return;
     const before = el.isConnected ? comp.getBoundingClientRect() : null;
     el.classList.toggle('fresh', fresh);
@@ -1030,6 +1056,8 @@ function setChatPinned(id: string, on: boolean): void {
   renderBoardSide();
 }
 let boardSideQuery = '';
+// Chats that finished out of sight (parked): a blue dot until opened. shortcut: in memory only, lost on restart.
+const unreadChats = new Set<string>();
 // This folder's chats (the Agents panel's and the boxes', one list), then Breeze Space's old chats not carried on
 // here yet, so none of them are lost with Space.
 function boardSideEntries(): ChatEntry[] {
@@ -1121,8 +1149,9 @@ function renderBoardSide(): void {
     const rows = chats.map(e => {
       const box = boxWithChat(e.id);
       const away = !!box && parkedBoxes.get(box.key) === box;
-      return `<button class="box-side-chat${box && !away ? ' on' : ''}${box && boxBusy(box) ? ' busy' : ''}${away && tabNeedsYou(box.tab) ? ' needs-you' : ''}" type="button" role="listitem" draggable="true" data-chat="${escAttr(e.id)}" title="${escAttr(`${e.title}${e.log ? `\nFrom ${LOG_AGENT[e.log.agent] ?? e.log.agent}` : ''}\nClick to open it in a box, or drag it onto the board`)}">
-        <span class="needs-you-dot" title="Needs you" aria-label="Needs you"></span>${pins.includes(e.id) ? `<span class="box-side-pin" aria-label="Pinned">${svgIcon('pin', 12)}</span>` : ''}<span class="nm">${esc(e.title)}</span><span class="box-side-busy" aria-label="Working"></span><span class="ago">${esc(timeAgo(e.at))}</span></button>`;
+      if (box && !away) unreadChats.delete(e.id);
+      return `<button class="box-side-chat${box && !away ? ' on' : ''}${box && boxBusy(box) ? ' busy' : ''}${unreadChats.has(e.id) ? ' unread' : ''}${away && tabNeedsYou(box.tab) ? ' needs-you' : ''}" type="button" role="listitem" draggable="true" data-chat="${escAttr(e.id)}" title="${escAttr(`${e.title}${e.log ? `\nFrom ${LOG_AGENT[e.log.agent] ?? e.log.agent}` : ''}\nClick to open it in a box, or drag it onto the board`)}">
+        <span class="needs-you-dot" title="Needs you" aria-label="Needs you"></span>${pins.includes(e.id) ? `<span class="box-side-pin" aria-label="Pinned">${svgIcon('pin', 12)}</span>` : ''}<span class="nm">${esc(e.title)}</span><span class="box-side-busy" aria-label="Working"></span><span class="box-side-unread" aria-label="Finished, not read yet"></span><span class="ago">${esc(timeAgo(e.at))}</span></button>`;
     }).join('');
     return `<div class="box-side-group${folded ? ' folded' : ''}">
       <button class="box-side-folder" type="button" data-folder="${escAttr(folder)}" aria-expanded="${!folded}" title="${escAttr(pinGroup ? 'Chats you pinned' : folder || 'Chats from before folders were kept')}">
@@ -1266,6 +1295,7 @@ $('#boardSideList').addEventListener('dragstart', e => {
   if (!row || !e.dataTransfer) return;
   e.dataTransfer.setData('text/breeze-chat', row.dataset.chat!);
   e.dataTransfer.effectAllowed = 'copy';
+  showDragGhost(e, `<span class="nm">${esc(row.querySelector('.nm')?.textContent ?? '')}</span>`);
   boardGrid.classList.add('dragging');
   setTimeout(() => { if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
 });

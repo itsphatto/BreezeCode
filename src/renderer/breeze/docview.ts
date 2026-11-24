@@ -678,11 +678,33 @@ function svgView(b: EditorBuffer, host: HTMLElement, bar: HTMLElement): void {
   img.draggable = false;
   img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(b.text)}`;
   const dims = el('span', 'df-note');
-  img.onload = () => { dims.textContent = `${img.naturalWidth} × ${img.naturalHeight}`; };
+  img.onload = () => {
+    dims.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+    stage.classList.toggle('dark', svgIsLight(img));
+  };
   img.onerror = () => note('This SVG has a mistake in its markup, so it can\'t be drawn. Edit as code to fix it.');
   bar.append(dims);
   stage.append(img);
   host.append(stage);
+}
+
+// Whether the drawn parts are mostly light, so the checkerboard behind them goes dark to keep them visible.
+function svgIsLight(img: HTMLImageElement): boolean {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  if (!g) return false;
+  g.drawImage(img, 0, 0, 64, 64);
+  let lum = 0, weight = 0;
+  try {
+    const d = g.getImageData(0, 0, 64, 64).data;
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3] / 255;
+      lum += a * (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      weight += a;
+    }
+  } catch { return false; } // a tainted canvas: keep the light board
+  return weight > 0 && lum / weight > 0.6;
 }
 
 /* ----- PDF ----- */

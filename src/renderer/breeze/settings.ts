@@ -25,7 +25,7 @@ function applyDevMode(): void {
   queueDiscord();
 }
 // Agents the user has come first, then this order; anything else keeps its place after.
-const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'gemini', 'local', 'openrouter'];
+const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'gemini', 'opencode', 'local', 'openrouter'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
 let settingsTab: SettingsTab = 'general';
 let agentFullAccess = true; // on unless turned off in Settings → Agents; the main process keeps the real value; read each time Settings opens
@@ -894,7 +894,7 @@ const resetText = (sec: number) => {
   return at.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 // Agents that report no usage at all: a greyed row with no token count, so they don't just go missing.
-const NO_USAGE = new Set(['antigravity']);
+const NO_USAGE = new Set(['antigravity', 'opencode']);
 function usageHtml(agents: DetectedAgent[]): string {
   if (!agentUsage) return '<p class="set-sub shimmer-text">Loading usage</p>';
   const u = agentUsage;
@@ -979,7 +979,7 @@ function patchUsage(el: HTMLElement, html: string): void {
 // Fetches fresh numbers (agents used outside Breeze count too) and updates only if something changed.
 let usageShown = '';
 let usageTick = 0;
-// Antigravity reports neither limits nor tokens: it shows as a greyed row that says so (NO_USAGE).
+// Antigravity and OpenCode report neither limits nor tokens: they show as a greyed row that says so (NO_USAGE).
 const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found).sort((a, b) => agentRank(a) - agentRank(b));
 function updateUsage(el: HTMLElement): void {
   background(api.agent.usage().then(u => {

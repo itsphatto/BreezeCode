@@ -181,17 +181,18 @@
   --space-blur: blur(1px) saturate(160%); /* Breeze Space's prompt and terminal, over its stars */
   --space-prompt-blur: blur(14px) saturate(160%); /* the prompt frosts the stars and rain behind it */
   --space-msg-blur: blur(2px) saturate(160%); /* your messages in Breeze Space: a lighter frost than the prompt's */
-  --settings-blur: blur(10px) saturate(160%);
+  --settings-blur: blur(28px) saturate(160%);
   /* Ink is the colour of hover washes and hairlines, as an "r, g, b" triple for rgba(var(--ink), alpha):
      white over the dark themes, black over the light one. */
   --ink: 255, 255, 255;
-  --blue-text: #5981ca;
+  --blue-text: #7b9bd5; /* the darker #5981ca read 3.3:1 on --bg-3; this keeps its hue and holds 4.5:1 */
   --text-soft: #cccccc;
   --line-hi: #48484a;
   --line-strong: #636366;
   --code-text: #d4d4d8;
   --hover-dim: rgba(0, 0, 0, .25);
   --err-text: #f87171; /* error words and icons; --err is for marks and fills */
+  --success-text: #86efac; /* done words and ticks; --ok is for marks and fills */
   --on-blue: #f5f5f7; /* words and icons on blue and danger fills, in every theme */
   --danger-fill: #c42b1c; /* deeper than --err, so its white label reads 5.2:1 */
   /* Motion: everything that moves or resizes settles on a damped spring, sampled into linear() since cubic-bezier
@@ -230,12 +231,14 @@
   --text: #26231e;
   --text-2: #57514a;
   --text-3: #5c554b;
-  --ok: #137036;
-  --warn: #9c4706;
+  /* Deepened for the darker paper (#d9d2c9 --bg-3) so each still reads 4.5:1 as text. */
+  --ok: #126832;
+  --warn: #944306;
   --err: #c42b1c;
-  --err-text: #b91c1c;
+  --err-text: #b21b1b;
+  --success-text: #126832;
   --c-planner: #6d28d9;
-  --c-builder: #036496;
+  --c-builder: #035f8f;
   /* Paper isn't see-through: popups are solid sheets, not frosted glass. */
   --glass: rgba(238, 234, 230, .97);
   --glass-strong: rgba(234, 229, 224, .98);
@@ -276,6 +279,7 @@
   --warn: #f59e0b;
   --err: #ef4444;
   --err-text: #f87171;
+  --success-text: #86efac;
   --hover-dim: rgba(0, 0, 0, .25);
   color: var(--text);
 }
@@ -620,7 +624,8 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   --tint: #d97757;
 }
 
-.tint-codex {
+.tint-codex,
+.tint-opencode {
   --tint: #e4e4e7;
 }
 
@@ -1160,8 +1165,11 @@ body.menu-up :focus-visible:not(#menuRoot *) {
    picture before it first shows, so its first frame isn't a stall and its fade-in doesn't start late and then jump. It
    keeps .hidden, so everything that asks whether the step is showing (the title bar, Home's shortcuts, the :has()
    rules) still hears no; only its display comes back. */
+/* Under the sky (z-index -1): 1% in front of a step still showed Home's white heading against its dark panel, plainly
+   over the tools card's light glass. */
 .onboard .ob-step.hidden.ob-prewarm {
   display: block !important;
+  z-index: -1;
   opacity: .01;
   pointer-events: none;
   animation: none;
@@ -1688,9 +1696,24 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   text-align: left;
 }
 
+/* The list reaches into the card's padding (and pads itself back) so its scroll clip doesn't cut the buttons' shadows
+   off in a hard line at its right edge. */
 .ob-tool-list {
   min-height: 0;
   overflow-y: auto;
+  margin-inline: -16px;
+  padding-inline: 16px;
+}
+
+/* An install button is opaque white like every setup button: it lifts on hover without the app-wide grey dim layer,
+   and without a backdrop blur, which only re-rendered under it every frame of the lift. Lift and shadow ease together. */
+:root .onboard .ob-step:not(.home-step) .ob-tool .btn:not(.btn-ghost) {
+  backdrop-filter: none;
+  transition: transform .45s var(--spring), box-shadow .35s cubic-bezier(.2, .8, .2, 1), opacity .25s ease;
+}
+
+.ob-tool .btn:hover::after {
+  opacity: 0;
 }
 
 /* The list scrolls inside its card; its edges fade while there's more that way (Settings' pane does the same, with
@@ -4949,6 +4972,30 @@ body.preview-full #winControls {
   text-overflow: ellipsis;
 }
 
+/* A new chat's empty state: the logo and heading settle in, then the description slides out from under the heading. */
+.empty:has(.empty-line) > div > :is(img, h4) {
+  animation: emptyHeadIn .3s var(--spring-bounce) both;
+}
+
+.empty:has(.empty-line) .empty-line {
+  animation: emptyLineIn .34s .04s var(--spring-bounce) both;
+}
+
+@keyframes emptyHeadIn {
+  from { opacity: 0; transform: scale(.94); }
+}
+
+@keyframes emptyLineIn {
+  from { opacity: 0; transform: translateY(-14px) scale(.96); filter: blur(3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty:has(.empty-line) > div > :is(img, h4),
+  .empty:has(.empty-line) .empty-line {
+    animation: none;
+  }
+}
+
 .empty h4 {
   color: var(--text-2);
   margin: 10px 0 4px;
@@ -7118,7 +7165,7 @@ textarea:not(:placeholder-shown) + .ph-rot {
   cursor: pointer;
   white-space: nowrap;
   color: var(--text-2);
-  transition: background var(--t-fast), color var(--t-fast);
+  transition: background .15s ease, color .15s ease;
 }
 
 .qo-item .qo-title {
@@ -9385,10 +9432,10 @@ body.vibing .ide {
   --glass: rgba(238, 234, 230, .97);
   --glass-strong: rgba(234, 229, 224, .98);
   --glass-line: rgba(70, 55, 30, .12);
-  --ok: #137036;
-  --warn: #9c4706;
+  --ok: #126832;
+  --warn: #944306;
   --err: #c42b1c;
-  --err-text: #b91c1c;
+  --err-text: #b21b1b;
 }
 
 /* Room for the window buttons on the right. */
@@ -10808,10 +10855,8 @@ body.layout-animating .box > .terminal.open {
 .friends-sub {
   margin: 1.4em 0 .4em;
   color: var(--text-3);
-  font-size: .78em;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
 }
 
 .friends-row {
@@ -11365,12 +11410,27 @@ body.layout-animating .box > .terminal.open {
   transform: none;
 }
 
-/* A chat whose agent is still working. */
-.box-side-busy {
+/* A chat whose agent is still working: a gray dot fading up and down. */
+.box-side-busy,
+.box-side-unread {
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: var(--text-3);
+}
+
+.box-side-busy {
+  animation: sideBusyFade 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes sideBusyFade {
+  from { opacity: 1; }
+  to { opacity: .25; }
+}
+
+/* It finished while out of sight and has not been opened since. */
+.box-side-unread {
   background: var(--blue);
 }
 
@@ -11673,7 +11733,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   font-weight: 500;
 }
 .explain-ask:hover { background: var(--blue); color: #fff; }
-.explain-ask:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.explain-ask:focus-visible { outline: 2px solid var(--blue-text); outline-offset: 1px; }
 .explain-body {
   overflow: auto;
   padding: 10px 12px 12px;
@@ -12876,7 +12936,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 }
 
 .msw-seg:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--blue-text);
   outline-offset: 1px;
 }
 
@@ -13706,7 +13766,7 @@ button.pill, .pill-btn {
   user-select: none;
 }
 button.pill:hover, .pill-btn:hover {
-  color: var(--text-1);
+  color: var(--text);
   transform: none !important;
 }
 button.pill:active, .pill-btn:active {
@@ -13955,7 +14015,7 @@ body.layout-animating #previewPane {
 
 /* Chat attachments */
 .msg-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; margin-bottom: 6px; }
-.chat-file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 11px; font-family: var(--mono); color: var(--text-1); cursor: pointer; transition: background .15s, border-color .15s, transform .18s var(--spring); }
+.chat-file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 11px; font-family: var(--font-code); color: var(--text); cursor: pointer; transition: background .15s, border-color .15s, transform .18s var(--spring); }
 .chat-file-chip .ico { display: flex; align-items: center; }
 .chat-file-chip.folder .ico { color: #f59e0b; }
 .chat-file-chip.file .ico { color: var(--blue); }
@@ -14596,6 +14656,11 @@ body.layout-animating #previewPane {
 /* Sized from the window: about four fifths of its width and most of its height, up to 1480 × 905, and never
    smaller than fits (it fills a small window, less a margin). The side tab and the padding scale along with it;
    the text stays its size. */
+/* Dark themes: Settings is more see-through than other dialogs; the heavier blur keeps its text readable. */
+:root:not([data-theme="light"]):not([data-power="saver"]) .modal.settings-shell {
+  --glass-strong: rgba(30, 30, 34, .6);
+}
+
 .modal.settings-shell {
   backdrop-filter: var(--settings-blur);
   width: clamp(min(720px, calc(100vw - 32px)), 80vw, 1480px);
@@ -17326,17 +17391,17 @@ body.layout-animating #previewPane {
 /* ---------- light theme: colours drawn for a dark page, redrawn darker so they read on the paper ---------- */
 /* Code */
 :root[data-theme="light"] .tk-attr { color: var(--syn-kw, #6d28d9); }
-:root[data-theme="light"] .tk-str { color: var(--syn-str, #137036); }
+:root[data-theme="light"] .tk-str { color: var(--syn-str, #126832); }
 :root[data-theme="light"] .tk-kw { color: var(--syn-kw, #be185d); }
 :root[data-theme="light"] .tk-prop { color: var(--syn-num, #0369a1); }
 :root[data-theme="light"] .tk-num { color: var(--syn-num, #a8380a); }
-:root[data-theme="light"] .gutter .err.cur { color: #b91c1c; }
+:root[data-theme="light"] .gutter .err.cur { color: #b21b1b; }
 :root[data-theme="light"] .ln.warn .diag-msg { color: #b45309; }
 
 /* Git status, refs and diffs */
-:root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m :is(.gst, .nm), .scm-row.git-m :is(.st, .nm)) { color: #865500; }
+:root[data-theme="light"] :is(.tab .gst.git-m, .tree-item.git-m :is(.gst, .nm), .scm-row.git-m :is(.st, .nm)) { color: #7f5000; }
 /* Added and untracked share the green, as they do in the dark themes; each status covers its tab, tree and list rows. */
-:root[data-theme="light"] :is(.tab .gst:is(.git-a, .git-u), .tree-item:is(.git-a, .git-u) :is(.gst, .nm), .scm-row:is(.git-a, .git-u) :is(.st, .nm)) { color: #137036; }
+:root[data-theme="light"] :is(.tab .gst:is(.git-a, .git-u), .tree-item:is(.git-a, .git-u) :is(.gst, .nm), .scm-row:is(.git-a, .git-u) :is(.st, .nm)) { color: #126832; }
 :root[data-theme="light"] .tree-item.has-changes .nm { color: #92400e; }
 /* Ignored files read as quieter, not faded: names in the third ink at full strength, only the icon dimmed. */
 :root[data-theme="light"] .tree-item.git-ignored { opacity: 1; }
@@ -17345,20 +17410,20 @@ body.layout-animating #previewPane {
 :root[data-theme="light"] .tree-item.git-ignored:is(:hover, .on) .ico { opacity: 1; }
 :root[data-theme="light"] :is(.tree-item .gst.gst-in, .tree-item.has-incoming:not(.has-changes)::after, .scm-row.git-in .st) { color: var(--blue-text); }
 :root[data-theme="light"] :is(#scmGenMsg, .improve-prompt) svg { color: #7c3aed; }
-:root[data-theme="light"] .ref.branch { color: #137036; }
+:root[data-theme="light"] .ref.branch { color: #126832; }
 :root[data-theme="light"] .ref.remote { color: #6d28d9; }
 :root[data-theme="light"] .ref.tag { color: #a8380a; }
 :root[data-theme="light"] .dl.add { color: #14532d; }
 :root[data-theme="light"] .dl.del { color: #7f1d1d; }
 
 /* Agent output, status and errors */
-:root[data-theme="light"] :is(.tool-line.edit .tl, .run-done, .sb.live, .vibe-ready) { color: #137036; }
-:root[data-theme="light"] :is(.card.error pre, .card.crossing p.crossing-error, .card p.ts-error) { color: #b91c1c; }
+:root[data-theme="light"] :is(.tool-line.edit .tl, .run-done, .sb.live, .vibe-ready) { color: #126832; }
+:root[data-theme="light"] :is(.card.error pre, .card.crossing p.crossing-error, .card p.ts-error) { color: #b21b1b; }
 :root[data-theme="light"] .vibe-ready.failed { color: #92400e; }
 :root[data-theme="light"] :is(.start-ico, .agent-row .start-txt .sub b, .agent-opt .get:hover) { color: var(--blue-text); }
 :root[data-theme="light"] .set-agent.on { border-color: rgba(10, 98, 201, .5); }
 :root[data-theme="light"] .set-agent.on .set-sub { color: var(--blue-text); }
-:root[data-theme="light"] .mi-remove.armed { color: #b91c1c !important; }
+:root[data-theme="light"] .mi-remove.armed { color: #b21b1b !important; }
 :root[data-theme="light"] .attachment-thumb.folder-icon { color: #92400e; }
 
 /* Controls (WCAG 1.4.11): a field's edge stands 3:1 off the paper, placeholders read at full text contrast, header
@@ -17388,12 +17453,12 @@ body.layout-animating #previewPane {
 }
 
 /* Terminal */
-:root[data-theme="light"] :is(.term-kw-error, .term-exit-err, .term-out-pane .err) { color: #b91c1c; }
+:root[data-theme="light"] :is(.term-kw-error, .term-exit-err, .term-out-pane .err) { color: #b21b1b; }
 /* The command being typed is coloured by the same classes as the echoed one in the output (.term-ghost and .term-out-pane). */
 :root[data-theme="light"] :is(.term-kw-warning, .term-out-pane .term-cmd-name, .term-ghost .term-cmd-name) { color: #8a5800; }
 :root[data-theme="light"] :is(.term-kw-cyan, .term-kw-info, .term-url) { color: #0369a1; }
 :root[data-theme="light"] :is(.term-url:hover, .term-out-pane .term-ref:hover) { color: var(--blue-text); }
-:root[data-theme="light"] :is(.term-kw-success, .term-exit-ok, .term-out-pane .term-cmd-str, .term-ghost .term-cmd-str) { color: #137036; }
+:root[data-theme="light"] :is(.term-kw-success, .term-exit-ok, .term-out-pane .term-cmd-str, .term-ghost .term-cmd-str) { color: #126832; }
 :root[data-theme="light"] :is(.term-out-pane, .term-ghost) .term-cmd-num { color: #a8380a; }
 :root[data-theme="light"] :is(.term-out-pane, .term-ghost) .term-cmd-flag { color: #be185d; }
 /* The suggested rest of a command stays lighter than what was typed, but readable. */
@@ -17402,8 +17467,8 @@ body.layout-animating #previewPane {
 :root[data-theme="light"] .term-body .ps .ps-branch { color: #7c3aed; }
 :root[data-theme="light"] .term-line input::selection { color: var(--text); -webkit-text-fill-color: var(--text); }
 :root[data-theme="light"] :is(.ansi-fg-black, .ansi-bold) { color: var(--text); }
-:root[data-theme="light"] :is(.ansi-fg-red, .ansi-fg-bright-red) { color: #b91c1c; }
-:root[data-theme="light"] :is(.ansi-fg-green, .ansi-fg-bright-green) { color: #137036; }
+:root[data-theme="light"] :is(.ansi-fg-red, .ansi-fg-bright-red) { color: #b21b1b; }
+:root[data-theme="light"] :is(.ansi-fg-green, .ansi-fg-bright-green) { color: #126832; }
 :root[data-theme="light"] :is(.ansi-fg-yellow, .ansi-fg-bright-yellow) { color: #8a5800; }
 :root[data-theme="light"] :is(.ansi-fg-blue, .ansi-fg-bright-blue) { color: #1d4ed8; }
 :root[data-theme="light"] :is(.ansi-fg-magenta, .ansi-fg-bright-magenta) { color: #a21caf; }
@@ -18408,7 +18473,7 @@ body.layout-animating #previewPane {
 }
 
 input.dbg-edit:focus-visible {
-  border-color: var(--blue);
+  border-color: var(--text-2);
 }
 
 .dbg-edit.bad,
@@ -18605,7 +18670,7 @@ input.dbg-edit.bad:focus-visible {
 }
 
 :root[data-theme="light"] .dbg-note-pre {
-  color: #b91c1c;
+  color: var(--err-text);
 }
 
 :root[data-theme="light"] .dbg-var.changed .dbg-val {
@@ -20779,9 +20844,10 @@ input.dbg-edit.bad:focus-visible {
   display: none;
 }
 
-/* A chat whose box is working shows the blue dot in place of its time. */
+/* A chat whose box is working shows the gray dot in place of its time; one finished unread, the blue dot. */
 .board-side .box-side-chat:not(.busy) .box-side-busy,
-.board-side .box-side-chat.busy .ago {
+.board-side .box-side-chat:is(:not(.unread), .busy) .box-side-unread,
+.board-side .box-side-chat:is(.busy, .unread) .ago {
   display: none;
 }
 
@@ -20917,6 +20983,16 @@ input.dbg-edit.bad:focus-visible {
 
 .board-box.drop-on::after {
   opacity: 1;
+}
+
+/* Over a box's middle the panel gives way to the file drag's fluid glow (drop.ts boardDragGlow). */
+.board-box.drop-on.drop-glow::after {
+  opacity: 0;
+}
+
+.board-box.drop-on.drop-glow > :is(.agent-fluid-canvas, .agent-fluid-blur) {
+  opacity: 1;
+  transition: opacity .4s cubic-bezier(.22, 1, .36, 1);
 }
 
 /* Hidden, it only fades: it keeps the half it was on (board.ts leaves data-drop-side), rather than sliding back. */
@@ -21719,6 +21795,11 @@ body > .board-preview.full {
   background: repeating-conic-gradient(#d9d9d9 0% 25%, #fff 0% 50%) 0 0 / 16px 16px;
 }
 
+/* A mostly light picture gets a dark board instead (set from docview's svgIsLight). */
+.df-svg.dark {
+  background: repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 16px 16px;
+}
+
 .df-svg img {
   display: block;
   max-width: min(100%, 960px);
@@ -22031,7 +22112,7 @@ body > .board-preview.full {
   border: 1px solid var(--line); border-radius: 8px; background: var(--bg-1); color: var(--text-3);
   transition: border-color .15s ease, background .15s ease;
 }
-.brain-search:focus-within { border-color: var(--blue); background: var(--bg-2); color: var(--text-2); }
+.brain-search:focus-within { border-color: var(--text-2); background: var(--bg-2); color: var(--text-2); }
 .brain-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 13px var(--font-ui); }
 .brain-search input::-webkit-search-cancel-button { display: none; }
 .brain-search kbd { font: 500 11px var(--font-code); padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-3); }
@@ -22061,7 +22142,7 @@ body > .board-preview.full {
 .brain [data-kind="decision"] > i { background: var(--brain-decision); }
 .brain [data-kind="task"] > i { background: var(--brain-task); }
 .brain [data-kind="file"] > i { background: var(--brain-file); }
-.brain-kind { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); }
+.brain-kind { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); }
 .brain-meta { font-size: 11px; color: var(--text-3); }
 
 /* The body: the graph or the list, and the side panel that slides in beside it */
@@ -22084,7 +22165,7 @@ body > .board-preview.full {
 .brain-panel-acts { display: flex; align-items: center; gap: 6px; }
 .brain-panel-acts [aria-pressed="true"] { border-color: var(--blue); color: var(--text); }
 .brain-forget:hover { color: var(--err-text); border-color: var(--err); }
-.brain-panel-h { margin: 8px 0 4px; font: 600 11px var(--font-ui); letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); }
+.brain-panel-h { margin: 8px 0 4px; font: 600 12px var(--font-ui); color: var(--text-3); }
 .brain-panel-h b { font-weight: 500; color: var(--text-3); margin-left: 4px; }
 .brain-panel-none { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-3); }
 .brain-links { display: flex; flex-direction: column; gap: 2px; margin: 0 -8px; }
@@ -22098,7 +22179,7 @@ body > .board-preview.full {
 .brain-row > i { transform: translateY(-1px); }
 .brain-row:hover { background: rgba(var(--ink), .06); }
 .brain-row.on { background: var(--blue-soft); }
-.brain-row:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.brain-row:focus-visible { outline: 2px solid var(--blue-text); outline-offset: -2px; }
 .brain-row-text { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .brain-row .brain-meta { grid-column: 2; }
 .brain-row-file { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; background: rgba(var(--ink), .07); color: var(--text-2); font: 11px/18px var(--font-code); vertical-align: 1px; }
@@ -22174,7 +22255,7 @@ body > .board-preview.full {
 :root[data-power="saver"] .feed-connect { background: rgba(0, 0, 0, .7); }
 :root[data-power="saver"] .drag-file-ghost { background: var(--bg-3); }
 /* Kept turning: they say "working" or "type here", and cost a few pixels each. */
-:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot) {
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
   animation-iteration-count: infinite !important;
 }
 /* The welcome and launch sky's drifting light repaints the whole window behind everything. */
