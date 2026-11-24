@@ -642,6 +642,11 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   --tint: #94a3b8;
 }
 
+/* OpenRouter's lime mark is for dark backgrounds; the light theme shows its dark mark. */
+:root[data-theme="light"] .tint-openrouter .brand-img {
+  content: url(../../assets/icons/openrouter_mark_dark.svg);
+}
+
 .tint-youtube {
   --tint: #ff3b30;
 }
@@ -8149,6 +8154,21 @@ body.vibing .ide {
 
 .agent-opt.missing.api {
   cursor: default;
+}
+
+.agent-opt.api-key {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.agent-opt.api-key .sub {
+  grid-column: 1;
+}
+
+.agent-opt.api-key .api-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
 }
 
 .agent-opt.missing.api .mark {
@@ -16335,6 +16355,7 @@ body.layout-animating #previewPane {
 .set-pane .set-agent-install {
   grid-column: 1 / -1;
   justify-self: stretch;
+  margin-top: -4px;
   padding: 1px 10px;
   font-size: 12.5px;
   border-radius: 7px;
