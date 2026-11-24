@@ -2311,8 +2311,8 @@ textarea:focus-visible {
 }
 
 .avatar.mini {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   margin: 0;
   font-size: 9px;
   border: none;
@@ -5918,11 +5918,9 @@ body.resizing-h .term-body {
   place-items: center;
   width: 20px;
   height: 20px;
-  border: 1px solid var(--line-hi);
-  border-radius: 4px;
   color: var(--text-3);
-  font: 600 10px/1 var(--font-code);
-  transition: color .15s ease, border-color .15s ease;
+  font: 700 13px/1 var(--font-code);
+  transition: color .15s ease;
 }
 
 .q-key:empty {
@@ -5979,7 +5977,6 @@ body.resizing-h .term-body {
 }
 
 .q-opt[aria-checked="true"] .q-key {
-  border-color: var(--blue-text);
   color: var(--blue-text);
 }
 
@@ -6020,19 +6017,8 @@ body.resizing-h .term-body {
 
 .q-hint {
   flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 4px;
   font-size: 11px;
   color: var(--text-3);
-}
-
-.q-hint kbd {
-  padding: 0 5px;
-  border: 1px solid var(--line-hi);
-  border-radius: 4px;
-  color: var(--text-2);
-  font: 10px var(--font-code);
 }
 
 /* Answered: the card folds to the question in small type and the answer on one line. */
@@ -6178,13 +6164,165 @@ button.chat-img-cap:focus-visible {
   overflow-wrap: anywhere;
 }
 
-/* "1 subagent working" under the step a subagent works for (drawSteps). */
-.td-sub {
-  display: block;
-  margin-top: 3px;
-  font-size: 12px;
-  line-height: 16px;
+/* The subagents an agent started (subchat.ts): a line that opens into a list; each row opens that subagent's chat. */
+.todo-card > ul + .sub-drop {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.sub-toggle,
+.sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
   color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sub-toggle {
+  margin-left: -6px;
+  width: calc(100% + 12px);
+}
+
+.sub-toggle .ico-svg,
+.sub-row > .ico-svg {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-3);
+  transition: transform .18s ease;
+}
+
+.sub-toggle[aria-expanded="false"] .ico-svg {
+  transform: rotate(-90deg);
+}
+
+.sub-toggle[aria-expanded="false"] + .sub-list {
+  display: none;
+}
+
+.todo-card .sub-list {
+  gap: 1px;
+  margin: 4px -6px 0;
+}
+
+.sub-row:hover,
+.sub-row:focus-visible,
+.sub-toggle:hover,
+.sub-toggle:focus-visible {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.sub-mark {
+  margin-top: 0;
+}
+
+.sub-mark.completed,
+.sub-mark.failed {
+  border: 0;
+  background: var(--text-3);
+  color: var(--bg);
+}
+
+.sub-mark .ico-svg {
+  stroke-width: 3.5;
+}
+
+.sub-mark.in_progress {
+  border-top-color: transparent;
+  animation: spin .9s linear infinite;
+}
+
+.sub-name {
+  flex: 0 1 auto;
+  min-width: 40%;
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.sub-latest {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--text-3);
+}
+
+/* A subagent's chat, shown in place of the chat that started it. */
+.agent-tab-panel.active.viewing-sub.viewing-sub {
+  display: none;
+}
+
+.sub-view {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  flex: 1 0 auto;
+  padding-bottom: 12px;
+}
+
+.agent-tab-panel.active.viewing-sub + .sub-view {
+  display: flex;
+}
+
+.sub-view-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.sub-back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sub-view-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.sub-view-state {
+  flex: none;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.sub-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.sub-live[hidden] {
+  display: none;
 }
 
 /* A question at the end of a reply, its answers as buttons (followUpCard). The first is filled and shows its key. */
@@ -12213,7 +12351,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 }
 
 /* ================= Agent is responding ================= */
-/* "Thinking 2.0s" with the agent's logo; it opens into the steps taken so far (agents.ts showThinking). */
+/* What the agent is doing now ("Running ls 2.0s") with its logo; it opens into the steps taken so far (agents.ts showThinking). */
 .thinking {
   display: flex;
   flex-direction: column;
@@ -12265,7 +12403,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: 2px 0 0 7px; /* hangs off the logo's centre */
+  margin: 2px 0 0 8px; /* hangs off the logo's centre */
   padding: 2px 0 2px 14px;
   list-style: none;
   border-left: 1px solid var(--line);
@@ -12295,17 +12433,23 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 .thinking .think-step:not(.live) .ts-lbl { color: var(--text-3); }
 .thinking .think-step.live .ts-lbl { color: var(--text); }
 
-.thinking .lbl {
+/* A white flash runs across the words, left to right, for as long as the agent works. */
+.thinking .lbl,
+.sub-live .lbl,
+.sub-busy {
+  --flash: #fff;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: linear-gradient(90deg, var(--text-3) 0%, var(--text) 45%, var(--text-3) 90%) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 34%, var(--flash) 50%, var(--text-3) 66%, var(--text-3) 100%) 0 0 / 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shimmer 1.8s ease-in-out infinite;
+  animation: shimmer 1.6s linear infinite;
 }
+
+:root[data-theme="light"] :is(.thinking .lbl, .sub-live .lbl, .sub-busy) { --flash: #b9ada0; }
 
 .thinking .dots {
   display: inline-flex;
@@ -17082,12 +17226,12 @@ body.layout-animating #previewPane {
 .agent-tag-logo {
   display: inline-grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
+  width: 15.5px;
+  height: 15.5px;
   border-radius: 3px;
   background: var(--tint, var(--bg-3));
   color: #1d1d1f;
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 700;
 }
 
@@ -22294,7 +22438,7 @@ body > .board-preview.full {
 :root[data-power="saver"] .feed-connect { background: rgba(0, 0, 0, .7); }
 :root[data-power="saver"] .drag-file-ghost { background: var(--bg-3); }
 /* Kept turning: they say "working" or "type here", and cost a few pixels each. */
-:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .sub-live .lbl, .sub-busy, .sub-mark.in_progress, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
   animation-iteration-count: infinite !important;
 }
 /* The welcome and launch sky's drifting light repaints the whole window behind everything. */

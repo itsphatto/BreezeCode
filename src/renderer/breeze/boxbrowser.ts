@@ -176,7 +176,7 @@ class BoxBrowser {
     const url = browserUrlOf(t);
     if (url) { this.open({ kind: 'web', target: url }); return; }
     if (PAGE_FILE.test(rel)) { toast(`No page named ${rel} in this project`); return; }
-    this.open({ kind: 'web', target: `https://duckduckgo.com/?q=${encodeURIComponent(t)}` });
+    this.open({ kind: 'web', target: `https://www.google.com/search?q=${encodeURIComponent(t)}` });
   }
   // Opens `e` in the active tab. Anything after the tab's current place in its history is dropped, as in a browser.
   open(e: BrowserEntry): void {

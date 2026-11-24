@@ -518,8 +518,7 @@ function questionCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const who = speaker(r.phase, r.agent);
   // Options 1–9 get a number key; the rest are still clickable.
   const opts = options.map((o, i) => `<button class="q-opt" type="button" role="${multi ? 'checkbox' : 'radio'}" aria-checked="false" tabindex="${i ? -1 : 0}" data-q-opt="${escAttr(o.label)}"><span class="q-key" aria-hidden="true">${i < 9 ? i + 1 : ''}</span><span class="q-label"><b>${esc(o.label)}</b>${o.description ? `<small>${esc(o.description)}</small>` : ''}</span><span class="q-radio" aria-hidden="true"></span></button>`).join('');
-  const keys = Math.min(options.length, 9);
-  const hint = keys > 1 ? `<span class="q-hint"><kbd>1</kbd>–<kbd>${keys}</kbd> to pick${multi ? ', any that apply' : ''}</span>` : '<span class="q-hint"></span>';
+  const hint = `<span class="q-hint">${multi ? 'Pick any that apply' : ''}</span>`;
   const own = options.length
     ? `<label class="q-own"><span>Or answer in your own words</span><input class="input" type="text" maxlength="2000" placeholder="Type your answer" spellcheck="false"></label>`
     : `<input class="input q-own-only" type="text" maxlength="2000" placeholder="Type your answer" aria-label="Your answer" spellcheck="false">`;
@@ -632,7 +631,7 @@ function testsCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 
 // The agent's own to-do list, as a card of steps: done ones ticked, the current one turning. Each update replaces the
 // last card and lands at the bottom of the chat, so the list stays in view while the agent works.
-// Subagents it started show under the current step ("1 subagent working"); with no list, each is a step of its own.
+// Subagents it started are listed under the steps (subchat.ts); each opens its own chat.
 const TODO_MARK = { completed: 'check', in_progress: '', pending: '' } as const;
 function todoCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const todos = ev.todos ?? [];
@@ -644,43 +643,49 @@ function todoCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const cur = todos.find(t => t.status === 'in_progress');
   if (cur) setAgent(r.phase, 'working', cur.text, r.tools);
 }
-const subagentsText = (n: number) => `${n} subagent${n === 1 ? '' : 's'} working`;
 // The live step card, drawn again in place (or added at the bottom of the chat when there is none).
 function drawSteps(r: Run, tab: AgentTabState): void {
   const todos = r.todos ?? [];
-  const subs = [...(r.subagents?.values() ?? [])];
+  const subs = r.subagents ?? [];
   const old = tab.panel.querySelector('.todo-card.live');
   if (!todos.length && !subs.length) { old?.remove(); return; }
-  // The step the subagents work for: the one in progress, else the next to do, else the last.
-  let at = todos.findIndex(t => t.status === 'in_progress');
-  if (at < 0) at = todos.findIndex(t => t.status === 'pending');
-  if (at < 0) at = todos.length - 1;
-  const rows = todos.length
-    ? todos.map((t, i) => ({ ...t, sub: i === at ? subs.length : 0 }))
-    : subs.map(text => ({ text: text || 'Working on part of the task', status: 'in_progress' as const, sub: 1 }));
-  const html = rows.map(t => `<li class="td-row ${t.status}"><span class="td-mark" aria-hidden="true">${TODO_MARK[t.status] ? svgIcon(TODO_MARK[t.status], 10) : ''}</span><span class="td-text">${esc(t.text)}${t.sub ? `<span class="td-sub">${subagentsText(t.sub)}</span>` : ''}</span></li>`).join('');
+  const rows = todos.map(t => `<li class="td-row ${t.status}"><span class="td-mark" aria-hidden="true">${TODO_MARK[t.status] ? svgIcon(TODO_MARK[t.status], 10) : ''}</span><span class="td-text">${esc(t.text)}</span></li>`).join('');
   const done = todos.filter(t => t.status === 'completed').length;
-  const label = todos.length ? `Steps: ${done} of ${todos.length} done` : subagentsText(subs.length);
-  const card = `<div class="todo-card live${todos.length ? '' : ' subagents-only'}" role="list" aria-label="${label}"><ul>${html}</ul></div>`;
+  const list = todos.length ? `<ul aria-label="Steps: ${done} of ${todos.length} done">${rows}</ul>` : '';
+  const open = old?.querySelector('.sub-toggle')?.getAttribute('aria-expanded') === 'true';
+  const card = `<div class="todo-card live${todos.length ? '' : ' subagents-only'}">${list}${subs.length ? subListHtml(subs, open) : ''}</div>`;
   if (old) { old.outerHTML = card; saveChat(tab); } else addMsg(card, tab);
 }
-// A subagent started (Claude Code's Task / Agent tool) or came back.
+// A subagent started, did something, or came back.
 function onSubagent(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   if (!ev.id) return;
-  r.lastMsg = undefined;
-  if (ev.running) (r.subagents ??= new Map()).set(ev.id, ev.text ?? '');
-  else if (!r.subagents?.delete(ev.id)) return;
-  drawSteps(r, tab);
-  const n = r.subagents?.size ?? 0;
-  if (n) setAgent(r.phase, 'working', subagentsText(n), r.tools);
+  let sub = r.subagents?.find(x => x.id === ev.id);
+  if (ev.running) {
+    if (sub) return;
+    sub = addSubChat(ev, speaker(r.phase, r.agent));
+    (r.subagents ??= []).push(sub);
+    r.lastMsg = undefined;
+    drawSteps(r, tab);
+    setAgent(r.phase, 'working', subsText(r.subagents), r.tools);
+    return;
+  }
+  if (!sub) return;
+  if (ev.running === false) {
+    endSubChat(sub, ev.ok !== false, ev.text ?? '');
+    r.lastMsg = undefined;
+    drawSteps(r, tab);
+    thinkLabel(tab.panel, r.subagents?.some(x => x.state === 'working') ? subsText(r.subagents) : '');
+    return;
+  }
+  subSaid(sub, ev);
+  thinkLabel(tab.panel, `${sub.title}: ${sub.latest}`);
 }
-// The run ended: the card stays as a record, with nothing turning. A card that only showed subagents goes.
-function endTodoCard(tab: AgentTabState): void {
-  const card = tab.panel.querySelector('.todo-card.live');
-  if (!card) return;
-  if (card.classList.contains('subagents-only')) { card.remove(); saveChat(tab); return; }
-  card.querySelectorAll('.td-sub').forEach(x => x.remove());
-  card.classList.remove('live');
+// The run ended: the card stays as a record, with nothing turning. Its subagents' chats can still be opened.
+function endTodoCard(r: Run, tab: AgentTabState, ok: boolean): void {
+  for (const s of r.subagents ?? []) if (s.state === 'working') endSubChat(s, ok, '');
+  if (!tab.panel.querySelector('.todo-card.live')) return;
+  if (r.subagents?.length) drawSteps(r, tab);
+  tab.panel.querySelector('.todo-card.live')?.classList.remove('live');
   saveChat(tab);
 }
 
@@ -800,6 +805,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
   },
   text: (r, ev, tab) => {
     if (!ev.text) return;
+    thinkLabel(tab.panel, 'Writing a reply');
     if (r.lastMsg && r.lastText && (ev.text.startsWith(r.lastText) || ev.text === r.lastText)) {
       const bodyEl = r.lastMsg.querySelector<HTMLElement>('.body');
       if (bodyEl) {
@@ -857,7 +863,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
     AGENT_EVENTS.auth?.(r, ev, tab);
   },
   error: (r, ev, tab) => onAgentError(r, ev, tab),
-  done: (r, ev, tab) => { r.subagents?.clear(); endTodoCard(tab); dropUnwrittenDrafts(r); finishRun(r, ev, tab); },
+  done: (r, ev, tab) => { endTodoCard(r, tab, !!ev.ok); dropUnwrittenDrafts(r); finishRun(r, ev, tab); },
   crossing: (r, ev, tab) => crossingCard(r, ev, tab),
   'team-done': (r, ev, tab) => onTeamDone(r, ev, tab),
 };
@@ -878,12 +884,16 @@ function handleAgentEvent(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   if (!r.replied && ev.t !== 'session' && ev.t !== 'done' && ev.t !== 'team-done') onFirstReply(r, tab);
   const prev = labelAgent;
   labelAgent = team && ev.t !== 'team-done' ? r.agent : null;
+  const prevTab = eventTab;
+  eventTab = tab;
   if (ev.t !== 'text') settleReply(r); // anything else ends the reply being streamed
   try {
     AGENT_EVENTS[ev.t]?.(r, ev, tab);
   } finally {
     labelAgent = prev;
+    eventTab = prevTab;
   }
+  if (ev.t === 'question' || ev.t === 'approve') { closeSubChat(tab); thinkLabel(tab.panel, 'Waiting for you'); }
   // A question, command or plan card came or went: the chat's "needs you" dot follows.
   if (NEEDS_YOU_EVENTS.has(ev.t)) refreshNeedsYou(tab);
 }

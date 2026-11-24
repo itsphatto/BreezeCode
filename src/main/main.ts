@@ -3074,7 +3074,7 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number; subagents?: Set<string> }
+interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number; subagents?: Set<string>; subSaid?: Set<string> }
 // `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
@@ -3130,9 +3130,11 @@ function claudeArgs(mode: string, prompt: string, session: string | null | undef
   const effort = effortArg(pick?.effort ?? st.claudeEffort);
   if (effort) args.push('--effort', effort);
   if (session) args.push('--resume', session);
-  if (build) return deny.length && shell ? { args, prompt, deny, mcpFile } : { args, prompt, mcpFile };
+  // Sends a subagent's words along with its tool calls, for its own chat. A variable, not the flag: an older Claude Code ignores it.
+  const env = { CLAUDE_CODE_FORWARD_SUBAGENT_TEXT: '1' };
+  if (build) return deny.length && shell ? { args, prompt, deny, mcpFile, env } : { args, prompt, mcpFile, env };
   const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
-  return { args, prompt: `${ask}\n\n${prompt}`, mcpFile };
+  return { args, prompt: `${ask}\n\n${prompt}`, mcpFile, env };
 }
 // OpenCode's `run`: one JSON event per line. Ask and plan modes use its read-only "plan" agent; with full access, build
 // mode also approves what OpenCode would otherwise ask about. An unknown --variant is ignored, so the effort passes as is.
@@ -3204,14 +3206,19 @@ function emitTodos(runId: number, list: unknown): void {
   })).filter(x => x.text);
   if (todos.length) emit(runId, { t: 'todo', todos });
 }
-// Claude Code's tools that start a subagent ("Task" before Claude Code 2, "Agent" since). Each shows as
-// "1 subagent working" under the step card's current step until its tool_result comes back.
+// Claude Code's tools that start a subagent ("Task" before Claude Code 2, "Agent" since). Each is a row in the step
+// card, working until its tool_result comes back (or, for one left running in the background, its notification).
 const CLAUDE_SUBAGENT_TOOLS = new Set(['Task', 'Agent']);
 // One piece of an assistant message: text for the chat, or a tool call shown as a line (and the file it touched).
-// `sub`: the message came from a subagent. Its files still count, but its words, to-dos and tool lines stay out of the
-// chat: the step card says a subagent is working, and the main agent reports what it found.
-function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub = false): void {
-  if (sub && c.type === 'text') return;
+// `sub`: the subagent (its tool call's id) the message came from. Its files still count, but its words and tool lines
+// go to its own chat, opened from the step card; the main agent reports what it found.
+function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub?: string): void {
+  if (sub && c.type === 'text') {
+    if (!c.text?.trim()) return;
+    (ctx.subSaid ??= new Set()).add(sub);
+    emit(runId, { t: 'subagent', id: sub, kind: 'text', text: c.text });
+    return;
+  }
   if (c.type === 'text' && c.text?.trim()) {
     ctx.lastText = c.text;
     emit(runId, { t: 'text', text: c.text });
@@ -3223,11 +3230,11 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub = false): vo
   if (c.name === 'TodoWrite') { if (!sub) emitTodos(runId, c.input?.todos); return; } // drawn as the step card, not a line
   if (CLAUDE_SUBAGENT_TOOLS.has(c.name) && c.id) {
     (ctx.subagents ??= new Set()).add(c.id);
-    emit(runId, { t: 'subagent', id: c.id, text: String(c.input?.description ?? '').trim(), running: true });
+    emit(runId, { t: 'subagent', id: c.id, text: String(c.input?.description ?? '').trim(), note: String(c.input?.prompt ?? ''), running: true });
     return;
   }
   const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
-  if (!sub) emit(runId, { t: 'tool', kind, label });
+  emit(runId, sub ? { t: 'subagent', id: sub, kind, label } : { t: 'tool', kind, label });
   if (CLAUDE_SHELL_TOOLS.includes(c.name) && c.id) {
     (ctx.shells ??= new Set()).add(c.id);
     shellEvent(runId, c.id, String(c.input?.command ?? ''));
@@ -3239,13 +3246,19 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub = false): vo
   emit(runId, { t: 'file', path: relOut(file), created });
   if (c.id) (ctx.writes ??= new Map()).set(c.id, relOut(file)); // its tool_result says whether the write landed
 }
+// A subagent finished. Its report is added to its chat only when its own words weren't sent as it worked.
+function endSubagent(runId: number, id: string, ctx: StreamCtx, ok: boolean, report: string): void {
+  if (!ctx.subagents?.delete(id)) return;
+  emit(runId, { t: 'subagent', id, running: false, ok, text: ok && ctx.subSaid?.has(id) ? '' : report.trim() });
+}
 // The result of a call that names a file: `written` once the change is on disk, `refused` when it failed (on a
 // board, a deny list that kept Claude out of a teammate's file). The `file` event above came before the write.
 function claudeToolResults(runId: number, d: Loose, ctx: StreamCtx): void {
   const content = d.message?.content;
   if (!Array.isArray(content)) return;
   for (const c of content) {
-    if (c?.type === 'tool_result' && ctx.subagents?.delete(c.tool_use_id)) emit(runId, { t: 'subagent', id: c.tool_use_id, running: false });
+    // One started in the background answers at once; its task_notification says when it is really done.
+    if (c?.type === 'tool_result' && d.tool_use_result?.status !== 'async_launched') endSubagent(runId, c.tool_use_id, ctx, !c.is_error, toolResultText(c.content));
     // A command's output may name a picture it made, or hold test results: both show in the chat.
     if (c?.type === 'tool_result' && ctx.shells?.delete(c.tool_use_id)) { shellEvent(runId, c.tool_use_id); commandOutput(runId, toolResultText(c.content)); }
     if (c?.type !== 'tool_result' || !ctx.writes?.has(c.tool_use_id)) continue;
@@ -3293,8 +3306,9 @@ function claudeContextWindow(runId: number, d: Loose, ctx: StreamCtx): void {
 function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
   else if (d.type === 'system' && d.subtype === 'compact_boundary') brainFromClaude(runBase(runId), d.session_id);
+  else if (d.type === 'system' && d.subtype === 'task_notification') { if (d.tool_use_id) endSubagent(runId, d.tool_use_id, ctx, d.status === 'completed', String(d.summary ?? '')); }
   else if (d.type === 'user' && d.isCompactSummary) brainTake(runBase(runId), brainText(d.message?.content), 'claude');
-  else if (d.type === 'assistant' && d.parent_tool_use_id) { for (const c of d.message?.content || []) claudeContent(runId, c, ctx, true); }
+  else if (d.type === 'assistant' && d.parent_tool_use_id) { for (const c of d.message?.content || []) claudeContent(runId, c, ctx, d.parent_tool_use_id); }
   else if (d.type === 'assistant') { claudeContextUse(runId, d, ctx); for (const c of d.message?.content || []) claudeContent(runId, c, ctx); }
   else if (d.type === 'user') claudeToolResults(runId, d, ctx);
   else if (d.type === 'result') { claudeContextWindow(runId, d, ctx); claudeResult(runId, d, ctx, mode); }
