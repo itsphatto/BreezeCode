@@ -13,7 +13,7 @@ and you see every file it reads, every edit and every command while it works.
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.8.1-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.8.2-007AFF?style=for-the-badge)
 ![Windows](https://img.shields.io/badge/Windows_10_%26_11-x64-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1d1d1f?style=for-the-badge&logo=apple&logoColor=f5f5f7)
 ![Linux](https://img.shields.io/badge/Linux-x64-1d1d1f?style=for-the-badge&logo=linux&logoColor=f5f5f7)
@@ -195,7 +195,6 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 | --- | --- |
 | **Home** | New file, open folder or clone a repository, your recent projects and your GitHub contributions |
 | **First launch** | Looks for coding agents, Git, Node.js and your compilers, and lets you pick a theme and an agent |
-| **Friends** | Add friends by email and see who's online and what they're working on. You can hide your project name or stop sharing |
 | **Terminal** | A built-in terminal. Pop it out into its own window (with a system info banner) and the same sessions keep running. Glass and your background picture reach it too |
 | **Skills, Plugins and MCP** | A pop-up from the chats side bars: browse the skills and plugins your agents load, share skills between agents, and connect MCP servers for Claude Code without editing its config |
 | **Workspace sync** | Move workspaces between computers signed in to the same account, stored in a private GitHub repo or Google Drive's hidden app folder |
@@ -341,7 +340,7 @@ flowchart TB
 | `src/main/officefile.ts` | Word, Excel, PowerPoint and PDF files as editable text |
 | `src/main/power.ts` | The power saver |
 | `src/main/skills.ts`, `mcp.ts` | Skills, plugins and MCP servers |
-| `src/main/sync.ts`, `friends.ts` | Workspace sync and Friends |
+| `src/main/sync.ts` | Workspace sync |
 | `src/main/previewServer.ts`, `previewInspector.ts` | The live preview and its element inspector |
 | `src/main/pricing.ts` | API-price estimates for Home's Agent tab |
 | `src/main/discord.ts` | Discord Rich Presence |
