@@ -723,7 +723,8 @@ function detailGraphSvg(r: GraphRow, X: (i: number) => number): string {
   const lines: string[] = [];
   r.after.forEach((h, i) => {
     if (h) {
-      lines.push(`<path d="M${X(i)} -1V101" stroke="${laneColor(i)}" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`);
+      // A line to 100% rather than a viewBox stretched to the card: a stretched non-scaling stroke draws thinner and paler.
+      lines.push(`<line x1="${X(i)}" y1="0" x2="${X(i)}" y2="100%" stroke="${laneColor(i)}" stroke-width="2"/>`);
     }
   });
   return lines.join('');
@@ -731,16 +732,21 @@ function detailGraphSvg(r: GraphRow, X: (i: number) => number): string {
 function commitDetailWrapHtml(r: GraphRow, width: number, X: (i: number) => number, d?: GitCommitDetail): string {
   return `<div class="commit-detail-row" data-detail-hash="${r.c.hash}">
     <div class="detail-graph-col">
-      <svg class="detail-graph" width="${width}" viewBox="0 0 ${width} 100" preserveAspectRatio="none">${detailGraphSvg(r, X)}</svg>
+      <svg class="detail-graph" width="${width}">${detailGraphSvg(r, X)}</svg>
     </div>
     ${commitDetailHtml(r.c, d)}
   </div>`;
 }
+// The graph is at most six lanes (80px) wide; past six the lanes squeeze closer so every one stays in view.
+function graphGeometry(rows: GraphRow[]): { width: number; X: (i: number) => number } {
+  const lanes = Math.max(...rows.map(r => Math.max(r.before.length, r.after.length, r.lane + 1)));
+  const step = lanes > 6 ? 60 / (lanes - 1) : 12;
+  return { width: Math.min(6, lanes) * 12 + 8, X: i => 10 + i * step };
+}
 function renderGraphRows(): string {
   if (!gitLog.commits.length) return '<p class="side-note">No checkpoints yet. Commit your changes to save the first one.</p>';
   const rows = layoutGraph(gitLog.commits);
-  const H = 36, X = (i: number) => 10 + i * 12;
-  const width = Math.min(6, Math.max(...rows.map(r => Math.max(r.before.length, r.after.length, r.lane + 1)))) * 12 + 8;
+  const H = 36, { width, X } = graphGeometry(rows);
   return rows.map((r, idx) => {
     const refs = r.c.refs.map(ref => `<span class="ref ${refClass(ref)}">${esc(ref.replace(/^HEAD -> /, '').replace(/^tag: /, ''))}</span>`).join('');
     const open = openCommit === r.c.hash;
@@ -808,8 +814,7 @@ function placeCommitDetail(hash: string): void {
   const rows = layoutGraph(gitLog.commits);
   const r = rows.find(x => x.c.hash === hash);
   if (!r) return;
-  const X = (i: number) => 10 + i * 12;
-  const width = Math.min(6, Math.max(...rows.map(row => Math.max(row.before.length, row.after.length, row.lane + 1)))) * 12 + 8;
+  const { width, X } = graphGeometry(rows);
   const holder = document.createElement('div');
   holder.innerHTML = commitDetailWrapHtml(r, width, X, commitDetails.get(hash));
   const fresh = holder.firstElementChild as HTMLElement;

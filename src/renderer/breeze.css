@@ -8169,6 +8169,12 @@ body.vibing .ide {
 
 .agent-opt.api-key .sub {
   grid-column: 1;
+  white-space: normal;
+}
+
+/* .modal .sub gives a dialog's own subtitle a 16px gap; the agent picker's cards share the class but not the gap. */
+.modal .agent-opt .sub {
+  margin: 0;
 }
 
 .agent-opt.api-key .api-links {
@@ -8798,7 +8804,8 @@ body.vibing .ide {
 /* Its width is the svg's width attribute (the graph's lane count); it stretches to the card's height. */
 .commit-detail-row .detail-graph {
   display: block;
-  flex: 1 1 auto;
+  flex: 1 1 0; /* the card's height, never the svg's own 150px default */
+  min-height: 0;
   overflow: visible;
   pointer-events: none;
 }

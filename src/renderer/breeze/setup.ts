@@ -231,7 +231,7 @@ function apiKeyHtml(apis: DetectedAgent[]): string {
   if (!apis.length) return '';
   const cloud = apis.filter(a => a.keyUrl).map(a => a.name);
   const local = apis.some(a => !a.keyUrl);
-  const hint = cloud.length ? `Paste a ${cloud.join(' or ')} key${local ? ', or leave it empty to find Ollama or LM Studio' : ''}` : 'Finds Ollama or LM Studio running on this computer';
+  const hint = cloud.length ? `Paste a ${cloud.join(' or ')} key${local ? ', or leave empty for Ollama or LM Studio' : ''}` : 'Finds Ollama or LM Studio on this computer';
   const links = apis.map(a => `<button class="get" data-get="${escAttr(a.keyUrl ?? a.url)}"><span class="get-label">${esc(a.keyUrl ? `${a.name} key` : `Get ${a.name}`)}</span></button>`).join('');
   return `<div class="agent-opt api api-key missing" data-llm-key-card>
     <span class="nm">API key</span>
