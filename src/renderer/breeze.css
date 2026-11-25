@@ -12300,31 +12300,8 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   animation: shimmer 1.8s ease-in-out infinite;
 }
 
-/* A light sweeps along the composer while the agent works. */
 .composer-box {
   position: relative;
-}
-
-.composer-box.busy::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, var(--blue), var(--blue-text), transparent) 0 0 / 50% 100% no-repeat;
-  animation: sweep 1.4s ease-in-out infinite;
-}
-
-@keyframes sweep {
-  from {
-    background-position: -100% 0;
-  }
-
-  to {
-    background-position: 200% 0;
-  }
 }
 
 #boxSend.stop {
@@ -20441,7 +20418,7 @@ input.dbg-edit.bad:focus-visible {
 }
 
 /* ================= Agent board (board.ts) ================= */
-/* Title bar with the roster · activity bar · a 2-column grid of boxes, each half the page high, that scrolls. */
+/* Title bar · activity bar · a 2-column grid of boxes, each half the page high, that scrolls. */
 .board {
   display: grid;
   grid-template-rows: 45px minmax(0, 1fr);
@@ -20461,62 +20438,15 @@ input.dbg-edit.bad:focus-visible {
   -webkit-app-region: no-drag;
 }
 
-.board-roster {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-app-region: no-drag;
-}
-
-.board-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  height: 28px;
-  padding: 0 10px 0 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg-2);
-  font-size: 12px;
-  cursor: grab;
-  user-select: none;
-  transition: background .15s, border-color .15s, transform .225s var(--spring);
-}
-
-/* The global `-webkit-user-drag: none` rule would stop the chip (and a chat in the board's side bar) from dragging at all. */
-.board-chip[draggable="true"],
+/* The global `-webkit-user-drag: none` rule would stop a chat in the board's side bar from dragging at all. */
 .board-side .box-side-chat[draggable="true"] {
   -webkit-user-drag: element;
-}
-
-.board-chip[draggable="true"] * {
-  pointer-events: none;
 }
 
 .empty-box {
   cursor: pointer;
 }
 
-.board-chip:hover,
-.board-chip:focus-visible {
-  border-color: var(--line-strong);
-  background: var(--bg-3);
-}
-
-.board-chip:active {
-  cursor: grabbing;
-  transform: scale(.94);
-}
-
-.board-chip b {
-  font-weight: 500;
-}
-
-.board-chip-logo,
 .board-box-logo,
 .board-empty-logo {
   display: inline-grid;
@@ -20624,7 +20554,7 @@ input.dbg-edit.bad:focus-visible {
   border-top-color: transparent;
 }
 
-:is(.board-chip-logo, .board-box-logo, .board-empty-logo, .board-hello-logo) .brand-img {
+:is(.board-box-logo, .board-empty-logo, .board-hello-logo) .brand-img {
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -22085,7 +22015,7 @@ body > .board-preview.full {
   scroll-behavior: auto !important;
 }
 /* Kept turning: they say "working" or "type here", and cost a few pixels each. */
-:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .sub-live .lbl, .sub-busy, .sub-mark.in_progress, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .sub-live .lbl, .sub-busy, .sub-mark.in_progress, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
   animation-iteration-count: infinite !important;
 }
 /* The welcome and launch sky's drifting light repaints the whole window behind everything. */

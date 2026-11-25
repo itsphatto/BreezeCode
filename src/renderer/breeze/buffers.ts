@@ -76,6 +76,7 @@ async function swapWorkspace(info: RootInfo): Promise<void> {
   renderTabs(); renderEditor(); renderTree();
   restoreChat(SURFACES.ide);
   renderBoxFolder();
+  if (boardPageShowing() && boardFolder !== info.root) openBoard(); // its boxes are the last folder's
   void refreshLiveShare();
   void holdStartup(refreshGit());
   syncCheckedAt = 0; background(checkCloudNewer());

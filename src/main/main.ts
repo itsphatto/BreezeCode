@@ -21,7 +21,7 @@ import { looksBinary } from './sniff';
 import { isDocFile, docFileToText, textToDocFile, blankDocFile, officeMedia } from './officefile';
 import * as syncEngine from './sync';
 import { TeamCoordinator, claudeDenyArgs, opencodeDenyRules } from './team';
-import { BoardCoordinator } from './board';
+import { BoardCoordinator, BoardSet, folderId } from './board';
 import { listChatLogs, readChatLog } from './agentlogs';
 import { parseMentions, shortName } from './mentions';
 import { LspManager, SERVERS, lspInstalls, findOnPath } from './lsp';
@@ -601,9 +601,10 @@ function boxDir() {
 async function setRoot(dir: string) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
-  if (root !== dir) { stopLiveServer(); stopTeams(); stopBoard(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
+  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
   termCwd = dir;
+  watchAwayBoards();
   const saved = loadState();
   const recent = [dir, ...(saved.recent || []).filter((r: string) => r !== dir)].slice(0, 10);
   // When each recent folder was last opened, for the Home screen's "2h ago".
@@ -629,7 +630,7 @@ function startWatching(retried = false): void {
       const rel = String(file).split(path.sep).join('/');
       // Build output and dependencies change in bursts nobody is looking at (the file list skips them too).
       if (rel.split('/').some(part => IGNORED_DIRS.has(part))) return;
-      board?.diskChanged(rel); // a box's shell command may have written it (the board tells whose)
+      boards.find(root)?.diskChanged(rel); // a box's shell command may have written it (the board tells whose)
       pending.add(rel);
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -833,7 +834,7 @@ handle('fs:restore', async () => {
 handle('fs:openLaunch', () => openLaunch(root));
 
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); stopBoard(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
+  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); watchAwayBoards(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {
@@ -2423,9 +2424,12 @@ function emit(runId: number, ev: Loose): void {
   }
   sendEvent(runId, ev);
 }
-const relOut = (p?: string | null): string => {
-  if (!p || !root) return p || '';
-  const r = path.relative(root, path.resolve(root, p));
+// The folder a run's paths are shown from: a board box's own folder, which another folder may have been opened over.
+const runFolder = (runId: number): string | null => { const t = teamOf.get(runId)?.team; return t instanceof BoardCoordinator ? t.root : root; };
+const relOut = (p: string | null | undefined, runId: number): string => {
+  const from = runFolder(runId);
+  if (!p || !from) return p || '';
+  const r = path.relative(from, path.resolve(from, p));
   return r.startsWith('..') ? p : r.split(path.sep).join('/');
 };
 const SAFE_ID = /^[\w-]{6,80}$/;
@@ -2896,19 +2900,30 @@ function stopTeams() {
 const isPlainObject = (o: unknown) => Object.prototype.toString.call(o) === '[object Object]';
 
 /* ----- Agent board: boxes of agents running side by side, one owner per file, blocked edits relayed ----- */
-let board: BoardCoordinator | null = null;
-const BOX_KEY = /^box[1-8]$/;
+// Opening another folder doesn't stop them: each folder keeps its board, and its boxes' runs (the ones a relay or a
+// queued message starts later too) work in that folder, whichever one is open by then (taskBase).
+const boards = new BoardSet(dir => new BoardCoordinator({ id: crypto.randomUUID(), root: dir, deps: { startRun: o => launchRun({ ...o, taskBase: dir }), stopRun, emit: sendEvent, setTimeout, clearTimeout } }));
+const BOX_KEY = /^box(?:[1-9]|1\d|2[0-4])$/; // 24 of them: board.ts BOARD_KEYS
 function openBoard(): BoardCoordinator {
   if (!root) throw new Error('Open a folder first');
-  if (!board || board.root !== root) {
-    board?.close();
-    board = new BoardCoordinator({ id: crypto.randomUUID(), root, deps: { startRun: launchRun, stopRun, emit: sendEvent, setTimeout, clearTimeout } });
-  }
-  return board;
+  return boards.open(root);
 }
-function stopBoard(): void {
-  board?.close();
-  board = null;
+// The open folder's watcher tells its board what changed on disk. A board left working in another folder has its own.
+const boardWatchers = new Map<string, fs.FSWatcher>();
+function watchAwayBoards(): void {
+  const away = new Map(boards.all().filter(b => !root || folderId(b.root) !== folderId(root)).map(b => [folderId(b.root), b]));
+  for (const [id, w] of [...boardWatchers]) if (!away.has(id)) { w.close(); boardWatchers.delete(id); }
+  for (const [id, b] of away) {
+    if (boardWatchers.has(id)) continue;
+    try {
+      const w = fs.watch(b.root, { recursive: true }, (_type: string, file: string | null) => {
+        const rel = String(file ?? '').split(path.sep).join('/');
+        if (rel && !rel.split('/').some(part => IGNORED_DIRS.has(part))) b.diskChanged(rel);
+      });
+      w.on('error', () => { w.close(); boardWatchers.delete(id); });
+      boardWatchers.set(id, w);
+    } catch { /* can't be watched: only what a shell command writes goes unseen */ }
+  }
 }
 const boxKeyOf = (k: unknown): string => {
   if (typeof k !== 'string' || !BOX_KEY.test(k)) throw new Error('That box does not exist.');
@@ -2925,7 +2940,7 @@ handle('board:run', async (_e, o) => {
   if (agent.id === 'dsh') throw new Error(DSH_SOLO);
   if (typeof o.prompt !== 'string' || !o.prompt.trim()) throw new Error('Tell the agent what to do first.');
   const session = typeof o.session === 'string' && SAFE_ID.test(o.session) ? o.session : null;
-  return openBoard().startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session, pick: boardPick(o, agent.id) });
+  return boards.forRun(typeof o.root === 'string' ? o.root : null, root).startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session, pick: boardPick(o, agent.id) });
 });
 // A box's model and effort, when it picked its own: a plain model name (it reaches a command line; a local model
 // never does, and runLocal only takes one its server lists) and a known effort.
@@ -2936,11 +2951,11 @@ function boardPick(o: Loose, agent: string): { model?: string; effort?: string }
   if (typeof o?.effort === 'string' && effortArg(o.effort)) pick.effort = o.effort;
   return pick.model || pick.effort ? pick : null;
 }
-handle('board:stop', (_e, k) => { board?.stopBox(boxKeyOf(k)); });
-handle('board:stopAll', () => { board?.stopAll(); });
-handle('board:release', (_e, p) => { if (typeof p === 'string') board?.release(p); });
-handle('board:owners', () => ({ ...(board?.owners ?? {}) }));
-handle('board:clearBox', (_e, k) => { board?.clearBox(boxKeyOf(k)); });
+handle('board:stop', (_e, k) => { boards.stopBox(boxKeyOf(k)); });
+handle('board:stopAll', () => { boards.find(root)?.stopAll(); });
+handle('board:release', (_e, p) => { if (typeof p === 'string') boards.find(root)?.release(p); });
+handle('board:owners', () => ({ ...(boards.find(root)?.owners ?? {}) }));
+handle('board:clearBox', (_e, k) => { boards.clearBox(boxKeyOf(k), root); watchAwayBoards(); });
 
 handle('team:parse', async (_e, text) => parseMentions(String(text ?? ''), await teamAgents()));
 handle('team:claim', async (_e, o) => {
@@ -3038,7 +3053,7 @@ async function runAntigravity(runId: number, run: Run, { mode, prompt, session, 
       text: ev.text,
       kind: ev.kind,
       label: ev.label,
-      path: ev.path ? relOut(ev.path) : undefined,
+      path: ev.path ? relOut(ev.path, runId) : undefined,
       ok: ev.ok,
     });
   });
@@ -3203,12 +3218,12 @@ function mcpConfigFile(shell: boolean, breezeUrl?: string | null): string | null
 }
 const NO_BLOCK_NOTE = 'Claude can\'t be blocked from teammates\' files on this computer, so Breeze will undo any edit it makes to them instead.';
 // What each Claude Code tool call looks like in the chat.
-const CLAUDE_TOOLS: Record<string, (i: Loose) => string[]> = {
-  Read: i => ['read', `Read ${relOut(i.file_path)}`],
-  Edit: i => ['edit', `Edited ${relOut(i.file_path)}`, i.file_path],
-  MultiEdit: i => ['edit', `Edited ${relOut(i.file_path)}`, i.file_path],
-  Write: i => ['edit', `Wrote ${relOut(i.file_path)}`, i.file_path],
-  NotebookEdit: i => ['edit', `Edited ${relOut(i.notebook_path)}`, i.notebook_path],
+const CLAUDE_TOOLS: Record<string, (i: Loose, rel: (p: string) => string) => string[]> = {
+  Read: (i, rel) => ['read', `Read ${rel(i.file_path)}`],
+  Edit: (i, rel) => ['edit', `Edited ${rel(i.file_path)}`, i.file_path],
+  MultiEdit: (i, rel) => ['edit', `Edited ${rel(i.file_path)}`, i.file_path],
+  Write: (i, rel) => ['edit', `Wrote ${rel(i.file_path)}`, i.file_path],
+  NotebookEdit: (i, rel) => ['edit', `Edited ${rel(i.notebook_path)}`, i.notebook_path],
   Bash: i => ['run', `$ ${i.command}`],
   PowerShell: i => ['run', `PS> ${i.command}`],
   Grep: i => ['search', `Searched for ${i.pattern}`],
@@ -3256,7 +3271,7 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub?: string): v
     emit(runId, { t: 'subagent', id: c.id, text: String(c.input?.description ?? '').trim(), note: String(c.input?.prompt ?? ''), running: true });
     return;
   }
-  const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
+  const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}, p => relOut(p, runId)) ?? ['tool', c.name];
   emit(runId, sub ? { t: 'subagent', id: sub, kind, label } : { t: 'tool', kind, label });
   if (CLAUDE_SHELL_TOOLS.includes(c.name) && c.id) {
     (ctx.shells ??= new Set()).add(c.id);
@@ -3264,10 +3279,10 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub?: string): v
   }
   if (!file) return;
   // A new file's whole text is in the call, before Claude writes it: the editor opens it and types it in.
-  const created = c.name === 'Write' && typeof c.input?.content === 'string' && !fs.existsSync(path.resolve(root || HOME, file));
-  if (created) emit(runId, { t: 'draft', path: relOut(file), text: c.input.content });
-  emit(runId, { t: 'file', path: relOut(file), created });
-  if (c.id) (ctx.writes ??= new Map()).set(c.id, relOut(file)); // its tool_result says whether the write landed
+  const created = c.name === 'Write' && typeof c.input?.content === 'string' && !fs.existsSync(path.resolve(runFolder(runId) || HOME, file));
+  if (created) emit(runId, { t: 'draft', path: relOut(file, runId), text: c.input.content });
+  emit(runId, { t: 'file', path: relOut(file, runId), created });
+  if (c.id) (ctx.writes ??= new Map()).set(c.id, relOut(file, runId)); // its tool_result says whether the write landed
 }
 // A subagent finished. Its report is added to its chat only when its own words weren't sent as it worked.
 function endSubagent(runId: number, id: string, ctx: StreamCtx, ok: boolean, report: string): void {
@@ -3485,9 +3500,9 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
   },
   file_change: (runId, it) => {
     for (const ch of it.changes || []) {
-      emit(runId, { t: 'tool', kind: 'edit', label: `${CHANGE_VERB[ch.kind] || 'Edited'} ${relOut(ch.path)}` });
+      emit(runId, { t: 'tool', kind: 'edit', label: `${CHANGE_VERB[ch.kind] || 'Edited'} ${relOut(ch.path, runId)}` });
       // Codex reports a change once it is on disk (`written`): the editor replays it from the committed text.
-      emit(runId, { t: 'file', path: relOut(ch.path), created: ch.kind === 'add', written: true });
+      emit(runId, { t: 'file', path: relOut(ch.path, runId), created: ch.kind === 'add', written: true });
     }
   },
   mcp_tool_call: (runId, it) => { if (it.server !== BREEZE_MCP) emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }); },
@@ -3526,8 +3541,8 @@ function opencodeTool(runId: number, p: Loose): void {
   if (p.tool === 'bash') emit(runId, { t: 'tool', kind: 'run', label: `$ ${input.command ?? ''}` });
   else if (OPENCODE_EDITS.has(p.tool) && input.filePath) {
     const created = p.tool === 'write' && p.state?.metadata?.exists === false;
-    emit(runId, { t: 'tool', kind: 'edit', label: `${created ? 'Created' : 'Edited'} ${relOut(input.filePath)}` });
-    if (p.state?.status === 'completed') emit(runId, { t: 'file', path: relOut(input.filePath), created, written: true });
+    emit(runId, { t: 'tool', kind: 'edit', label: `${created ? 'Created' : 'Edited'} ${relOut(input.filePath, runId)}` });
+    if (p.state?.status === 'completed') emit(runId, { t: 'file', path: relOut(input.filePath, runId), created, written: true });
   } else if (p.tool === 'webfetch' || p.tool === 'websearch') emit(runId, { t: 'tool', kind: 'web', label: p.state?.title || 'Searched the web' });
   else if (p.tool === 'todowrite') emitTodos(runId, input.todos);
   else emit(runId, { t: 'tool', kind: 'tool', label: p.state?.title || String(p.tool ?? 'tool') });
@@ -3548,7 +3563,7 @@ function opencodeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): v
 }
 
 function dshEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
-  ctx.dsh ??= dshReader(relOut);
+  ctx.dsh ??= dshReader((p?: string | null) => relOut(p, runId));
   for (const ev of ctx.dsh(d, mode)) {
     if (ev.t === 'lastError') ctx.lastError = ev.text;
     else if (ev.t === 'output') commandOutput(runId, ev.text);
@@ -3767,7 +3782,7 @@ const clampSize = (v: unknown, lo: number, hi: number, dflt: number) => Number.i
 async function capturePreview(runId: number, args: Loose, signal?: AbortSignal): Promise<{ text: string; png: Buffer }> {
   const ir = imageRuns.get(runId);
   if (!ir) throw new Error('That run has ended.');
-  if (!root || ir.base !== root) throw new Error('The preview shows pages of an open project, and no project is open.');
+  if (!root || ir.base !== root) throw new Error('The preview shows pages of the open project, and this run\'s project is not the one open now.');
   const page = String(args?.page ?? '').trim().replace(/^\.[\\/]/, '') || defaultPreviewPage();
   if (!page) throw new Error('There is no index.html in the project. Give page: the HTML or Markdown file to show.');
   if (!PAGE_FILE.test(page)) throw new Error('page must be an .html or .md file in the project.');
@@ -4235,7 +4250,7 @@ async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
     const abs = agentPath(ctx, rel);
     if (fs.existsSync(abs)) return null;
     if (ctx.team && await ctx.team.coordinator.foreignOwner(ctx.team.agentId, relTo(ctx.base, abs))) return null;
-    return relOut(abs);
+    return relOut(abs, ctx.runId);
   } catch { return null; }
 }
 const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> = {
@@ -4322,11 +4337,11 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
     const before = await fsp.readFile(abs, 'utf8');
     const { text, line } = brain.applyEdit(before, a.old_text, a.new_text);
     // The editor switches to the file first, showing it as it is now, so the change then types out in front of the user.
-    emit(ctx.runId, { t: 'opening', path: relOut(abs), text: before });
+    emit(ctx.runId, { t: 'opening', path: relOut(abs, ctx.runId), text: before });
     await fsp.writeFile(abs, text, 'utf8');
     ctx.touched.add(rel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Edited ${rel}` });
-    emit(ctx.runId, { t: 'file', path: relOut(abs) });
+    emit(ctx.runId, { t: 'file', path: relOut(abs, ctx.runId) });
     return `Edited ${rel} at line ${line}.`;
   },
   async write_file(ctx, a) {
@@ -4338,13 +4353,13 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
     // opens empty from its draft).
     if (!created) {
       const before = await fsp.readFile(abs, 'utf8').catch(() => null);
-      if (before != null) emit(ctx.runId, { t: 'opening', path: relOut(abs), text: before });
+      if (before != null) emit(ctx.runId, { t: 'opening', path: relOut(abs, ctx.runId), text: before });
     }
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     await fsp.writeFile(abs, content, 'utf8');
     ctx.touched.add(relTo(ctx.base, abs));
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Wrote ${relTo(ctx.base, abs)}` });
-    emit(ctx.runId, { t: 'file', path: relOut(abs), created });
+    emit(ctx.runId, { t: 'file', path: relOut(abs, ctx.runId), created });
     return `Saved ${relTo(ctx.base, abs)} (${content.split('\n').length} lines).`;
   },
   // Files only: a folder may hold a teammate's files. The Recycle Bin keeps it, so the user can undo it.
@@ -4357,7 +4372,7 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
     await shell.trashItem(abs);
     ctx.touched.add(rel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Deleted ${rel}` });
-    emit(ctx.runId, { t: 'file', path: relOut(abs) });
+    emit(ctx.runId, { t: 'file', path: relOut(abs, ctx.runId) });
     return `Deleted ${rel} (it is in the Recycle Bin).`;
   },
   async move_file(ctx, a) {
@@ -4373,8 +4388,8 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
     await fsp.rename(from, to);
     ctx.touched.add(fromRel).add(toRel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Moved ${fromRel} to ${toRel}` });
-    emit(ctx.runId, { t: 'file', path: relOut(from) });
-    emit(ctx.runId, { t: 'file', path: relOut(to) });
+    emit(ctx.runId, { t: 'file', path: relOut(from, ctx.runId) });
+    emit(ctx.runId, { t: 'file', path: relOut(to, ctx.runId) });
     return `Moved ${fromRel} to ${toRel}.`;
   },
 };

@@ -12,10 +12,33 @@ test('main handles every board call', () => {
   }
 });
 
-test('a folder change closes the board next to the teams', () => {
-  const lines = main.split('\n').filter(l => l.includes('stopTeams();'));
-  assert.equal(lines.length, 2);
-  for (const l of lines) assert.ok(l.includes('stopBoard();'), l.trim());
+test('a folder change stops the teams, and leaves the board working in its own folder', () => {
+  assert.equal(main.split('\n').filter(l => l.includes('stopTeams();')).length, 2);
+  assert.doesNotMatch(main, /stopBoard/);
+  assert.match(main, /startRun: o => launchRun\(\{ \.\.\.o, taskBase: dir \}\)/); // never in whichever folder is open by then
+  assert.match(main, /boards\.forRun\(typeof o\.root === 'string' \? o\.root : null, root\)/);
+});
+
+test('paths of a box working in another project never touch the open one', () => {
+  const src = f => fs.readFileSync(path.join(__dirname, '../src/renderer/breeze', f), 'utf8');
+  assert.match(main, /const from = runFolder\(runId\);/);
+  assert.doesNotMatch(main, /relOut\([^(),]+\)/); // each call says whose run it is
+  const teams = src('teams.ts');
+  for (const fn of ['function onAgentFile', 'function onAgentDraft', 'function dropUnwrittenDrafts']) assert.match(fnBody(teams, fn), /if \(surfaceAway\(r\.surfaceName\)\) return;/, fn);
+  assert.match(fnBody(teams, 'function finishRun'), /if \(!away\) background\(fillEditCounts/);
+  assert.match(src('agents.ts'), /s\.folder \?\? rootInfo\?\.root/); // its chat is filed in its own project
+  const load = fnBody(src('board.ts'), 'function loadBoard()');
+  assert.doesNotMatch(load, /stopBox|parkedBoxes\.clear/);
+  assert.match(load, /closeBoxes\(\[\.\.\.boardBoxes\.values\(\)\]\)/);
+});
+
+test('the renderer and main agree on how many boxes there can be', () => {
+  const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
+  const n = Number(/BOARD_KEYS = (\d+)/.exec(board)[1]);
+  const re = new RegExp(/const BOX_KEY = \/(.+?)\/;/.exec(main)[1]);
+  for (let i = 1; i <= n; i++) assert.match(`box${i}`, re);
+  assert.doesNotMatch('box0', re);
+  assert.doesNotMatch(`box${n + 1}`, re);
 });
 
 test('a blocked team write also relays on a board', () => {
@@ -40,9 +63,9 @@ test('an emptied box is cleared in main', () => {
   assert.ok(preload.includes("invoke('board:clearBox'"));
 });
 
-test('agent chips and side-bar chats can be dragged (the global -webkit-user-drag: none is undone for them)', () => {
+test('side-bar chats can be dragged (the global -webkit-user-drag: none is undone for them)', () => {
   const css = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze.css'), 'utf8');
-  assert.match(css, /\.board-chip\[draggable="true"\],\s*\.board-side \.box-side-chat\[draggable="true"\]\s*\{\s*-webkit-user-drag: element;/);
+  assert.match(css, /\.board-side \.box-side-chat\[draggable="true"\]\s*\{\s*-webkit-user-drag: element;/);
 });
 
 test('clicking an empty box opens the agent picker', () => {
@@ -78,14 +101,14 @@ test('a finished run leaves a board box its own placeholder', () => {
   }
 });
 
-test('Enter on a roster chip does not type a newline into the new box', () => {
+test('Enter on an empty box does not type a newline into the new box', () => {
   const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
   assert.match(board, /e\.key !== 'Enter'\) return;\s*e\.preventDefault\(\);/);
   assert.match(board, /<textarea rows="1" data-no-grow/);
 });
 
 test("the folder watcher and every agent's shell commands reach the board", () => {
-  assert.match(main, /board\?\.diskChanged\(rel\)/);
+  assert.match(main, /boards\.find\(root\)\?\.diskChanged\(rel\)/);
   assert.match(main, /CLAUDE_SHELL_TOOLS\.includes\(c\.name\) && c\.id\)[\s\S]{0,120}shellEvent\(runId, c\.id,/);
   assert.match(main, /d\.type === 'item\.started' && d\.item\?\.type === 'command_execution'[\s\S]{0,80}shellEvent\(/);
   assert.match(main, /const shellId = `sh_\$\{\+\+shellSeq\}`;\s*shellEvent\(ctx\.runId, shellId, command\);/);
@@ -123,11 +146,36 @@ test('the board lays its boxes out for how many there are, and morphs between la
   assert.match(css, /:root\.board-morph::view-transition \{\s*pointer-events: none;/); // a drag goes on through it
 });
 
-test('New chat, a roster chip click and a side-bar chat click take the whole board; only a drag splits it', () => {
+test('New chat and a side-bar chat click take the whole board; only a drag splits it', () => {
   const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
-  assert.match(board, /\$\('#boardRoster'\)\.addEventListener\('click'[\s\S]{0,160}freshBoard\(chip\.dataset\.agent!\)/);
   assert.match(board, /function newBoardChat\(\)[\s\S]{0,240}freshBoard\(agent\)/);
   assert.match(board, /function freshBoard[\s\S]{0,400}closeBoxes\(\[\.\.\.boardBoxes\.values\(\)\]\)/);
   assert.match(board, /reopenInBox\(e, undefined, undefined, true\)/);
   assert.doesNotMatch(board, /board-box-split/);
+});
+
+const fnBody = (src, fn) => { const i = src.indexOf(fn); assert.ok(i >= 0, fn); return src.slice(i, src.indexOf('\n}', i)); };
+
+test('closing a chat never stops it: a working box carries on out of sight', () => {
+  const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
+  const close = fnBody(board, 'async function emptyBox');
+  assert.doesNotMatch(close, /stopBox|board\.stop|clearBox/);
+  assert.match(close, /closeBoxes\(\[box\]\)/);
+  // Waiting on a teammate's answer is working too; a parked box is kept for it, and for messages still queued.
+  assert.match(fnBody(board, 'function closeBoxes'), /if \(boxAtWork\(b\)\) \{ parkBox\(b\); continue; \}/);
+  assert.match(fnBody(board, 'function finishParked'), /boxAtWork\(b\) \|\| b\.tab\.queue\?\.length/);
+  // Its answer may never come: the box that asked closes then.
+  assert.match(fnBody(board, 'function closeAsk'), /finishParked\(b\)/);
+});
+
+test('a chat closed while it works keeps its composer, so its queued messages still go out', () => {
+  const cmp = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/composerui.ts'), 'utf8');
+  assert.match(fnBody(cmp, 'function refreshComposers'), /!c\.box\.isConnected && !parkedTab\(composerTab\(c\)\)/);
+});
+
+test('a reopened chat shows its latest message: scrolled once its box is laid out, not a frame after the click', () => {
+  const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
+  const render = fnBody(board, 'function renderBoard(');
+  assert.ok(render.indexOf('scrollRestoredChats()') > render.indexOf('layoutBoard()'), 'after layoutBoard');
+  assert.match(render, /box\.scrollPending = true/); // put (back) in the grid, it lost its scroll
 });

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { BoardCoordinator, boardBrief, lineDiff } = require('../src/main/board');
+const { BoardCoordinator, BoardSet, boardBrief, lineDiff } = require('../src/main/board');
 
 function tempProject(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-board-'));
@@ -410,4 +410,52 @@ test("a box's own model and effort go with its run", t => {
   assert.deepEqual({ ...deps.runs[0].opts.pick }, { model: 'opus', effort: 'high' });
   assert.deepEqual({ ...deps.runs[1].opts.pick }, { model: 'sonnet' });
   assert.equal(deps.runs[2].opts.pick, null);
+});
+
+/* ----- A board per folder ----- */
+function boardSet() {
+  const deps = fakeDeps();
+  const started = [];
+  const set = new BoardSet(root => new BoardCoordinator({ id: root, root, deps: { ...deps, startRun: o => { started.push(root); return deps.startRun(o); } } }));
+  return { set, deps, started };
+}
+const box = { agent: 'codex', name: 'Codex · 1', prompt: 'work' };
+
+test("opening another folder leaves the first one's board working, and its later runs stay in it", t => {
+  const { set, deps, started } = boardSet();
+  const a = tempProject(t), b = tempProject(t);
+  set.forRun(a, a).startBox('box1', box);
+  set.forRun(b, b).startBox('box2', { ...box, name: 'Codex · 2' });
+  assert.deepEqual(deps.stopped, []);
+  set.find(a).observe(1, { t: 'done', ok: true });
+  set.forRun(a, b).startBox('box1', box); // a relay or a queued message, while b is the open folder
+  assert.deepEqual(started, [a, b, a]);
+});
+
+test('a box whose folder has no board any more is refused, never run in the open folder', t => {
+  const { set } = boardSet();
+  const a = tempProject(t), b = tempProject(t);
+  set.open(b);
+  assert.throws(() => set.forRun(a, b), /no longer open/);
+  assert.throws(() => set.forRun(null, null), /Open a folder/);
+});
+
+test('a box is stopped and cleared by its key in whichever folder it works; an empty board left behind closes', t => {
+  const { set, deps } = boardSet();
+  const a = tempProject(t), b = tempProject(t);
+  const left = set.forRun(a, a);
+  left.startBox('box1', box);
+  set.forRun(b, b).startBox('box2', box);
+  set.clearBox('box1', b);
+  assert.deepEqual(deps.stopped, [1]);
+  assert.equal(left.stopped, true);
+  assert.equal(set.find(a), null);
+  set.clearBox('box2', b);
+  assert.ok(set.find(b), 'the open folder keeps its board');
+});
+
+test('two spellings of one folder are one board', { skip: process.platform !== 'win32' }, t => {
+  const { set } = boardSet();
+  const a = tempProject(t);
+  assert.equal(set.open(a), set.open(a.toUpperCase()));
 });

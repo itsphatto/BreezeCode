@@ -283,8 +283,9 @@ function paintComposer(c: Composer): void {
 function refreshComposers(): void {
   for (let i = composers.length - 1; i >= 0; i--) {
     const c = composers[i];
-    // A hidden page's composer is still in the page and repaints; only an emptied board box's has left it.
-    if (!c.box.isConnected) { composers.splice(i, 1); continue; }
+    // A hidden page's composer is still in the page and repaints. A closed board box's has left it: gone for good,
+    // unless its agent is still working out of sight (board.ts parkedBoxes), whose queue goes out through it.
+    if (!c.box.isConnected && !parkedTab(composerTab(c))) { composers.splice(i, 1); continue; }
     paintComposer(c);
   }
 }

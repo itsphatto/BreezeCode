@@ -750,12 +750,11 @@
 
   <!-- ================= DEBUGGER (full page; debugview.ts) ================= -->
   <!-- Shown with swapScreen like Breeze Space; leaving it keeps the session running. -->
-  <!-- Agent board (board.ts): drag agents into boxes; every box runs at once, and blocked edits are relayed -->
+  <!-- Agent board (board.ts): an agent in each box; every box runs at once, and blocked edits are relayed -->
   <div class="board hidden" id="board">
     <header class="titlebar board-bar">
       <button class="icon-btn board-side-show" id="boardSideShow" type="button" title="Show chats" aria-controls="boardSide"><svg width="16" height="16"><use href="#i-left" /></svg></button>
       <button class="logo logo-home" id="boardLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeCode.png" alt=""></button>
-      <div class="board-roster" id="boardRoster" role="list" aria-label="Your agents. Drag one into a box."></div>
       <span class="spacer"></span>
       <!-- The chats side bar (#boardSide) replaced the History button:
       <button class="btn btn-sm board-history" id="boardHistory" type="button" title="Earlier chats in this folder. Pick one to open it in a free box." aria-haspopup="menu"><svg width="13" height="13"><use href="#i-history" /></svg><span>History</span></button> -->

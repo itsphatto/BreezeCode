@@ -97,7 +97,7 @@ flowchart LR
 
 Run agents side by side. Open the board with `Ctrl+Shift+B`, the board button in the activity bar, or the **Code / Agent Board** switch in the title bar.
 
-- **Boxes.** Drag agents into boxes. Each box has its own agent, model, effort and prompt, and the boxes run at the same time. Resize the tiles, or give a box a live file pane with its **Code** switch to watch what it writes.
+- **Boxes.** Click the empty box to pick an agent, or drag a chat in from the side bar. Each box has its own agent, model, effort and prompt, and the boxes run at the same time. Resize the tiles, or give a box a live file pane with its **Code** switch to watch what it writes.
 - **File ownership.** A file belongs to the first box that edits it. If another box edits it, Breeze puts the file back and relays the change to the owner. The owner's answer goes back to the asker.
 - **Relay limits.** After three relays between the same two boxes Breeze pauses the loop. The **Auto-relay** switch turns relaying off.
 - **Chats in the side bar.** The board's side bar lists your Breeze chats and your earlier Claude Code and Codex chats (read from their own logs). Any of them can be carried on in a box, and **History** reopens older ones.
