@@ -1763,7 +1763,7 @@ function powerNote(): string {
     : powerInfo.reason === 'lowend' ? 'On now: this machine is light on cores or memory.'
     : powerInfo.reason === 'forced' ? 'On now.'
     : 'Off now.';
-  return `Power saver drops blur, looping motion and idle work. Auto turns it on while on battery or on a slower machine. ${now}`;
+  return `Power saver drops looping motion and idle work. Auto turns it on while on battery or on a slower machine. ${now}`;
 }
 // Unplugging (or plugging in) with Settings open updates the row.
 document.addEventListener('powerchange', refreshSettings);

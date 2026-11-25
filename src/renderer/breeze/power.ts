@@ -1,6 +1,6 @@
 // Power saver, page side. Main decides when it is on (src/main/power.ts: on battery, on low-end hardware, or as
-// Settings → General → Performance says) and the page follows: data-power="saver" on <html> turns the blur and the
-// looping animations off (breeze.css), and decorative timers rest. Plugged in on an ordinary machine, nothing changes.
+// Settings → General → Performance says) and the page follows: data-power="saver" on <html> turns the looping
+// animations off (breeze.css), and decorative timers rest. Plugged in on an ordinary machine, nothing changes.
 
 let powerInfo: PowerInfo = { mode: 'auto', saver: false, onBattery: false, lowEnd: false, reason: null };
 const powerSaver = (): boolean => powerInfo.saver;
