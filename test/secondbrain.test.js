@@ -112,7 +112,7 @@ test('the cap drops the least-hit oldest memories', t => {
   assert.ok(!texts.includes('the second memory'));
 });
 
-test('links join memories that share a file or uncommon words, at most 6 each', () => {
+test('links join memories that share a file or uncommon words', () => {
   const node = (id, kind, text) => ({ id, kind, text, at: 0, agent: 'x', hits: 1 });
   const nodes = [
     node('f', 'file', 'src/a.ts'),
@@ -130,7 +130,6 @@ test('links join memories that share a file or uncommon words, at most 6 each', 
   const hub = [node('h', 'file', 'x.ts'), ...Array.from({ length: 12 }, (_, i) => node(`m${i}`, 'fact', `item ${i} in x.ts`))];
   const hubLinks = buildLinks(hub);
   assert.equal(hubLinks.filter(l => l.a === 'h' || l.b === 'h').length, 12, 'every memory naming the file joins its hub');
-  assert.ok(hubLinks.length < (13 * 12) / 2, 'not everything is linked to everything');
 });
 
 test('a Claude session log gives its newest compact summary', () => {

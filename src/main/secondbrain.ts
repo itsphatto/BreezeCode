@@ -12,7 +12,7 @@ export interface BrainNode { id: string; kind: Kind; text: string; at: number; a
 export interface BrainLink { a: string; b: string; w: number }
 export interface Graph { nodes: BrainNode[]; links: BrainLink[] }
 export const MAX_NODES = 1500;
-export const MAX_LINKS = 10;
+export const MAX_LINKS = -1;
 export const MIN_JACCARD = 0.25;
 const MAX_SEEN = 500;
 
