@@ -1900,7 +1900,7 @@ async function detectAgent(a: AgentDef) {
 // `force` (the Rescan buttons) looks for the compilers again; otherwise the lookup made at startup is reused.
 handle('sys:detect', async (_e, force) => {
   const agents: Record<string, unknown>[] = await Promise.all(AGENTS.map(detectAgent));
-  // The API agents (a local LLM server, Gemini, OpenRouter) speak the OpenAI API instead of being a CLI.
+  // The API agents (a local LLM server, Gemini, OpenRouter, DeepSeek) speak the OpenAI API instead of being a CLI.
   for (const id of LLM_PROVIDER_IDS) {
     const p = LLM_PROVIDERS[id];
     let llm = await llmConfig(id, id === 'local').catch(() => null);
@@ -2236,8 +2236,8 @@ function setSecret(name: string, value: string | null | undefined): void {
   fs.writeFileSync(secretsPath(), JSON.stringify(all));
 }
 
-/* ================= LLM APIs (Ollama, LM Studio or any OpenAI-compatible server; Gemini; OpenRouter) ================= */
-import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, type LlmProviderId, type ModelList } from './llmproviders';
+/* ================= LLM APIs (Ollama, LM Studio or any OpenAI-compatible server; Gemini; OpenRouter; DeepSeek) ================= */
+import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, keepsReasoning, withoutThinkingBody, type LlmProviderId, type ModelList } from './llmproviders';
 // The usual addresses of Ollama and LM Studio, tried when nothing is configured yet.
 const LLM_DEFAULTS = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1'];
 // The server address without trailing slashes.
@@ -2259,7 +2259,7 @@ async function llmModels(provider: LlmProviderId, url: unknown, key: string | nu
   return filterModels(provider, j);
 }
 // One API agent's saved setup. Ollama (`local`) keeps its own state keys (llmUrl…, secret llmKey) and, with `probe`,
-// is otherwise found at the first usual address that answers (it is then saved). Gemini and OpenRouter are saved
+// is otherwise found at the first usual address that answers (it is then saved). The cloud providers are saved
 // under llmProviders[id], with their key in the secrets file; they count as set up once a key and model are saved.
 interface LlmConfig { provider: LlmProviderId; url: string; model?: string | null; models: string[]; contexts: Record<string, number>; key: string | null }
 async function llmConfig(provider: LlmProviderId, probe?: boolean): Promise<LlmConfig | null> {
@@ -4508,12 +4508,13 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
   const ctx: LlmCtx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, noStream: false, allowAll: false, seen: new Map(), touched: new Set(), drafts: new Map(), turn: 0, toolNames: tools.map(t => t.function.name) };
   const started = Date.now();
   let tokens = 0, lastText = '';
-  // One request; only the assistant's text and tool calls are kept (servers add extra fields).
+  // One request; only the assistant's text and tool calls are kept (servers add extra fields), and its thinking where
+  // the provider needs it back.
   const ask = async (withTools: boolean) => {
     const fitted = brain.compactHistory(messages, budget);
     // Replies dropped to fit go to the folder's second brain, so what they said isn't lost.
     if (fitted.length < messages.length) brainFacts(base, droppedReplies(messages, fitted), provider);
-    const body: Loose = { model: cfg.model, messages: fitted, temperature: 0.2, stream: false };
+    const body: Loose = { model: cfg.model, messages: brain.reasoningFor(fitted, keepsReasoning(provider)), temperature: 0.2, stream: false };
     if (withTools) body.tools = tools;
     // The text shows as it is written. Thinking isn't shown, only how long it took.
     const sent = Date.now();
@@ -4550,7 +4551,7 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
       calls = textToolCalls(text, ctx.toolNames);
       if (calls) text = '';
     }
-    messages.push({ role: 'assistant', content: text, ...(calls ? { tool_calls: calls } : {}) });
+    messages.push({ role: 'assistant', content: text, ...(keepsReasoning(provider) ? { reasoning_content: msg.reasoning_content ?? '' } : {}), ...(calls ? { tool_calls: calls } : {}) });
     if (text) { lastText = text; emit(runId, { t: 'text', text }); }
     return calls;
   };
@@ -5119,7 +5120,8 @@ async function localCommitMsg(provider: LlmProviderId, base: string, prompt: str
       { role: 'user', content: prompt }
     ],
     temperature: 0.2,
-    stream: false
+    stream: false,
+    ...(ask ? {} : withoutThinkingBody(provider)) // a commit message doesn't need thinking
   };
   const j = await llmRequest({ base, cfg }, body);
   const text = withoutThinking(j.choices?.[0]?.message?.content || '');
@@ -5193,7 +5195,7 @@ function opencodeCommitMsg(base: string, prompt: string, model?: string, _effort
   };
   return runCommitCli(bin, args, base, prompt, finish);
 }
-const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: (...a) => localCommitMsg('local', ...a), gemini: (...a) => localCommitMsg('gemini', ...a), openrouter: (...a) => localCommitMsg('openrouter', ...a), codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
+const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: (...a) => localCommitMsg('local', ...a), gemini: (...a) => localCommitMsg('gemini', ...a), openrouter: (...a) => localCommitMsg('openrouter', ...a), deepseek: (...a) => localCommitMsg('deepseek', ...a), codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
 handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
   const base = root;
   if (!base) throw new Error('Open a folder first');

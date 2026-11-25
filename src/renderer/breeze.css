@@ -642,6 +642,10 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   --tint: #94a3b8;
 }
 
+.tint-deepseek {
+  --tint: #8fa2ff;
+}
+
 /* OpenRouter's lime mark is for dark backgrounds; the light theme shows its dark mark. */
 :root[data-theme="light"] .tint-openrouter .brand-img {
   content: url(../../assets/icons/openrouter_mark_dark.svg);

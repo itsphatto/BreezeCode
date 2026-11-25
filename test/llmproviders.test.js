@@ -96,3 +96,40 @@ test('isLlmAgent knows only the API providers', () => {
   assert.equal(llm.isLlmAgent(undefined), false);
   assert.equal(llm.isLlmAgent('__proto__'), false);
 });
+
+test('deepseek: lists its models, starts on flash, caps the context', () => {
+  const r = llm.filterModels('deepseek', { data: [{ id: 'deepseek-v4-pro', context_window: 1048576 }, { id: 'deepseek-flash', context_window: 65536 }] });
+  assert.deepEqual(r.models, ['deepseek-v4-pro', 'deepseek-flash']);
+  assert.equal(llm.defaultModel('deepseek', r.models), 'deepseek-flash');
+  assert.equal(llm.defaultModel('deepseek', ['deepseek-v4-pro']), 'deepseek-v4-pro');
+  assert.equal(llm.contextWindow('deepseek', { url: 'x', model: 'deepseek-v4-pro', contexts: r.contexts }), 128000);
+  assert.equal(llm.contextWindow('deepseek', { url: 'x', model: 'deepseek-flash', contexts: r.contexts }), 65536);
+  assert.equal(llm.contextWindow('deepseek', { url: 'x', override: 4096 }), 128000);
+  assert.equal(llm.isLlmAgent('deepseek'), true);
+  assert.equal(llm.keyCheckPath('deepseek'), null);
+  assert.deepEqual(llm.extraHeaders('deepseek'), {});
+  assert.equal(llm.LLM_PROVIDER_IDS.at(-1), 'deepseek');
+});
+
+test('deepseek: key, balance and rate errors say what to do', () => {
+  assert.match(llm.friendlyError('deepseek', 401, {}).message, /DeepSeek rejected the key.*platform[.]deepseek[.]com[/]api_keys/);
+  assert.match(llm.friendlyError('deepseek', 402, {}).message, /platform[.]deepseek[.]com[/]top_up/);
+  assert.match(llm.friendlyError('deepseek', 429, {}).message, /wait/i);
+});
+
+test('only deepseek keeps its thinking and can turn it off', () => {
+  assert.deepEqual(llm.LLM_PROVIDER_IDS.filter(llm.keepsReasoning), ['deepseek']);
+  assert.deepEqual(llm.withoutThinkingBody('deepseek'), { thinking: { type: 'disabled' } });
+  for (const id of ['local', 'gemini', 'openrouter']) assert.deepEqual(llm.withoutThinkingBody(id), {});
+});
+
+// setup.ts is a page script, so the function is lifted out of it.
+test('keyProvider tells a pasted key by its shape', () => {
+  const { stripTypeScriptTypes } = require('node:module');
+  const src = require('node:fs').readFileSync(require.resolve('../src/renderer/breeze/setup.ts'), 'utf8').replaceAll('\r', '');
+  const keyProvider = require('node:vm').runInNewContext('(' + stripTypeScriptTypes(/function keyProvider[^]*?\n}/.exec(src)[0]) + ')');
+  assert.equal(keyProvider('sk-' + '0123456789abcdef'.repeat(2)), 'deepseek');
+  assert.equal(keyProvider('sk-or-v1-' + 'a'.repeat(64)), 'openrouter');
+  assert.equal(keyProvider('AIzaSyX'), 'gemini');
+  for (const k of ['', 'sk-1234', 'sk-lm-abc', 'sk-' + 'a'.repeat(33), 'sk-proj-' + 'a'.repeat(32)]) assert.equal(keyProvider(k), 'local', k);
+});

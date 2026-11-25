@@ -106,7 +106,7 @@ interface RootInfo { root: string; name: string; }
 interface LaunchInfo extends RootInfo { open: string | null; launched: true; }
 interface SearchHit { path: string; line: number; col: number; text: string; }
 interface DetectedAgent { id: string; name: string; vendor: string; url: string; found: boolean; path: string | null; version: string | null; api?: boolean; models?: string[]; install?: string | null;
-  // A cloud API agent (Gemini, OpenRouter): where to get a key, the Setup card's line, and who bills the usage.
+  // A cloud API agent (Gemini, OpenRouter, DeepSeek): where to get a key, the Setup card's line, and who bills the usage.
   keyUrl?: string; sub?: string; billedBy?: string | null; }
 // Tokens each agent used this month (counted by Breeze), and the plan windows the agent itself reports (percent used).
 interface LimitWindow { label: string; used: number; resetsAt: number | null; }

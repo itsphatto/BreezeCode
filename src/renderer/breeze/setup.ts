@@ -104,6 +104,7 @@ const AGENT_STYLE: Record<string, { letter: string; tint: string }> = {
   ollama: { letter: 'Ol', tint: 'local' },
   gemini: { letter: 'Ge', tint: 'gemini' },
   openrouter: { letter: 'Or', tint: 'openrouter' },
+  deepseek: { letter: 'Ds', tint: 'deepseek' },
 };
 let detecting: Promise<Detection> | null = null;
 
@@ -224,6 +225,7 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
 function keyProvider(key: string): string {
   if (/^sk-or-/i.test(key)) return 'openrouter';
   if (/^AIza/.test(key)) return 'gemini';
+  if (/^sk-[0-9a-f]{32}$/.test(key)) return 'deepseek'; // strict: a local server's own "sk-…" key must not be sent to DeepSeek
   return 'local';
 }
 // One key field for every API agent not connected yet; keyProvider picks the agent, and the connected one joins the list.
@@ -231,7 +233,7 @@ function apiKeyHtml(apis: DetectedAgent[]): string {
   if (!apis.length) return '';
   const cloud = apis.filter(a => a.keyUrl).map(a => a.name);
   const local = apis.some(a => !a.keyUrl);
-  const hint = cloud.length ? `Paste a ${cloud.join(' or ')} key${local ? ', or leave it empty to find Ollama or LM Studio' : ''}` : 'Finds Ollama or LM Studio running on this computer';
+  const hint = cloud.length ? `Paste a ${cloud.join(', ').replace(/, ([^,]*)$/, ' or $1')} key${local ? ', or leave it empty to find Ollama or LM Studio' : ''}` : 'Finds Ollama or LM Studio running on this computer';
   const links = apis.map(a => `<button class="get" data-get="${escAttr(a.keyUrl ?? a.url)}"><span class="get-label">${esc(a.keyUrl ? `${a.name} key` : `Get ${a.name}`)}</span></button>`).join('');
   return `<div class="agent-opt api api-key missing" data-llm-key-card>
     <span class="nm">API key</span>
@@ -654,7 +656,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
 
 /* ----- Agents: names, mentions and the default agent ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
-const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter']]);
+const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter'], ['deepseek', 'DeepSeek']]);
 function agentShortName(a: DetectedAgent): string {
   return AGENT_SHORT_NAMES.get(a.id) || a.name;
 }
@@ -713,7 +715,7 @@ let pickerRefresh: (() => void) | null = null;
 // No Scan button: the picker scans as it opens, and any scan that finds an agent added or gone redraws it and says so
 // (announceAgentChanges). Rows that change place slide there; a key half typed survives the redraw.
 function openAgentPicker(): void {
-  openModal(`<h3>Choose your AI agent</h3><p class="sub">Installed coding agents are found automatically. Paste an API key to add Gemini, OpenRouter or a local LLM.</p>
+  openModal(`<h3>Choose your AI agent</h3><p class="sub">Installed coding agents are found automatically. Paste an API key to add Gemini, OpenRouter, DeepSeek or a local LLM.</p>
     <div class="agent-list" id="pickList"></div>
     <div class="row end spaced"><button class="btn btn-primary" data-close>Done</button></div>`, m => {
     const list = $('#pickList', m);

@@ -25,7 +25,7 @@ function applyDevMode(): void {
   queueDiscord();
 }
 // Agents the user has come first, then this order; anything else keeps its place after.
-const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'gemini', 'opencode', 'local', 'openrouter'];
+const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'gemini', 'opencode', 'local', 'openrouter', 'deepseek'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
 // Settings -> Agents -> API keys: each connected API agent with Remove; keys are added in the agent picker.
 function apiKeyRowsHtml(agents: DetectedAgent[]): string {

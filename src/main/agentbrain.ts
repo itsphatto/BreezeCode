@@ -10,7 +10,7 @@ export interface SearchHit { path: string; line: number; text: string }
 // A rough token count (about 3.5 characters per token for code and English). Good enough to budget with.
 const tokensOf = (text: unknown): number => Math.ceil(String(text ?? '').length / 3.5);
 function messageTokens(m: ChatMessage): number {
-  let n = 4 + tokensOf(m.content);
+  let n = 4 + tokensOf(m.content) + tokensOf(m.reasoning_content);
   for (const c of m.tool_calls || []) n += 4 + tokensOf(c.function?.name) + tokensOf(c.function?.arguments);
   return n;
 }
@@ -124,10 +124,11 @@ function lineMatcher(query: unknown, { regex = false, caseSensitive = false }: {
 // push() takes the body as it arrives, in pieces of any size; end() gives the reply in the shape a reply that
 // wasn't streamed has. `onDelta(text, thinking, calls)` hears the text so far, whether the model thought in a
 // separate field (Ollama, LM Studio and llama.cpp send it as reasoning or reasoning_content), and the tool
-// calls so far, their arguments maybe cut off mid-way.
+// calls so far, their arguments maybe cut off mid-way. end() has the thinking too (reasoning_content), for the
+// provider that wants it back.
 function replyReader(onDelta: (text: string, thinking: boolean, calls: ToolCall[]) => void = () => {}, newId: () => string = () => 'call_0') {
   const calls: ToolCall[] = [];
-  let buf = '', text = '', thinking = false, usage: unknown;
+  let buf = '', text = '', reasoning = '', thinking = false, usage: unknown;
   const take = (data: string) => {
     if (data === '[DONE]') return;
     let j: any; // one parsed server-sent JSON chunk; providers differ in the fields they add
@@ -138,6 +139,7 @@ function replyReader(onDelta: (text: string, thinking: boolean, calls: ToolCall[
     const d = j.choices?.[0]?.delta;
     if (!d) return;
     if (d.reasoning || d.reasoning_content) thinking = true;
+    if (d.reasoning_content) reasoning += d.reasoning_content;
     for (const c of d.tool_calls || []) {
       const call: ToolCall & { function: { name: string; arguments: string } } = (calls[c.index ?? calls.length] ??= { id: '', type: 'function', function: { name: '', arguments: '' } }) as never;
       if (c.id) call.id = c.id;
@@ -156,11 +158,11 @@ function replyReader(onDelta: (text: string, thinking: boolean, calls: ToolCall[
         buf = buf.slice(nl + 1);
       }
     },
-    end(): { usage: unknown; choices: { message: { content: string; tool_calls?: ToolCall[] } }[] } {
+    end(): { usage: unknown; choices: { message: { content: string; reasoning_content?: string; tool_calls?: ToolCall[] } }[] } {
       line(buf);
       buf = '';
       const toolCalls = calls.filter(c => c?.function?.name).map(c => ({ ...c, id: c.id || newId() }));
-      return { usage, choices: [{ message: { content: text, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] };
+      return { usage, choices: [{ message: { content: text, ...(reasoning ? { reasoning_content: reasoning } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] };
     },
   };
 }
@@ -260,6 +262,17 @@ function compactHistory(messages: ChatMessage[], budget: number): ChatMessage[] 
   return out;
 }
 
+// The messages as a provider wants them: every reply with its thinking ('' where there was none: an older chat, or one
+// another agent started), or none of them with any.
+function reasoningFor(messages: ChatMessage[], keep: boolean): ChatMessage[] {
+  return messages.map(m => {
+    if (keep) return m.role === 'assistant' ? { ...m, reasoning_content: m.reasoning_content ?? '' } : m;
+    if (!('reasoning_content' in m)) return m;
+    const { reasoning_content: _, ...rest } = m;
+    return rest;
+  });
+}
+
 /* ----- System prompt ----- */
 export interface Instructions { label: string; text: string }
 export interface PromptEnv { project: string; base: string; platform: string; shell: string; date: string; instructions: Instructions[] }
@@ -329,4 +342,4 @@ ${env.instructions.map(i => `Contents of ${i.label}:\n\n${i.text}`).join('\n\n')
   return parts.join('\n\n');
 }
 
-export { tokensOf, messageTokens, historyTokens, projectMap, readRange, stripLineNumbers, applyEdit, formatHits, pathFilter, lineMatcher, replyReader, partialString, callKey, slimArgs, settle, compactHistory, instructionPaths, readInstructions, systemPrompt, READ_LINES, READ_MAX_LINES };
+export { tokensOf, messageTokens, historyTokens, projectMap, readRange, stripLineNumbers, applyEdit, formatHits, pathFilter, lineMatcher, replyReader, partialString, callKey, slimArgs, settle, compactHistory, reasoningFor, instructionPaths, readInstructions, systemPrompt, READ_LINES, READ_MAX_LINES };
