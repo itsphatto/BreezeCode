@@ -642,7 +642,8 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   --tint: #94a3b8;
 }
 
-.tint-deepseek {
+.tint-deepseek,
+.tint-dsh {
   --tint: #8fa2ff;
 }
 
@@ -17172,15 +17173,15 @@ body.layout-animating #previewPane {
   background: #1d1d1f;
 }
 
-/* The blue hover row would swallow Antigravity's and Gemini's logos, so they crossfade to a white one there
+/* The blue hover row would swallow Antigravity's, Gemini's and DeepSeek's logos, so they crossfade to a white one there
    (the white logo sits on top in the same spot, hidden until then). */
-.menu-ico:is(.tint-antigravity, .tint-gemini) .brand-img,
-.menu-ico:is(.tint-antigravity, .tint-gemini)::after {
+.menu-ico:is(.tint-antigravity, .tint-gemini, .tint-deepseek, .tint-dsh) .brand-img,
+.menu-ico:is(.tint-antigravity, .tint-gemini, .tint-deepseek, .tint-dsh)::after {
   grid-area: 1 / 1;
   transition: opacity .15s ease;
 }
 
-.menu-ico:is(.tint-antigravity, .tint-gemini)::after {
+.menu-ico:is(.tint-antigravity, .tint-gemini, .tint-deepseek, .tint-dsh)::after {
   content: "";
   width: 100%;
   height: 100%;
@@ -17193,13 +17194,17 @@ body.layout-animating #previewPane {
   background-image: url("../../assets/icons/gemini_white.png");
 }
 
-.menu-item:hover:not(:disabled) .menu-ico:is(.tint-antigravity, .tint-gemini) .brand-img,
-.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico:is(.tint-antigravity, .tint-gemini) .brand-img {
+.menu-ico:is(.tint-deepseek, .tint-dsh)::after {
+  background-image: url("../../assets/icons/deepseek_white.svg");
+}
+
+.menu-item:hover:not(:disabled) .menu-ico:is(.tint-antigravity, .tint-gemini, .tint-deepseek, .tint-dsh) .brand-img,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico:is(.tint-antigravity, .tint-gemini, .tint-deepseek, .tint-dsh) .brand-img {
   opacity: 0;
 }
 
-.menu-item:hover:not(:disabled) .menu-ico:is(.tint-antigravity, .tint-gemini)::after,
-.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico:is(.tint-antigravity, .tint-gemini)::after {
+.menu-item:hover:not(:disabled) .menu-ico:is(.tint-antigravity, .tint-gemini, .tint-deepseek, .tint-dsh)::after,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .menu-ico:is(.tint-antigravity, .tint-gemini, .tint-deepseek, .tint-dsh)::after {
   opacity: 1;
 }
 

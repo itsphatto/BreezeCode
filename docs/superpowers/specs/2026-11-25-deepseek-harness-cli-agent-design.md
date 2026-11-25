@@ -1,7 +1,7 @@
 # DeepSeek Harness (dsh) as a CLI agent — design
 
-Date: 2026-11-25. Status: **waiting for approval.** Written from dsh's docs and source (0.2.2-rc.5); dsh has not been
-installed or run. It is a developer preview that promises breaking changes and says it has had no security audit.
+Date: 2026-11-25. Status: **approved**, then checked against dsh 0.2.2-rc.5 on Windows with a stand-in model server (no
+live key). dsh is a developer preview that promises breaking changes and says it has had no security audit.
 
 ## Intent
 Let people who use DeepSeek's own coding harness pick it in Breeze like Codex or OpenCode.
@@ -22,16 +22,26 @@ Let people who use DeepSeek's own coding harness pick it in Breeze like Codex or
   user has set themselves wins.
 - **Permissions:** Build uses `workspace-write`; Breeze's Full Access uses `danger-full-access`. Headless cannot ask, so
   in Build anything outside the sandbox is refused, and the refusal is shown.
-- **Ask and Plan:** dsh ships no read-only preset. Breeze adds one with a `--patch` overlay (`sandbox: read-only`). If
-  that can't be confirmed, Ask and Plan are not offered for dsh: an instruction in the prompt is not a guarantee.
+- **Ask and Plan** use dsh's own `read-only` preset (its base profile ships one, so no overlay is needed).
 - **Events:** session -> session, text -> text, thinking -> "Thought" note, tool_call / tool_result -> tool and file
   lines, status.usage -> tokens, final -> done (or the error in `reason`). Unknown types are ignored.
 - **Teams and Agent board:** left out at first. dsh has no per-file deny rules like Claude's and OpenCode's.
-- **Commit messages, model choice:** left out at first; dsh uses its own default model.
+- **Commit messages and other one-shot questions:** left out. With dsh picked, they go to the DeepSeek API agent when its
+  key is saved, and otherwise say so. Never to another company's agent.
+- **Model choice:** left out; dsh uses its own default.
 - **Warning:** the card reads "Developer preview · may break between versions".
 
-## To confirm with dsh installed, before building
-1. The read-only overlay really blocks writes on Windows.
-2. The names and inputs of its file tools (for the file list).
-3. That stopping Breeze's run stops the whole process tree.
-4. That the process exits by itself after `final`.
+## Checked with dsh installed
+
+- `read-only` blocked edit, write, PowerShell, cmd, node and delete, and every request for wider access.
+- `workspace-write` allows the project and the temp folder only.
+- Session ids resume; an unknown one fails with `session "…" does not exist` (Breeze then starts a new chat).
+- `taskkill /T /F` stops the whole tree. The process exits by itself after `final`.
+- A project `.env` that sets `DEEPSEEK_BASE_URL` makes dsh refuse to start. Breeze also sets the address itself whenever it
+  passes its saved key.
+- dsh uploads each session's log to DeepSeek by default. Breeze's runs turn that off with a `--patch` overlay, and set
+  `DSH_TELEMETRY_DISABLED`.
+- npm's `.cmd` shim can't carry the overlay's path when the user name has a space, so on Windows Breeze runs dsh's
+  `lib/bin.js` with node directly.
+- Starting takes about 23 seconds on the test machine, so a run says it is starting.
+- npm held back five packages' install scripts; everything above worked without them.

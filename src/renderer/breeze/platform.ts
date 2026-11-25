@@ -940,6 +940,8 @@ const BRAND_ICONS: Record<string, string> = {
   local: 'ollama.svg',
   ollama: 'ollama.svg',
   gemini: 'gemini.svg',
+  deepseek: 'deepseek.svg',
+  dsh: 'deepseek.svg',
   openrouter: 'openrouter_mark.png', // light theme swaps in openrouter_mark_dark.svg (breeze.css)
 };
 // Browser preview only: each API agent's canned models once "connected". Ollama keeps its old storage key.

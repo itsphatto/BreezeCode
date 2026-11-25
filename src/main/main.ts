@@ -15,6 +15,7 @@ import { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGit
 import { AntigravityAgentService } from './antigravityAgentService.js';
 import { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } from './github';
 import { costOf } from './pricing';
+import { DSH_PATCH, dshArgs, dshEnv, dshFailure, dshProgram, dshReader } from './dsh';
 import * as prconflict from './prconflict';
 import { looksBinary } from './sniff';
 import { isDocFile, docFileToText, textToDocFile, blankDocFile, officeMedia } from './officefile';
@@ -1789,6 +1790,11 @@ const AGENTS: AgentDef[] = [
     url: 'https://opencode.ai/',
     paths: () => isWin ? [path.join(APPDATA, 'npm', 'opencode.cmd')] : [path.join(HOME, '.opencode', 'bin', 'opencode'), '/usr/local/bin/opencode', '/opt/homebrew/bin/opencode'],
   },
+  {
+    id: 'dsh', name: 'DeepSeek Harness', vendor: 'DeepSeek · developer preview', commands: ['dsh'],
+    url: 'https://github.com/deepseek-ai/deepseek-harness',
+    paths: () => isWin ? [path.join(APPDATA, 'npm', 'dsh.cmd')] : ['/usr/local/bin/dsh', '/opt/homebrew/bin/dsh'],
+  },
 ];
 // OpenCode names models provider/model (openrouter/~anthropic/claude-opus-latest), so they need more than SAFE_MODEL allows.
 const OPENCODE_MODEL = /^[\w.:~-]+\/[\w.:~/-]{1,120}$/;
@@ -1854,6 +1860,7 @@ function agentInstallCmd(id: string, platform: string): string | null {
   if (id === 'claude') return 'npm install -g @anthropic-ai/claude-code';
   if (id === 'codex') return 'npm install -g @openai/codex';
   if (id === 'opencode') return 'npm install -g opencode-ai';
+  if (id === 'dsh') return 'npm install -g @deepseek-ai/dsh';
   if (id !== 'local') return null;
   if (platform === 'win32') return 'winget install Ollama.Ollama';
   if (platform === 'darwin') return 'brew install ollama';
@@ -1890,7 +1897,7 @@ async function detectAgent(a: AgentDef) {
     models = bin ? await opencodeModels(bin) : [];
     const saved = loadState().opencodeModel;
     version = models.includes(saved) ? saved : models[0] ?? null;
-  } else if (bin) {
+  } else if (bin && a.id !== 'dsh') { // dsh picks its own model, and `version` is shown as the model
     version = await versionOf(bin);
   }
 
@@ -1974,7 +1981,7 @@ handle('sys:runCommand', async (_e, cmd) => {
   const command = cmd.trim();
   const allowed = [
     ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', 'dlv', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
-    ...['claude', 'codex', 'opencode', 'local'].map(id => agentInstallCmd(id, process.platform)),
+    ...['claude', 'codex', 'opencode', 'dsh', 'local'].map(id => agentInstallCmd(id, process.platform)),
     ...lspInstalls(process.platform).map(i => i.cmd),
   ].filter(Boolean) as string[];
   if (!allowed.includes(command)) return false;
@@ -2861,6 +2868,8 @@ const MAX_TASK = 20000;
 const TEAM_FINISHED = 'That team has finished.';
 const teamDeps = { startRun: launchRun, stopRun, emit: sendEvent, setTimeout, clearTimeout };
 
+// dsh can't be told which files are another agent's, as Claude and OpenCode can, so it works alone.
+const DSH_SOLO = 'DeepSeek Harness works on its own for now. Use another agent in a team or on the board.';
 // The agents a prompt can mention: the CLI agents the last scan found, and each API agent once it is set up.
 async function teamAgents() {
   const llms = await Promise.all(LLM_PROVIDER_IDS.map(async id => ({ id, name: LLM_PROVIDERS[id].name, found: !!(await llmConfig(id, false).catch(() => null))?.model })));
@@ -2913,6 +2922,7 @@ handle('board:run', async (_e, o) => {
   const boxKey = boxKeyOf(o?.boxKey);
   const agent = (await teamAgents()).find(a => a.id === o?.agent);
   if (!agent?.found) throw new Error('That agent was not found on this computer.');
+  if (agent.id === 'dsh') throw new Error(DSH_SOLO);
   if (typeof o.prompt !== 'string' || !o.prompt.trim()) throw new Error('Tell the agent what to do first.');
   const session = typeof o.session === 'string' && SAFE_ID.test(o.session) ? o.session : null;
   return openBoard().startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session, pick: boardPick(o, agent.id) });
@@ -2943,6 +2953,7 @@ handle('team:claim', async (_e, o) => {
   for (const m of list) {
     const agent = agents.find(a => a.id === m?.agentId);
     if (!agent?.found) throw new Error('That agent was not found on this computer.');
+    if (agent.id === 'dsh') throw new Error(DSH_SOLO);
     if (members.some(x => x.agentId === agent.id)) throw new Error('Each agent can only be on a team once.');
     if (typeof m.task !== 'string') throw new Error('Every agent on a team needs a task.');
     const session = typeof m.session === 'string' && SAFE_ID.test(m.session) ? m.session : undefined;
@@ -3074,11 +3085,12 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
-interface StreamCtx { done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number; subagents?: Set<string>; subSaid?: Set<string> }
+interface StreamCtx { dsh?: ReturnType<typeof dshReader>; done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number; subagents?: Set<string>; subSaid?: Set<string> }
 // `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
   if (agent === 'opencode') return opencodeArgs(mode, prompt, session, team, pick);
+  if (agent === 'dsh') return dshSpec(mode, prompt, session);
   const build = mode === 'build';
   const sandbox = !build ? 'read-only' : fullAccess() ? 'danger-full-access' : 'workspace-write';
   const args = ['exec', '--json', '-s', sandbox, '--skip-git-repo-check'];
@@ -3099,7 +3111,7 @@ function cliArgs(agent: string, mode: string, prompt: string, session: string | 
 // Claude Code in print mode: one JSON event per line. Build mode may edit files and run commands without asking
 // (with full access, every permission check is off); ask and plan modes can read and search but every tool that
 // changes files is switched off.
-const NO_SESSION = /No conversation found with session ID/i;
+const NO_SESSION = /No conversation found with session ID|session "[\w-]+" does not exist/i; // Claude's wording, then dsh's
 // Claude Code on Windows runs commands with PowerShell as well as Bash.
 const CLAUDE_SHELL_TOOLS = ['Bash', 'PowerShell'];
 const CLAUDE_WRITE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', ...CLAUDE_SHELL_TOOLS];
@@ -3154,6 +3166,17 @@ function opencodeArgs(mode: string, prompt: string, session: string | null | und
   if (build) return { args, prompt, env };
   const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
   return { args, prompt: `${ask}\n\n${prompt}` };
+}
+function dshSpec(mode: string, prompt: string, session: string | null | undefined): CliSpec {
+  const patch = path.join(app.getPath('userData'), 'dsh-breeze.yml');
+  fs.writeFileSync(patch, DSH_PATCH);
+  let dshEnvFile = '';
+  try { dshEnvFile = fs.readFileSync(path.join(process.env.DSH_HOME || path.join(HOME, '.dsh'), '.env'), 'utf8'); } catch { /* none */ }
+  const args = dshArgs({ mode, full: fullAccess(), patch, session });
+  const env = dshEnv(process.env, getSecret(LLM_PROVIDERS.deepseek.keySecret), dshEnvFile);
+  if (mode === 'build') return { args, prompt, env };
+  const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
+  return { args, prompt: `${ask}\n\n${prompt}`, env };
 }
 // A Claude Code settings file holding a team member's deny rules, for `--settings`. Null when its path can't
 // pass through the shell (a user name with a space, say) or it can't be written.
@@ -3347,6 +3370,8 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   const bin = agentBins.get(agent);
   if (!bin) throw new Error('That agent was not found on this computer. Rescan from Settings → Run Setup Again.');
   const shell = /\.(?:cmd|bat)$/i.test(bin);
+  const direct = agent === 'dsh' ? dshProgram(bin, shell ? await which('node') : null, fs.existsSync) : null;
+  if (agent === 'dsh' && !direct) { runs.delete(runId); throw new Error('DeepSeek Harness needs Node.js 24.9 or newer. Install it, then run: npm install -g @deepseek-ai/dsh'); }
   // Breeze's own MCP server. A run still starts without it; the agent then has no way to ask or show.
   const hasMcp = await breezeMcp.listen().then(() => true, () => false);
   if (run.stopped) { runs.delete(runId); emit(runId, { t: 'done', ok: false, stopped: true }); return; }
@@ -3365,7 +3390,8 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     const opts = { cwd: base, windowsHide: true, env: { MCP_TOOL_TIMEOUT: '86400000', ...process.env, ...(cli.env || {}) } };
     let child: ChildProcess;
     try {
-      child = shell ? spawn(shellCommand(bin, cli.args), { ...opts, shell: true }) : spawn(bin, cli.args, opts);
+      if (direct) child = spawn(direct.command, [...direct.first, ...cli.args], opts);
+      else child = shell ? spawn(shellCommand(bin, cli.args), { ...opts, shell: true }) : spawn(bin, cli.args, opts);
     } catch (err) { dropSettingsFile(run); breezeMcp.close(runId); throw err; }
     run.child = child;
     child.stdin!.on('error', () => { /* the agent exited before reading its prompt; its output says why */ });
@@ -3374,7 +3400,8 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
       child.stdin!.write(claudeUserLine(cli.prompt ?? ''));
       run.steerable = true;
     } else child.stdin!.end(cli.prompt ?? undefined);
-    streamCli(runId, run, child, agent === 'claude' ? claudeEvent : agent === 'opencode' ? opencodeEvent : codexEvent, mode, retryModel);
+    if (agent === 'dsh') emit(runId, { t: 'note', text: 'Starting DeepSeek Harness. This can take half a minute.' });
+    streamCli(runId, run, child, CLI_EVENTS[agent] ?? codexEvent, mode, retryModel);
   };
   // A retry starts from the close listener, so a failed launch there ends the run instead of throwing.
   const relaunch = () => {
@@ -3389,10 +3416,10 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   // Called once when Codex refuses its configured model, or Claude Code can't find the chat to resume.
   let retried = false;
   const retryModel = (errText: string): boolean => {
-    if (!retried && agent === 'claude' && session && NO_SESSION.test(errText)) {
+    if (!retried && (agent === 'claude' || agent === 'dsh') && session && NO_SESSION.test(errText)) {
       retried = true;
       session = null;
-      emit(runId, { t: 'note', text: 'Claude couldn’t find the earlier conversation, so this message starts a new one.' });
+      emit(runId, { t: 'note', text: `${agent === 'dsh' ? 'DeepSeek Harness' : 'Claude'} couldn’t find the earlier conversation, so this message starts a new one.` });
       return relaunch();
     }
     const model = !retried && agent === 'codex' ? codexFallback(errText) : null;
@@ -3439,7 +3466,7 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
     if (ctx.retry && !run.stopped && ctx.retryModel?.(ctx.retry)) return;
     if (ctx.done) { if (ctx.final) emit(runId, ctx.final); return; }
     if (run.stopped) { emit(runId, { t: 'done', ok: false, stopped: true }); return; }
-    emit(runId, { t: 'error', text: ctx.lastError || ctx.stderr.trim().split('\n').slice(-6).join('\n') || `The agent exited with code ${code}` });
+    emit(runId, { t: 'error', text: ctx.lastError || (run.agent === 'dsh' && dshFailure(ctx.stderr)) || ctx.stderr.trim().split('\n').slice(-6).join('\n') || `The agent exited with code ${code}` });
     emit(runId, { t: 'done', ok: false });
   });
 }
@@ -3519,6 +3546,20 @@ function opencodeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): v
     emit(runId, { t: 'done', ok: true, tokens: ctx.tokens });
   }
 }
+
+function dshEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
+  ctx.dsh ??= dshReader(relOut);
+  for (const ev of ctx.dsh(d, mode)) {
+    if (ev.t === 'lastError') ctx.lastError = ev.text;
+    else if (ev.t === 'output') commandOutput(runId, ev.text);
+    else if (ev.t === 'todos') emitTodos(runId, ev.todos);
+    else {
+      if (ev.t === 'done') ctx.done = true;
+      emit(runId, ev);
+    }
+  }
+}
+const CLI_EVENTS: Record<string, (runId: number, d: Loose, ctx: StreamCtx, mode: string) => void> = { claude: claudeEvent, codex: codexEvent, opencode: opencodeEvent, dsh: dshEvent };
 
 /* ----- Local LLM agent loop (OpenAI-style function calling over the project folder) ----- */
 // Keeping token use down: the first message carries a map of the project (so the model doesn't explore it
@@ -5196,22 +5237,30 @@ function opencodeCommitMsg(base: string, prompt: string, model?: string, _effort
   return runCommitCli(bin, args, base, prompt, finish);
 }
 const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: (...a) => localCommitMsg('local', ...a), gemini: (...a) => localCommitMsg('gemini', ...a), openrouter: (...a) => localCommitMsg('openrouter', ...a), deepseek: (...a) => localCommitMsg('deepseek', ...a), codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
+// dsh takes too long to start for a one-shot question, so DeepSeek's API answers for it. Never another company's agent:
+// the user picked DeepSeek.
+async function writerFor(agent: string | null | undefined): Promise<string | null | undefined> {
+  if (agent !== 'dsh') return agent;
+  if (await llmConfig('deepseek').catch(() => null)) return 'deepseek';
+  throw new Error("DeepSeek Harness can't do this yet. Add a DeepSeek API key or pick another agent.");
+}
 handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
   const base = root;
   if (!base) throw new Error('Open a folder first');
-  const writer = COMMIT_WRITERS[agent || await defaultCommitAgent()];
+  const id = await writerFor(agent) || await defaultCommitAgent();
+  const writer = id ? COMMIT_WRITERS[id] : undefined;
   if (!writer) throw new Error(`Unsupported agent: ${agent}`);
-  return writer(base, prompt, model, effort);
+  return agent && id !== agent ? writer(base, prompt) : writer(base, prompt, model, effort); // the model picked was the other agent's
 });
 // A one-shot, read-only question to the user's agent (the conflict Duel): the same writers, but the reply comes back as it
 // was, not cleaned up as a commit message. Its own channel, so commit-message changes never reach it.
 handle('agent:ask', async (_e, { agent, prompt, model, effort } = {}) => {
   const base = root || boxDir(); // naming a Breeze Space chat needs no folder open
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 200000) throw new Error('The prompt must be text, up to 200,000 characters');
-  if (agent !== undefined && agent !== null && !Object.hasOwn(COMMIT_WRITERS, agent)) throw new Error(`Unsupported agent: ${agent}`);
-  const id = agent || await defaultCommitAgent();
+  if (agent !== undefined && agent !== null && agent !== 'dsh' && !Object.hasOwn(COMMIT_WRITERS, agent)) throw new Error(`Unsupported agent: ${agent}`);
+  const id = await writerFor(agent) || await defaultCommitAgent();
   if (!id) throw new Error('No AI agent is available');
-  return COMMIT_WRITERS[id](base, prompt, model, effort, true);
+  return agent && id !== agent ? COMMIT_WRITERS[id](base, prompt, undefined, undefined, true) : COMMIT_WRITERS[id](base, prompt, model, effort, true);
 });
 
 /* ================= Sign in with GitHub / Google ================= */

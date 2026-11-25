@@ -105,6 +105,7 @@ const AGENT_STYLE: Record<string, { letter: string; tint: string }> = {
   gemini: { letter: 'Ge', tint: 'gemini' },
   openrouter: { letter: 'Or', tint: 'openrouter' },
   deepseek: { letter: 'Ds', tint: 'deepseek' },
+  dsh: { letter: 'Dh', tint: 'dsh' },
 };
 let detecting: Promise<Detection> | null = null;
 
@@ -219,7 +220,7 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
   }
   return `<div class="agent-opt ${a.found ? '' : 'missing'} ${on ? 'on' : ''}" ${attrs}>
     ${mark}<span class="nm">${esc(a.name)}</span>${side}
-    ${a.found ? '' : `<span class="sub" title="${escAttr(sub)}">${esc(sub)}</span>`}${modelOptions}</div>`;
+    ${a.found && a.id !== 'dsh' ? '' : `<span class="sub" title="${escAttr(sub)}">${esc(a.found ? 'Developer preview · may break between versions' : sub)}</span>`}${modelOptions}</div>`;
 }
 // Which API agent a pasted key is for, by its prefix. Anything else, or no key, goes to the local server (Ollama, LM Studio).
 function keyProvider(key: string): string {
@@ -576,6 +577,7 @@ function modelMark(a: DetectedAgent, m: string): string {
   if (a.id === 'claude' || /(^|\/)~?anthropic\//.test(full) || last.startsWith('claude')) return '<span class="model-mark mm-claude" aria-hidden="true"></span>';
   if (a.id === 'codex' || /(^|\/)~?openai\//.test(full) || /^(gpt|chatgpt|o\d|codex)/.test(last)) return '<span class="model-mark mm-openai" aria-hidden="true"></span>';
   if (a.id === 'gemini' || /(^|\/)~?google\//.test(full) || last.startsWith('gemini')) return '<span class="model-mark mm-gemini" aria-hidden="true"></span>';
+  if (/(^|\/)~?deepseek\//.test(full) || last.startsWith('deepseek')) return brandMark('menu-ico', 'deepseek', 'D');
   return brandMark('menu-ico', a.id, a.name[0] ?? '?');
 }
 // Claude Code's aliases carry the maker's name in the picker: "Claude Opus 5.5".
@@ -629,7 +631,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
     }));
   };
   const models = [...agentModelRows(a, m => current() === m, m => apply(m, effortNow())), ...(others ? otherAgentRows(a, others) : [])];
-  const effort: MenuItem[] = a.api ? [] : [...(others ? [{ sep: true }] : []), { slider: {
+  const effort: MenuItem[] = a.api || a.id === 'dsh' ? [] : [...(others ? [{ sep: true }] : []), { slider: {
     label: `${agentShortName(a)} effort`,
     steps: EFFORTS,
     value: () => EFFORTS.indexOf(effortNow()),

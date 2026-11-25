@@ -48,7 +48,7 @@ const boardPageShowing = () => $('#boardBtn').classList.contains('on');
 const boardStoreKey = () => `breeze.board.${rootInfo?.root ?? ''}`;
 const boxNumber = (key: string) => Number(key.slice(3));
 const boxName = (b: { key: string; agent: string }) => `${agentNameOf(b.agent)} · ${boxNumber(b.key)}`;
-const foundAgents = () => (appState.detect?.agents ?? []).filter(a => a.found);
+const foundAgents = () => (appState.detect?.agents ?? []).filter(a => a.found && a.id !== 'dsh'); // dsh works alone (main.ts DSH_SOLO)
 let boardFolder: string | null = null; // the folder the boxes on screen belong to
 
 function openBoard(): void {
