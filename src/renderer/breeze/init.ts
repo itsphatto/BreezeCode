@@ -155,10 +155,10 @@ async function boot(): Promise<void> {
       if (morph) { reveal(true); morph.play(); }
     })().finally(launched);
   } else {
-    // Browser: the whole intro plays in the page. It lifts 1.8s after the swirl has fully appeared; animations only
+    // Browser: the whole intro plays in the page. It lifts 1.2s after the swirl has fully appeared; animations only
     // advance while the page draws frames, so a clock-time cap makes sure it never stays up for good.
     const logoIn = $('.launch-logo', launch).getAnimations()[0]?.finished.catch(() => undefined) ?? Promise.resolve();
-    void Promise.race([logoIn.then(() => wait(1800)), wait(6000)]).then(() => {
+    void Promise.race([logoIn.then(() => wait(1200)), wait(6000)]).then(() => {
       const morph = parkLogo();
       reveal(true);
       launched();
