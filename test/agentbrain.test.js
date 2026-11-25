@@ -246,3 +246,27 @@ test('systemPrompt adds the environment, and the user instructions only when the
   const withUser = brain.systemPrompt({ ...env, instructions: [{ label: 'CLAUDE.md (this project)', text: 'Use tabs.' }] });
   assert.match(withUser, /OVERRIDE[\s\S]*Contents of CLAUDE\.md \(this project\):\n\nUse tabs\.$/);
 });
+
+/* ----- Thinking that has to go back (DeepSeek) ----- */
+test('replyReader gives the thinking back beside the text', () => {
+  const r = brain.replyReader();
+  for (const delta of [{ reasoning_content: 'Let me ' }, { reasoning_content: 'look.' }, { content: 'Done' }]) r.push(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);
+  assert.deepEqual(r.end().choices[0].message, { content: 'Done', reasoning_content: 'Let me look.' });
+});
+
+test('thinking counts towards the budget and survives settling and trimming', () => {
+  const reply = { role: 'assistant', content: '', reasoning_content: 'x'.repeat(350), tool_calls: [call('a', 'read_file', { path: 'f' })] };
+  assert.equal(brain.messageTokens(reply) - brain.messageTokens({ ...reply, reasoning_content: undefined }), 100);
+  const msgs = [{ role: 'system', content: 's' }, { role: 'user', content: 'q' }, reply, { role: 'tool', tool_call_id: 'a', content: big(300) }];
+  assert.equal(brain.settle(msgs)[2].reasoning_content, reply.reasoning_content);
+  assert.equal(brain.compactHistory(msgs, 1500)[2].reasoning_content, reply.reasoning_content);
+});
+
+test('reasoningFor sends thinking only where it is wanted', () => {
+  const msgs = [{ role: 'system', content: 's' }, { role: 'user', content: 'q' }, { role: 'assistant', content: 'a', reasoning_content: 'r' }, { role: 'assistant', content: 'b' }];
+  const keep = brain.reasoningFor(msgs, true);
+  assert.deepEqual(keep.map(m => m.reasoning_content), [undefined, undefined, 'r', '']); // an older reply never had any
+  assert.ok(!('reasoning_content' in keep[0]));
+  assert.ok(brain.reasoningFor(msgs, false).every(m => !('reasoning_content' in m)));
+  assert.equal(msgs[2].reasoning_content, 'r'); // the conversation itself is untouched
+});

@@ -253,7 +253,7 @@ test('a passing run has counts and no failures; other output is not a test run',
 test('every agent type\'s command output reaches the result card', () => {
   const main = read('src/main/main.ts');
   assert.match(main, /function commandOutput\(runId: number, text: unknown\)/);
-  assert.equal((main.match(/commandOutput\((?:runId|ctx\.runId), /g) ?? []).length, 3, 'Claude Code Bash results, Codex commands, local run_command');
+  assert.equal((main.match(/commandOutput\((?:runId|ctx\.runId), /g) ?? []).length, 4, 'Claude Code Bash results, Codex commands, DeepSeek Harness commands, local run_command');
   const teams = read('src/renderer/breeze/teams.ts');
   assert.match(teams, /tests: \(r, ev, tab\) => testsCard\(r, ev, tab\)/);
   assert.match(teams, /data-test-line/);

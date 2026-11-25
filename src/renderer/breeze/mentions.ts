@@ -199,7 +199,7 @@ function mentionedAgents(text: string): DetectedAgent[] {
 // Chips are kept between keystrokes so only a newly tagged agent slides in.
 function promptModelHtml(a: DetectedAgent, target?: ModelTarget): string {
   const model = target?.model() || a.version || a.models?.[0] || '';
-  const eff = a.api ? '' : `<small class="dd-eff"> · ${esc(target ? target.effort() : agentEffort(a))}</small>`;
+  const eff = a.api || a.id === 'dsh' ? '' : `<small class="dd-eff"> · ${esc(target ? target.effort() : agentEffort(a))}</small>`;
   return `<b>${esc(agentShortName(a))}</b><span class="pm-model">${esc(versionLabel(model))}</span>${eff}${svgIcon('chevronDown', 10)}`;
 }
 // The Agents tab's chips: the agents tagged in the prompt, or with none tagged the default agent (the one that answers).

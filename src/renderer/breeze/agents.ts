@@ -57,7 +57,8 @@ function setAgent(k: AgentKey, status: AgentStatus, task: string, used?: number)
   Object.assign(agentsDef[k], { status, task });
   if (used != null) agentsDef[k].used = used;
   renderAgents(); vibeTick(); queueDiscord();
-  const curTab = surfaceTabs[surface.name]?.find(t => t.id === activeTabId[surface.name]);
+  // During a run's event, the chat it belongs to, which need not be the one on screen.
+  const curTab = eventTab ?? surfaceTabs[surface.name]?.find(t => t.id === activeTabId[surface.name]);
   if (status === 'working' && curTab?.run?.phase === k) showThinking(thinkingLabel(k, curTab.run.agent), k, curTab, curTab.run.agent);
 }
 
@@ -106,11 +107,13 @@ interface Run {
   replied: boolean;
   announce: boolean;
   todos?: AgentEvent['todos'];        // its to-do list, last as sent (todoCard)
-  subagents?: Map<string, string>;    // subagents working now: tool call id -> what it was asked to do
+  subagents?: SubChat[];              // subagents it started, in order (subchat.ts)
 }
 let agentRun: Run | null = null;
 // The team member whose event is being handled; addMsg gives its lines its logo and name. Null outside team tabs.
 let labelAgent: string | null = null;
+// The chat whose run's event is being handled, or null.
+let eventTab: AgentTabState | null = null;
 let lastRunFiles: string[] = [];
 
 interface AgentTabState {
@@ -499,6 +502,7 @@ function closeAgentTab(s: Surface, tid: string): void {
 
   const finalize = () => {
     closingAgentTabs.delete(tid);
+    closeSubChat(tab);
     tab.panel.remove();
     const curIdx = surfaceTabs[s.name].findIndex(t => t.id === tid);
     if (curIdx !== -1) surfaceTabs[s.name].splice(curIdx, 1);
@@ -600,6 +604,7 @@ function useSurface(name: SurfaceName): void {
 }
 
 function scrollChat(s: Surface): void {
+  if (s.chat.querySelector(':scope > .agent-tab-panel.active.viewing-sub')) return; // a subagent's chat is open: it scrolls itself
   const scroller = s.name === 'box' ? $('.box-main') : s.chat;
   if (scroller) scroller.scrollTop = scroller.scrollHeight;
 }
@@ -668,19 +673,20 @@ function userMsg(text: string, attachments?: AgentAttachment[], tab?: AgentTabSt
     imgHtml = `<div class="msg-attachments">${items}</div>`;
   }
   const bodyText = text ? `<div>${mentionHtml(text, msgSurface.name === 'ide').replaceAll('\n', '<br>')}</div>` : '';
+  closeSubChat(t);
   addMsg(`<div class="msg user"><div class="meta"><b>${esc(displayName() ?? 'You')}</b> ${clockTime()}</div><div class="body">${bodyText}${imgHtml}</div></div>`, t);
 }
 
 function thinkingLabel(k: AgentKey, agentId?: string | null): string {
   const who = speaker(k, agentId).name;
   const task = agentsDef[k].task;
-  return msgSurface.name === 'box' || !task ? `${who} is thinking` : `${who} · ${task}`;
+  return !task ? `${who} is thinking` : `${who} · ${task}`;
 }
 
-/* While an agent works, a "Thinking 2.0s" header (with that agent's logo) opens into the steps it has gone through,
-   each with how long it took. Tool calls are listed there too. The open/closed choice is remembered. */
+/* While an agent works, a header with its logo says what it is doing right now ("Running ls 11.0s"). It opens into the
+   steps it has gone through, each with how long it took. The open/closed choice is remembered; it starts closed. */
 const THINK_OPEN_KEY = 'breeze.thinkOpen';
-const thinkOpen = (): boolean => { try { return localStorage.getItem(THINK_OPEN_KEY) !== '0'; } catch { return true; } };
+const thinkOpen = (): boolean => { try { return localStorage.getItem(THINK_OPEN_KEY) === '1'; } catch { return false; } };
 const thinkStarts = new WeakMap<HTMLElement, { start: number; step: number }>();
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
@@ -690,6 +696,17 @@ function stepText(label: string, who: string): string {
   for (const pre of [`${who} is `, `${who} · `]) if (s.startsWith(pre)) s = s.slice(pre.length);
   if (s === 'thinking') return '';
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// A tool line as what is happening now: "$ ls" → "Running ls", "Read a.ts" → "Reading a.ts".
+const DOING: Record<string, string> = { $: 'Running', 'PS>': 'Running', Read: 'Reading', Edited: 'Editing', Wrote: 'Writing', Created: 'Creating',
+  Deleted: 'Deleting', Moved: 'Moving', Searched: 'Searching', Listed: 'Listing', Took: 'Taking', Updated: 'Updating' };
+const doing = (label: string) => label.replace(/^\S+(?= )/, w => DOING[w] ?? w);
+// What the working line's header says. Nothing to say is "Thinking".
+function thinkLabel(panel: Element, text: string): void {
+  const lbl = panel.querySelector<HTMLElement>('.think-head .lbl');
+  const line = doing(text).split('\n')[0].trim() || 'Thinking';
+  if (lbl && lbl.textContent !== line) lbl.textContent = line;
 }
 
 function tickThinking(el: HTMLElement): void {
@@ -703,6 +720,7 @@ function tickThinking(el: HTMLElement): void {
 }
 
 function thinkStep(el: HTMLElement, icon: string, text: string): void {
+  if (text) thinkLabel(el, text);
   const list = $('.think-steps', el);
   const st = thinkStarts.get(el);
   if (!list || !st || !text) return;

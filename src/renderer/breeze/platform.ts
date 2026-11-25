@@ -467,6 +467,7 @@ function demoApi(): BreezeApi {
             { id: 'claude', name: 'Claude', vendor: 'Anthropic', url: 'https://claude.com/claude-code', found: false, path: null, version: 'opus', models: ['fable', 'opus', 'sonnet', 'haiku'], install: 'npm install -g @anthropic-ai/claude-code' },
             { id: 'local', name: 'Ollama', vendor: 'Ollama, LM Studio or any OpenAI-compatible server', url: 'https://ollama.com/download', api: true, ...demoLlm('local') },
             { id: 'openrouter', name: 'OpenRouter', vendor: 'OpenRouter', url: 'https://openrouter.ai/keys', api: true, keyUrl: 'https://openrouter.ai/keys', sub: 'One key for hundreds of models · pay as you go', billedBy: 'OpenRouter', ...demoLlm('openrouter') },
+            { id: 'deepseek', name: 'DeepSeek', vendor: 'DeepSeek', url: 'https://platform.deepseek.com/api_keys', api: true, keyUrl: 'https://platform.deepseek.com/api_keys', sub: 'Pay as you go · needs a DeepSeek account', billedBy: 'DeepSeek', ...demoLlm('deepseek') },
           ],
           tools: [{ id: 'git', name: 'Git', found: true, version: null }, { id: 'node', name: 'Node.js', found: true, version: null },
           { id: 'dotnet', name: 'C#', found: false, version: null, optional: true, hint: 'winget install Microsoft.DotNet.SDK.10', url: 'https://dotnet.microsoft.com/download' }],
@@ -939,6 +940,8 @@ const BRAND_ICONS: Record<string, string> = {
   local: 'ollama.svg',
   ollama: 'ollama.svg',
   gemini: 'gemini.svg',
+  deepseek: 'deepseek.svg',
+  dsh: 'deepseek.svg',
   openrouter: 'openrouter_mark.png', // light theme swaps in openrouter_mark_dark.svg (breeze.css)
 };
 // Browser preview only: each API agent's canned models once "connected". Ollama keeps its old storage key.
@@ -946,6 +949,7 @@ const DEMO_LLMS: Record<string, { url: string; models: string[] }> = {
   local: { url: 'http://127.0.0.1:11434/v1', models: ['llama3.1', 'qwen2.5-coder'] },
   gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
   openrouter: { url: 'https://openrouter.ai/api/v1', models: ['google/gemini-2.5-flash', 'anthropic/claude-sonnet-4.5', 'openai/gpt-5-mini', 'x-ai/grok-4'] },
+  deepseek: { url: 'https://api.deepseek.com', models: ['deepseek-flash', 'deepseek-v4-pro'] },
 };
 const demoLlmKey = (provider: string) => (provider === 'local' ? 'breeze.demoLlm' : `breeze.demoLlm.${provider}`);
 // Logos that are a shape rather than a square tile; they show whole instead of clipped to the tile's corners.

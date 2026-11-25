@@ -1,10 +1,10 @@
 // The API agents that run on Breeze's own agent loop (OpenAI-style chat completions with tool calls): a local
-// server (Ollama, LM Studio…), Gemini and OpenRouter. What differs between them lives here: the address, where
+// server (Ollama, LM Studio…), Gemini, OpenRouter and DeepSeek. What differs between them lives here: the address, where
 // the key is kept, which models are listed, how much context to send, and how their errors read.
 // Plain functions with no Electron, so test/llmproviders.test.js can cover them.
 
-export type LlmProviderId = 'local' | 'gemini' | 'openrouter';
-export const LLM_PROVIDER_IDS: LlmProviderId[] = ['local', 'gemini', 'openrouter'];
+export type LlmProviderId = 'local' | 'gemini' | 'openrouter' | 'deepseek';
+export const LLM_PROVIDER_IDS: LlmProviderId[] = ['local', 'gemini', 'openrouter', 'deepseek'];
 
 export interface LlmProvider {
   id: LlmProviderId;
@@ -35,6 +35,11 @@ export const LLM_PROVIDERS: Record<LlmProviderId, LlmProvider> = {
     keyUrl: 'https://openrouter.ai/keys', getUrl: 'https://openrouter.ai/keys', keySecret: 'openrouterKey', needsKey: true,
     sub: 'One key for hundreds of models · pay as you go', billedBy: 'OpenRouter',
   },
+  deepseek: {
+    id: 'deepseek', name: 'DeepSeek', vendor: 'DeepSeek', url: 'https://api.deepseek.com',
+    keyUrl: 'https://platform.deepseek.com/api_keys', getUrl: 'https://platform.deepseek.com/api_keys', keySecret: 'deepseekKey', needsKey: true,
+    sub: 'Pay as you go · needs a DeepSeek account', billedBy: 'DeepSeek',
+  },
 };
 
 export function isLlmAgent(id: unknown): id is LlmProviderId {
@@ -62,6 +67,7 @@ export function filterModels(provider: LlmProviderId, json: unknown): ModelList 
     for (const m of usable) if (Number(m.context_length) > 0) contexts[m.id] = Number(m.context_length);
   } else {
     models = list.map(m => m?.id || m?.name).filter(Boolean).map(String);
+    if (provider === 'deepseek') for (const m of list) if (m?.id && Number(m.context_window) > 0) contexts[m.id] = Number(m.context_window);
   }
   models = [...new Set(models)];
   if (!models.length) {
@@ -74,7 +80,9 @@ export function filterModels(provider: LlmProviderId, json: unknown): ModelList 
 
 // The model picked on connecting: the newest Gemini Flash model when there is one. Gemini's free tier allows it,
 // and on OpenRouter (which lists its newest, often premium, models first) it is a cheap one that calls tools well.
+// On DeepSeek it is deepseek-flash, its cheap one.
 export function defaultModel(provider: LlmProviderId, models: string[]): string {
+  if (provider === 'deepseek') return models.includes('deepseek-flash') ? 'deepseek-flash' : models[0];
   if (provider !== 'local') {
     const flash = provider === 'gemini' ? /^gemini-(\d+(?:\.\d+)?)-flash$/ : /^google\/gemini-(\d+(?:\.\d+)?)-flash$/;
     let best: string | null = null, bestVersion = -1;
@@ -106,7 +114,7 @@ const CLOUD_CONTEXT = 128000;
 // server; other local servers usually allow more. `override` (the saved llmContext) only applies to local servers.
 export function contextWindow(provider: LlmProviderId, o: { url: string; model?: string | null; contexts?: Record<string, number>; override?: number }): number {
   if (provider === 'local') return o.override || (/:11434\b/.test(o.url) ? 4096 : 8192);
-  if (provider === 'openrouter') {
+  if (provider === 'openrouter' || provider === 'deepseek') {
     const n = o.model ? o.contexts?.[o.model] : undefined;
     return n ? Math.min(n, CLOUD_CONTEXT) : CLOUD_CONTEXT;
   }
@@ -124,10 +132,23 @@ export function friendlyError(provider: LlmProviderId, status: number, body: unk
   else if (provider === 'gemini' && status === 429) text = "Gemini's free limit is used up for now. Wait a minute, or add billing in Google AI Studio.";
   else if (provider === 'openrouter' && status === 429) text = 'OpenRouter is rate-limiting this model. Wait a minute or pick another model.';
   else if (provider === 'openrouter' && status === 402) text = 'OpenRouter needs credits. Add them at openrouter.ai/credits.';
+  else if (provider === 'deepseek' && status === 402) text = 'Your DeepSeek balance is used up. Add funds at platform.deepseek.com/top_up.';
+  else if (provider === 'deepseek' && status === 429) text = 'DeepSeek is getting requests too fast. Wait a minute and try again.';
   return Object.assign(new Error(text), { status });
 }
 
 // Headers a provider asks for beyond the key. OpenRouter uses these to credit the app.
 export function extraHeaders(provider: LlmProviderId): Record<string, string> {
   return provider === 'openrouter' ? { 'HTTP-Referer': 'https://breezecode.site/', 'X-Title': 'Breeze Code' } : {};
+}
+
+// DeepSeek thinks before it answers, and on a request with tools it refuses (400) a conversation whose earlier thinking
+// (reasoning_content) isn't sent back. The other providers neither need it nor expect it.
+export function keepsReasoning(provider: LlmProviderId): boolean {
+  return provider === 'deepseek';
+}
+
+// Body fields that turn thinking off, for a short job such as a commit message.
+export function withoutThinkingBody(provider: LlmProviderId): Record<string, unknown> {
+  return provider === 'deepseek' ? { thinking: { type: 'disabled' } } : {};
 }
