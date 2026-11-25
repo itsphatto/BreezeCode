@@ -864,8 +864,7 @@ function blurSwap(el: HTMLElement, text: string): void {
   if (el.textContent === text) return;
   if (!el.isConnected) { el.textContent = text; return; }
   el.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); });
-  // Power saver: the same swap as a plain fade; a blur is re-filtered on every frame of it.
-  const soft = powerSaver() ? 'blur(0)' : 'blur(6px)';
+  const soft = 'blur(6px)';
   const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: soft, transform: 'translateY(-3px)' }], { duration: 220, easing: SPRING, fill: 'forwards' });
   out.id = 'blurSwap';
   out.onfinish = () => {

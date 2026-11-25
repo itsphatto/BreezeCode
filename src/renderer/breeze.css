@@ -2376,6 +2376,13 @@ textarea:focus-visible {
   transform-origin: top left;
 }
 
+/* Dropdowns and context menus: a thinner frosted sheet than the other popups. Light theme stays near solid. */
+:root:not([data-theme="light"]) .menu {
+  background-color: rgba(36, 36, 38, .55);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  backdrop-filter: blur(28px) saturate(170%);
+}
+
 /* Too many rows: a fixed size, the rows scrolling inside (fitMenuHeight, commands.ts) past the app's own slider. */
 .menu.scrolls {
   display: flex;
@@ -8305,6 +8312,12 @@ body.vibing .ide {
 
 .agent-opt.api-key .sub {
   grid-column: 1;
+  white-space: normal;
+}
+
+/* .modal .sub gives a dialog's own subtitle a 16px gap; the agent picker's cards share the class but not the gap. */
+.modal .agent-opt .sub {
+  margin: 0;
 }
 
 .agent-opt.api-key .api-links {
@@ -8934,7 +8947,8 @@ body.vibing .ide {
 /* Its width is the svg's width attribute (the graph's lane count); it stretches to the card's height. */
 .commit-detail-row .detail-graph {
   display: block;
-  flex: 1 1 auto;
+  flex: 1 1 0; /* the card's height, never the svg's own 150px default */
+  min-height: 0;
   overflow: visible;
   pointer-events: none;
 }
@@ -14844,7 +14858,7 @@ body.layout-animating #previewPane {
    smaller than fits (it fills a small window, less a margin). The side tab and the padding scale along with it;
    the text stays its size. */
 /* Dark themes: Settings is more see-through than other dialogs; the heavier blur keeps its text readable. */
-:root:not([data-theme="light"]):not([data-power="saver"]) .modal.settings-shell {
+:root:not([data-theme="light"]) .modal.settings-shell {
   --glass-strong: rgba(30, 30, 34, .6);
 }
 
@@ -22406,46 +22420,15 @@ body > .board-preview.full {
 /* ================= Power saver =================
    <html data-power="saver"> (power.ts): on battery, on low-end hardware, or as Settings → General → Performance says.
    Everything here is scoped to that attribute, so a plugged-in machine draws exactly as before.
-   Blur behind a panel is re-drawn by the GPU whenever anything under it changes; on a weak integrated GPU that is
-   the costliest thing the page asks for. Glass goes nearly solid in the same tone instead (as the light theme's
-   already is), looping decoration stops, and the big layout slides finish at once. */
-:root[data-power="saver"] {
-  --glass-blur: none;
-  --space-blur: none;
-  --space-prompt-blur: none;
-  --space-msg-blur: none;
-  --settings-blur: none;
-}
-:root[data-power="saver"]:not([data-theme="light"]),
-:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
-  --glass: rgba(42, 42, 44, .96);
-  --glass-strong: rgba(35, 35, 37, .98);
-}
-:root[data-power="saver"]:not([data-theme="light"]) :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
-  --glass-strong: rgba(42, 42, 44, .96);
-}
-:root[data-power="saver"][data-theme="contrast"],
-:root[data-power="saver"][data-theme="contrast"] :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
-  --glass: rgba(28, 28, 34, .96);
-  --glass-strong: rgba(24, 24, 30, .98);
-}
-:root[data-power="saver"][data-theme="contrast"] :is(.menu, .menu-tip, .findbar, .toast, .explain-card, .ad-tip, .lsp-hover, .suggest, .color-picker, .modal, .ext-pop, .vibe-panel, .breeze-tooltip) {
-  --glass-strong: rgba(28, 28, 34, .96);
-}
-/* Blur written out in a rule rather than through the tokens above. */
+   Blur and glass stay as they are (a design choice, though blur is the costliest thing on a weak GPU); looping
+   decoration stops and the big layout slides finish at once. */
 :root[data-power="saver"] *,
 :root[data-power="saver"] *::before,
 :root[data-power="saver"] *::after {
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
   /* Loops play once and stop, so the animationend events the UI waits on still fire. */
   animation-iteration-count: 1 !important;
   scroll-behavior: auto !important;
 }
-/* What the blur was softening shows sharp without it: a little more cover in its place. */
-:root[data-power="saver"] .scrim::before { background: rgba(0, 0, 0, .56); }
-:root[data-power="saver"] .feed-connect { background: rgba(0, 0, 0, .7); }
-:root[data-power="saver"] .drag-file-ghost { background: var(--bg-3); }
 /* Kept turning: they say "working" or "type here", and cost a few pixels each. */
 :root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .sub-live .lbl, .sub-busy, .sub-mark.in_progress, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
   animation-iteration-count: infinite !important;
@@ -22464,8 +22447,4 @@ body > .board-preview.full {
   .work, .term-body, .box, .box-live, .box > .terminal, .skill-group-body, .plugin-skills, .editor-blur-out, .set-pane .social-grid, .composer-attachments.collapsing) {
   transition-duration: 1ms !important;
   transition-delay: 0s !important;
-}
-/* Blurring an element itself (not what's behind it) costs the same as blurring behind it: a closing editor only fades. */
-:root[data-power="saver"] .editor-blur-out {
-  filter: none !important;
 }
