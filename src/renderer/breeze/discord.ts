@@ -101,7 +101,6 @@ async function pushDiscord(): Promise<void> {
   }
 }
 function queueDiscord(): void {
-  queueFriendsPresence(); // every change Discord hears about is one friends see too
   if (!appState.discord) return;
   clearTimeout(discordTimer);
   discordTimer = setTimeout(() => void pushDiscord(), 1200);

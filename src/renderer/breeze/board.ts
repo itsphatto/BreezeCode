@@ -51,8 +51,11 @@ const boxName = (b: { key: string; agent: string }) => `${agentNameOf(b.agent)} 
 const foundAgents = () => (appState.detect?.agents ?? []).filter(a => a.found && a.id !== 'dsh'); // dsh works alone (main.ts DSH_SOLO)
 let boardFolder: string | null = null; // the folder the boxes on screen belong to
 
+// The second brain (brain.ts, loaded after this) takes the boxes' place on the page: going to a chat brings them back.
+const closeBrainPage = (): void => { if (typeof closeSecondBrain === 'function') closeSecondBrain(); };
 function openBoard(): void {
   closeMenu();
+  closeBrainPage();
   if (!rootInfo) { toast('Open a folder first, so the agents know what to work on'); return; }
   swapScreen('#board');
   if (boardFolder !== rootInfo.root) loadBoard();
@@ -71,9 +74,6 @@ function leaveBoard(): void {
   showIde();
   renderBoardStatus();
 }
-// The switcher replaced Back to editor (breeze.html): $('#boardBack').onclick = leaveBoard;
-// Its Code half leaves the same way (mode.ide), then the status bar says what the boxes are still doing.
-$('#board .mode-switch [data-mode="ide"]').addEventListener('click', () => setTimeout(renderBoardStatus, 0));
 $('#boardLogoHome').onclick = () => { goHome(); renderBoardStatus(); };
 $('#boardBtn').onclick = openBoard;
 commands['view.board'] = () => openBoard();
@@ -125,7 +125,7 @@ $('#boardRoster').addEventListener('dragstart', e => {
   showDragGhost(e, `${chip.querySelector('.board-chip-logo')?.outerHTML ?? ''}<span class="nm">${esc(chip.querySelector('b')?.textContent ?? '')}</span>`);
   boardGrid.classList.add('dragging');
   // The board opens a spot for it: the layout one more box makes (after the drag has started, or it is cancelled).
-  setTimeout(() => { if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
+  setTimeout(() => { closeBrainPage(); if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
 });
 $('#boardRoster').addEventListener('dragend', () => endBoardDrag());
 // A click on a chip starts a fresh chat with that agent, alone on the board; Enter does the same from the keyboard.
@@ -484,6 +484,7 @@ const workingBoxes = (except?: BoardBox) => allBoardBoxes().filter(b => b !== ex
 const freeKeysAfterClear = () => allBoxKeys().filter(k => !parkedBoxes.has(k) && !(boardBoxes.has(k) && boxBusy(boardBoxes.get(k)!)));
 const BOARD_ALL_BUSY = `${BOARD_MAX} chats are still working. Wait for one to finish, or stop one first.`;
 function freshBoard(agent: string): void {
+  closeBrainPage();
   const blank = blankBoxFor(agent);
   if (blank) { blank.surface.prompt.focus(); return; }
   const key = freeKeysAfterClear()[0];
@@ -983,6 +984,7 @@ function boardHistoryMenu(anchor: HTMLElement): void {
 // `alone`: a click in the side bar. The chat takes the whole board and the other boxes close (see freshBoard).
 // ('confirmed': the same, once any working box has been asked about; the boxes close in the same morph it opens in.)
 function reopenInBox(e: ChatEntry, into?: string, place?: { by: string; side: DropSide }, alone: boolean | 'confirmed' = false): void {
+  closeBrainPage();
   // Still working in the background: its box comes back to the board as it is.
   const parked = [...parkedBoxes.values()].find(b => b.tab.historyId === e.id);
   if (parked) {
@@ -1297,7 +1299,7 @@ $('#boardSideList').addEventListener('dragstart', e => {
   e.dataTransfer.effectAllowed = 'copy';
   showDragGhost(e, `<span class="nm">${esc(row.querySelector('.nm')?.textContent ?? '')}</span>`);
   boardGrid.classList.add('dragging');
-  setTimeout(() => { if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
+  setTimeout(() => { closeBrainPage(); if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
 });
 $('#boardSideList').addEventListener('dragend', () => endBoardDrag());
 

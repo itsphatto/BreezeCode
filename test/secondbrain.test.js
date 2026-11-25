@@ -224,6 +224,13 @@ test('main, preload and the board are wired', () => {
   assert.ok(src('src/main/preload.ts').includes('brain:graph'));
   assert.ok(src('src/renderer/breeze/board.ts').includes('openSecondBrain(folder)'));
   assert.ok(src('src/renderer/breeze.html').includes('breeze/brain.js'));
+  // A page on the Agent Board, in the chats' place: opened under MCP, and any way to a chat closes it.
+  assert.ok(src('src/renderer/breeze.html').includes('id="boardSideBrain"'));
+  assert.ok(src('src/renderer/breeze/brain.ts').includes("$('.board-main').appendChild(el)"));
+  for (const fn of ['function openBoard(): void {', 'function freshBoard(agent: string): void {', 'function reopenInBox(']) {
+    const b = src('src/renderer/breeze/board.ts'), at = b.indexOf(fn);
+    assert.ok(at >= 0 && b.slice(at, at + 400).includes('closeBrainPage()'), fn);
+  }
   for (const s of ["brainPrompt(opts?.taskBase", "'brain:summarizePlan'", "'brain:summarize'", 'markRead(folder, chunks[i].upTo)']) assert.ok(main.includes(s), s);
   assert.ok(src('src/renderer/breeze/brain.ts').includes('brainConfirm(plan)'), 'Summarize asks before it spends tokens');
   // Agents reach the second brain: every MCP run, and the local loop's own tools.

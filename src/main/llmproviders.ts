@@ -36,7 +36,7 @@ export const LLM_PROVIDERS: Record<LlmProviderId, LlmProvider> = {
     sub: 'One key for hundreds of models · pay as you go', billedBy: 'OpenRouter',
   },
   deepseek: {
-    id: 'deepseek', name: 'DeepSeek', vendor: 'DeepSeek', url: 'https://api.deepseek.com',
+    id: 'deepseek', name: 'DeepSeek API', vendor: 'DeepSeek', url: 'https://api.deepseek.com',
     keyUrl: 'https://platform.deepseek.com/api_keys', getUrl: 'https://platform.deepseek.com/api_keys', keySecret: 'deepseekKey', needsKey: true,
     sub: 'Pay as you go · needs a DeepSeek account', billedBy: 'DeepSeek',
   },

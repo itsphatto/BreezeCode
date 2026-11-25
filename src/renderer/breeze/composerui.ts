@@ -296,19 +296,19 @@ for (const s of [SURFACES.ide, SURFACES.box]) {
 }
 // Breeze Space's prompt floats over the conversation, which keeps its height free under the last message (breeze.css).
 new ResizeObserver(([e]) => $('#box').style.setProperty('--box-cmp-h', `${Math.ceil(e.borderBoxSize[0].blockSize)}px`)).observe($('.box-composer'));
-// Its right edge lines up with the title bar's Breeze Code button: --box-end is how far that button's right edge sits
+// Its right edge lines up with the title bar's Settings button: --box-end is how far that button's right edge sits
 // in from the conversation column's right edge (breeze.css .box-chat).
 // Offsets, not on-screen boxes: Space's entrance animation scales the page while this first runs.
-const boxCodeBtn = $('.box-bar [data-act="mode.ide"]'), boxMain = $('.box-main');
+const boxBarBtn = $('#boxSettings'), boxMain = $('.box-main');
 const boxEndWatch = new ResizeObserver(() => {
-  const bar = boxCodeBtn.offsetParent as HTMLElement | null; // the title bar, which starts at the page's left edge
-  if (!bar || !boxCodeBtn.offsetWidth) return;
-  const end = boxMain.offsetLeft + boxMain.offsetWidth - (bar.offsetLeft + boxCodeBtn.offsetLeft + boxCodeBtn.offsetWidth);
+  const bar = boxBarBtn.offsetParent as HTMLElement | null; // the title bar, which starts at the page's left edge
+  if (!bar || !boxBarBtn.offsetWidth) return;
+  const end = boxMain.offsetLeft + boxMain.offsetWidth - (bar.offsetLeft + boxBarBtn.offsetLeft + boxBarBtn.offsetWidth);
   $('#box').style.setProperty('--box-end', `${Math.max(16, end)}px`);
 });
 boxEndWatch.observe(boxMain);
 // The button moves when anything to its right changes size (the account picture filling in, say).
-for (let el: Element | null = boxCodeBtn; el; el = el.nextElementSibling) boxEndWatch.observe(el);
+for (let el: Element | null = boxBarBtn; el; el = el.nextElementSibling) boxEndWatch.observe(el);
 // After every script has run (git.js and settings.js own what the line shows).
 // Plan usage, fetched when the app starts, after each run, and when the window comes back (at most every 30 s).
 let composerUsageAt = 0;

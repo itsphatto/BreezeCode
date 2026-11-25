@@ -1,6 +1,6 @@
 /* ================= Settings ================= */
 // One pop-up for everything: the gear opens it (in the IDE and in Breeze Space) and turns while it is open.
-type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'friends' | 'help' | 'dev';
+type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
 // The controller Discord puts beside a game's elapsed time (Lucide's gamepad-2), for the Discord tab's preview.
 // The same language art main.js hands Discord, so the preview shows what friends see.
 const DC_ICON_URL = 'https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/';
@@ -11,7 +11,6 @@ const SETTINGS_TABS: [SettingsTab, string, string][] = [
   ['controls', 'Controls', 'keyboard'],
   ['agents', 'Agents', 'terminal'],
   ['discord', 'Discord', 'discord'],
-  ['friends', 'Friends', 'users'],
   ['help', 'Help & About', 'info'],
   ['misc', 'Miscellaneous', 'more'],
   ['dev', 'Developer', 'code'],
@@ -1040,12 +1039,17 @@ function settingsBody(tab: SettingsTab): string {
       <div class="kb-list" id="kbList">${keyBindListHtml('')}</div>`;
     case 'agents': {
       const agents =[...appState.detect?.agents ?? []].sort((a, b) => agentRank(a) - agentRank(b));
+      // One row per agent, like the model menu: its logo, its name, the model it runs, and a check on the default.
       const list = agents.length
-        ? agents.map(a => a.found
-          ? `<button class="set-agent ${a.id === appState.agent ? 'on' : ''}" data-agent-pick="${a.id}" title="${escAttr(a.name)}">${brandMark('set-agent-mark', a.id, a.name[0])}<span class="nm">${esc(a.name)}</span></button>`
-          // Not installed: the card stays, dimmed, with an Install button that runs the install command in a terminal.
-          : `<div class="set-agent missing" title="${escAttr(a.name)} is not installed">${brandMark('set-agent-mark', a.id, a.name[0])}<span class="nm">${esc(a.name)}</span>
-              <button class="btn btn-sm btn-primary set-agent-install" data-agent-install="${a.id}">Install</button></div>`).join('')
+        ? agents.map(a => {
+          const face = `${modelMark(a, a.id)}<span class="nm">${esc(a.name)}</span>`;
+          const model = a.version && a.version !== 'default' ? versionLabel(a.version) : '';
+          const on = a.id === appState.agent;
+          return a.found
+            ? `<button class="set-agent" data-agent-pick="${a.id}" aria-pressed="${on}" title="${escAttr(a.name)}">${face}<span class="set-agent-model">${esc(model)}</span><span class="set-agent-check">${on ? svgIcon('check', 14) : ''}</span></button>`
+            // Not installed: the row stays, dimmed, with an Install button that runs the install command in a terminal.
+            : `<div class="set-agent missing" title="${escAttr(a.name)} is not installed">${face}<button class="btn btn-sm btn-primary set-agent-install" data-agent-install="${a.id}">Install</button></div>`;
+        }).join('')
         : '<p class="set-sub">No agents found yet. Install one and it shows up here.</p>';
       return `<h4>Agents</h4>
         <div class="set-agents">${list}</div>
@@ -1089,15 +1093,6 @@ function settingsBody(tab: SettingsTab): string {
           </div>
         </div>
         <p class="set-sub">The Discord app must be running on this computer.</p></div>`;
-    }
-    case 'friends': {
-      // With sharing off, the project switch goes grey and can't be used, like Discord's.
-      const off = appState.friendsShare ? '' : 'off';
-      return `<h4>Friends</h4>
-        ${settingRow('Share my activity with friends', 'Friends see whether you are online and what you are doing: coding, building with an agent, debugging or in Breeze Space. Never your files, code or prompts.', switchHtml('sFriendsShare', appState.friendsShare, 'Share my activity with friends'))}
-        <div class="set-dim ${off}"${off ? ' inert' : ''}>
-        ${settingRow('Show my project name', 'The open folder’s name. Names can include client or employer names.', switchHtml('sFriendsProject', appState.friendsProject, 'Show my project name'))}</div>
-        ${friendsConfigured === false ? `<p class="set-sub">${esc(FRIENDS_COPY['not-configured'])}</p>` : ''}`;
     }
     case 'help': {
       const engine = /Electron\/[\d.]+|Chrome\/[\d.]+/.exec(navigator.userAgent)?.[0] ?? '';
@@ -1197,7 +1192,7 @@ document.addEventListener('pointerdown', e => {
 // The side tab, top to bottom: who you are, a search box, then the sections in groups.
 const SETTINGS_GROUPS: [string, SettingsTab[]][] = [
   ['', ['general', 'appearance', 'controls', 'agents']],
-  ['Apps', ['discord', 'friends', 'misc']],
+  ['Apps', ['discord', 'misc']],
   ['Support', ['help', 'dev']],
 ];
 let settingsQuery = '';
@@ -1569,13 +1564,11 @@ function bindSettings(m: HTMLElement): void {
   $$('[data-agent-pick]', pane).forEach(b => b.onclick = () => {
     const ag = appState.detect?.agents.find(a => a.id === b.dataset.agentPick);
     if (!ag?.found) return;
-    const from = pane.querySelector('.set-agent.on')?.getBoundingClientRect();
     appState.agent = ag.id;
     const curTab = surfaceTabs['ide']?.find(t => t.id === activeTabId['ide']);
     if (curTab) curTab.agentId = ag.id;
     saveApp(); renderAgentBar(); updateScmGenBtn();
     refreshSettings();
-    slideSelected(pane.querySelector<HTMLElement>(`[data-agent-pick="${CSS.escape(ag.id)}"]`), from);
   });
   if ($('#sEffort', pane)) seg('sEffort', v => { setEffort(v as EffortLevel); renderAgentBar(); refreshSettings(); });
   $$('[data-agent-install]', pane).forEach(b => b.onclick = async () => {
@@ -1650,9 +1643,6 @@ function bindSettings(m: HTMLElement): void {
   }
   on('sClassicSwitch', () => { setClassicSwitch(!classicSwitch); refreshSettings(); });
   on('sDevOff', () => { appState.devMode = false; saveApp(); applyDevMode(); settingsTab = 'misc'; refreshSettings(); });
-  // Friends
-  on('sFriendsShare', () => { appState.friendsShare = !appState.friendsShare; saveApp(); queueFriendsPresence(); refreshSettings(); });
-  on('sFriendsProject', () => { appState.friendsProject = !appState.friendsProject; saveApp(); queueFriendsPresence(); refreshSettings(); });
   // Discord
   on('sDiscord', el => {
     if (appState.discord) { discordOff(); return; }

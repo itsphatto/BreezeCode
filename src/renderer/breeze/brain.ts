@@ -1,5 +1,6 @@
 /* ===================== Second brain: a folder's memory as a graph or a list =====================
-   Opened from the Agent board: right-click a folder's name in the chats side bar. Each dot is one memory that an
+   Opened from the Agent board's side bar (under MCP, for the open folder; or right-click a folder's name). It takes the
+   boxes' place on the page: they stay laid out and running underneath, and closing it shows them again. Each dot is one memory that an
    agent's compaction, a prompt or Summarize left behind (main secondbrain.ts); a line means two memories name the
    same file, share words, or an agent linked them. Dots grow with their links, files are hubs, and memories linked to
    nothing drift on a ring at the edge.
@@ -46,8 +47,8 @@ function brainBuild(): HTMLElement {
   const el = document.createElement('div');
   el.className = 'brain';
   el.id = 'secondBrain';
-  el.setAttribute('role', 'dialog');
-  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('role', 'region');
+  el.tabIndex = -1; // a click on the graph keeps the keys (Esc, /, F) here
   el.setAttribute('aria-labelledby', 'brainTitle');
   el.innerHTML = `<header class="brain-head">
       <div class="brain-heading"><h2 class="brain-title" id="brainTitle">Second brain</h2><div class="brain-sub"></div></div>
@@ -76,7 +77,7 @@ function brainBuild(): HTMLElement {
       </div>
       <aside class="brain-panel" aria-label="Memory" aria-hidden="true"></aside>
     </div>`;
-  document.body.appendChild(el);
+  $('.board-main').appendChild(el);
   brain.el = el;
   brain.canvas = brainQ<HTMLCanvasElement>('canvas');
   brainQ('.brain-close').addEventListener('click', closeSecondBrain);
@@ -117,9 +118,22 @@ function brainColors(): void {
   brain.colors.font = cs.getPropertyValue('--font-ui').trim() || 'sans-serif';
 }
 
+const brainOpen = () => $('#board').classList.contains('brain-open');
+// The boxes are hidden, not removed: agents keep working in them and they come back as they were.
+function brainCover(on: boolean): void {
+  $('#board').classList.toggle('brain-open', on);
+  $('#boardGrid').inert = on;
+  $('#boardSideBrain').setAttribute('aria-pressed', String(on));
+}
+$('#boardSideBrain').onclick = () => {
+  if (brainOpen()) closeSecondBrain();
+  else if (rootInfo) void openSecondBrain(rootInfo.root);
+  else toast('Open a folder first');
+};
+
 async function openSecondBrain(folder: string): Promise<void> {
   if (!folder) return;
-  brain.back = document.activeElement as HTMLElement | null;
+  if (!brainOpen()) brain.back = document.activeElement as HTMLElement | null;
   const el = brain.el ?? brainBuild();
   brain.folder = folder;
   brain.view = { x: 0, y: 0, k: 1 };
@@ -130,6 +144,7 @@ async function openSecondBrain(folder: string): Promise<void> {
   brain.matches = null;
   brainSelect(null);
   brainQ('.brain-sub').textContent = folderName(folder);
+  brainCover(true);
   el.classList.remove('hidden', 'closing');
   el.classList.add('opening');
   requestAnimationFrame(() => el.classList.remove('opening'));
@@ -142,14 +157,16 @@ async function openSecondBrain(folder: string): Promise<void> {
 
 function closeSecondBrain(): void {
   const el = brain.el;
-  if (!el || el.classList.contains('hidden')) return;
+  if (!el || !brainOpen()) return;
+  brainCover(false);
   brain.off?.();
   brain.off = null;
   cancelAnimationFrame(brain.frame);
   cancelAnimationFrame(brain.fly);
   brain.frame = brain.fly = 0;
   el.classList.add('closing');
-  const done = () => { el.classList.add('hidden'); el.classList.remove('closing'); };
+  // Not if it was opened again meanwhile.
+  const done = () => { if (el.classList.contains('closing')) { el.classList.add('hidden'); el.classList.remove('closing'); } };
   if (brainStill()) done(); else setTimeout(done, 400);
   brain.back?.focus?.();
 }

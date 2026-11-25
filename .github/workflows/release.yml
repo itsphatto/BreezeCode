@@ -47,13 +47,12 @@ jobs:
 
       - name: Fail early if app secrets are missing
         run: |
-          if [ -z "$BREEZE_GITHUB_CLIENT_ID" ] || [ -z "$BREEZE_FIREBASE_API_KEY" ]; then
+          if [ -z "$BREEZE_GITHUB_CLIENT_ID" ]; then
             echo "::error::BREEZE_* repo secrets are not set (Settings > Secrets and variables > Actions)."
             exit 1
           fi
         env:
           BREEZE_GITHUB_CLIENT_ID: ${{ secrets.BREEZE_GITHUB_CLIENT_ID }}
-          BREEZE_FIREBASE_API_KEY: ${{ secrets.BREEZE_FIREBASE_API_KEY }}
 
       - name: Build and publish
         # Tag push publishes to the GitHub release. Manual runs only build (no publish).
@@ -71,8 +70,6 @@ jobs:
           BREEZE_GOOGLE_CLIENT_ID: ${{ secrets.BREEZE_GOOGLE_CLIENT_ID }}
           BREEZE_GOOGLE_CLIENT_SECRET: ${{ secrets.BREEZE_GOOGLE_CLIENT_SECRET }}
           BREEZE_DISCORD_CLIENT_ID: ${{ secrets.BREEZE_DISCORD_CLIENT_ID }}
-          BREEZE_FIREBASE_API_KEY: ${{ secrets.BREEZE_FIREBASE_API_KEY }}
-          BREEZE_FIREBASE_PROJECT_ID: ${{ secrets.BREEZE_FIREBASE_PROJECT_ID }}
           # Mac signing + notarization (optional; unsigned build if unset)
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}

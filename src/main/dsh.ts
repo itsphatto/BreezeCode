@@ -42,7 +42,7 @@ export function dshProgram(bin: string, node: string | null, exists: (file: stri
 export type DshEvent = { t: string; [key: string]: Loose };
 const REFUSED = new Set(['FS_SANDBOX_DENIED', 'SANDBOX_ESCALATION_REJECTED']);
 const ERRORS: Record<string, string> = {
-  MISSING_CREDENTIAL: 'DeepSeek Harness needs a DeepSeek API key. Paste one in the agent picker, or set DEEPSEEK_API_KEY.',
+  MISSING_CREDENTIAL: 'DeepSeek CLI needs a DeepSeek API key. Paste one in the agent picker, or set DEEPSEEK_API_KEY.',
   TRANSPORT: "Couldn't reach DeepSeek. Check your internet connection.",
 };
 // Reads one run's lines in order. `rel` shortens a path for showing.
@@ -76,7 +76,7 @@ export function dshReader(rel: (p: string) => string): (d: Loose, mode: string) 
   const finish = (d: Loose, mode: string): DshEvent[] => {
     if (d.reason?.kind !== 'completed') {
       const e = d.reason?.error;
-      return [{ t: 'error', text: ERRORS[e?.code] || e?.message || 'DeepSeek Harness stopped before it finished' }, { t: 'done', ok: false, tokens }];
+      return [{ t: 'error', text: ERRORS[e?.code] || e?.message || 'DeepSeek CLI stopped before it finished' }, { t: 'done', ok: false, tokens }];
     }
     const out: DshEvent[] = [];
     if (!lastText && d.text) { lastText = String(d.text); out.push({ t: 'text', text: lastText }); }
@@ -95,7 +95,7 @@ export function dshReader(rel: (p: string) => string): (d: Loose, mode: string) 
         return [];
       case 'tool_call': calls.set(d.callId, { tool: String(d.tool ?? 'tool'), input: d.input }); return [];
       case 'tool_result': return toolDone(d);
-      case 'error': return [{ t: 'lastError', text: String(d.message || 'DeepSeek Harness ran into an error') }];
+      case 'error': return [{ t: 'lastError', text: String(d.message || 'DeepSeek CLI ran into an error') }];
       case 'final': return finish(d, mode);
       default: return []; // a type this version of Breeze doesn't know
     }

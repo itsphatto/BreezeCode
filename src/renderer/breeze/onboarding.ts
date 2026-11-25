@@ -5,15 +5,13 @@ interface AppState {
   user: User | null; agent: string | null; detect: Detection | null;
   vibeArmed: boolean; vibeSites: string[]; vibeSite: string | null; mode: WorkMode;
   discord: boolean; discordDetails: boolean; devMode: boolean;
-  // Friends: share what I'm doing at all, and the open folder's name with it.
-  friendsShare: boolean; friendsProject: boolean;
   // Super Error Alert (Settings → Miscellaneous): a run that fails flashes the window's corners red and sounds a siren.
   superErrorAlert: boolean;
 }
 const savedApp = store.get<Partial<AppState>>('breeze.app', {});
 const appState: AppState = {
   onboarded: false, step: 0, name: null, termsAcceptedAt: null, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
-  discord: false, discordDetails: true, devMode: false, friendsShare: true, friendsProject: true, superErrorAlert: false,
+  discord: false, discordDetails: true, devMode: false, superErrorAlert: false,
   ...savedApp,
 };
 // The separate Breeze Agent workspace is now part of Breeze Space: a save from that build comes back to Space.
@@ -657,7 +655,6 @@ $('#onboard').addEventListener('click', e => { if (e.detail > 1) { e.preventDefa
 function setUser(u: User | null): void {
   user = u; appState.user = u; saveApp();
   renderUser();
-  friendsAccountChanged(); // signed in, out or switched: Friends looks again as whoever is active now
 }
 const initialsOf = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(w => [...w][0] ?? '').join('').toUpperCase(); // by code point: w[0] splits an emoji
 function avatarHtml(u: User | null, title: string): string {

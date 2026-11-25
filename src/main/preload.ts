@@ -255,18 +255,6 @@ contextBridge.exposeInMainWorld('breeze', {
     remove: (id: unknown) => invoke('auth:remove', id),
     onEvent: (cb: Listener) => listen('auth:event', cb),
   },
-  friends: {
-    status: (fresh: unknown) => invoke('friends:status', fresh === true),
-    verify: () => invoke('friends:verify'),
-    list: () => invoke('friends:list'),
-    incoming: () => invoke('friends:incoming'),
-    add: (email: unknown) => invoke('friends:add', email),
-    accept: (id: unknown) => invoke('friends:accept', id),
-    decline: (id: unknown) => invoke('friends:decline', id),
-    cancel: (id: unknown) => invoke('friends:cancel', id),
-    remove: (uid: unknown) => invoke('friends:remove', uid),
-    setPresence: (p: unknown) => invoke('friends:presence', p),
-  },
   sync: {
     status: () => invoke('sync:status'),
     run: (mode: unknown) => invoke('sync:run', mode),

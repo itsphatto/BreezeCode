@@ -112,7 +112,7 @@ test('deepseek: lists its models, starts on flash, caps the context', () => {
 });
 
 test('deepseek: key, balance and rate errors say what to do', () => {
-  assert.match(llm.friendlyError('deepseek', 401, {}).message, /DeepSeek rejected the key.*platform[.]deepseek[.]com[/]api_keys/);
+  assert.match(llm.friendlyError('deepseek', 401, {}).message, /DeepSeek API rejected the key.*platform[.]deepseek[.]com[/]api_keys/);
   assert.match(llm.friendlyError('deepseek', 402, {}).message, /platform[.]deepseek[.]com[/]top_up/);
   assert.match(llm.friendlyError('deepseek', 429, {}).message, /wait/i);
 });
