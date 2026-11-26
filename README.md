@@ -176,7 +176,7 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/settings-agents.jpg" alt="Settings, Agents page, with the installed agents, the Full access switch, Claude's 5-hour and weekly limits, and a tokens per day chart"></td>
+<td width="50%"><img src="docs/screenshots/settings-agents.jpg" alt="Settings, Agents page, with the installed agents, Claude's 5-hour and weekly limits, and a tokens per day chart"></td>
 <td width="50%"><img src="docs/screenshots/appearance.jpg" alt="Settings, Appearance page, with theme cards, the Glass switch, syntax colour presets and custom colours"></td>
 </tr>
 <tr>

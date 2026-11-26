@@ -17466,11 +17466,6 @@ body.layout-animating #previewPane {
   text-overflow: ellipsis; /* only if no joke fits a very narrow card */
 }
 
-/* Full access is on: the row's description reads as a warning. */
-.set-sub .set-warn {
-  color: var(--warn);
-}
-
 /* A warning-style description (the Light card's): red in every state, selected included. */
 .set-theme .set-sub.set-warn {
   color: var(--err-text);

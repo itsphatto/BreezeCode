@@ -40,7 +40,7 @@ These four points are equally weighted and should not be traded against each oth
   - **Breeze Space:** prompt and chat only, with no editor (a terminal can open beside the chat). Code in a reply becomes an artifact card you can copy or download. Chats can be named without a folder open.
   - **Vibe Code Mode:** the IDE fades and an Instagram or Facebook feed plays while the agents work, and a card announces when the code is ready. It works in Breeze Space too.
   - **Skills:** browse the skills and plugins the agents load, share skills across agents, and connect MCP servers for Claude Code without editing its own config.
-  - **Settings:** themes (dark, light, high contrast, with matching window chrome), agents with each one's plan usage (Claude Code: tokens this month plus live 5-hour and weekly limits; Codex: tokens plus its plan window; Antigravity reports none) and a full access switch, sounds with a volume slider. Sign-in with GitHub or Google, with more than one account.
+  - **Settings:** themes (dark, light, high contrast, with matching window chrome), agents with each one's plan usage (Claude Code: tokens this month plus live 5-hour and weekly limits; Codex: tokens plus its plan window; Antigravity reports none), sounds with a volume slider. Sign-in with GitHub or Google, with more than one account.
 - Ctrl+R reloads any Breeze window.
 - Agents run for minutes at a time, so waiting, progress and "it's done" moments are core states.
 

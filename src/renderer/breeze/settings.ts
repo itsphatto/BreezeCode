@@ -34,7 +34,7 @@ function apiKeyRowsHtml(agents: DetectedAgent[]): string {
     `<button class="btn btn-sm" data-llm-remove="${escAttr(a.id)}">Remove</button>`)).join('');
 }
 let settingsTab: SettingsTab = 'general';
-let agentFullAccess = true; // on unless turned off in Settings → Agents; the main process keeps the real value; read each time Settings opens
+let agentFullAccess = true; // on unless turned off from a composer; the main process keeps the real value; read again each time Settings opens
 let justSwitched = false;
 const settingsRoot = () => document.querySelector<HTMLElement>('#modalRoot .scrim:not(.closing) .settings-modal');
 // The on/off switch (styles under "on/off switch" in breeze.css): a rounded track and a square knob that stretches as it slides.
@@ -1056,8 +1056,6 @@ function settingsBody(tab: SettingsTab): string {
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
         <h5>API keys</h5>
         ${apiKeyRowsHtml(agents)}
-        <h5>Permissions</h5>
-        ${settingRow('Full access', fullAccessSub(), switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
         <h5>Agent Board</h5>
         ${settingRow('Code', 'Each box shows the file its agent is editing, at the box\'s left.', switchHtml('sBoardCode', boardCodeOn, 'Show code in board boxes'))}
         ${settingRow('Auto-relay', 'A request one agent makes of another is sent on its own. Off, each waits for Send.', switchHtml('sAutoRelay', relayQueue.auto, 'Auto-relay'))}
@@ -1213,7 +1211,7 @@ const SETTINGS_SYNONYMS: Record<string, string> = {
   shortcut: 'keybinds', shortcuts: 'keybinds', hotkey: 'keybinds', hotkeys: 'keybinds', keyboard: 'keybinds', keys: 'keybinds',
   zoom: 'font size', bigger: 'font size', smaller: 'font size', text: 'font size',
   typeface: 'font', fonts: 'font', monospace: 'code font', ligatures: 'code font', ui: 'interface font',
-  ai: 'agents', model: 'agents', models: 'agents', llm: 'agents', permission: 'full access', permissions: 'full access', sandbox: 'full access',
+  ai: 'agents', model: 'agents', models: 'agents', llm: 'agents',
   autosave: 'auto save', login: 'sign account', logout: 'sign out', profile: 'account', presence: 'discord rich',
   version: 'about', compiler: 'tools', compilers: 'tools', lsp: 'language servers', sidebar: 'side bar', highlight: 'syntax',
 };
@@ -1412,12 +1410,12 @@ function bindSettings(m: HTMLElement): void {
   // Coming back eases in more slowly than greying out.
   const DIMMABLE = '.set-dim, .social-grid';
   const was = pane.dataset.tab === settingsTab ? $$<HTMLElement>(DIMMABLE, pane).map(el => ({ opacity: getComputedStyle(el).opacity, filter: getComputedStyle(el).filter })) : [];
-  // Each row's title and description, by its control's id (else its title), so text a redraw changes blurs in: Full
-  // access's On/Off, or the opacity knob's row turning from Picture to Glass.
+  // Each row's title and description, by its control's id (else its title), so text a redraw changes blurs in, like
+  // the opacity knob's row turning from Picture to Glass.
   const rowKey = (r: HTMLElement) => r.querySelector('.set-ctl [id]')?.id || (r.querySelector('.set-title')?.textContent ?? '');
   const rowText = () => new Map($$<HTMLElement>('.set-row', pane).map(r => [rowKey(r), [r.querySelector<HTMLElement>('.set-title'), r.querySelector<HTMLElement>('.set-sub')]]));
   const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, els]) => [k, els.map(el => el?.textContent ?? '')])) : null;
-  // The usage bars keep their place through a redraw of the same section (Full access flipped): rebuilt, they filled again.
+  // The usage bars keep their place through a redraw of the same section (another agent picked): rebuilt, they filled again.
   const keptUsage = pane.dataset.tab === settingsTab ? pane.querySelector('#sUsage') : null;
   // How far the rows' entrance has got, if a redraw of the same section lands mid-way (accounts answer ~70ms after
   // Settings opens): the new rows carry on from there instead of all popping in at once.
@@ -1470,7 +1468,7 @@ function bindSettings(m: HTMLElement): void {
     $$('[data-switch-acct]', pane).forEach(b => b.animate([{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 450, delay: 120, easing: SPRING, fill: 'backwards' }));
   }
   // A rebuilt switch starts where the old knob was (mid-drag or mid-slide too) and slides on with its own CSS
-  // transition, so it moves exactly as fast as a switch that was never rebuilt (the composer's Full access).
+  // transition, so it moves exactly as fast as a switch that was never rebuilt.
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => {
     const was = Number.parseFloat(prevSwitch.get(s.id) ?? '');
     const to = s.classList.contains('on') ? 100 : 0;
@@ -1588,13 +1586,12 @@ function bindSettings(m: HTMLElement): void {
     b.disabled = true;
     background(removeApiAgent(b.dataset.llmRemove ?? '').finally(refreshSettings));
   });
-  on('sFullAccess', () => setFullAccess(!agentFullAccess));
   // The Agent Board's switches (board.ts), here instead of in the board's bar.
   const flip = (el: HTMLElement, v: boolean) => { el.classList.toggle('on', v); el.setAttribute('aria-checked', String(v)); };
   on('sBoardCode', el => { setBoardCode(!boardCodeOn); flip(el, boardCodeOn); });
   on('sAutoRelay', el => { setAutoRelay(!relayQueue.auto); flip(el, relayQueue.auto); });
   const usageEl = pane.querySelector<HTMLElement>('#sUsage');
-  // A kept list (a redraw of this section, Full access flipped) is left exactly as it is, timer and all: no fetch, so
+  // A kept list (a redraw of this section) is left exactly as it is, timer and all: no fetch, so
   // nothing in it moves because of the redraw.
   if (usageEl && !keptUsage) {
     fillUsageBars(usageEl);
@@ -1758,22 +1755,14 @@ function powerNote(): string {
 // Unplugging (or plugging in) with Settings open updates the row.
 document.addEventListener('powerchange', refreshSettings);
 
-const FULL_ACCESS_ON = 'On: in build mode agents run any command, reach any file on this computer (.env and .git too) and skip every check.';
-const FULL_ACCESS_OFF = 'Off: agents stay in the project, keep out of .env and .git, and Codex runs sandboxed.';
-const fullAccessSub = () => (agentFullAccess ? `<span class="set-warn">${FULL_ACCESS_ON}</span>` : FULL_ACCESS_OFF);
-// The switch beside each Send button is the same setting as Settings → Agents → Full access. Settings' row is updated
-// in place, not by redrawing the pane, so the switch slides with its own transition and nothing around it is rebuilt.
+// The Full access switch in Breeze Space's agent menu is the same setting as each composer's access chip. It is updated
+// in place, so it slides with its own transition and nothing around it is rebuilt.
 function renderAccessSwitches(): void {
-  $$<HTMLButtonElement>('[data-full-access], #sFullAccess').forEach(b => {
+  $$<HTMLButtonElement>('[data-full-access]').forEach(b => {
     b.classList.toggle('on', agentFullAccess);
     b.setAttribute('aria-checked', String(agentFullAccess));
     b.closest('.composer-access')?.classList.toggle('on', agentFullAccess);
   });
-  const sub = document.querySelector('#sFullAccess')?.closest('.set-row')?.querySelector<HTMLElement>('.set-sub');
-  if (sub && sub.textContent !== (agentFullAccess ? FULL_ACCESS_ON : FULL_ACCESS_OFF)) {
-    sub.innerHTML = fullAccessSub();
-    sub.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
-  }
 }
 // The switch flips at once instead of after main answers; main's answer only corrects it, and a failure flips it back.
 function setFullAccess(on: boolean): void {
