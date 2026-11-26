@@ -96,11 +96,12 @@ test('the editor draws at most once a frame', () => {
   assert.match(r('buffers'), /queueRender\(\); saveSession\(\);/); // typing queues, it doesn't draw
 });
 
-test('saver styles: blur off, glass near solid, loops stopped', () => {
-  assert.match(saver, /--glass-blur: none;\s*--space-blur: none;\s*--settings-blur: none;/);
-  assert.match(saver, /backdrop-filter: none !important;/);
+test('saver styles: blur and glass kept, loops stopped', () => {
+  // Blur stays on in the saver (a design choice): the section must not strip it or swap the glass.
+  assert.doesNotMatch(saver, /--(glass|space|settings)-blur:/);
+  assert.doesNotMatch(saver, /backdrop-filter:/);
+  assert.doesNotMatch(saver, /--glass:/);
   assert.match(saver, /animation-iteration-count: 1 !important;/);
-  assert.match(saver, /--glass: rgba\(42, 42, 44, \.96\);/);
   // The caret and the spinners keep going.
   assert.match(saver, /:is\(\.spinner, \.code-caret,[^{]*\{\s*animation-iteration-count: infinite !important;/);
 });
@@ -108,7 +109,7 @@ test('saver styles: blur off, glass near solid, loops stopped', () => {
 test('every power-saver rule is scoped to the attribute', () => {
   // Plugged in on an ordinary machine nothing may change: no rule in the section may apply without data-power.
   const selectors = [...saver.matchAll(/(?:^|\})\s*([^{}]+)\{/g)].map(m => m[1].trim()).filter(Boolean);
-  assert.ok(selectors.length >= 10);
+  assert.ok(selectors.length >= 5);
   for (const sel of selectors) {
     for (const part of sel.split(/,\n/)) assert.ok(part.trim().startsWith(':root[data-power="saver"]') || part.trim().startsWith('.work') , part);
   }

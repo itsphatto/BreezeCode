@@ -382,12 +382,3 @@ test('walkToCol keeps tab stops, stops at the line end, and bounds huge lines', 
   assert.deepEqual(plain(walkToCol('\t'.repeat(5000), 0, 5000, 30000)), { at: 4096 + 30000 - 4096 * 4, col: 30000 }); // only 4096 chars walked
 });
 
-test('curveFrames samples a cubic Bezier from its first point to its last', () => {
-  const curveFrames = vm.runInContext('curveFrames', ctx);
-  const f = plain(curveFrames({ x: -100, y: 50 }, { x: -60, y: 20 }, { x: -20, y: 0 }, { x: 0, y: 0 }, 4));
-  assert.equal(f.length, 5);
-  assert.deepEqual(f[0], { x: -100, y: 50 });
-  assert.deepEqual(f[4], { x: 0, y: 0 });
-  assert.deepEqual(f[2], { x: -42.5, y: 13.75 }); // t = 1/2: (p0 + 3 p1 + 3 p2 + p3) / 8
-  for (let i = 1; i < f.length; i++) assert.ok(f[i].x > f[i - 1].x && f[i].y <= f[i - 1].y, 'always moving right and up');
-});

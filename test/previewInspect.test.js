@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 // preview.ts touches the DOM at load, so only the source-finding and edit-writing helpers are lifted out of it.
 const src = stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/breeze/preview.ts'), 'utf8'));
-const code = src.slice(src.indexOf('function inspectedOffset'), src.indexOf('async function saveInspectedEdit'));
+const code = src.slice(src.indexOf('function inspectedOffset'), src.indexOf('async function readPreviewSource'));
 const lifted = vm.runInContext(`${code}; ({ findInspectedSource, applyInspectedEdit })`, vm.createContext({}));
 const plain = (v) => JSON.parse(JSON.stringify(v)); // results come from another realm
 const findInspectedSource = (s, e) => plain(lifted.findInspectedSource(s, e));
@@ -43,6 +43,10 @@ test('applyInspectedEdit replaces a changed text node inside its own element onl
 test('applyInspectedEdit finds text the page saw decoded from entities', () => {
   const page = '<h1 id="t">Tom &amp; Jerry</h1>';
   assert.equal(applyInspectedEdit(page, [el({ tag: 'h1', id: 't' })], [{ from: 'Tom & Jerry', to: 'Tom <3' }]), '<h1 id="t">Tom &lt;3</h1>');
+});
+
+test('applyInspectedEdit writes plain spaces as spaces and only real non-breaking ones as &nbsp;', () => {
+  assert.equal(applyInspectedEdit('<p>a&nbsp;b c</p>', [el({ tag: 'p', index: 0 })], [{ from: 'a b c', to: 'x y z' }]), '<p>x&nbsp;y z</p>');
 });
 
 test('applyInspectedEdit puts a script-split line into its heading, not a later element with the same words', () => {

@@ -49,7 +49,13 @@ class PreviewView {
   private wantFull = false;
   private home: { parent: Node; next: Node | null } | null = null; // where a detached fullscreen pane goes back to
 
-  constructor(readonly els: PreviewEls, private host: PreviewHost) {
+  // Plain fields, not constructor parameter properties: tests strip this file's types with Node, which can't emit those.
+  readonly els: PreviewEls;
+  private host: PreviewHost;
+
+  constructor(els: PreviewEls, host: PreviewHost) {
+    this.els = els;
+    this.host = host;
     const { frame } = els;
     // allow-same-origin gives the page its own breeze-preview://project origin (not Breeze's file:// one), so its fonts,
     // module scripts, fetch, workers and storage load; with an opaque origin every one of them was refused.
@@ -385,7 +391,7 @@ function findInspectedSource(src: string, chain: InspectedEl[]): Spot | null {
   }
   return null;
 }
-const escHtmlText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&nbsp;');
+const escHtmlText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&nbsp;');
 // The page's source with a text edit made in the preview written into it, or null when it can't be placed. The edit
 // goes into the innermost of the element and its ancestors that is found in the source and holds every old text, each
 // looked for after the last, as written or with entities (the page saw them decoded). So a line a script wrapped in its
