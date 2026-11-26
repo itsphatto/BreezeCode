@@ -84,6 +84,8 @@ const commands: Record<string, () => unknown> = {
     sfx.play('menu');
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
     applyLayoutAnimated();
+    // The panel starts closed for new users, so its prompt's first-run tip comes when it opens (after its 350ms slide).
+    if (layout.agentsOpen) setTimeout(() => offerTip('editor', () => $('#prompt').focus()), 400);
   },
   'view.togglePreview': () => {
     closeScmPage(); // the preview is hidden behind the Source Control page: close it first so the toggle is seen

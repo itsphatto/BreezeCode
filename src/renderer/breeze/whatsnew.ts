@@ -1,8 +1,8 @@
 /* ================= What's new ================= */
-// After an update, the first launch on the new version shows that version's release notes once. The notes are the
-// GitHub release's own (main fetches them: update:notes). A first install shows nothing: there's nothing "new" yet.
-// The version last shown is kept in NOTES_SEEN_KEY; it only moves on once the notes were shown (or there were none to
-// fetch for a reason that won't change), so an offline launch tries again next time.
+// After an update, a blue "What's new" sits in the title bars; a click opens that version's release notes and puts it
+// away. The notes are the GitHub release's own (main fetches them: update:notes). A first install shows nothing:
+// there's nothing "new" yet. The version last read is kept in NOTES_SEEN_KEY; it only moves on once the notes were
+// opened, so the text is back on the next launch until then, and an offline launch tries again next time.
 const NOTES_SEEN_KEY = 'breeze.notesSeen';
 interface ReleaseNotes { version: string; name: string; html: string; url: string; }
 const notesApi = (): { notes?(): Promise<ReleaseNotes | null> } => api.update as unknown as { notes?(): Promise<ReleaseNotes | null> };
@@ -61,8 +61,8 @@ function showReleaseNotes(n: ReleaseNotes): void {
   });
 }
 
-// Called once start-up has settled and the window is showing.
-async function maybeShowWhatsNew(): Promise<void> {
+// Called once start-up has settled and the window is showing. The text only appears once the notes are in hand.
+async function offerWhatsNew(): Promise<void> {
   const current = api.version;
   if (!current) return;
   const seen = store.get<string>(NOTES_SEEN_KEY, '');
@@ -73,7 +73,14 @@ async function maybeShowWhatsNew(): Promise<void> {
   if (!appState.onboarded) return; // mid-setup: wait for a launch on Home or the editor
   const notes = await notesApi().notes?.().catch(() => null);
   if (!notes || notes.version !== current) return; // offline, or no notes yet: try again next launch
-  if (topScrim()) return; // something else is asking first; next launch
-  store.set(NOTES_SEEN_KEY, current);
-  showReleaseNotes(notes);
+  const links = $$<HTMLButtonElement>('[data-whatsnew]');
+  for (const link of links) {
+    link.hidden = false;
+    link.animate([{ opacity: 0, transform: 'scale(.6)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 500, easing: SPRING_BOUNCE });
+    link.onclick = () => {
+      store.set(NOTES_SEEN_KEY, current);
+      for (const l of links) l.hidden = true;
+      showReleaseNotes(notes);
+    };
+  }
 }

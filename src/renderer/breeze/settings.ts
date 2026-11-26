@@ -1066,6 +1066,8 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Vibe Code Mode', 'Play your feed while agents work.', switchHtml('sVibe', appState.vibeArmed, 'Vibe Code Mode'))}
       <h5>Feed</h5>
       <div class="social-grid ${appState.vibeArmed ? '' : 'off'}" id="sFeeds"${appState.vibeArmed ? '' : ' inert'}></div>
+      <h5>Tips</h5>
+      ${settingRow('Show tips again', 'The blue tips come back the next time you open each screen.', '<button class="btn btn-sm" id="sTipsReset">Show again</button>')}
       <h5>Super Error Alert</h5>
       ${settingRow('Super Error Alert', 'When a file you run or compile fails, the window’s corners flash red and a siren sounds for 3 seconds.', switchHtml('sErrAlert', appState.superErrorAlert, 'Super Error Alert'))}
       <h5>Code</h5>
@@ -1211,7 +1213,7 @@ const SETTINGS_SYNONYMS: Record<string, string> = {
   shortcut: 'keybinds', shortcuts: 'keybinds', hotkey: 'keybinds', hotkeys: 'keybinds', keyboard: 'keybinds', keys: 'keybinds',
   zoom: 'font size', bigger: 'font size', smaller: 'font size', text: 'font size',
   typeface: 'font', fonts: 'font', monospace: 'code font', ligatures: 'code font', ui: 'interface font',
-  ai: 'agents', model: 'agents', models: 'agents', llm: 'agents',
+  ai: 'agents', model: 'agents', models: 'agents', llm: 'agents', tips: 'show tips again', tutorial: 'show tips again',
   autosave: 'auto save', login: 'sign account', logout: 'sign out', profile: 'account', presence: 'discord rich',
   version: 'about', compiler: 'tools', compilers: 'tools', lsp: 'language servers', sidebar: 'side bar', highlight: 'syntax',
 };
@@ -1612,6 +1614,7 @@ function bindSettings(m: HTMLElement): void {
   // Vibe
   // Turns on without a feed (it plays nothing until one is connected): the feeds are locked while it's off.
   on('sVibe', () => setVibeArmed(!appState.vibeArmed));
+  on('sTipsReset', () => { resetTips(); toast('Tips will show again'); });
   // Super Error Alert: flipped in place; turning it on plays the alert once so you know what you signed up for.
   on('sErrAlert', el => {
     appState.superErrorAlert = !appState.superErrorAlert;
