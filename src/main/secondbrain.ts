@@ -12,7 +12,7 @@ export interface BrainNode { id: string; kind: Kind; text: string; at: number; a
 export interface BrainLink { a: string; b: string; w: number }
 export interface Graph { nodes: BrainNode[]; links: BrainLink[] }
 export const MAX_NODES = 1500;
-export const MAX_LINKS = -1;
+export const MAX_LINKS = Infinity; // no limit on links per memory (slice(0, -1) would drop the last one instead)
 export const MIN_JACCARD = 0.25;
 const MAX_SEEN = 500;
 
@@ -229,6 +229,56 @@ export function formatSearch(hits: SearchHit[]): string {
 
 export const summaryKey = (text: string) => crypto.createHash('sha1').update(text.trim()).digest('hex').slice(0, 16);
 
+/* ----- Kept in the project: <folder>/.breezecode ----- */
+// Private to this computer: main.ts lists it in the repository's .git/info/exclude, so git never picks it up.
+export const BRAIN_DIR = '.breezecode';
+const KINDS: Kind[] = ['fact', 'decision', 'task', 'file'];
+const cleanNodes = (v: unknown): BrainNode[] => (Array.isArray(v) ? v : [])
+  .filter(n => n && typeof n.text === 'string' && typeof n.id === 'string' && KINDS.includes(n.kind))
+  .map(n => ({ id: n.id, kind: n.kind, text: n.text, at: Number(n.at) || 0, agent: String(n.agent ?? ''), hits: Number(n.hits) || 1 }));
+// Written beside the file and then swapped in, so a crash mid-write leaves the old file whole.
+function writeAtomic(file: string, text: string): void {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text);
+  try { fs.renameSync(tmp, file); } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } throw e; }
+}
+const BRAIN_MD_LINKS = 3; // linked memories shown under each one in brain.md
+const MD_SECTIONS: [Kind, string][] = [['decision', 'Decisions'], ['task', 'Open tasks'], ['fact', 'Facts'], ['file', 'Files']];
+// The brain as text for any agent: memories by kind (most used first), each with its id and its strongest links.
+export function brainMarkdown(g: Graph): string {
+  const byId = new Map(g.nodes.map(n => [n.id, n]));
+  // Each memory's strongest few links, found in one pass (a brain can hold well over 100,000 links).
+  const top = new Map<string, BrainLink[]>();
+  const keep = (id: string, l: BrainLink) => {
+    const list = top.get(id) ?? [];
+    if (list.length < BRAIN_MD_LINKS) list.push(l);
+    else if (l.w > list[list.length - 1].w) list[list.length - 1] = l;
+    else return;
+    list.sort((a, b) => b.w - a.w);
+    top.set(id, list);
+  };
+  for (const l of g.links) { keep(l.a, l); keep(l.b, l); }
+  const out = [
+    '# Second brain',
+    '',
+    'What Breeze Code remembers about this project from earlier chats: facts, decisions and why, open tasks, and what files are for.',
+    'Each memory has an id in [brackets]; "linked" lists the memories it connects to. Breeze Code rewrites this file, so edits here are lost.',
+    'Agents: read this for context. With Breeze\'s tools, add memories with second_brain_remember instead of editing this file.',
+  ];
+  if (!g.nodes.length) out.push('', '_Nothing remembered yet._');
+  for (const [kind, title] of MD_SECTIONS) {
+    const list = g.nodes.filter(n => n.kind === kind).sort((a, b) => b.hits - a.hits || b.at - a.at);
+    if (!list.length) continue;
+    out.push('', `## ${title}`, '');
+    for (const n of list) {
+      out.push(`- [${n.id}] ${n.text.replace(/\s+/g, ' ')}`);
+      const linked = (top.get(n.id) ?? []).map(l => byId.get(l.a === n.id ? l.b : l.a)).filter((m): m is BrainNode => !!m);
+      for (const m of linked) out.push(`  - linked: [${m.id}] ${m.text.replace(/\s+/g, ' ').slice(0, 120)}`);
+    }
+  }
+  return `${out.join('\n')}\n`;
+}
+
 /* ----- The store ----- */
 export class BrainStore {
   #file: string | null;
@@ -236,14 +286,20 @@ export class BrainStore {
   #folders: Record<string, BrainNode[]> = {};
   #seen: string[] = [];
 
-  constructor(file: string | null, platform: string = process.platform) {
+  // writeDelay: a project's files are written once changes stop for this long (ms), so a burst of memories is one
+  // write; 0 writes at once. flush() writes what is still waiting (main.ts calls it before quitting).
+  #writeDelay: number;
+  #pending = new Map<string, ReturnType<typeof setTimeout>>();
+
+  constructor(file: string | null, platform: string = process.platform, { writeDelay = 0 }: { writeDelay?: number } = {}) {
     this.#file = file;
     this.#platform = platform;
+    this.#writeDelay = writeDelay;
     if (!file) return;
     try {
       const j = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (j && typeof j.folders === 'object') {
-        for (const [k, v] of Object.entries(j.folders)) if (Array.isArray(v)) this.#folders[k] = (v as BrainNode[]).filter(n => n && typeof n.text === 'string' && typeof n.id === 'string');
+        for (const [k, v] of Object.entries(j.folders)) if (Array.isArray(v)) this.#folders[k] = cleanNodes(v);
       }
       if (Array.isArray(j?.seen)) this.#seen = j.seen.filter((s: unknown) => typeof s === 'string');
       if (j?.read && typeof j.read === 'object') this.#read = j.read;
@@ -254,17 +310,91 @@ export class BrainStore {
   #read: Record<string, Record<string, number>> = {};
   // Links agents made between memories, per folder.
   #edges: Record<string, [string, string][]> = {};
+  // Folders whose brain lives in the folder itself (<folder>/.breezecode), by scope. The rest stay in the app-data file.
+  #homes = new Map<string, string>();
+  // Scopes whose folder was already looked at for a .breezecode brain.
+  #looked = new Set<string>();
 
-  #save(): void {
+  // The scope of `folder`, its brain loaded from .breezecode the first time. A brain still in the app-data file
+  // (from before .breezecode) joins it there and leaves the app-data file. A folder that doesn't exist, or that
+  // can't be written, keeps its brain in the app-data file.
+  #scope(folder: string): string {
+    const scope = scopeOf(folder, this.#platform);
+    if (this.#looked.has(scope)) return scope;
+    this.#looked.add(scope);
+    try { if (!fs.statSync(folder).isDirectory()) return scope; } catch { return scope; }
+    const dir = path.join(folder, BRAIN_DIR), file = path.join(dir, 'brain.json');
+    let j: Record<string, any> | null = null;
+    try { j = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {
+      // Damaged (cut short by a crash, or edited by hand): kept aside so nothing is lost, then written afresh.
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') { try { fs.renameSync(file, `${file}.broken-${Date.now()}`); } catch { /* left as it is */ } }
+    }
+    const fromApp = this.#folders[scope] ?? [], edgesFromApp = this.#edges[scope] ?? [], readFromApp = this.#read[scope] ?? {};
+    const nodes = cleanNodes(j?.nodes);
+    const have = new Set(nodes.map(n => n.id));
+    this.#folders[scope] = [...nodes, ...fromApp.filter(n => !have.has(n.id))];
+    const edges = (Array.isArray(j?.edges) ? j!.edges : []).filter((e: unknown) => Array.isArray(e) && e.length === 2 && e.every(x => typeof x === 'string'));
+    for (const e of edgesFromApp) if (!edges.some((x: [string, string]) => x[0] === e[0] && x[1] === e[1])) edges.push(e);
+    this.#edges[scope] = edges;
+    this.#read[scope] = { ...readFromApp, ...(j?.read && typeof j.read === 'object' ? j.read : {}) };
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      this.#homes.set(scope, folder);
+      this.#writeProject(scope);
+    } catch {
+      this.#homes.delete(scope);
+      return scope;
+    }
+    if (fromApp.length || edgesFromApp.length || Object.keys(readFromApp).length) this.#saveApp(); // it left the app-data file
+    return scope;
+  }
+
+  // Makes the folder's .breezecode (with its brain, empty or not). Its path, or null when the brain stays in app data.
+  open(folder: string): string | null {
+    const scope = this.#scope(folder);
+    const home = this.#homes.get(scope);
+    return home ? path.join(home, BRAIN_DIR) : null;
+  }
+
+  #save(scope: string): void {
+    if (!this.#homes.has(scope)) { this.#saveApp(); return; }
+    if (!this.#writeDelay) { this.#saveProject(scope); return; }
+    clearTimeout(this.#pending.get(scope));
+    const t = setTimeout(() => { this.#pending.delete(scope); this.#saveProject(scope); }, this.#writeDelay);
+    t.unref?.();
+    this.#pending.set(scope, t);
+  }
+  #saveProject(scope: string): void {
+    try { this.#writeProject(scope); } catch { this.#homes.delete(scope); this.#saveApp(); } // can't be written any more: app data
+  }
+  flush(): void {
+    for (const [scope, t] of [...this.#pending]) { clearTimeout(t); this.#pending.delete(scope); this.#saveProject(scope); }
+  }
+  // The app-data file: what was seen, and the brains of folders without a .breezecode.
+  #saveApp(): void {
     if (!this.#file) return;
+    const pick = <T>(all: Record<string, T>) => Object.fromEntries(Object.entries(all).filter(([k]) => !this.#homes.has(k)));
     try {
       fs.mkdirSync(path.dirname(this.#file), { recursive: true });
-      fs.writeFileSync(this.#file, JSON.stringify({ folders: this.#folders, seen: this.#seen, read: this.#read, edges: this.#edges }));
+      writeAtomic(this.#file, JSON.stringify({ folders: pick(this.#folders), seen: this.#seen, read: pick(this.#read), edges: pick(this.#edges) }));
     } catch { /* best effort */ }
+  }
+  // <folder>/.breezecode/brain.json (what Breeze reads back, links included for anyone reading it) and brain.md
+  // (the same as text, for any agent to read). Throws when the folder can't be written.
+  #writeProject(scope: string): void {
+    const home = this.#homes.get(scope)!;
+    const dir = path.join(home, BRAIN_DIR);
+    const g = this.#graphOf(scope);
+    writeAtomic(path.join(dir, 'brain.json'), JSON.stringify({
+      version: 1,
+      about: 'Breeze Code\'s second brain for this project: memories (nodes) and how they connect (links). Written by Breeze Code; brain.md is the same as text.',
+      nodes: g.nodes, links: g.links, edges: this.#edges[scope] ?? [], read: this.#read[scope] ?? {},
+    }));
+    writeAtomic(path.join(dir, 'brain.md'), brainMarkdown(g));
   }
 
   #add(folder: string, items: { kind: Kind; text: string }[], agent: string, now: number): number {
-    const scope = scopeOf(folder, this.#platform);
+    const scope = this.#scope(folder);
     const list = this.#folders[scope] ??= [];
     const byId = new Map(list.map(n => [n.id, n]));
     const done = new Set<string>();
@@ -282,7 +412,7 @@ export class BrainStore {
       const drop = new Set([...list].sort((a, b) => a.hits - b.hits || a.at - b.at).slice(0, list.length - MAX_NODES));
       this.#folders[scope] = list.filter(n => !drop.has(n));
     }
-    if (done.size) this.#save();
+    if (done.size) this.#save(scope);
     return done.size;
   }
 
@@ -295,7 +425,13 @@ export class BrainStore {
     return this.#add(folder, texts.flatMap(t => extractMemories(t)), agent, now);
   }
   graph(folder: string): Graph {
-    const scope = scopeOf(folder, this.#platform);
+    return this.#graphOf(this.#scope(folder));
+  }
+  // How many memories the folder has, without working out the links.
+  count(folder: string): number {
+    return (this.#folders[this.#scope(folder)] ?? []).length;
+  }
+  #graphOf(scope: string): Graph {
     const nodes = (this.#folders[scope] ?? []).map(n => ({ ...n }));
     const links = buildLinks(nodes);
     // Links agents made (second_brain_remember), on top of the ones found from files and words.
@@ -336,7 +472,7 @@ export class BrainStore {
     const clean = String(text).trim().replace(/\s+/g, ' ');
     const k: Kind = kind === 'decision' || kind === 'task' ? kind : 'fact';
     this.#add(folder, [{ kind: k, text: clean }, ...filesIn(clean).map(f => ({ kind: 'file' as Kind, text: f }))], agent, now);
-    const scope = scopeOf(folder, this.#platform);
+    const scope = this.#scope(folder);
     const id = nodeId(k, clean);
     const ids = new Set((this.#folders[scope] ?? []).map(n => n.id));
     const edges = this.#edges[scope] ??= [];
@@ -345,22 +481,22 @@ export class BrainStore {
       const pair: [string, string] = r < id ? [r, id] : [id, r];
       if (!edges.some(e => e[0] === pair[0] && e[1] === pair[1])) edges.push(pair);
     }
-    this.#save();
+    this.#save(scope);
     return { ...(this.#folders[scope] ?? []).find(n => n.id === id)! };
   }
   remove(folder: string, id: string): boolean {
-    const scope = scopeOf(folder, this.#platform);
+    const scope = this.#scope(folder);
     const list = this.#folders[scope] ?? [];
     const next = list.filter(n => n.id !== id);
     if (next.length === list.length) return false;
     this.#folders[scope] = next;
     if (this.#edges[scope]) this.#edges[scope] = this.#edges[scope].filter(e => e[0] !== id && e[1] !== id);
-    this.#save();
+    this.#save(scope);
     return true;
   }
   // The part of each chat Summarize hasn't read yet. A chat that got shorter (edited) is read again from its start.
   newText(folder: string, chats: ChatText[]): ChatText[] {
-    const read = this.#read[scopeOf(folder, this.#platform)] ?? {};
+    const read = this.#read[this.#scope(folder)] ?? {};
     return chats.map(c => {
       const from = (read[c.key] ?? 0) <= c.text.length ? read[c.key] ?? 0 : 0;
       return { ...c, text: c.text.slice(from), from };
@@ -368,16 +504,17 @@ export class BrainStore {
   }
   // `upTo`: how far into each whole chat has now been summarized (summaryChunks' upTo).
   markRead(folder: string, upTo: Record<string, number>): void {
-    const read = this.#read[scopeOf(folder, this.#platform)] ??= {};
+    const scope = this.#scope(folder);
+    const read = this.#read[scope] ??= {};
     for (const [k, n] of Object.entries(upTo)) read[k] = n;
-    this.#save();
+    this.#save(scope);
   }
   // True when `key` (a summary's hash) was taken before; otherwise it is noted and false comes back.
   seen(key: string): boolean {
     if (this.#seen.includes(key)) return true;
     this.#seen.push(key);
     if (this.#seen.length > MAX_SEEN) this.#seen.splice(0, this.#seen.length - MAX_SEEN);
-    this.#save();
+    this.#saveApp();
     return false;
   }
 }

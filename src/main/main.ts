@@ -34,7 +34,7 @@ import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
 import type { ToolReply, McpTool } from './breezemcp';
 import * as core from './agentcore';
 import { MemoryStore } from './agentmemory';
-import { BrainStore, claudeCompactSummary, codexCompactions, droppedReplies, summaryKey, summaryChunks, summarizePrompt, SUMMARY_MAX_CHUNKS, BRAIN_TOOL_DEFS, formatSearch } from './secondbrain';
+import { BrainStore, claudeCompactSummary, codexCompactions, droppedReplies, summaryKey, summaryChunks, summarizePrompt, SUMMARY_MAX_CHUNKS, BRAIN_TOOL_DEFS, BRAIN_DIR, formatSearch } from './secondbrain';
 import type { ChatText } from './secondbrain';
 import { detectIntent } from './agentintent';
 import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal } from './agentimages';
@@ -623,6 +623,7 @@ async function setRoot(dir: string) {
   if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
   termCwd = dir;
+  openBrainFolder(dir);
   watchAwayBoards();
   const saved = loadState();
   const recent = [dir, ...(saved.recent || []).filter((r: string) => r !== dir)].slice(0, 10);
@@ -649,6 +650,7 @@ function startWatching(retried = false): void {
       const rel = String(file).split(path.sep).join('/');
       // Build output and dependencies change in bursts nobody is looking at (the file list skips them too).
       if (rel.split('/').some(part => IGNORED_DIRS.has(part))) return;
+      if (rel === BRAIN_DIR || rel.startsWith(`${BRAIN_DIR}/`)) return; // Breeze's own writes to the second brain
       boards.find(root)?.diskChanged(rel); // a box's shell command may have written it (the board tells whose)
       pending.add(rel);
       clearTimeout(timer);
@@ -2937,7 +2939,7 @@ function watchAwayBoards(): void {
     try {
       const w = fs.watch(b.root, { recursive: true }, (_type: string, file: string | null) => {
         const rel = String(file ?? '').split(path.sep).join('/');
-        if (rel && !rel.split('/').some(part => IGNORED_DIRS.has(part))) b.diskChanged(rel);
+        if (rel && !rel.split('/').some(part => IGNORED_DIRS.has(part) || part === BRAIN_DIR)) b.diskChanged(rel);
       });
       w.on('error', () => { w.close(); boardWatchers.delete(id); });
       boardWatchers.set(id, w);
@@ -3399,7 +3401,8 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null, pick: pick || null };
   runs.set(runId, run);
   imageRuns.set(runId, { base, agent, pending: '', shown: new Set() });
-  if (isLlmAgent(agent)) return runLocal(runId, run, { mode, prompt, session, base }, agent);
+  if (isLlmAgent(agent)) return runLocal(runId, run, { mode, prompt, session, base }, agent); // has the brain as tools
+  prompt = withBrainNote(prompt, base, session);
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
   const bin = agentBins.get(agent);
   if (!bin) throw new Error('That agent was not found on this computer. Rescan from Settings → Run Setup Again.');
@@ -3862,8 +3865,32 @@ const breezeMcp = new BreezeMcpServer({
 // through agent:reply. Tasks and memory live in userData.
 /* ----- Second brain: each folder's memory, from what agents' compactions said (secondbrain.ts) ----- */
 // Claude Code reports a compaction in its stream and writes the summary to its session log; Codex writes it to its
-// rollout log; Breeze's local loop drops old replies to fit. Antigravity reports nothing. Kept in userData only.
-const secondBrain = new BrainStore(path.join(app.getPath('userData'), 'second-brain.json'));
+// rollout log; Breeze's local loop drops old replies to fit. Antigravity reports nothing. Each project keeps its own in
+// <project>/.breezecode (brain.json, and brain.md for any agent to read), private to this computer; userData keeps
+// what was seen and the brains of folders that can't be written.
+const secondBrain = new BrainStore(path.join(app.getPath('userData'), 'second-brain.json'), process.platform, { writeDelay: 1500 });
+app.on('will-quit', () => secondBrain.flush());
+// Opening a folder makes its .breezecode, kept out of git through the repository's own .git/info/exclude (the
+// project's .gitignore is left alone). Not a repository, or no git: nothing to keep it out of.
+function openBrainFolder(dir: string): void {
+  if (!secondBrain.open(dir)) return;
+  void (async () => {
+    const out = (await runGitIn(dir, ['rev-parse', '--git-path', 'info/exclude'])).trim();
+    if (!out) return;
+    const file = path.resolve(dir, out);
+    const had = await fsp.readFile(file, 'utf8').catch(() => '');
+    if (had.split(/\r?\n/).some(l => l.trim() === `${BRAIN_DIR}/` || l.trim() === BRAIN_DIR)) return;
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    await fsp.appendFile(file, `${had && !had.endsWith('\n') ? '\n' : ''}# Breeze Code's second brain, private to this computer\n${BRAIN_DIR}/\n`);
+  })().catch(() => { /* not a repository */ });
+}
+// A new chat is told where the brain is as text, so an agent without Breeze's tools (or one that prefers files) can
+// read it too. Only when there is something in it, and only once per chat (a resumed one was told already).
+function withBrainNote(prompt: string, base: string, session: string | null | undefined): string {
+  if (session || !prompt.trim() || prompt.trim().startsWith('/')) return prompt;
+  if (!secondBrain.open(base) || !secondBrain.count(base)) return prompt;
+  return `${prompt}\n\n(This project's second brain, what earlier chats here learned, is in ${BRAIN_DIR}/brain.md. Read it when it would help.)`;
+}
 const runBase = (runId: number): string | null => imageRuns.get(runId)?.base ?? null;
 const brainText = (content: unknown): string => typeof content === 'string' ? content
   : Array.isArray(content) ? content.map((c: Loose) => (typeof c?.text === 'string' ? c.text : '')).join('\n') : '';
