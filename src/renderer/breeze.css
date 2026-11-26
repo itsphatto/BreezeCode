@@ -195,6 +195,9 @@
   --success-text: #86efac; /* done words and ticks; --ok is for marks and fills */
   --on-blue: #f5f5f7; /* words and icons on blue and danger fills, in every theme */
   --danger-fill: #c42b1c; /* deeper than --err, so its white label reads 5.2:1 */
+  /* A guest's picture: the gray silhouette (.avatar.guest), a touch dimmer on the dark themes so it doesn't glare. */
+  --guest-bg: #9fa5ae;
+  --guest-fg: #e3e6ea;
   /* Motion: everything that moves or resizes settles on a damped spring, sampled into linear() since cubic-bezier
      can only overshoot once. --spring is bounce .3; --spring-bounce (.45) is for pops. The curve already holds its
      settle, so durations stay as they were. Same curves as SPRING in core.ts and :root in launch.css. */
@@ -221,6 +224,8 @@
 /* Light: warm paper and brown-black ink. Every text colour keeps 4.5:1 on the darkest paper (--bg-3). */
 :root[data-theme="light"] {
   color-scheme: light;
+  --guest-bg: #bfc4cb;
+  --guest-fg: #f3f4f6;
   --blue: #0a62c9;
   --blue-soft: rgba(10, 98, 201, .1);
   --bg: #eeeae6;
@@ -998,7 +1003,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   color: #1f4dff;
   font-size: 15px;
   font-weight: 600;
-  box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
+  box-shadow: 0 6px 24px rgba(10, 30, 120, .19);
   transition: box-shadow .3s cubic-bezier(.2, .8, .2, 1), transform .45s var(--spring), opacity .25s ease;
 }
 
@@ -1009,7 +1014,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   border-color: transparent;
   color: #1f4dff;
   font-weight: 600;
-  box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
+  box-shadow: 0 6px 24px rgba(10, 30, 120, .19);
 }
 
 :root .onboard .ob-step:not(.home-step) .btn:not(.btn-ghost):hover:not(:disabled) {
@@ -1209,7 +1214,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   inset: 0;
   border-radius: 12px;
   background: #fff;
-  box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
+  box-shadow: 0 6px 24px rgba(10, 30, 120, .19);
   mix-blend-mode: plus-lighter;
 }
 
@@ -1472,7 +1477,7 @@ body.menu-up :focus-visible:not(#menuRoot *) {
 :root .onboard .ob-step:not(.home-step) .btn.ob-landed:not(.btn-ghost):hover:not(:disabled),
 :root .onboard .ob-step:not(.home-step) .ob-form .signin-btns .btn.ob-landed:not(.btn-ghost):hover:not(:disabled) {
   transform: none;
-  box-shadow: 0 6px 24px rgba(10, 30, 120, .28);
+  box-shadow: 0 6px 24px rgba(10, 30, 120, .19);
 }
 
 .ob-form .signin-btns .btn.ob-landed:hover :is(svg, img),
@@ -2306,6 +2311,18 @@ textarea:focus-visible {
   border: 2px solid var(--bg-1);
   margin-left: -6px;
   color: #1d1d1f;
+}
+
+/* A guest's picture: the gray silhouette from onboarding.ts (GUEST_FACE), its shoulders cut off by the circle. */
+.avatar.guest {
+  overflow: hidden;
+  background: var(--guest-bg);
+}
+
+.avatar.guest svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--guest-fg);
 }
 
 .avatar.small {
@@ -5013,7 +5030,8 @@ body.preview-full #winControls {
   }
 }
 
-.empty h4 {
+/* An empty state's title: h4 in most panels, h3 where the page's heading order needs it (the preview pane's). */
+.empty :is(h3, h4) {
   color: var(--text-2);
   margin: 10px 0 4px;
   font-size: 14px;
@@ -8061,19 +8079,19 @@ body.vibing .ide {
 }
 
 .ob-intro>* {
-  animation: rise .55s var(--spring) backwards;
+  animation: rise 1.25s var(--spring) backwards;
 }
 
 .ob-intro>h1 {
-  animation-delay: .12s;
+  animation-delay: .28s;
 }
 
 .ob-intro>.lead {
-  animation-delay: .24s;
+  animation-delay: .56s;
 }
 
 .ob-intro>.ob-start {
-  animation-delay: .36s;
+  animation-delay: .84s;
 }
 
 /* After the launch morph (init.ts) the logo has no rise of its own (it would override the morph), and the text waits
@@ -9636,13 +9654,6 @@ body.vibing .ide {
   width: 23.5px;
   height: 23.5px;
   font-size: 9.5px;
-}
-
-#homeProfile .hp-ico {
-  display: grid;
-  place-items: center;
-  background: var(--bg-3);
-  color: var(--text-2);
 }
 
 .home-shell {
@@ -11284,11 +11295,11 @@ body.layout-animating .box > .terminal.open {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-  animation: liveDot 1s ease-in-out infinite alternate;
+  animation: liveDot .3s ease-in-out infinite alternate;
 }
 
 @keyframes liveDot {
-  to { opacity: .25; }
+  to { opacity: .3; }
 }
 
 .box-live-body {
@@ -11616,12 +11627,12 @@ body.layout-animating .box > .terminal.open {
 }
 
 .box-side-busy {
-  animation: sideBusyFade 1.2s ease-in-out infinite alternate;
+  animation: sideBusyFade .3s ease-in-out infinite alternate;
 }
 
 @keyframes sideBusyFade {
   from { opacity: 1; }
-  to { opacity: .25; }
+  to { opacity: .3; }
 }
 
 /* It finished while out of sight and has not been opened since. */
@@ -11944,13 +11955,13 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   height: 5px;
   border-radius: 50%;
   background: currentColor;
-  animation: explainDot 1s ease-in-out infinite;
+  animation: explainDot .9s cubic-bezier(.77, 0, .175, 1) infinite backwards;
 }
-.explain-wait span:nth-child(2) { animation-delay: .15s; }
-.explain-wait span:nth-child(3) { animation-delay: .3s; margin-right: 4px; }
+.explain-wait span:nth-child(2) { animation-delay: .3s; }
+.explain-wait span:nth-child(3) { animation-delay: .6s; margin-right: 4px; }
 @keyframes explainDot {
-  0%, 100% { opacity: .25; transform: translateY(0); }
-  50% { opacity: 1; transform: translateY(-2px); }
+  0%, 33.333%, 100% { opacity: .3; transform: translateY(0); }
+  16.667% { opacity: 1; transform: translateY(-2px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .explain-card, .explain-wait span { animation: none; }
@@ -12472,6 +12483,7 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
 
 .thinking .dots {
   display: inline-flex;
+  align-items: center;
   gap: 3px;
   flex-shrink: 0;
 }
@@ -12481,34 +12493,283 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   height: 5px;
   border-radius: 50%;
   background: var(--blue-text);
-  animation: dot 1.1s ease-in-out infinite;
-}
-
-.thinking .dots i:nth-child(2) {
-  animation-delay: .15s;
-}
-
-.thinking .dots i:nth-child(3) {
-  animation-delay: .3s;
 }
 
 .box-chat .thinking {
   font-size: 13px;
 }
 
+/* Status words (agents.ts): the label sits in a wrapper that moves when the word changes, so the label's own sweep runs
+   on; the outgoing word is a copy laid over it in the head. The dots' morph draws stand-ins on a layer beside them that
+   sits at its containing block's corner, so a stand-in's place is its place on screen less the layer's. */
+.thinking .think-head { position: relative; }
+.thinking .morph { display: inline-flex; min-width: 0; }
+.thinking .morph-ghost { position: absolute; pointer-events: none; }
+.dots-morph { position: absolute; left: 0; top: 0; pointer-events: none; }
+.dots-morph i { position: absolute; border-radius: 999px; background: var(--blue-text); }
+
+/* The thinking dots: ten styles, one per data-dots value on .thinking. agents.ts starts on Jump and moves to another
+   style with each new status word, morphing between them. Tuned in the Effect Tuner. */
+/* Jump: each dot hops on its own, first to last: one smooth rise and fall (--jump-curve) over the first 40% of
+   its cycle, then rest, a third of a cycle after the dot before, so no two are ever up together. */
+:root {
+  --jump-curve: linear(0, .001 .909%, .005 1.818%, .016 2.727%, .036 3.636%, .065 4.545%, .105 5.455%, .153 6.364%, .211 7.273%, .276 8.182%, .347 9.091%, .422 10%, .499 10.909%, .577 11.818%, .653 12.727%, .726 13.636%, .793 14.545%, .853 15.455%, .904 16.364%, .945 17.273%, .975 18.182%, .994 19.091%, 1 20%, .994 20.909%, .975 21.818%, .945 22.727%, .904 23.636%, .853 24.545%, .793 25.455%, .726 26.364%, .653 27.273%, .577 28.182%, .499 29.091%, .422 30%, .347 30.909%, .276 31.818%, .211 32.727%, .153 33.636%, .105 34.545%, .065 35.455%, .036 36.364%, .016 37.273%, .005 38.182%, .001 39.091%, 0 40%, 0 100%);
+}
+
+.thinking[data-dots="jump"] .dots i {
+  animation: dot .9s var(--jump-curve) infinite backwards;
+}
+
+.thinking[data-dots="jump"] .dots i:nth-child(2) {
+  animation-delay: .3s;
+}
+
+.thinking[data-dots="jump"] .dots i:nth-child(3) {
+  animation-delay: .6s;
+}
+
 @keyframes dot {
+  from { opacity: .3; transform: translateY(0); }
+  to { opacity: 1; transform: translateY(-5px); }
+}
 
-  0%,
-  80%,
-  100% {
-    opacity: .25;
-    transform: translateY(0);
-  }
+.thinking[data-dots="pulse"] .dots i {
+  animation: dotPulse .9s cubic-bezier(.77, 0, .175, 1) infinite backwards;
+}
 
-  40% {
-    opacity: 1;
-    transform: translateY(-3px);
-  }
+.thinking[data-dots="pulse"] .dots i:nth-child(2) {
+  animation-delay: .3s;
+}
+
+.thinking[data-dots="pulse"] .dots i:nth-child(3) {
+  animation-delay: .6s;
+}
+
+@keyframes dotPulse {
+  0%, 33.333%, 100% { opacity: .3; transform: scale(.55); }
+  16.667% { opacity: 1; transform: scale(1); }
+}
+
+.thinking[data-dots="fade"] .dots i {
+  animation: dotFade .9s cubic-bezier(.77, 0, .175, 1) infinite backwards;
+}
+
+.thinking[data-dots="fade"] .dots i:nth-child(2) {
+  animation-delay: .3s;
+}
+
+.thinking[data-dots="fade"] .dots i:nth-child(3) {
+  animation-delay: .6s;
+}
+
+@keyframes dotFade {
+  0%, 33.333%, 100% { opacity: .3; }
+  16.667% { opacity: 1; }
+}
+
+.thinking[data-dots="bars"] .dots {
+  align-items: center;
+  height: 12px;
+}
+
+.thinking[data-dots="bars"] .dots i {
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  animation: dotBars .9s cubic-bezier(.77, 0, .175, 1) infinite backwards;
+}
+
+.thinking[data-dots="bars"] .dots i:nth-child(2) {
+  animation-delay: .3s;
+}
+
+.thinking[data-dots="bars"] .dots i:nth-child(3) {
+  animation-delay: .6s;
+}
+
+@keyframes dotBars {
+  0%, 33.333%, 100% { opacity: .3; transform: scaleY(.35); }
+  16.667% { opacity: 1; transform: scaleY(1); }
+}
+
+/* Orbit breaks the one-at-a-time rule on purpose: the three dots circle together, brightest leading, motion-blurred:
+   each is turned to face along the ring, then stretched along it and softened in step with the ring's speed
+   (--io-speed, the speed of the --io curve), round and sharp as each turn starts and ends. */
+:root {
+  --io-speed: linear(0, .005 2.083%, .01 4.167%, .016 6.25%, .023 8.333%, .03 10.417%, .037 12.5%, .046 14.583%, .056 16.667%, .066 18.75%, .079 20.833%, .093 22.917%, .11 25%, .129 27.083%, .152 29.167%, .181 31.25%, .216 33.333%, .261 35.417%, .321 37.5%, .403 39.583%, .521 41.667%, .69 43.75%, .901 45.833%, 1 47.917%, .856 50%, .653 52.083%, .5 54.167%, .393 56.25%, .318 58.333%, .262 60.417%, .22 62.5%, .186 64.583%, .159 66.667%, .136 68.75%, .117 70.833%, .101 72.917%, .087 75%, .075 77.083%, .064 79.167%, .055 81.25%, .046 83.333%, .038 85.417%, .031 87.5%, .025 89.583%, .019 91.667%, .014 93.75%, .009 95.833%, .004 97.917%, 0);
+}
+
+.thinking[data-dots="orbit"] .dots {
+  position: relative;
+  display: block;
+  width: 14px;
+  height: 14px;
+  animation: dotOrbit .9s cubic-bezier(.77, 0, .175, 1) infinite;
+}
+
+.thinking[data-dots="orbit"] .dots i {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  animation: dotSmear .9s var(--io-speed) infinite;
+}
+
+.thinking[data-dots="orbit"] .dots i:nth-child(1) { left: 5px; top: 0; rotate: 0deg; animation-delay: 0s; }
+.thinking[data-dots="orbit"] .dots i:nth-child(2) { left: 9.33px; top: 7.5px; rotate: 120deg; opacity: .3; animation-delay: 0s; }
+.thinking[data-dots="orbit"] .dots i:nth-child(3) { left: .67px; top: 7.5px; rotate: 240deg; opacity: .6; animation-delay: 0s; }
+
+@keyframes dotOrbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes dotSmear {
+  from { scale: 1 1; filter: blur(0); }
+  to { scale: 2.35 1; filter: blur(1.2px); }
+}
+
+/* Glide: one dot slides from the first spot to the last and back, motion-blurred: it stretches along its path
+   and softens in step with its speed (--io-speed), round and sharp at each end. */
+.thinking[data-dots="glide"] .dots {
+  position: relative;
+}
+
+.thinking[data-dots="glide"] .dots i {
+  visibility: hidden;
+  animation: none;
+}
+
+.thinking[data-dots="glide"] .dots::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--blue-text);
+  animation: dotGlide .45s cubic-bezier(.77, 0, .175, 1) infinite alternate, dotSmear .45s var(--io-speed) infinite alternate;
+}
+
+@keyframes dotGlide {
+  from { translate: 0 0; }
+  to { translate: 16px 0; }
+}
+
+/* Atom: the three dots orbit a ring tilted 70° away from you, a third of a turn apart, at a steady speed, in real
+   perspective: nearer dots are bigger and brighter. Each is carried round the ring, then turned back to face you. */
+.thinking[data-dots="atom"] .dots {
+  position: relative;
+  display: block;
+  width: 21px;
+  height: 12px;
+  perspective: 30px;
+  transform-style: preserve-3d;
+}
+
+.thinking[data-dots="atom"] .dots i {
+  position: absolute;
+  left: 8px;
+  top: 3.5px;
+  animation: dotAtom .9s linear infinite;
+}
+
+.thinking[data-dots="atom"] .dots i:nth-child(2) {
+  animation-delay: -.3s;
+}
+
+.thinking[data-dots="atom"] .dots i:nth-child(3) {
+  animation-delay: -.6s;
+}
+
+@keyframes dotAtom {
+  0% { opacity: .65; transform: rotateX(70deg) rotateZ(0deg) translateX(7px) rotateZ(0deg) rotateX(-70deg); }
+  12.5% { opacity: .897; }
+  25% { opacity: 1; }
+  37.5% { opacity: .897; }
+  50% { opacity: .65; }
+  62.5% { opacity: .403; }
+  75% { opacity: .3; }
+  87.5% { opacity: .403; }
+  100% { opacity: .65; transform: rotateX(70deg) rotateZ(360deg) translateX(7px) rotateZ(-360deg) rotateX(-70deg); }
+}
+
+/* Helix: each dot circles the row's own line, a third of a turn behind the one before, at a steady speed, so the
+   three twist like a strand, in real perspective: nearer dots are bigger and brighter. */
+.thinking[data-dots="helix"] .dots {
+  perspective: 30px;
+  transform-style: preserve-3d;
+}
+
+.thinking[data-dots="helix"] .dots i {
+  animation: dotHelix .9s linear infinite;
+}
+
+.thinking[data-dots="helix"] .dots i:nth-child(2) {
+  animation-delay: -.6s;
+}
+
+.thinking[data-dots="helix"] .dots i:nth-child(3) {
+  animation-delay: -.3s;
+}
+
+@keyframes dotHelix {
+  0% { opacity: 1; transform: rotateX(0deg) translateZ(4px) rotateX(0deg); }
+  12.5% { opacity: .897; }
+  25% { opacity: .65; }
+  37.5% { opacity: .403; }
+  50% { opacity: .3; }
+  62.5% { opacity: .403; }
+  75% { opacity: .65; }
+  87.5% { opacity: .897; }
+  100% { opacity: 1; transform: rotateX(360deg) translateZ(4px) rotateX(-360deg); }
+}
+
+/* Flip: one dot at a time, first to last, each hops and somersaults once (a full turn about its horizontal line),
+   in real perspective. */
+.thinking[data-dots="flip"] .dots {
+  perspective: 40px;
+}
+
+.thinking[data-dots="flip"] .dots i {
+  animation: dotFlip .9s cubic-bezier(.77, 0, .175, 1) infinite backwards;
+}
+
+.thinking[data-dots="flip"] .dots i:nth-child(2) {
+  animation-delay: .3s;
+}
+
+.thinking[data-dots="flip"] .dots i:nth-child(3) {
+  animation-delay: .6s;
+}
+
+@keyframes dotFlip {
+  0% { opacity: .3; translate: 0 0; rotate: x 0deg; }
+  16.667% { opacity: 1; translate: 0 -5px; }
+  33.333%, 100% { opacity: .3; translate: 0 0; rotate: x 360deg; }
+}
+
+/* Pop: one dot at a time, first to last, each comes 7px toward you and goes back, in real perspective: it grows,
+   and the outer two spread out from the middle as they come. */
+.thinking[data-dots="pop"] .dots {
+  perspective: 24px;
+}
+
+.thinking[data-dots="pop"] .dots i {
+  animation: dotPop .9s cubic-bezier(.77, 0, .175, 1) infinite backwards;
+}
+
+.thinking[data-dots="pop"] .dots i:nth-child(2) {
+  animation-delay: .3s;
+}
+
+.thinking[data-dots="pop"] .dots i:nth-child(3) {
+  animation-delay: .6s;
+}
+
+@keyframes dotPop {
+  0%, 33.333%, 100% { opacity: .3; transform: translateZ(0); }
+  16.667% { opacity: 1; transform: translateZ(7px); }
 }
 
 @keyframes shimmer {
@@ -12522,10 +12783,10 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   width: fit-content;
   /* Fill, not color: the text's own class (set-sub, side-note) sets color later in this file. */
   -webkit-text-fill-color: transparent;
-  background: linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 35%, var(--text) 50%, var(--text-3) 65%, var(--text-3) 100%) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 10%, var(--text) 50%, var(--text-3) 90%, var(--text-3) 100%) 0 0 / 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: shimmer 1.8s ease-in-out infinite;
+  animation: shimmer .6s ease-in-out infinite;
 }
 
 /* A light sweeps along the composer while the agent works. */
@@ -14694,7 +14955,7 @@ body.layout-animating #previewPane {
 .agent-tab.needs-you .tab-status {
   display: inline-block;
   background: var(--blue);
-  animation: needsYouFlash 1s steps(1, end) infinite;
+  animation: needsYouFlash .9s steps(1, end) infinite;
 }
 
 .needs-you-dot {
@@ -14704,12 +14965,12 @@ body.layout-animating #previewPane {
   margin-right: 6px;
   border-radius: 50%;
   background: var(--blue);
-  animation: needsYouFlash 1s steps(1, end) infinite;
+  animation: needsYouFlash .9s steps(1, end) infinite;
 }
 
 @keyframes needsYouFlash {
   0% { opacity: 1; box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 30%, transparent); }
-  50% { opacity: .2; box-shadow: none; }
+  50% { opacity: .3; box-shadow: none; }
 }
 
 /* A visible pulse with a ring that spreads out: scaling a 6px dot by 5% read as a frozen dot. */
@@ -15238,9 +15499,9 @@ body.layout-animating #previewPane {
 .set-nav .set-item[data-set-tab="controls"]:hover svg path { animation: navKeysTap .5s var(--spring) both; }
 /* Miscellaneous: its three dots hop one after another, left to right (the icon draws them middle, right, left).
    Keyed to .hop, not :hover, so the hop finishes after the pointer leaves; settings.ts adds it and takes it off. */
-.set-nav .set-item[data-set-tab="misc"].hop svg circle { animation: navDotHop .63s var(--spring) both; }
-.set-nav .set-item[data-set-tab="misc"].hop svg circle:nth-child(1) { animation-delay: 80ms; }
-.set-nav .set-item[data-set-tab="misc"].hop svg circle:nth-child(2) { animation-delay: 160ms; }
+.set-nav .set-item[data-set-tab="misc"].hop svg circle { animation: navDotHop .3s cubic-bezier(.77, 0, .175, 1) backwards; }
+.set-nav .set-item[data-set-tab="misc"].hop svg circle:nth-child(1) { animation-delay: .3s; }
+.set-nav .set-item[data-set-tab="misc"].hop svg circle:nth-child(2) { animation-delay: .6s; }
 
 @keyframes navPaletteTilt {
   0% { transform: rotate(0) scale(1); }
@@ -15266,7 +15527,7 @@ body.layout-animating #previewPane {
 
 @keyframes navDotHop {
   0%, 100% { transform: translateY(0); }
-  45% { transform: translateY(-6px); }
+  50% { transform: translateY(-5px); }
 }
 
 /* Both keyframes grow to the hover size first and keep it, so there is no jump when they end. */
@@ -20562,15 +20823,15 @@ input.dbg-edit.bad:focus-visible {
 }
 
 .cf-thinking span {
-  animation: cf-dots 1.2s infinite;
+  animation: cf-dots .9s cubic-bezier(.77, 0, .175, 1) infinite backwards;
 }
 
-.cf-thinking span:nth-child(2) { animation-delay: .2s; }
-.cf-thinking span:nth-child(3) { animation-delay: .4s; }
+.cf-thinking span:nth-child(2) { animation-delay: .3s; }
+.cf-thinking span:nth-child(3) { animation-delay: .6s; }
 
 @keyframes cf-dots {
-  0%, 60%, 100% { opacity: .2; }
-  30% { opacity: 1; }
+  0%, 33.333%, 100% { opacity: .3; }
+  16.667% { opacity: 1; }
 }
 
 .cf-card-err {
@@ -22430,7 +22691,7 @@ body > .board-preview.full {
   scroll-behavior: auto !important;
 }
 /* Kept turning: they say "working" or "type here", and cost a few pixels each. */
-:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots i, .thinking .lbl, .sub-live .lbl, .sub-busy, .sub-mark.in_progress, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots, .thinking .dots i, .thinking .dots::before, .thinking .lbl, .sub-live .lbl, .sub-busy, .sub-mark.in_progress, .composer-box.busy::after, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
   animation-iteration-count: infinite !important;
 }
 /* The welcome and launch sky's drifting light repaints the whole window behind everything. */

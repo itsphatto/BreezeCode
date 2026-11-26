@@ -69,6 +69,7 @@ test('agentlogs: Breeze\'s own one-off questions are not listed as chats', () =>
   assert.ok(oneOff('Write a short title (2 to 5 words) for a chat that starts with the request below.'));
   assert.ok(oneOff('Explain this TypeScript code from src/a.ts (line 3) to a developer'));
   assert.ok(oneOff('Rewrite the prompt below so a coding agent can act on it well.'));
+  assert.ok(oneOff(require('../src/main/secondbrain.js').summarizePrompt('')));
   assert.ok(!oneOff('fix the login bug'));
   assert.ok(!typed('<environment_context>'));
   assert.ok(typed('use <div> here'));

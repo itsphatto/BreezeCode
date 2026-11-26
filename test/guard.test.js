@@ -152,6 +152,16 @@ test('autoCommand lets plain checks run without asking, and nothing that could b
   for (const no of ['', 'rm -rf .', 'type .env', 'git status && del x', 'git diff --output=x.txt', 'npm test > out.txt', 'npm run build | more', 'echo %PATH%', 'node -e "x"', 'git push', 'npm install left-pad', 'git log $(whoami)'])
     assert.equal(autoCommand(no), false, no);
   assert.equal(autoCommand('npm test', { packageChanged: true }), false); // the agent changed what the script runs
+  for (const no of ['git branch -D main', 'git diff --no-index a.txt ../../secret.txt', 'git show HEAD:.env', 'git log -p -- .env.local', 'git blame ../other/x.js'])
+    assert.equal(autoCommand(no), false, no);
+});
+
+test('readOnlyCommand lets Ask and Plan mode run git commands that only read', () => {
+  const { readOnlyCommand } = require('../src/main/guard');
+  for (const ok of ['git log --oneline -5', 'git show HEAD~2:src/a.js', 'git blame src/a.js', 'git diff main', 'git status', 'git branch', 'git branch -a', 'git ls-files src'])
+    assert.equal(readOnlyCommand(ok), true, ok);
+  for (const no of ['npm test', 'tsc', 'git branch -d old', 'git checkout main', 'git grep -Ocalc x', 'git log | more', 'git commit -m x', 'git diff --output=x', 'git show HEAD:.env'])
+    assert.equal(readOnlyCommand(no), false, no);
 });
 
 test('cleanEnv drops variables that look like secrets', () => {

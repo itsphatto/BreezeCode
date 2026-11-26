@@ -93,21 +93,36 @@ function shellCommand(bin: string, args: string[]): string {
 // Commands it may run without asking: one plain check or build, with no chaining, pipes, redirects or
 // variables that could turn it into something else. Anything else waits for the user's OK.
 const SHELL_SYNTAX = /[&|;<>`$%^!\n\r(){}"']/;
+// Git commands that only read, which run in Ask and Plan mode too. git branch only with flags that list.
+const READ_GIT = [
+  /^git (?:status|diff|log|show|blame|shortlog|describe|rev-parse|ls-files)(?: [\w./@~:=-]+)*$/i, // not grep: its -O runs a program
+  /^git branch(?: (?:-a|-r|-v|-vv|--all|--remotes|--list|--show-current|--merged|--no-merged|--contains)(?: [\w./@~-]+)?)*$/i,
+];
 const AUTO_COMMANDS = [
-  /^git (?:status|diff|log|show|branch)(?: [\w./@~:=-]+)*$/i,
+  ...READ_GIT,
   /^node --check [\w./\\-]+$/i,
   /^(?:npx )?tsc(?: -{1,2}[\w-]+)*$/i,
 ];
 // npm scripts run whatever package.json says, so they only skip the question while the agent hasn't changed it.
 const SCRIPT_COMMAND = /^(?:npm|pnpm|yarn) (?:test|run [\w:-]+)$/i;
-function autoCommand(command: unknown, { packageChanged = false }: { packageChanged?: boolean } = {}): boolean {
+const plainCommand = (command: unknown): string | null => {
   const c = String(command ?? '').trim().replace(/[ \t]+/g, ' ');
-  if (!c || SHELL_SYNTAX.test(c) || /\s--(?:output|ext-diff|textconv)\b/i.test(c)) return false;
+  // --no-index and ".." reach files outside the project, and an argument naming .env would read a secret.
+  return !c || SHELL_SYNTAX.test(c) || /\s--(?:output|ext-diff|textconv|no-index)\b|(?:^|[\s/:=])\.env|\.\.(?:[/\\]|\s|$)/i.test(c) ? null : c;
+};
+function autoCommand(command: unknown, { packageChanged = false }: { packageChanged?: boolean } = {}): boolean {
+  const c = plainCommand(command);
+  if (!c) return false;
   if (SCRIPT_COMMAND.test(c)) return !packageChanged;
   return AUTO_COMMANDS.some(re => re.test(c));
+}
+// A command that can't change a file: what Ask and Plan mode run without asking.
+function readOnlyCommand(command: unknown): boolean {
+  const c = plainCommand(command);
+  return !!c && READ_GIT.some(re => re.test(c));
 }
 // The environment a command gets, minus anything that looks like a secret: what it prints goes to the LLM server.
 const SECRET_VAR = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE/i;
 const cleanEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => Object.fromEntries(Object.entries(env).filter(([k]) => !SECRET_VAR.test(k)));
 
-export { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv, OUTSIDE };
+export { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, readOnlyCommand, cleanEnv, OUTSIDE };

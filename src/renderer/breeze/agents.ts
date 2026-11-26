@@ -736,6 +736,100 @@ function thinkStep(el: HTMLElement, icon: string, text: string): void {
   list.insertAdjacentHTML('beforeend', `<li class="think-step live"><span class="ti">${svgIcon(icon, 13)}</span><span class="ts-lbl">${esc(text)}</span><span class="ts-time">0.0s</span></li>`);
 }
 
+/* Status words: the thinking label shows a word like "Contemplating" (STATUS_WORDS, greetings.ts) and a new one every
+   3s, and each new word brings another dot style (data-dots on .thinking, ten in breeze.css). Both change at the same
+   moment: the old word blurs up and out as the new one blurs in, and the three dots travel from where the old style
+   had them to where the new one has them. Tuned in the Effect Tuner. */
+const STATUS_EVERY = 3000;
+const MORPH_MS = 510;
+const MORPH_EASE = 'cubic-bezier(.23, 1, .32, 1)'; // strong ease-out: a word arriving
+const MORPH_MOVE = 'cubic-bezier(.65, 0, .35, 1)'; // ease-in-out: dots moving from one place on screen to another
+const DOT_STYLES = ['jump', 'pulse', 'fade', 'bars', 'orbit', 'glide', 'atom', 'helix', 'flip', 'pop'];
+const stillMotion = (): boolean => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// A copy's CSS animations start from zero; set each to where the original's is, so the outgoing word's sweep carries on.
+function keepPhase(from: Element, to: Element): void {
+  const css = (el: Element) => el.getAnimations({ subtree: true }).filter((a): a is CSSAnimation => 'animationName' in a);
+  const a = css(from), b = css(to);
+  b.forEach((x, i) => { if (a[i]?.animationName === x.animationName && a[i].currentTime != null) x.currentTime = a[i].currentTime; });
+}
+
+// The word's morph: a copy of the old word sits exactly over the label and blurs up and out while the new word blurs in
+// from below. The label sits in a wrapper (.morph) and only the wrapper moves, so the label's own sweep runs on.
+function morphWord(lbl: HTMLElement, text: string): void {
+  const wrap = lbl.parentElement, head = wrap?.parentElement;
+  if (!wrap || !head || lbl.textContent === text) return;
+  let ghost: HTMLElement | null = null;
+  if (lbl.getClientRects().length) {
+    ghost = wrap.cloneNode(true) as HTMLElement;
+    const r = wrap.getBoundingClientRect(), hr = head.getBoundingClientRect();
+    ghost.classList.add('morph-ghost');
+    Object.assign(ghost.style, { left: `${r.left - hr.left - head.clientLeft}px`, top: `${r.top - hr.top - head.clientTop}px`, width: `${r.width}px` });
+    head.append(ghost);
+    keepPhase(wrap, ghost);
+  }
+  lbl.textContent = text;
+  if (!ghost) return;
+  const g = ghost, still = stillMotion();
+  const away = still ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, filter: 'blur(0)', transform: 'translateY(0)' }, { opacity: 0, filter: 'blur(4px)', transform: 'translateY(-6px)' }];
+  const into = still ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 0, filter: 'blur(4px)', transform: 'translateY(6px)' }, { opacity: 1, filter: 'blur(0)', transform: 'translateY(0)' }];
+  g.animate(away, { duration: MORPH_MS * .8, easing: MORPH_EASE, fill: 'forwards' }).finished.then(() => g.remove(), () => g.remove());
+  wrap.animate(into, { duration: MORPH_MS, easing: MORPH_EASE });
+}
+
+// Where each visible dot is: its box on screen and brightness. Glide draws one dot (::before) for all three.
+interface DotShape { x: number; y: number; w: number; h: number; o: number }
+function dotShapes(row: HTMLElement): DotShape[] {
+  const box = row.querySelector<HTMLElement>('.think-head .dots');
+  if (!box) return [];
+  if (row.dataset.dots === 'glide') {
+    const b = box.getBoundingClientRect(), cs = getComputedStyle(box, '::before'), sx = parseFloat(cs.scale) || 1;
+    const one = { x: b.left + 2.5 + (parseFloat(cs.translate) || 0), y: b.top + b.height / 2, w: 5 * sx, h: 5, o: 1 };
+    return [one, one, one];
+  }
+  return [...box.querySelectorAll('i')].map(i => { const r = i.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, o: +getComputedStyle(i).opacity }; });
+}
+
+// The dots' morph: stand-ins travel from the old style's dots to the new style's while the real dots run on hidden
+// underneath (so a style's own transforms never fight the morph); each frame they head for the new dots' live places
+// and hand back exactly there. Glide's one dot splits into three, or three gather into one. A change mid-morph starts
+// from where the stand-ins are. Reduced motion: a fade.
+const dotMorphs = new WeakMap<HTMLElement, { at: DotShape[]; stop(): void }>();
+function morphDots(row: HTMLElement, style: string): void {
+  const old = row.dataset.dots, box = row.querySelector<HTMLElement>('.think-head .dots');
+  if (!box || old === style) return;
+  const live = dotMorphs.get(row);
+  const from = live?.at ?? (old && box.getClientRects().length ? dotShapes(row) : null);
+  live?.stop();
+  row.dataset.dots = style;
+  if (!from?.length) return;
+  if (stillMotion()) { box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS, easing: MORPH_EASE }); return; }
+  const layer = document.createElement('span');
+  layer.className = 'dots-morph';
+  layer.setAttribute('aria-hidden', 'true');
+  const stands = from.map(() => layer.appendChild(document.createElement('i')));
+  box.after(layer);
+  box.style.visibility = 'hidden';
+  const clock = layer.animate(null, { duration: MORPH_MS, easing: MORPH_MOVE }); // its eased progress drives the morph
+  let raf = 0;
+  const m = { at: from, stop() { cancelAnimationFrame(raf); clock.cancel(); layer.remove(); box.style.visibility = ''; if (dotMorphs.get(row) === m) dotMorphs.delete(row); } };
+  dotMorphs.set(row, m);
+  const frame = () => {
+    if (clock.playState === 'finished' || !row.isConnected) { m.stop(); return; }
+    const p = clock.effect?.getComputedTiming().progress ?? 0, to = dotShapes(row), L = layer.getBoundingClientRect();
+    m.at = from.map((a, k) => { const b = to[k] ?? a; return { x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p, w: a.w + (b.w - a.w) * p, h: a.h + (b.h - a.h) * p, o: a.o + (b.o - a.o) * p }; });
+    m.at.forEach((s, k) => Object.assign(stands[k].style, { left: `${s.x - s.w / 2 - L.left}px`, top: `${s.y - s.h / 2 - L.top}px`, width: `${s.w}px`, height: `${s.h}px`, opacity: String(s.o) }));
+    raf = requestAnimationFrame(frame);
+  };
+  frame();
+}
+
+function nextStatus(el: HTMLElement): void {
+  const lbl = el.querySelector<HTMLElement>('.think-head .morph:not(.morph-ghost) > .lbl');
+  if (lbl) morphWord(lbl, pickOther(STATUS_WORDS, lbl.textContent ?? ''));
+  morphDots(el, pickOther(DOT_STYLES, el.dataset.dots ?? ''));
+}
+
 function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabState, agentId?: string | null): void {
   const t = tab || getActiveTab(msgSurface);
   let el = t.panel.querySelector<HTMLElement>('.thinking');
@@ -743,21 +837,23 @@ function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabSt
   if (!el) {
     el = document.createElement('div');
     el.className = 'thinking';
+    el.dataset.dots = DOT_STYLES[0];
     if (!thinkOpen()) el.classList.add('collapsed');
     el.setAttribute('role', 'status');
-    el.innerHTML = `<button type="button" class="think-head" aria-expanded="${thinkOpen()}"><span class="avatar mini"></span><span class="lbl">Thinking</span><span class="think-time">0.0s</span><span class="think-chev" aria-hidden="true">${svgIcon('chevronDown', 12)}</span></button><ol class="think-steps"></ol>`;
+    el.innerHTML = `<button type="button" class="think-head" aria-expanded="${thinkOpen()}"><span class="avatar mini"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="morph" aria-hidden="true"><span class="lbl">${esc(pickOther(STATUS_WORDS, ''))}</span></span><span class="think-time">0.0s</span><span class="think-chev" aria-hidden="true">${svgIcon('chevronDown', 12)}</span></button><ol class="think-steps"></ol>`;
     t.panel.appendChild(el);
     const now = Date.now();
     thinkStarts.set(el, { start: now, step: now });
     const box = el;
     const timer = setInterval(() => { if (!box.isConnected) { clearInterval(timer); return; } tickThinking(box); }, 100);
+    const words = setInterval(() => { if (!box.isConnected) { clearInterval(words); return; } nextStatus(box); }, STATUS_EVERY);
     sfx.play('think');
     humWhileThinking();
   }
   const avatar = $('.avatar', el);
   if (avatar) avatar.outerHTML = brandMark('avatar mini', tint, letter);
   const head = $('.think-head', el);
-  if (head) head.title = `${name} is thinking`;
+  if (head) { head.title = `${name} is thinking`; head.setAttribute('aria-label', `${name} is thinking`); }
   thinkStep(el, 'dot', stepText(label, name));
   if (t.id === activeTabId[t.surfaceName]) scrollChat(SURFACES[t.surfaceName]);
 }

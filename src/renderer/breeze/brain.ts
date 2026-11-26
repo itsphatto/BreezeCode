@@ -65,7 +65,7 @@ function brainBuild(): HTMLElement {
       <div class="brain-stage">
         <canvas class="brain-canvas" aria-label="Memory graph. The List view shows the same memories as text."></canvas>
         <div class="brain-list hidden" role="list" aria-label="Memories"></div>
-        <div class="brain-empty hidden"><h3>Nothing remembered yet</h3><p>Memories show up here as you prompt, when an agent's chat is compacted, or when you summarize this folder's chats.</p></div>
+        <div class="brain-empty hidden"><h3>Nothing remembered yet</h3><p>Memories show up here each time a chat in this folder finishes a reply. Deleting a chat forgets what only it said. Summarize chats adds older ones.</p></div>
         <div class="brain-hover hidden" aria-hidden="true"></div>
         <div class="brain-zoom" role="group" aria-label="Zoom">
           <button type="button" class="icon-btn" data-zoom="in" title="Zoom in (+)" aria-label="Zoom in">${svgIcon('plus', 14)}</button>

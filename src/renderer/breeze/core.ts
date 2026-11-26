@@ -320,12 +320,14 @@ interface BreezeApi {
   // A local LLM server (Ollama, LM Studio or anything OpenAI-compatible).
   // An empty url makes the desktop app look for Ollama or LM Studio at their usual addresses.
   llm: { connect(provider: string, url: string, key: string): Promise<{ url?: string; model: string; models: string[] }>; setModel(provider: string, model: string): Promise<void>; disconnect(provider: string): Promise<void>; };
+  // The local agent's web search: whether a Brave Search key is saved; saving one checks it first, empty forgets it.
+  web: { searchKey(): Promise<boolean>; setSearchKey(key: string | null): Promise<boolean>; };
   // Emmet abbreviation expansion; the snippet uses ${N} / ${N:placeholder} fields, or null when nothing expands.
   emmet: { expand(abbr: string, syntax: string): Promise<string | null>; };
   // Discord Rich Presence through the Discord app on this computer.
   discord: { set(activity: DiscordActivity): Promise<{ user: string | null }>; clear(): Promise<void>; };
   agent: {
-    run(opts: { agent: string; mode: AgentMode; prompt: string; session: string | null; box?: boolean }): Promise<number>;
+    run(opts: { agent: string; mode: AgentMode; prompt: string; session: string | null; box?: boolean; chat?: string }): Promise<number>;
 
     stop(runId: number): Promise<void>;
     steer(runId: number, text: string): Promise<boolean>; // adds a message to the running task; false: queue it instead
@@ -364,7 +366,7 @@ interface BreezeApi {
   };
   board: {
     open(): Promise<{ boardId: string; owners: Record<string, string> }>;
-    run(opts: { boxKey: string; agent: string; prompt: string; session: string | null; model?: string; effort?: string }): Promise<number>;
+    run(opts: { boxKey: string; agent: string; prompt: string; session: string | null; model?: string; effort?: string; chat?: string }): Promise<number>;
     stop(boxKey: string): Promise<void>;
     stopAll(): Promise<void>;
     release(path: string): Promise<void>;
@@ -484,6 +486,8 @@ interface BreezeApi {
     onChange(cb: (msg: { folder: string }) => void): () => void;
     summarizePlan(folder: string, chats: BrainChat[]): Promise<{ chats: number; requests: number; more: boolean; tokens: number; agent: string | null }>;
     summarize(folder: string, chats: BrainChat[]): Promise<{ added: number; requests: number }>;
+    syncChat(folder: string, chat: BrainChat): Promise<void>;
+    forgetChats(keys: string[]): Promise<number>;
     onProgress(cb: (msg: { folder: string; done: number; total: number }) => void): () => void;
   };
   // Power saver (power.ts): main decides when it is on and tells the page of every change.

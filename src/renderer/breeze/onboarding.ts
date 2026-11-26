@@ -660,10 +660,14 @@ function setUser(u: User | null): void {
   friendsAccountChanged(); // signed in, out or switched: Friends looks again as whoever is active now
 }
 const initialsOf = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(w => [...w][0] ?? '').join('').toUpperCase(); // by code point: w[0] splits an emoji
+// A guest (no account signed in) gets the classic gray silhouette, head and shoulders cut off by the circle (styles
+// under ".avatar.guest" in breeze.css); an account without a picture gets its initials.
+const GUEST_FACE = '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="15.5" r="7.5"/><path d="M4 41c0-9.4 7.2-15.5 16-15.5S36 31.6 36 41z"/></svg>';
+const guestAvatarHtml = (title: string) => `<span class="avatar guest" title="${escAttr(title)}">${GUEST_FACE}</span>`;
 function avatarHtml(u: User | null, title: string): string {
-  const name = u?.name ?? 'You';
-  if (u?.avatar) return `<img class="avatar" src="${escAttr(u.avatar)}" alt="" title="${escAttr(title)}">`;
-  return `<span class="avatar tint-host" title="${escAttr(title)}">${esc(initialsOf(name))}</span>`;
+  if (!u) return guestAvatarHtml(title);
+  if (u.avatar) return `<img class="avatar" src="${escAttr(u.avatar)}" alt="" title="${escAttr(title)}">`;
+  return `<span class="avatar tint-host" title="${escAttr(title)}">${esc(initialsOf(u.name))}</span>`;
 }
 function renderUser(): void {
   const title = user ? `${user.name} · ${user.provider}` : 'Not signed in';
@@ -685,7 +689,7 @@ function renderHomeProfile(): void {
   $('#homeName').textContent = first ?? '';
   const btn = $('#homeProfile');
   // Just the picture, like the IDE's title bar; who it is goes in the tooltip.
-  const html = user?.avatar ? avatarHtml(user, '') : who ? `<span class="avatar tint-host">${esc(initialsOf(who))}</span>` : `<span class="avatar hp-ico">${svgIcon('user', 14)}</span>`;
+  const html = user?.avatar ? avatarHtml(user, '') : user ? `<span class="avatar tint-host">${esc(initialsOf(who ?? user.name))}</span>` : guestAvatarHtml('');
   btn.title = user ? `${who} · ${user.provider}` : 'Sign in';
   // Opening a project redraws the user; redrawing the same picture flashed it out and back as Home left.
   if (html !== homeProfileHtml) { homeProfileHtml = html; btn.innerHTML = html; }

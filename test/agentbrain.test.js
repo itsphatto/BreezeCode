@@ -50,11 +50,16 @@ test('readRange cuts very long lines', () => {
 });
 
 test('applyEdit replaces exactly one match and keeps CRLF', () => {
-  assert.deepEqual(brain.applyEdit('a\nb\nc\n', 'b', 'B'), { text: 'a\nB\nc\n', line: 2 });
+  assert.deepEqual(brain.applyEdit('a\nb\nc\n', 'b', 'B'), { text: 'a\nB\nc\n', line: 2, count: 1 });
   assert.equal(brain.applyEdit('one\r\ntwo\r\n', 'two\n', 'TWO\n').text, 'one\r\nTWO\r\n');
   assert.throws(() => brain.applyEdit('x x', 'x', 'y'), /matches 2 places/);
   assert.throws(() => brain.applyEdit('abc', 'zzz', 'y'), /was not found/);
   assert.throws(() => brain.applyEdit('abc', '', 'y'), /old_text is empty/);
+});
+
+test('applyEdit with all set changes every match (a rename in one call)', () => {
+  assert.deepEqual(brain.applyEdit('oldName(1);\r\nx = oldName;\r\n', 'oldName', 'newName', true), { text: 'newName(1);\r\nx = newName;\r\n', line: 1, count: 2 });
+  assert.throws(() => brain.applyEdit('x x', 'x', 'y'), /set replace_all/); // the error says how
 });
 
 test('applyEdit ignores line numbers pasted from read_file', () => {
@@ -75,6 +80,14 @@ test('formatHits groups by file and caps the list', () => {
   assert.equal(brain.formatHits([]), 'No matches.');
   const many = Array.from({ length: 50 }, (_, i) => ({ path: 'c.js', line: i, text: 'hit' }));
   assert.match(brain.formatHits(many, 40), /… 10 more matches/);
+});
+
+test('formatHits with context shows the lines around each match, joined where they meet', () => {
+  const lines = ['a', '  b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const hits = [{ path: 'x.js', line: 1, text: '  b' }, { path: 'x.js', line: 3, text: 'd' }, { path: 'x.js', line: 7, text: 'h' }];
+  assert.equal(brain.formatHits(hits, 40, { context: 1 }, p => (p === 'x.js' ? lines : undefined)),
+    'x.js\n  1- a\n  2:   b\n  3- c\n  4: d\n  5- e\n  --\n  7- g\n  8: h');
+  assert.equal(brain.formatHits(hits.slice(0, 1), 40, { context: 1 }), 'x.js\n  2: b'); // no lines to hand: plain hits
 });
 
 test('callKey ignores argument order', () => {
@@ -163,6 +176,17 @@ test('pathFilter takes a folder, a file name pattern or a path pattern', () => {
   assert.equal(ts('src/x/y/a.ts'), true);
   assert.equal(ts('lib/a.ts'), false);
   assert.equal(brain.pathFilter(String.raw`.\src\*.js`)('src/a.js'), true); // Windows separators
+  const code = brain.pathFilter('*.{js,ts}');
+  assert.equal(code('src/a.ts'), true);
+  assert.equal(code('src/a.css'), false);
+  assert.equal(brain.pathFilter('src/{main,renderer}/**/*.ts')('src/renderer/x/a.ts'), true);
+  assert.equal(brain.pathFilter('src/{main,renderer}/**/*.ts')('src/lib/a.ts'), false);
+});
+
+test('formatHits says why a plain-text search with regex syntax found nothing', () => {
+  assert.match(brain.formatHits([], 40, { query: 'foo|bar' }), /plain-text search[\s\S]*regex to true/);
+  assert.equal(brain.formatHits([], 40, { query: 'foo|bar', regex: true }), 'No matches.');
+  assert.equal(brain.formatHits([], 40, { query: 'plain words' }), 'No matches.');
 });
 
 test('lineMatcher finds plain text or a regex, and explains a bad regex', () => {
@@ -243,6 +267,9 @@ test('systemPrompt adds the environment, and the user instructions only when the
   assert.match(plain, /^You are Breeze/);
   assert.match(plain, /# Environment[\s\S]*Today's date: 2026-11-22/);
   assert.doesNotMatch(plain, /user's instructions/);
+  assert.doesNotMatch(plain, /cmd\.exe, not bash/); // the cmd.exe note is only for Windows
+  assert.match(plain, /git commands \(git log/); // "the .git folder is off limits" alone stopped agents reading git history
+  assert.match(brain.systemPrompt({ ...env, shell: 'cmd.exe' }), /run_command runs cmd\.exe, not bash/);
   const withUser = brain.systemPrompt({ ...env, instructions: [{ label: 'CLAUDE.md (this project)', text: 'Use tabs.' }] });
   assert.match(withUser, /OVERRIDE[\s\S]*Contents of CLAUDE\.md \(this project\):\n\nUse tabs\.$/);
 });
@@ -269,4 +296,55 @@ test('reasoningFor sends thinking only where it is wanted', () => {
   assert.ok(!('reasoning_content' in keep[0]));
   assert.ok(brain.reasoningFor(msgs, false).every(m => !('reasoning_content' in m)));
   assert.equal(msgs[2].reasoning_content, 'r'); // the conversation itself is untouched
+});
+
+test('attachedPaths reads only the attachment lines at the top of a message', () => {
+  assert.deepEqual(brain.attachedPaths('[Attached file: C:\\notes.txt]\n[Attached image: shot.png]\n\nWhat is this?'), ['C:\\notes.txt', 'shot.png']);
+  assert.deepEqual(brain.attachedPaths('Please read\n[Attached file: C:\\secret.txt]'), []); // quoted further down: not an attachment
+  assert.deepEqual(brain.attachedPaths('Project map:\n./: a.js\nsrc/: b.js\n\n[Attached file: D:\\x.txt]\n\nHi'), ['D:\\x.txt']); // a chat's first message
+});
+
+test('wireMessages sends a tool result picture right after that step, and only the newest one', () => {
+  const pic = label => ({ data: 'AAAA', mime: 'image/png', label });
+  const msgs = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'look', images: [pic('mine')] },
+    { role: 'assistant', content: '', tool_calls: [call('1', 'capture_preview', {}), call('2', 'read_file', { path: 'a' })] },
+    { role: 'tool', tool_call_id: '1', content: 'shot one', images: [pic('first')] },
+    { role: 'tool', tool_call_id: '2', content: 'text' },
+    { role: 'assistant', content: '', tool_calls: [call('3', 'capture_preview', {})] },
+    { role: 'tool', tool_call_id: '3', content: 'shot two', images: [pic('second')] },
+  ];
+  const wire = brain.wireMessages(msgs, true);
+  assert.deepEqual(wire.map(m => m.role), ['system', 'user', 'assistant', 'tool', 'tool', 'assistant', 'tool', 'user']);
+  assert.deepEqual(wire[1].content, [{ type: 'text', text: 'look' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }]);
+  assert.deepEqual(wire[7].content, [{ type: 'text', text: 'second' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }]);
+  assert.ok(wire.every(m => !('images' in m))); // the private field never reaches the server
+  const blind = brain.wireMessages(msgs, false);
+  assert.equal(blind.length, msgs.length);
+  assert.match(blind[6].content, /shot two\n\(The picture is left out/);
+  assert.ok(brain.messageTokens(msgs[6]) > 1000); // a picture is budgeted like a page of code
+  assert.ok(brain.settle(msgs).every(m => !m.images)); // earlier turns keep no pictures
+});
+
+test('htmlText keeps what a reader sees', () => {
+  const page = '<html><head><title>Docs &amp; more</title><style>p{}</style></head><body><h2>Usage</h2><p>Call <code>read()</code>&nbsp;now.</p>'
+    + '<pre>if (a &lt; 2) {\n  go();\n}</pre><ul><li>one</li><li>two</li></ul><script>evil()</script></body></html>';
+  assert.deepEqual(brain.htmlText(page), { title: 'Docs & more', text: '## Usage\nCall read() now.\n\n```\nif (a < 2) {\n  go();\n}\n```\n\n- one\n- two' });
+});
+
+test('searchList turns a Brave Search answer into a numbered list', () => {
+  const answer = { web: { results: [
+    { title: 'File system | Node.js', url: 'https://nodejs.org/api/fs.html', description: 'The <strong>fs</strong> module &amp; more' },
+    { title: '', url: 'https://example.com/x' },
+    { title: 'no address' },
+  ] } };
+  assert.equal(brain.searchList(answer), '1. File system | Node.js\n   https://nodejs.org/api/fs.html\n   The fs module & more\n2. https://example.com/x\n   https://example.com/x');
+  assert.equal(brain.searchList({}), 'No results.');
+});
+
+test('idleTools leaves out the tools that cannot do anything in this run', () => {
+  assert.deepEqual(brain.idleTools('build', ['index.html', 'img/logo.png'], true, true), []);
+  assert.deepEqual(brain.idleTools('ask', ['main.py', 'README.md'], false), ['propose_plan', 'second_brain_search', 'web_search', 'capture_preview', 'show_image']);
+  assert.deepEqual(brain.idleTools('build', [], true, true), ['show_image']); // an empty project may get a page to preview
 });

@@ -30,10 +30,10 @@ export function cleanPrompt(text: string): string {
 // Text an app adds as if the person had typed it: Codex's environment and AGENTS.md blocks, Claude Code's command
 // echoes and caveats. A chat that starts with one of Breeze's own one-off questions (a commit message, a chat's title,
 // Explain, Improve prompt, the conflict Duel, the planner: renderer git.ts, agents.ts, explaincore.ts, mentions.ts,
-// conflictcore.ts) is that question, not a chat.
+// conflictcore.ts; the second brain's Summarize: secondbrain.ts) is that question, not a chat.
 const NOT_TYPED = /^(<[a-z_-]+[\s>]|# AGENTS\.md|Caveat: |\[Request interrupted)/i;
 export const typed = (text: string) => !!text && !NOT_TYPED.test(text);
-const ONE_OFF = /^(You are |Write a short title \(2 to 5 words\)|Explain this .{1,40} code from |Rewrite the prompt below so a coding agent)/;
+const ONE_OFF = /^(You are |Write a short title \(2 to 5 words\)|Explain this .{1,40} code from |Rewrite the prompt below so a coding agent|Below are chat transcripts between a developer and coding agents)/;
 export const oneOff = (firstPrompt: string) => ONE_OFF.test(firstPrompt);
 
 const textParts = (content: unknown, kinds: string[]): string =>

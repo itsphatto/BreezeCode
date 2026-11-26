@@ -34,9 +34,17 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   const list = [entry, ...old.filter(e => e.id !== id)].filter(e => (bytes += e.html.length) < HISTORY_BYTES).slice(0, HISTORY_MAX);
   store.set(historyKey(s), list);
   archivedAs.set(tab, filed);
+  // Done replying: the new part goes to the folder's second brain (main summarizes it in the background).
+  if (folder && !tabBusy(tab)) background(api.brain.syncChat(folder, { key: id, title, text: chatPlainText(html) }));
   if (s.name === 'box') renderBoxSide();
   // The Agent Board's side bar lists this folder's chats (and Space's old ones).
   else if (typeof renderBoardSide === 'function' && boardPageShowing()) renderBoardSide();
+}
+
+// A saved chat's text, for the second brain: parsed, never run.
+function chatPlainText(html: string): string {
+  const spaced = html.replace(/<\/(?:p|div|li|h\d|pre|tr|blockquote)>|<br\s*\/?>/gi, '$&\n');
+  return (new DOMParser().parseFromString(spaced, 'text/html').body.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function archiveChat(s: Surface): void {
@@ -128,7 +136,7 @@ function showHistory(s: Surface, anchor: HTMLElement): void {
   const items: MenuItem[] = list.length
     ? list.map(e => ({ label: e.title, key: timeAgo(e.at), run: () => openChat(s, e) }))
     : [{ label: 'No earlier chats yet', enabled: () => false }];
-  if (list.length) items.push({ sep: true }, { label: 'Clear chat history', run: () => { store.del(historyKey(s)); toast('Chat history cleared'); } });
+  if (list.length) items.push({ sep: true }, { label: 'Clear chat history', run: () => { store.del(historyKey(s)); background(api.brain.forgetChats(list.map(e => e.id))); toast('Chat history cleared'); } });
   const r = anchor.getBoundingClientRect();
   anchor.classList.add('open');
   popupMenu(r.right - 300, r.bottom + 4, items, () => anchor.classList.remove('open'), anchor);
@@ -266,6 +274,7 @@ function renameBoxChat(id: string): void {
 }
 function deleteBoxChat(id: string): void {
   store.set(historyKey(SURFACES.box), chatHistory(SURFACES.box).filter(e => e.id !== id));
+  background(api.brain.forgetChats([id]));
   const tab = surfaceTabs.box.find(t => t.historyId === id);
   if (tab) tab.historyId = undefined; // still open: it is filed again as a new chat if it changes
   renderBoxSide();
