@@ -232,7 +232,7 @@ async function flushQueue(tab: AgentTabState): Promise<void> {
 const cmpShow = (el: HTMLElement, on: boolean) => composersReady ? morphShow(el, on) : el.classList.toggle('hidden', !on);
 const cmpText = (el: HTMLElement, text: string) => { if (composersReady) swapText(el, text); else el.textContent = text; };
 function paintComposer(c: Composer): void {
-  // Access: one setting for every agent (Settings → Agents → Full access), shown on every composer.
+  // Access: one setting for every agent, shown on every composer.
   const perm = $<HTMLButtonElement>('.cmp-perm', c.box);
   const label = agentFullAccess ? 'Full access' : 'Project only';
   const lab = $('.cmp-perm-label', perm);

@@ -17,6 +17,7 @@ function openDebugView(): void {
   renderDebug();
   renderDbgPanels();
   placeRailIndicator();
+  offerTip('debug', () => run('run.start')); // first time here: point at Go
 }
 function leaveDebugView(): void {
   hideDbgHover();

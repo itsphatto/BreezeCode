@@ -12,6 +12,8 @@ pub struct Hit { pub line: usize, pub col: usize, pub len: usize }
 
 /// `count` stops here.
 pub const COUNT_CAP: usize = 9_999;
+/// `find_all` returns at most this many hits.
+pub const FIND_ALL_CAP: usize = 20_000;
 /// `text` refuses a range above this many bytes.
 pub const TEXT_CAP_BYTES: usize = 100 * 1024 * 1024;
 pub const TEXT_CAP_MSG: &str = "That selection is too large to copy";
@@ -54,7 +56,13 @@ impl Matcher {
 /// Calls `on_hit(byte_offset)` for each non-overlapping match whose start lies in byte range
 /// `from..to`, in order; stops when it returns false. A match may run past `to`. After a hit,
 /// scanning resumes at the hit's end, also across chunk edges.
+///
+/// Without `match_case`, an ASCII needle folds ASCII letters only (the fast path); any other needle
+/// folds every char to its simple lowercase, like the page's `toLowerCase`, through `scan_folded`.
 pub fn scan(rope: &Rope, needle: &[u8], match_case: bool, from: usize, to: usize, on_hit: &mut dyn FnMut(usize) -> bool) {
+    if !match_case && !needle.is_ascii() {
+        if let Ok(needle) = std::str::from_utf8(needle) { return scan_folded(rope, needle, from, to, on_hit); }
+    }
     let n = needle.len();
     let total = rope.len_bytes();
     let to = to.min(total);
@@ -120,6 +128,38 @@ pub fn scan(rope: &Rope, needle: &[u8], match_case: bool, from: usize, to: usize
     }
 }
 
+/// A char's simple lowercase: the one char it lowers to, or itself when it lowers to several
+/// (`İ`), so a match always spans as many chars as the needle.
+fn fold(c: char) -> char {
+    let mut lower = c.to_lowercase();
+    match (lower.next(), lower.next()) { (Some(l), None) => l, _ => c }
+}
+
+/// `scan` for a case-insensitive needle with non-ASCII chars: compares folded chars, keeping a
+/// window of the last `needle`-many chars and the byte offset each one starts at.
+fn scan_folded(rope: &Rope, needle: &str, from: usize, to: usize, on_hit: &mut dyn FnMut(usize) -> bool) {
+    let want: Vec<char> = needle.chars().map(fold).collect();
+    let m = want.len();
+    let total = rope.len_bytes();
+    let to = to.min(total);
+    if m == 0 || from >= to { return; }
+    let mut window: std::collections::VecDeque<(char, usize)> = std::collections::VecDeque::with_capacity(m + 1);
+    let mut at = rope.char_to_byte(rope.byte_to_char(from));
+    for c in rope.chars_at(rope.byte_to_char(at)) {
+        if window.is_empty() && at >= to { return; }
+        window.push_back((fold(c), at));
+        at += c.len_utf8();
+        if window.len() > m { window.pop_front(); }
+        if window.len() < m { continue; }
+        let start = window[0].1;
+        if start >= to { return; }
+        if window.iter().zip(&want).all(|((got, _), w)| got == w) {
+            if !on_hit(start) { return; }
+            window.clear();   // no overlap: the next hit starts after this one
+        }
+    }
+}
+
 impl Doc {
     /// Forward: the first hit starting at or after `from`, else the first hit in the file (wrap).
     /// Backward: the last hit starting before `from`, else the last hit in the file.
@@ -151,6 +191,21 @@ impl Doc {
             true
         });
         (count, capped)
+    }
+
+    /// Up to `limit` (at most `FIND_ALL_CAP`) non-overlapping hits from the start of the document,
+    /// in order, and whether there were more. Each hit's length is the query's in UTF-16 units.
+    pub fn find_all(&self, query: &str, match_case: bool, limit: usize) -> (Vec<Pos>, bool) {
+        let limit = limit.min(FIND_ALL_CAP);
+        let rope = self.rope();
+        let mut hits = Vec::new();
+        let mut capped = false;
+        scan(rope, query.as_bytes(), match_case, 0, usize::MAX, &mut |b| {
+            if hits.len() == limit { capped = true; return false; }
+            hits.push(self.pos_at(rope.byte_to_char(b)));
+            true
+        });
+        (hits, capped)
     }
 
     /// The text from `start` to `end` (swapped if reversed, clamped to the document), with every

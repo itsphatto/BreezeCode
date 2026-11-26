@@ -121,8 +121,8 @@ async function boot(): Promise<void> {
   const launched = () => {
     launching = false;
     if (appState.onboarded) detectTools().catch(() => { /* shown in the setup card */ });
-    // The first launch after an update: that release's notes, once Home has settled in.
-    setTimeout(() => background(maybeShowWhatsNew()), 700);
+    // After an update: "What's new" pops into the title bar, once Home has settled in.
+    setTimeout(() => background(offerWhatsNew()), 700);
   };
   if (window.breeze) {
     // Desktop: the intro plays over the desktop in the splash window (main.js) while this window loads hidden. Once

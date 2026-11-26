@@ -272,6 +272,10 @@ interface BreezeApi {
     text(id: number, start: DocPos, end: DocPos): Promise<DocState & { text: string }>;
     find(id: number, query: string, matchCase: boolean, from: DocPos, backward: boolean): Promise<DocState & { hit: (DocPos & { len: number }) | null }>;
     count(id: number, query: string, matchCase: boolean): Promise<DocState & { count: number; capped: boolean }>;
+    // Every hit from the top, as a flat [line, col, line, col, ...] list; `len` is the query's length.
+    findAll(id: number, query: string, matchCase: boolean, limit: number): Promise<DocState & { hits: number[]; len: number; capped: boolean }>;
+    // The quick structural checks (languages.ts lintKind names `kind`); `skipped` when the text is past LINT_MAX.
+    lint(id: number, kind: string): Promise<DocState & { diags: Diag[]; skipped?: true }>;
     save(id: number): Promise<DocState & { bytes: number }>;
     changed(id: number): Promise<DocState & { changed: boolean }>;
     reload(id: number): Promise<DocOpen>;

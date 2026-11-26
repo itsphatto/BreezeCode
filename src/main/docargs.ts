@@ -4,6 +4,7 @@ const MAX_INT = 2 ** 31 - 1;
 const MAX_COUNT = 5000;
 const MAX_TEXT = 52428800; // UTF-16 code units (string length): 50 Mi units, which is 100 MiB in memory at 2 bytes each
 const MAX_QUERY = 1000;
+const MAX_HITS = 20000;
 const KINDS = ['type', 'delete', 'paste', 'other'];
 
 const bad = () => new Error('Bad request');
@@ -33,5 +34,13 @@ function docKind(v: unknown): string {
   if (typeof v !== 'string' || !KINDS.includes(v)) throw bad();
   return v;
 }
+// How many hits findAll may return: the engine stops at 20,000 whatever it is asked.
+const docHitLimit = (v: unknown) => int(v, 1, MAX_HITS);
+// The checks the engine's lint runs (engine/src/lint).
+const LINT_KINDS = ['json', 'jsonc', 'css', 'scss', 'less', 'html', 'xml', 'py', 'java', 'rs', 'js', 'jsx'];
+function docLintKind(v: unknown): string {
+  if (typeof v !== 'string' || !LINT_KINDS.includes(v)) throw bad();
+  return v;
+}
 
-export { docId, docPos, docLine, docCount, docText, docQuery, docKind };
+export { docId, docPos, docLine, docCount, docText, docQuery, docKind, docHitLimit, docLintKind };

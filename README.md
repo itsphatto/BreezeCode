@@ -176,7 +176,7 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/settings-agents.jpg" alt="Settings, Agents page, with the installed agents, the Full access switch, Claude's 5-hour and weekly limits, and a tokens per day chart"></td>
+<td width="50%"><img src="docs/screenshots/settings-agents.jpg" alt="Settings, Agents page, with the installed agents, Claude's 5-hour and weekly limits, and a tokens per day chart"></td>
 <td width="50%"><img src="docs/screenshots/appearance.jpg" alt="Settings, Appearance page, with theme cards, the Glass switch, syntax colour presets and custom colours"></td>
 </tr>
 <tr>
@@ -202,7 +202,8 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 | **Local models** | Requests stay small (a project map, ranged file reads and snippet edits) so they fit a small context window |
 | **Accounts** | Sign in with GitHub or Google, with more than one account |
 | **Vibe Code Mode** | Dims the editor and plays an Instagram or Facebook feed while an agent works, then a card tells you when the code is ready. Works in Breeze Space too |
-| **What's new** | After an update, the first launch shows that release's notes once |
+| **Tips** | The first time you open each screen, a blue tip points at where to start |
+| **What's new** | After an update, a blue **What's new** in the title bar opens that release's notes |
 | **Reopens where you left off** | Breeze starts in the view you last used |
 | **Discord** | Rich Presence shows what you're working on |
 | **Sounds** | Small sounds for clicks, typing and agents, with a volume slider |

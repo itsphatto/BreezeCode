@@ -2285,6 +2285,147 @@ textarea:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* After an update: the blue "What's new" in the title bars (whatsnew.ts). A click opens the release notes. */
+.whatsnew-link {
+  margin-right: 6px;
+  padding: 0 8px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4da6ff;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+:root[data-theme="light"] .whatsnew-link {
+  color: #0057b8;
+}
+
+.whatsnew-link:hover {
+  background: var(--blue-soft);
+}
+
+.whatsnew-link[hidden] {
+  display: none;
+}
+
+/* First-run tips (tips.ts): a blue bubble pointing at one control. Above dialogs (the scrim is 55) so the Manage
+   agents tip shows, below menus (70). Placed from script; the pointer's edge follows data-side. */
+.tip-bubble {
+  position: fixed;
+  z-index: 60;
+  width: max-content;
+  max-width: 280px;
+  padding: 12px 34px 12px 14px;
+  border-radius: 12px;
+  background: var(--blue);
+  color: var(--on-blue);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+/* A dialog covers its screen, or the screen is still fading in: hidden until it's in front again. */
+.tip-bubble.tip-wait {
+  visibility: hidden;
+}
+
+.tip-text {
+  margin: 0 0 10px;
+}
+
+.tip-text b {
+  font-weight: 700;
+}
+
+.tip-arrow {
+  position: absolute;
+  left: var(--arrow-x, 50%);
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: var(--blue);
+  transform: rotate(45deg);
+}
+
+.tip-bubble[data-side="above"] .tip-arrow {
+  bottom: -5px;
+}
+
+.tip-bubble[data-side="below"] .tip-arrow {
+  top: -5px;
+}
+
+.tip-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  opacity: .8;
+  cursor: pointer;
+}
+
+.tip-x:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, .16);
+}
+
+.tip-act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 1.5px dashed rgba(255, 255, 255, .55);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .1);
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tip-act:hover {
+  background: rgba(255, 255, 255, .2);
+}
+
+.tip-skip {
+  display: block;
+  margin: 8px auto 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  opacity: .75;
+  cursor: pointer;
+}
+
+.tip-skip:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.tip-x:focus-visible,
+.tip-act:focus-visible,
+.tip-skip:focus-visible {
+  outline: 2px solid var(--on-blue);
+  outline-offset: 2px;
+}
+
 /* The titlebar's account picture: 1px larger than the shared 24px avatar. */
 .titlebar #avatars .avatar {
   width: 25px;
@@ -17464,11 +17605,6 @@ body.layout-animating #previewPane {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis; /* only if no joke fits a very narrow card */
-}
-
-/* Full access is on: the row's description reads as a warning. */
-.set-sub .set-warn {
-  color: var(--warn);
 }
 
 /* A warning-style description (the Light card's): red in every state, selected included. */
