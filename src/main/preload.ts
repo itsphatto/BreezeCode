@@ -72,6 +72,8 @@ contextBridge.exposeInMainWorld('breeze', {
     text: (id: unknown, start: unknown, end: unknown) => invoke('doc:text', id, start, end),
     find: (id: unknown, query: unknown, matchCase: unknown, from: unknown, backward: unknown) => invoke('doc:find', id, query, matchCase, from, backward),
     count: (id: unknown, query: unknown, matchCase: unknown) => invoke('doc:count', id, query, matchCase),
+    findAll: (id: unknown, query: unknown, matchCase: unknown, limit: unknown) => invoke('doc:findAll', id, query, matchCase, limit),
+    lint: (id: unknown, kind: unknown) => invoke('doc:lint', id, kind),
     save: (id: unknown) => invoke('doc:save', id),
     changed: (id: unknown) => invoke('doc:changed', id),
     reload: (id: unknown) => invoke('doc:reload', id),

@@ -647,7 +647,7 @@ class JsonChecker {
     const hit = num.exec(this.t);
     if (hit) { this.i += hit[0].length; return; }
     if (c === "'") this.fail('Strings need double quotes in JSON');
-    this.fail(this.ended ? 'Expected a value but the file ended' : `Unexpected '${c}'`);
+    this.fail(this.ended ? 'Expected a value but the file ended' : `Unexpected '${String.fromCodePoint(this.t.codePointAt(this.i) ?? 0)}'`); // a whole emoji, not half
   }
 }
 class JsonMistake extends Error {
@@ -761,7 +761,8 @@ class MarkupChecker {
   constructor(t: string, xml: boolean) {
     this.t = t;
     this.xml = xml;
-    this.lower = xml ? t : t.toLowerCase();
+    // ASCII only: toLowerCase can lengthen a string (İ), which would move every offset after it.
+    this.lower = xml ? t : t.replace(/[A-Z]+/g, s => s.toLowerCase());
   }
 
   run(): RawDiag[] {
@@ -853,7 +854,8 @@ function lintRust(text: string): RawDiag[] {
   const blanked = text.replace(RS_TEXT, (m: string, hash: string | undefined, at: number) => {
     if (m.startsWith('/')) return m;
     const open = m.indexOf('"'), close = '"' + (hash ?? '');
-    if (open >= 0 && (m.length < open + 1 + close.length || !m.endsWith(close))) diags.push({ at, len: open + 1, msg: `String is never closed (missing ${close})` });
+    // A char literal ('"') is never an unclosed string.
+    if (open >= 0 && !/^b?'/.test(m) && (m.length < open + 1 + close.length || !m.endsWith(close))) diags.push({ at, len: open + 1, msg: `String is never closed (missing ${close})` });
     return m.replace(/[^\n]/g, ' ');
   });
   return diags.concat(scanCode(blanked, RS_SCAN).diags);
@@ -870,6 +872,16 @@ const LINTERS: Record<string, (text: string, path: string) => RawDiag[]> = {
   rs: lintRust,
 };
 for (const ext of JS_EXT) LINTERS[ext] = t => scanCode(t, { ...JS_SCAN, jsx: ext === 'jsx' || ext === 'tsx' }).diags;
+// The same checks run in the Rust engine (engine/src/lint) for a file it holds, off the page's thread: this is the
+// engine's name for the check LINTERS runs on `path`, or null when there is none. test/lintengine.test.js keeps the
+// two in step.
+const LINT_KINDS: Record<string, string> = { jsonc: 'jsonc', css: 'css', scss: 'scss', less: 'less', html: 'html', htm: 'html', vue: 'html', xml: 'xml', svg: 'xml', py: 'py', java: 'java', rs: 'rs' };
+for (const ext of JS_EXT) LINT_KINDS[ext] = ext === 'jsx' || ext === 'tsx' ? 'jsx' : 'js';
+function lintKind(path: string): string | null {
+  const ext = extOf(path);
+  if (ext === 'json') return looseJson(path) ? 'jsonc' : 'json';
+  return LINT_KINDS[ext] ?? null;
+}
 function lintStructure(text: string, path: string): RawDiag[] {
   return LINTERS[extOf(path)]?.(text, path) ?? [];
 }

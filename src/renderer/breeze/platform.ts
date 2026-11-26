@@ -675,6 +675,8 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async text() { throw new Error('Large files need the desktop app'); },
       async find() { throw new Error('Large files need the desktop app'); },
       async count() { throw new Error('Large files need the desktop app'); },
+      async findAll() { throw new Error('Large files need the desktop app'); },
+      async lint() { throw new Error('Large files need the desktop app'); },
       async save() { throw new Error('Large files need the desktop app'); },
       async changed() { throw new Error('Large files need the desktop app'); },
       async reload() { throw new Error('Large files need the desktop app'); },

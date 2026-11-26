@@ -1176,6 +1176,11 @@ handle('doc:count', (_e, id, query, matchCase) => {
   const doc = openDocId(id);
   return textEngine().request('count', { doc, query: docargs.docQuery(query), matchCase: matchCase === true });
 });
+handle('doc:findAll', (_e, id, query, matchCase, limit) => {
+  const doc = openDocId(id);
+  return textEngine().request('findAll', { doc, query: docargs.docQuery(query), matchCase: matchCase === true, limit: docargs.docHitLimit(limit) });
+});
+handle('doc:lint', (_e, id, kind) => textEngine().request('lint', { doc: openDocId(id), kind: docargs.docLintKind(kind) }));
 handle('doc:save', (_e, id) => textEngine().request('save', { doc: openDocId(id) }));
 handle('doc:changed', (_e, id) => textEngine().request('changed', { doc: openDocId(id) }));
 handle('doc:reload', (_e, id) => textEngine().request('reload', { doc: openDocId(id) }));
