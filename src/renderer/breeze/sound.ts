@@ -103,7 +103,13 @@ const sfx = (() => {
 
   // One blip: a pitch (optionally sliding) with a fast attack and a fade-out. It is two voices a few cents apart
   // through a soft lowpass, so it reads warm rather than as a raw beep; `tap` adds a tiny noise click at the front.
-  function tone(freq: number, dur: number, { type = 'sine', vol = 0.1, to = freq, at = 0, tap = 0 }: { type?: OscillatorType; vol?: number; to?: number; at?: number; tap?: number } = {}): void {
+  // Overall loudness of the glassy set. A narrow bandpass keeps only a sliver of the noise's energy, so ticks need
+  // more gain than tones to sit at the same level. The output compressor catches any pile-ups.
+  const SNIP_BOOST = 2.5;
+  const CRISP_BOOST = 1.8;
+  // `crisp` is the tighter voice used for hovers and agent sounds: one clean oscillator (no detuned twin), a 2 ms
+  // attack, and no room, so it reads as a precise tactile cue rather than a musical note.
+  function tone(freq: number, dur: number, { type = 'sine', vol = 0.1, to = freq, at = 0, tap = 0, crisp = false }: { type?: OscillatorType; vol?: number; to?: number; at?: number; tap?: number; crisp?: boolean } = {}): void {
     const c = ctx as AudioContext;
     // A little ahead of now: a note started at currentTime lands partly in the past and very short ones get lost.
     const t0 = c.currentTime + 0.012 + at;
@@ -112,7 +118,7 @@ const sfx = (() => {
     const f1 = to * (f0 / freq);
     const g = c.createGain();
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.004);
+    g.gain.exponentialRampToValueAtTime(vol * (crisp ? CRISP_BOOST : 1), t0 + (crisp ? 0.002 : 0.004));
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     const lp = c.createBiquadFilter();
     lp.type = 'lowpass';
@@ -121,8 +127,8 @@ const sfx = (() => {
     const pan = c.createStereoPanner();
     pan.pan.value = panNow;
     g.connect(lp).connect(pan).connect(master as GainNode);
-    if (!dryNow && verb) pan.connect(verb);
-    for (const [cents, level] of [[0, 1], [7, 0.35]] as const) {
+    if (!dryNow && !crisp && verb) pan.connect(verb);
+    for (const [cents, level] of (crisp ? [[0, 1]] : [[0, 1], [7, 0.35]]) as [number, number][]) {
       const osc = c.createOscillator();
       const og = c.createGain();
       osc.type = type;
@@ -148,54 +154,81 @@ const sfx = (() => {
     }
   }
 
+  // A tactile tick with no pitch: the short noise burst through a narrow bandpass, always dry. Higher `freq` is
+  // lighter and glassier; lower is a softer, woodier tap.
+  function snip(freq: number, vol: number, { q = 1.4, at = 0 }: { q?: number; at?: number } = {}): void {
+    if (!noise) return;
+    const c = ctx as AudioContext;
+    const t0 = c.currentTime + 0.012 + at;
+    const src = c.createBufferSource();
+    src.buffer = noise;
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq;
+    bp.Q.value = q;
+    const g = c.createGain();
+    g.gain.value = vol * SNIP_BOOST;
+    const pan = c.createStereoPanner();
+    pan.pan.value = panNow;
+    src.connect(bp).connect(g).connect(pan).connect(master as GainNode);
+    src.start(t0);
+  }
+
   const jitter = (n: number) => 1 + (secureRandom() - 0.5) * n;
+  const C = { crisp: true } as const;
   const SOUNDS = {
-    click: () => tone(1500 * jitter(0.06), 0.05, { to: 900, vol: 0.09, tap: 0.05 }),
-    hover: () => tone(2400, 0.025, { vol: 0.016 }),
+    // Everything is built from the glassy tick: a dry bandpassed noise snip, with at most a short clean sine on top.
+    click: () => { snip(4200 * jitter(0.06), 0.09, { q: 1.8 }); tone(1760, 0.03, { vol: 0.03, ...C }); },
+    // Hover: a barely-there glassy tick, felt more than heard.
+    hover: () => snip(5200 * jitter(0.08), 0.05, { q: 2.2 }),
     // Typing: a random step of the scale and a little give in loudness, so a long run never drones.
-    key: () => tone(1900 * jitter(0.35), 0.03, { type: 'triangle', vol: 0.035 * jitter(0.5), tap: 0.012 }),
-    tab: () => tone(520, 0.08, { to: 760, vol: 0.09 }),
-    close: () => tone(720, 0.08, { to: 420, vol: 0.08 }),
-    menu: () => tone(420, 0.09, { to: 640, type: 'triangle', vol: 0.07 }),
-    whoosh: () => { tone(300, 0.16, { to: 900, type: 'triangle', vol: 0.05 }); tone(150, 0.16, { to: 450, vol: 0.05 }); },
-    save: () => { tone(660, 0.12, { vol: 0.09 }); tone(990, 0.2, { vol: 0.09, at: 0.09 }); },
-    tick: () => tone(1250, 0.03, { type: 'triangle', vol: 0.06 }),
-    ping: () => tone(880, 0.16, { vol: 0.08, to: 920 }),
-    // Agent chat
-    send: () => tone(480, 0.12, { to: 1000, type: 'triangle', vol: 0.07 }),
-    msg: () => tone(640, 0.09, { to: 470, vol: 0.07 }),
-    tool: () => tone(1500 * jitter(0.1), 0.03, { type: 'triangle', vol: 0.035 }),
-    plan: () => [523, 659, 784].forEach((f, i) => tone(f, 0.16, { vol: 0.07, at: i * 0.08 })),
-    approve: () => { tone(523, 0.12, { type: 'triangle', vol: 0.08 }); tone(784, 0.2, { type: 'triangle', vol: 0.08, at: 0.07 }); },
-    build: () => tone(200, 0.35, { to: 620, type: 'sawtooth', vol: 0.03 }),
-    success: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i === 3 ? 0.4 : 0.14, { vol: 0.08, at: i * 0.09 })),
-    launch: () => { tone(330, 0.16, { to: 660, type: 'triangle', vol: 0.08 }); tone(1320, 0.05, { vol: 0.05, at: 0.14 }); },
+    key: () => snip(5200 * jitter(0.25), 0.035 * jitter(0.4), { q: 2.2 }),
+    tab: () => { snip(4800, 0.07, { q: 2 }); tone(1480, 0.04, { vol: 0.03, ...C }); },
+    close: () => { snip(3400, 0.06, { q: 2 }); tone(1175, 0.04, { to: 880, vol: 0.03, ...C }); },
+    menu: () => { snip(4400, 0.06, { q: 2 }); tone(1320, 0.04, { vol: 0.03, ...C }); },
+    // A rising flutter of ticks instead of a swept tone.
+    whoosh: () => [2500, 3500, 4800, 6200].forEach((f, i) => snip(f, 0.035, { q: 2, at: i * 0.018 })),
+    save: () => { snip(4200, 0.07, { q: 2 }); tone(1480, 0.05, { vol: 0.04, ...C }); tone(2217, 0.09, { vol: 0.035, at: 0.045, ...C }); },
+    tick: () => snip(5000, 0.06, { q: 2.2 }),
+    ping: () => { snip(6000, 0.03, { q: 2.5 }); tone(1760, 0.1, { vol: 0.04, ...C }); },
+    // Agent chat: crisp and short. A tactile tick at the front, then at most a couple of clean sine notes.
+    send: () => { snip(3800, 0.09); tone(880, 0.07, { to: 1320, vol: 0.05, ...C }); },
+    msg: () => tone(1320, 0.05, { vol: 0.04, ...C }),
+    tool: () => snip(4200 * jitter(0.15), 0.045, { q: 2 }),
+    plan: () => [1175, 1480, 1760].forEach((f, i) => tone(f, 0.06, { vol: 0.04, at: i * 0.05, ...C })),
+    approve: () => { snip(3200, 0.08); tone(1480, 0.05, { vol: 0.05, ...C }); tone(1976, 0.1, { vol: 0.05, at: 0.045, ...C }); },
+    build: () => { snip(2400, 0.08); tone(294, 0.12, { to: 440, vol: 0.06, ...C }); },
+    success: () => [1175, 1760, 2349].forEach((f, i) => tone(f, i === 2 ? 0.28 : 0.07, { vol: 0.045, at: i * 0.06, ...C })),
+    launch: () => { snip(3000, 0.08); tone(587, 0.08, { to: 880, vol: 0.05, ...C }); tone(1760, 0.05, { vol: 0.035, at: 0.07, ...C }); },
     // Controls
-    toggleOn: () => { tone(700, 0.05, { type: 'triangle', vol: 0.07 }); tone(1180, 0.07, { type: 'triangle', vol: 0.07, at: 0.045 }); },
-    toggleOff: () => { tone(1050, 0.05, { type: 'triangle', vol: 0.06 }); tone(620, 0.07, { type: 'triangle', vol: 0.06, at: 0.045 }); },
-    select: () => { tone(1320 * jitter(0.04), 0.04, { vol: 0.07 }); tone(1760, 0.06, { vol: 0.05, at: 0.03 }); },
-    rowHover: () => tone(3000 * jitter(0.08), 0.018, { vol: 0.011 }),
-    focus: () => tone(980, 0.06, { to: 1150, vol: 0.035 }),
-    link: () => tone(1200, 0.07, { to: 1600, type: 'triangle', vol: 0.05 }),
-    row: () => tone(1100 * jitter(0.08), 0.035, { type: 'triangle', vol: 0.06, tap: 0.03 }),
-    drop: () => { tone(500, 0.06, { to: 260, vol: 0.09 }); tone(160, 0.1, { type: 'triangle', vol: 0.05, at: 0.03 }); },
-    copy: () => [1568, 2093].forEach((f, i) => tone(f, 0.05, { vol: 0.05, at: i * 0.04 })),
-    trash: () => tone(260, 0.16, { to: 110, type: 'sawtooth', vol: 0.03 }),
-    deny: () => { tone(220, 0.08, { type: 'square', vol: 0.03 }); tone(185, 0.12, { type: 'square', vol: 0.03, at: 0.08 }); },
-    slide: () => tone(900 * jitter(0.1), 0.015, { type: 'triangle', vol: 0.025 }),
-    keyDel: () => tone(1300 * jitter(0.2), 0.03, { to: 1000, type: 'triangle', vol: 0.03 }),
-    keyEnter: () => tone(1100, 0.04, { to: 800, type: 'triangle', vol: 0.05 }),
-    remove: () => { tone(900, 0.07, { to: 300, type: 'triangle', vol: 0.06 }); tone(1800, 0.03, { vol: 0.025, at: 0.01 }); },
+    // On is a brighter tick with a high note; off is a duller tick with a lower one.
+    toggleOn: () => { snip(5200, 0.07, { q: 2.2 }); tone(1760, 0.035, { vol: 0.03, at: 0.02, ...C }); },
+    toggleOff: () => { snip(3600, 0.06, { q: 2 }); tone(1175, 0.035, { vol: 0.025, at: 0.02, ...C }); },
+    select: () => { snip(5600 * jitter(0.05), 0.07, { q: 2.4 }); tone(1976, 0.04, { vol: 0.03, at: 0.02, ...C }); },
+    rowHover: () => snip(6000 * jitter(0.1), 0.03, { q: 2.5 }),
+    focus: () => snip(6200, 0.035, { q: 3 }),
+    link: () => { snip(5400, 0.06, { q: 2.2 }); tone(1760, 0.04, { vol: 0.03, ...C }); },
+    row: () => snip(4600 * jitter(0.08), 0.06, { q: 2 }),
+    drop: () => { snip(2200, 0.09, { q: 1.4 }); tone(440, 0.05, { to: 294, vol: 0.04, ...C }); },
+    copy: () => { snip(6000, 0.05, { q: 2.5 }); snip(7200, 0.04, { q: 2.5, at: 0.035 }); },
+    // A falling flutter: the reverse of whoosh.
+    trash: () => [3200, 2400, 1700].forEach((f, i) => snip(f, 0.06, { q: 1.8, at: i * 0.025 })),
+    // Two dull taps: clearly "no", without the old square-wave buzz.
+    deny: () => { snip(1600, 0.08, { q: 1.2 }); snip(1400, 0.07, { q: 1.2, at: 0.07 }); },
+    slide: () => snip(5000 * jitter(0.15), 0.025, { q: 3 }),
+    keyDel: () => snip(3600 * jitter(0.2), 0.035, { q: 2 }),
+    keyEnter: () => { snip(3000, 0.05, { q: 1.8 }); tone(1175, 0.03, { vol: 0.02, ...C }); },
+    remove: () => { snip(4400, 0.05, { q: 2 }); snip(3000, 0.04, { q: 2, at: 0.03 }); },
     // Agent thinking (a soft questioning lift), answer text streaming in, and a fresh answer arriving
-    think: () => { tone(392, 0.14, { to: 440, vol: 0.05 }); tone(587, 0.18, { to: 622, vol: 0.04, at: 0.12 }); },
-    stream: () => tone(2100 * jitter(0.15), 0.02, { vol: 0.02 }),
-    // While the model thinks: a soft, slightly wandering two-note murmur, repeated (see thinkingHum)
-    hum: () => { const f = [440, 494, 523, 587][Math.floor(secureRandom() * 4)]; tone(f, 0.22, { to: f * 1.03, vol: 0.035 }); tone(f * 1.5, 0.26, { to: f * 1.5 * 0.98, type: 'triangle', vol: 0.02, at: 0.14 }); },
-    answer: () => { tone(784, 0.1, { vol: 0.07 }); tone(1175, 0.16, { vol: 0.06, at: 0.07 }); },
+    think: () => { tone(1175, 0.05, { vol: 0.035, ...C }); tone(1568, 0.07, { vol: 0.03, at: 0.05, ...C }); },
+    stream: () => snip(6500 * jitter(0.2), 0.02, { q: 3 }),
+    // While the model thinks: a single soft low pulse, like a status light blinking (see thinkingHum)
+    hum: () => tone(587, 0.09, { vol: 0.018, ...C }),
+    answer: () => { tone(1175, 0.06, { vol: 0.045, ...C }); tone(1760, 0.12, { vol: 0.04, at: 0.05, ...C }); },
   };
   type Sound = keyof typeof SOUNDS;
   // Fast repeating sounds (typing, tool lines) are spaced out so they stay ticks and don't buzz.
-  const GAP: Partial<Record<Sound, number>> = { key: 18, keyDel: 18, keyEnter: 18, tool: 40, rowHover: 45, slide: 35, stream: 90, remove: 70, trash: 200, drop: 150 };
+  const GAP: Partial<Record<Sound, number>> = { key: 18, keyDel: 18, keyEnter: 18, tool: 40, rowHover: 60, hover: 50, slide: 35, stream: 90, remove: 70, trash: 200, drop: 150 };
   const last: Partial<Record<Sound, number>> = {};
   const AMBIENT = new Set<Sound>(['key', 'keyDel', 'keyEnter', 'stream', 'hum', 'tool', 'rowHover', 'hover', 'slide']);
   // Left–right position of the last press, hover or focused box, as a gentle pan (±0.35 at the window edges).
@@ -316,8 +349,8 @@ const sfx = (() => {
       lfo.frequency.setTargetAtTime(5 + L * 13 + (mx ? 8 : 0), now, glide);
       out.gain.setTargetAtTime(0.022 + L * 0.026, now, first ? 0.06 : 0.05);
       cg.gain.setTargetAtTime(mx ? 0.22 : 0, now, 0.08);
-      if (!first) tone(587 * Math.pow(2, L * 1.2), 0.14, { type: 'triangle', vol: 0.05 + L * 0.02 });
-      if (!first && mx) [1175, 1480, 1760].forEach((fr, i) => tone(fr, 0.12, { vol: 0.045, at: 0.05 + i * 0.055 }));
+      if (!first) { snip(4000 + L * 2500, 0.06, { q: 2 }); tone(587 * Math.pow(2, L * 1.2), 0.08, { vol: 0.045 + L * 0.02, ...C }); }
+      if (!first && mx) [1175, 1480, 1760].forEach((fr, i) => tone(fr, 0.07, { vol: 0.04, at: 0.05 + i * 0.05, ...C }));
     };
     apply(level, max, true);
     lastAt = anyAt = performance.now();
