@@ -41,8 +41,6 @@ async function boot(): Promise<void> {
   const signed = await api.auth.user().catch(() => null);
   if (signed || isDesktop) { user = signed; appState.user = signed; saveApp(); }
   await refreshAccounts();
-  void refreshFriends(); // in the background: Friends never holds up start-up
-  queueFriendsPresence();
   if (!appState.onboarded) goStep(step);
   booted = true;
   updateActIndicator(true);
@@ -69,20 +67,6 @@ async function boot(): Promise<void> {
   startupWaits = null;
   // One frame so the last renders are painted before start-up counts as done.
   await new Promise(r => { requestAnimationFrame(() => r(undefined)); setTimeout(r, 100); }); // a hidden window has no frames
-}
-// Friends: away once the window has lost focus and nothing was typed or clicked for 5 minutes; back on focus or input.
-{
-  const AWAY_MS = 5 * 60_000;
-  let awayTimer: TimeoutId | undefined;
-  const arm = () => {
-    clearTimeout(awayTimer);
-    awayTimer = setTimeout(() => { if (!document.hasFocus()) setFriendsAway(true); }, AWAY_MS);
-  };
-  // Input over an unfocused window (a scroll, say) counts too, and the 5 minutes start again from it.
-  const back = () => { setFriendsAway(false); if (document.hasFocus()) clearTimeout(awayTimer); else arm(); };
-  window.addEventListener('blur', arm);
-  window.addEventListener('focus', back);
-  for (const ev of ['keydown', 'pointerdown', 'wheel']) window.addEventListener(ev, back, { capture: true, passive: true });
 }
 // Every launch opens behind the launch light (see launch.css); after setup it lifts straight onto Home, so a returning
 // user never sees the welcome flash by. A first run's welcome rises in on the same sky as the light lifts; sounds stay
@@ -137,8 +121,8 @@ async function boot(): Promise<void> {
   const launched = () => {
     launching = false;
     if (appState.onboarded) detectTools().catch(() => { /* shown in the setup card */ });
-    // The first launch after an update: that release's notes, once Home has settled in.
-    setTimeout(() => background(maybeShowWhatsNew()), 700);
+    // After an update: "What's new" pops into the title bar, once Home has settled in.
+    setTimeout(() => background(offerWhatsNew()), 700);
   };
   if (window.breeze) {
     // Desktop: the intro plays over the desktop in the splash window (main.js) while this window loads hidden. Once
@@ -171,10 +155,10 @@ async function boot(): Promise<void> {
       if (morph) { reveal(true); morph.play(); }
     })().finally(launched);
   } else {
-    // Browser: the whole intro plays in the page. It lifts 1.8s after the swirl has fully appeared; animations only
+    // Browser: the whole intro plays in the page. It lifts 1.2s after the swirl has fully appeared; animations only
     // advance while the page draws frames, so a clock-time cap makes sure it never stays up for good.
     const logoIn = $('.launch-logo', launch).getAnimations()[0]?.finished.catch(() => undefined) ?? Promise.resolve();
-    void Promise.race([logoIn.then(() => wait(1800)), wait(6000)]).then(() => {
+    void Promise.race([logoIn.then(() => wait(1200)), wait(6000)]).then(() => {
       const morph = parkLogo();
       reveal(true);
       launched();

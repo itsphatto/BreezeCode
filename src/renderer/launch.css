@@ -1,9 +1,9 @@
-/* ---------- launch: a glimpse of light opens into the window, the swirl settles in the middle, then the app shows ---------- */
+/* ---------- launch: a light flies in and opens into the window, the swirl settles in the middle, then the app shows ---------- */
 /* Shared by the splash window (launch.html) and the app page (breeze.html).
-   Timeline: light bubbles around for 0.8s, then opens into the sky (1s, ease-in-out), the swirl settles in by 2.1s and
-   holds 1.8s. In the desktop app the intro plays in its own see-through splash window over the desktop, and at the
-   hand-off the app window fades in over it (main.js). In a browser the whole intro plays in the page itself and lifts
-   off (.done, from init.ts). */
+   Timeline: the light flies in from the right, round a loop, to the middle of the window (1.4s). There it opens into
+   the sky (1s), the swirl settles in by 2.7s and holds 1.2s. In the desktop app the intro plays in its own
+   see-through splash window over the whole screen, and at the hand-off the app window fades in over it (main.ts). In a
+   browser the whole intro plays in the page itself and lifts off (.done, from init.ts). */
 @property --open {
   syntax: '<length>';
   inherits: false;
@@ -14,16 +14,33 @@
   position: fixed;
   inset: 0;
   z-index: 10000;
-  display: grid;
-  place-items: center;
   overflow: hidden;
-  /* No background of its own: in the splash window the light bubbles straight over the desktop. */
+  /* Where the app window is: the whole page, or main.ts's numbers in the splash, which covers the whole screen. */
+  --stage-x: 0px;
+  --stage-y: 0px;
+  --stage-w: 100vw;
+  --stage-h: 100vh;
+  --stage-corner: 0px;
+  /* No background of its own: in the splash window the light flies straight over the desktop. */
   pointer-events: none;
   /* If nothing ever lifts it, this still does, so it can't cover the app for good. */
   animation: launch-out .6s var(--spring) 8s forwards;
 }
 
-.launch > * {
+.launch-stage {
+  position: absolute;
+  left: var(--stage-x);
+  top: var(--stage-y);
+  width: var(--stage-w);
+  height: var(--stage-h);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--stage-corner);
+  --vmax: calc(max(var(--stage-w), var(--stage-h)) / 100);
+}
+
+.launch-stage > * {
   grid-area: 1 / 1;
 }
 
@@ -42,13 +59,14 @@
 }
 
 :root.splash .launch {
-  border-radius: 8px;
+  --stage-corner: 8px;
   animation: none;
 }
 
 /* The signature colours: the sky (launch and Home) and the glimpse of light before it. A holiday swaps them for the
    day (data-holiday on the root: set by the page, and by main.js in the splash window). */
 :root {
+  --vmax: 1vmax; /* 1% of the app window's longer side (.launch-stage: the splash window is bigger than that) */
   --sky-corner-a: #b9dcff;
   --sky-corner-b: #a9d1fb;
   --sky-low: #7a5cff;
@@ -148,7 +166,7 @@
 .launch-sky {
   -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--open) - 120px), transparent var(--open));
   mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--open) - 120px), transparent var(--open));
-  animation: launch-open 1s var(--spring) .8s both;
+  animation: launch-open 1s var(--spring) 1.4s both;
 }
 
 /* Slow drifting light inside the sky, so it feels alive while it holds. */
@@ -156,41 +174,98 @@
 :is(.launch-sky, .ob-sky)::after {
   content: "";
   position: absolute;
-  width: 70vmax;
-  height: 70vmax;
+  width: calc(70 * var(--vmax));
+  height: calc(70 * var(--vmax));
   border-radius: 50%;
   filter: blur(60px);
   opacity: .55;
 }
 
 :is(.launch-sky, .ob-sky)::before {
-  left: -20vmax;
-  top: -30vmax;
+  left: calc(-20 * var(--vmax));
+  top: calc(-30 * var(--vmax));
   background: var(--sky-drift-a);
   animation: launch-drift 5s ease-in-out infinite alternate;
 }
 
 :is(.launch-sky, .ob-sky)::after {
-  right: -25vmax;
-  bottom: -35vmax;
+  right: calc(-25 * var(--vmax));
+  bottom: calc(-35 * var(--vmax));
   background: var(--sky-drift-b);
   opacity: .35;
   animation: launch-drift 6s ease-in-out -2s infinite alternate-reverse;
 }
 
-/* The glimpse: a soft ball of blue light with a bright core that bubbles around the middle for 0.8s, its shape
-   wobbling as it goes, then blooms out and fades as the sky opens behind it. Two smaller bubbles circle with it. */
+/* The flight path: its box's bottom left corner is the middle of the window, where the light lands. It keeps its shape
+   and takes the room there is between there and the top right of the screen. */
+.launch-flight {
+  --cx: calc(var(--stage-x) + var(--stage-w) / 2);
+  --cy: calc(var(--stage-y) + var(--stage-h) / 2);
+  position: absolute;
+  left: var(--cx);
+  bottom: calc(100% - var(--cy));
+  width: clamp(200px, min(100vw - var(--cx) - 90px, (var(--cy) - 80px) * 1076 / 419), 1900px);
+  aspect-ratio: 1076 / 419;
+}
+
+.launch-flight > * {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  width: var(--size);
+  height: var(--size);
+  margin: calc(var(--size) / -2);
+  offset-path: shape(from 100% 25.1%,
+    curve to 85.9% 13.1% with 98% 16.9% / 91.9% 13.1%,
+    curve to 77% 36.3% with 79.8% 13.1% / 77% 24.3%,
+    curve to 79.9% 46.1% with 77% 42.7% / 78.2% 46.1%,
+    curve to 82.1% 35.1% with 81.5% 46.1% / 82.1% 41.1%,
+    curve to 78% 15% with 82.1% 26.7% / 80.6% 17.9%,
+    curve to 48.7% 0% with 72.4% 8.8% / 61.2% 0%,
+    curve to 41.1% 12.4% with 44.1% 0% / 41.7% 5.3%,
+    curve to 39.7% 29.8% with 40.6% 19.6% / 40.6% 24.3%,
+    curve to 24.5% 69% with 37.8% 41.1% / 30.6% 57.8%,
+    curve to 0% 100% with 17.6% 82.3% / 9.7% 94.7%);
+  offset-rotate: auto;
+}
+
+/* The light: a soft ball of blue with a bright core, stretched a little along its way, its shape wobbling as it goes.
+   Two smaller bubbles circle with it. Once it lands, a second one in its place inside the window (.launch-stage) blooms
+   out and fades as the sky opens behind it, kept within the window. */
 .launch-glint {
+  --size: 360px;
   position: relative;
-  width: 360px;
-  height: 360px;
+  width: var(--size);
+  height: var(--size);
+  opacity: 0;
   border-radius: 42% 58% 55% 45% / 48% 42% 58% 52%;
   background: radial-gradient(circle at 46% 46%, rgba(255, 255, 255, .95) 0%, var(--glint-1) 14%, var(--glint-2) 36%, var(--glint-3) 56%, transparent 72%);
   filter: blur(22px);
   animation:
-    launch-bubble .8s ease-in-out both,
-    launch-bloom 1s var(--spring) .8s forwards;
+    launch-fly 1.4s cubic-bezier(.4, .1, .35, 1) backwards,
+    launch-light 1.4s ease-in-out backwards;
 }
+
+.launch-stage > .launch-glint {
+  rotate: 168deg; /* the way the light is heading as it lands */
+  border-radius: 50%;
+  animation: launch-bloom 1s var(--spring) 1.4s;
+}
+
+/* The light's tail: three smaller glows a beat behind it, catching up as it lands. */
+.launch-trail {
+  --size: 115px;
+  --behind: .04s;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--glint-bubble-a), var(--glint-3) 45%, transparent 70%);
+  filter: blur(8px);
+  animation:
+    launch-fly 1.4s cubic-bezier(.4, .1, .35, 1) var(--behind) both,
+    launch-tail 1.4s ease-in-out var(--behind) both;
+}
+
+.launch-trail:nth-child(1) { --size: 60px; --behind: .12s; }
+.launch-trail:nth-child(2) { --size: 85px; --behind: .08s; }
 
 /* No blend mode on these: in the see-through splash window one makes Chromium paint an opaque backdrop to blend
    against, hiding the desktop. */
@@ -204,20 +279,20 @@
 .launch-glint::before {
   inset: 18% 30% 30% 18%;
   background: radial-gradient(circle, var(--glint-bubble-a), transparent 70%);
-  animation: launch-orbit .8s ease-in-out both;
+  animation: launch-orbit .7s ease-in-out 2 both;
 }
 
 .launch-glint::after {
   inset: 34% 14% 16% 38%;
   background: radial-gradient(circle, var(--glint-bubble-b), transparent 70%);
-  animation: launch-orbit .8s ease-in-out -.4s both reverse;
+  animation: launch-orbit .7s ease-in-out -.35s 2 both reverse;
 }
 
 .launch-logo {
   width: 150px;
   height: 150px;
   filter: blur(0) drop-shadow(0 0 22px rgba(255, 255, 255, .45)) drop-shadow(0 6px 24px rgba(10, 30, 120, .35));
-  animation: launch-logo-in .7s var(--spring) 1.4s both;
+  animation: launch-logo-in .7s var(--spring) 2s both;
   user-select: none;
 }
 
@@ -230,13 +305,25 @@
   animation: launch-logo-out .45s var(--spring) forwards;
 }
 
-@keyframes launch-bubble {
-  0% { opacity: 0; transform: translate(0, 0) scale(.15); border-radius: 50%; }
-  18% { opacity: .9; transform: translate(-26px, 12px) scale(.55); }
-  40% { opacity: 1; transform: translate(30px, -18px) scale(.8) rotate(25deg); border-radius: 58% 42% 46% 54% / 40% 58% 42% 60%; }
-  62% { transform: translate(-18px, -24px) scale(.7) rotate(-15deg); border-radius: 45% 55% 60% 40% / 55% 45% 55% 45%; }
-  82% { transform: translate(14px, 18px) scale(.9) rotate(10deg); border-radius: 52% 48% 42% 58% / 46% 56% 44% 54%; }
-  100% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0); border-radius: 50%; }
+/* Not to 100%: Chromium takes a shape() path for a closed one, and puts 100% back at the start. */
+@keyframes launch-fly {
+  from { offset-distance: 0%; }
+  to { offset-distance: 99.9%; }
+}
+
+@keyframes launch-light {
+  0% { opacity: 0; transform: scale(.1); border-radius: 50%; }
+  15% { opacity: 1; transform: scale(.44, .34); }
+  40% { transform: scale(.38, .42); border-radius: 58% 42% 46% 54% / 40% 58% 42% 60%; }
+  65% { transform: scale(.56, .4); border-radius: 45% 55% 60% 40% / 55% 45% 55% 45%; }
+  85% { transform: scale(.6, .52); border-radius: 52% 48% 42% 58% / 46% 56% 44% 54%; }
+  100% { opacity: 1; transform: scale(1); border-radius: 50%; }
+}
+
+@keyframes launch-tail {
+  0% { opacity: 0; transform: scale(.4); }
+  20%, 70% { opacity: .8; transform: scale(1.5, .8); }
+  100% { opacity: 0; transform: scale(.6); }
 }
 
 @keyframes launch-orbit {
@@ -254,7 +341,7 @@
 
 @keyframes launch-open {
   from { --open: 0px; }
-  to { --open: 160vmax; }
+  to { --open: calc(160 * var(--vmax)); }
 }
 
 /* Held still while the app window fades in over the splash (init.ts), the splash's light with it (main.js). */
@@ -265,7 +352,7 @@
 
 @keyframes launch-drift {
   from { transform: translate(0, 0) scale(1); }
-  to { transform: translate(8vmax, 6vmax) scale(1.12); }
+  to { transform: translate(calc(8 * var(--vmax)), calc(6 * var(--vmax))) scale(1.12); }
 }
 
 @keyframes launch-logo-in {
@@ -283,6 +370,7 @@
 
 /* Reduced motion: no glint or spreading light, just the sky and swirl, then a plain fade. */
 @media (prefers-reduced-motion: reduce) {
+  .launch-flight,
   .launch-glint { display: none; }
   .launch-sky { --open: 300vmax; animation: none; }
   .launch-sky::before,

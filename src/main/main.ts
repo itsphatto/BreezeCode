@@ -21,7 +21,7 @@ import { looksBinary } from './sniff';
 import { isDocFile, docFileToText, textToDocFile, blankDocFile, officeMedia } from './officefile';
 import * as syncEngine from './sync';
 import { TeamCoordinator, claudeDenyArgs, opencodeDenyRules } from './team';
-import { BoardCoordinator } from './board';
+import { BoardCoordinator, BoardSet, folderId } from './board';
 import { listChatLogs, readChatLog } from './agentlogs';
 import { parseMentions, shortName } from './mentions';
 import { LspManager, SERVERS, lspInstalls, findOnPath } from './lsp';
@@ -34,7 +34,7 @@ import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
 import type { ToolReply, McpTool } from './breezemcp';
 import * as core from './agentcore';
 import { MemoryStore } from './agentmemory';
-import { BrainStore, claudeCompactSummary, codexCompactions, droppedReplies, summaryKey, summaryChunks, summarizePrompt, SUMMARY_MAX_CHUNKS, BRAIN_TOOL_DEFS, formatSearch } from './secondbrain';
+import { BrainStore, claudeCompactSummary, codexCompactions, droppedReplies, summaryKey, summaryChunks, summarizePrompt, SUMMARY_MAX_CHUNKS, BRAIN_TOOL_DEFS, BRAIN_DIR, formatSearch } from './secondbrain';
 import type { ChatText } from './secondbrain';
 import { detectIntent } from './agentintent';
 import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal, imageMime } from './agentimages';
@@ -276,7 +276,7 @@ app.whenReady().then(() => {
 
 /* ================= Persisted main-process state ================= */
 const statePath = () => path.join(app.getPath('userData'), 'breeze-state.json');
-// What breeze-state.json keeps between runs. Other keys (window, sign-in and friends settings) live beside these.
+// What breeze-state.json keeps between runs. Other keys (window and sign-in settings) live beside these.
 interface AppState { lastRoot: string | null; recent: string[]; recentAt?: Record<string, number | null>; [key: string]: any }
 function loadState(): AppState {
   try { return JSON.parse(fs.readFileSync(statePath(), 'utf8')); } catch { return { lastRoot: null, recent: [] }; }
@@ -328,12 +328,13 @@ function handle(channel: string, fn: IpcHandler): void {
   });
 }
 
-// The launch intro (launch.html) plays in its own see-through, click-through window, so the light bubbles over the
-// desktop itself, darkened but sharp. Only a transparent window shows the desktop unblurred, and a transparent window
+// The launch intro (launch.html) plays in its own see-through window over the whole screen, so the light flies in over
+// the desktop itself and opens into the app window's place. Only a transparent window shows the desktop unblurred, and a transparent window
 // can't be resized, so the app window is a normal one: it loads hidden behind the splash and takes over at
 // LAUNCH_HANDOFF (win:launchWait, then win:launchShow), fading in straight onto the welcome or Home.
 const SPLASH_PAGE = path.join(ROOT, 'src', 'renderer', 'launch.html');
-const LAUNCH_HANDOFF = 3900; // ms: 0.8s bubbling, 1s opening, the swirl in by 2.1s, then held 1.8s
+const LAUNCH_HANDOFF = 3900; // ms: 1.4s flying in, 1s opening, the swirl in by 2.7s, then held 1.2s
+const LAUNCH_OPENED = 2500; // ms: nothing is drawn outside the app window's place from here on
 let splash: BrowserWindow | null = null;
 let splashStart = 0;
 let splashShown: Promise<void> = Promise.resolve();
@@ -345,9 +346,17 @@ function holidayToday(): string | null {
   return HOLIDAYS[`${d.getMonth() + 1}-${d.getDate()}`] ?? null;
 }
 
-function createSplash(bounds: Electron.Rectangle) {
+// stage: where the app window is. The splash covers the rest of its screen too, for the light to fly in over. Not on
+// Linux: Wayland doesn't let a window pick its place, so there the light stays inside the app window's.
+function createSplash(stage: Electron.Rectangle) {
+  const area = process.platform === 'linux' ? stage : screen.getDisplayMatching(stage).workArea;
+  const x = Math.min(stage.x, area.x), y = Math.min(stage.y, area.y);
+  const place = { x: stage.x - x, y: stage.y - y, width: stage.width, height: stage.height }; // inside the splash
   splash = new BrowserWindow({
-    ...bounds,
+    x,
+    y,
+    width: Math.max(stage.x + stage.width, area.x + area.width) - x,
+    height: Math.max(stage.y + stage.height, area.y + area.height) - y,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -367,18 +376,28 @@ function createSplash(bounds: Electron.Rectangle) {
   // showing through. The splash can't take focus, so a click on it simply does nothing.
   splash.webContents.on('will-navigate', e => e.preventDefault());
   // The intro always opens on the signature sky, whatever the theme; only a holiday swaps in the day's colours
-  // (launch.css). The page runs no scripts of its own, so the day is set from here, before its first frame shows.
+  // (launch.css). The page runs no scripts of its own, so the day and the app window's place are set from here, before
+  // its first frame shows.
   const day = holidayToday();
   const sp = splash;
-  if (day) {
-    sp.webContents.once('dom-ready', () => {
-      splash?.webContents.executeJavaScript(`document.documentElement.dataset.holiday = ${JSON.stringify(day)}`).catch(logError('splash'));
-    });
-  }
+  const vars = { '--stage-x': place.x, '--stage-y': place.y, '--stage-w': place.width, '--stage-h': place.height };
+  sp.webContents.once('dom-ready', () => {
+    splash?.webContents.executeJavaScript(`{
+      const launch = document.querySelector('.launch'), vars = ${JSON.stringify(vars)}, day = ${JSON.stringify(day)};
+      for (const k in vars) launch.style.setProperty(k, vars[k] + 'px');
+      if (day) document.documentElement.dataset.holiday = day;
+    }`).catch(logError('splash'));
+  });
   sp.on('closed', () => { splash = null; });
   // The hand-off counts from when the intro first shows; a splash that never paints doesn't hold the app back.
   splashShown = new Promise<void>(done => {
-    sp.once('ready-to-show', () => { splashStart = Date.now(); splash?.show(); done(); });
+    sp.once('ready-to-show', () => {
+      splashStart = Date.now();
+      splash?.show();
+      done();
+      // Opened: the splash lets go of the rest of the screen, so the desktop there can be clicked again.
+      if (isWin) setTimeout(() => { if (!sp.isDestroyed()) sp.setShape([place]); }, LAUNCH_OPENED);
+    });
     setTimeout(done, 3000);
   });
   sp.loadFile(SPLASH_PAGE).catch(logError('splash'));
@@ -601,9 +620,11 @@ function boxDir() {
 async function setRoot(dir: string) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
-  if (root !== dir) { stopLiveServer(); stopTeams(); stopBoard(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
+  if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
   termCwd = dir;
+  openBrainFolder(dir);
+  watchAwayBoards();
   const saved = loadState();
   const recent = [dir, ...(saved.recent || []).filter((r: string) => r !== dir)].slice(0, 10);
   // When each recent folder was last opened, for the Home screen's "2h ago".
@@ -629,7 +650,8 @@ function startWatching(retried = false): void {
       const rel = String(file).split(path.sep).join('/');
       // Build output and dependencies change in bursts nobody is looking at (the file list skips them too).
       if (rel.split('/').some(part => IGNORED_DIRS.has(part))) return;
-      board?.diskChanged(rel); // a box's shell command may have written it (the board tells whose)
+      if (rel === BRAIN_DIR || rel.startsWith(`${BRAIN_DIR}/`)) return; // Breeze's own writes to the second brain
+      boards.find(root)?.diskChanged(rel); // a box's shell command may have written it (the board tells whose)
       pending.add(rel);
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -833,7 +855,7 @@ handle('fs:restore', async () => {
 handle('fs:openLaunch', () => openLaunch(root));
 
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); stopBoard(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
+  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); watchAwayBoards(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {
@@ -1156,6 +1178,11 @@ handle('doc:count', (_e, id, query, matchCase) => {
   const doc = openDocId(id);
   return textEngine().request('count', { doc, query: docargs.docQuery(query), matchCase: matchCase === true });
 });
+handle('doc:findAll', (_e, id, query, matchCase, limit) => {
+  const doc = openDocId(id);
+  return textEngine().request('findAll', { doc, query: docargs.docQuery(query), matchCase: matchCase === true, limit: docargs.docHitLimit(limit) });
+});
+handle('doc:lint', (_e, id, kind) => textEngine().request('lint', { doc: openDocId(id), kind: docargs.docLintKind(kind) }));
 handle('doc:save', (_e, id) => textEngine().request('save', { doc: openDocId(id) }));
 handle('doc:changed', (_e, id) => textEngine().request('changed', { doc: openDocId(id) }));
 handle('doc:reload', (_e, id) => textEngine().request('reload', { doc: openDocId(id) }));
@@ -1791,7 +1818,7 @@ const AGENTS: AgentDef[] = [
     paths: () => isWin ? [path.join(APPDATA, 'npm', 'opencode.cmd')] : [path.join(HOME, '.opencode', 'bin', 'opencode'), '/usr/local/bin/opencode', '/opt/homebrew/bin/opencode'],
   },
   {
-    id: 'dsh', name: 'DeepSeek Harness', vendor: 'DeepSeek · developer preview', commands: ['dsh'],
+    id: 'dsh', name: 'DeepSeek CLI (Harness)', vendor: 'DeepSeek · developer preview', commands: ['dsh'],
     url: 'https://github.com/deepseek-ai/deepseek-harness',
     paths: () => isWin ? [path.join(APPDATA, 'npm', 'dsh.cmd')] : ['/usr/local/bin/dsh', '/opt/homebrew/bin/dsh'],
   },
@@ -2423,9 +2450,12 @@ function emit(runId: number, ev: Loose): void {
   }
   sendEvent(runId, ev);
 }
-const relOut = (p?: string | null): string => {
-  if (!p || !root) return p || '';
-  const r = path.relative(root, path.resolve(root, p));
+// The folder a run's paths are shown from: a board box's own folder, which another folder may have been opened over.
+const runFolder = (runId: number): string | null => { const t = teamOf.get(runId)?.team; return t instanceof BoardCoordinator ? t.root : root; };
+const relOut = (p: string | null | undefined, runId: number): string => {
+  const from = runFolder(runId);
+  if (!p || !from) return p || '';
+  const r = path.relative(from, path.resolve(from, p));
   return r.startsWith('..') ? p : r.split(path.sep).join('/');
 };
 const SAFE_ID = /^[\w-]{6,80}$/;
@@ -2872,7 +2902,7 @@ const TEAM_FINISHED = 'That team has finished.';
 const teamDeps = { startRun: launchRun, stopRun, emit: sendEvent, setTimeout, clearTimeout };
 
 // dsh can't be told which files are another agent's, as Claude and OpenCode can, so it works alone.
-const DSH_SOLO = 'DeepSeek Harness works on its own for now. Use another agent in a team or on the board.';
+const DSH_SOLO = 'DeepSeek CLI works on its own for now. Use another agent in a team or on the board.';
 // The agents a prompt can mention: the CLI agents the last scan found, and each API agent once it is set up.
 async function teamAgents() {
   const llms = await Promise.all(LLM_PROVIDER_IDS.map(async id => ({ id, name: LLM_PROVIDERS[id].name, found: !!(await llmConfig(id, false).catch(() => null))?.model })));
@@ -2899,19 +2929,30 @@ function stopTeams() {
 const isPlainObject = (o: unknown) => Object.prototype.toString.call(o) === '[object Object]';
 
 /* ----- Agent board: boxes of agents running side by side, one owner per file, blocked edits relayed ----- */
-let board: BoardCoordinator | null = null;
-const BOX_KEY = /^box[1-8]$/;
+// Opening another folder doesn't stop them: each folder keeps its board, and its boxes' runs (the ones a relay or a
+// queued message starts later too) work in that folder, whichever one is open by then (taskBase).
+const boards = new BoardSet(dir => new BoardCoordinator({ id: crypto.randomUUID(), root: dir, deps: { startRun: o => launchRun({ ...o, taskBase: dir }), stopRun, emit: sendEvent, setTimeout, clearTimeout } }));
+const BOX_KEY = /^box(?:[1-9]|1\d|2[0-4])$/; // 24 of them: board.ts BOARD_KEYS
 function openBoard(): BoardCoordinator {
   if (!root) throw new Error('Open a folder first');
-  if (!board || board.root !== root) {
-    board?.close();
-    board = new BoardCoordinator({ id: crypto.randomUUID(), root, deps: { startRun: launchRun, stopRun, emit: sendEvent, setTimeout, clearTimeout } });
-  }
-  return board;
+  return boards.open(root);
 }
-function stopBoard(): void {
-  board?.close();
-  board = null;
+// The open folder's watcher tells its board what changed on disk. A board left working in another folder has its own.
+const boardWatchers = new Map<string, fs.FSWatcher>();
+function watchAwayBoards(): void {
+  const away = new Map(boards.all().filter(b => !root || folderId(b.root) !== folderId(root)).map(b => [folderId(b.root), b]));
+  for (const [id, w] of [...boardWatchers]) if (!away.has(id)) { w.close(); boardWatchers.delete(id); }
+  for (const [id, b] of away) {
+    if (boardWatchers.has(id)) continue;
+    try {
+      const w = fs.watch(b.root, { recursive: true }, (_type: string, file: string | null) => {
+        const rel = String(file ?? '').split(path.sep).join('/');
+        if (rel && !rel.split('/').some(part => IGNORED_DIRS.has(part) || part === BRAIN_DIR)) b.diskChanged(rel);
+      });
+      w.on('error', () => { w.close(); boardWatchers.delete(id); });
+      boardWatchers.set(id, w);
+    } catch { /* can't be watched: only what a shell command writes goes unseen */ }
+  }
 }
 const boxKeyOf = (k: unknown): string => {
   if (typeof k !== 'string' || !BOX_KEY.test(k)) throw new Error('That box does not exist.');
@@ -2928,7 +2969,7 @@ handle('board:run', async (_e, o) => {
   if (agent.id === 'dsh') throw new Error(DSH_SOLO);
   if (typeof o.prompt !== 'string' || !o.prompt.trim()) throw new Error('Tell the agent what to do first.');
   const session = typeof o.session === 'string' && SAFE_ID.test(o.session) ? o.session : null;
-  const runId = openBoard().startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session, pick: boardPick(o, agent.id) });
+  const runId = boards.forRun(typeof o.root === 'string' ? o.root : null, root).startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session, pick: boardPick(o, agent.id) });
   const chat = chatKeyOf(o?.chat);
   if (chat) runChat.set(Number(runId), chat);
   return runId;
@@ -2942,11 +2983,11 @@ function boardPick(o: Loose, agent: string): { model?: string; effort?: string }
   if (typeof o?.effort === 'string' && effortArg(o.effort)) pick.effort = o.effort;
   return pick.model || pick.effort ? pick : null;
 }
-handle('board:stop', (_e, k) => { board?.stopBox(boxKeyOf(k)); });
-handle('board:stopAll', () => { board?.stopAll(); });
-handle('board:release', (_e, p) => { if (typeof p === 'string') board?.release(p); });
-handle('board:owners', () => ({ ...(board?.owners ?? {}) }));
-handle('board:clearBox', (_e, k) => { board?.clearBox(boxKeyOf(k)); });
+handle('board:stop', (_e, k) => { boards.stopBox(boxKeyOf(k)); });
+handle('board:stopAll', () => { boards.find(root)?.stopAll(); });
+handle('board:release', (_e, p) => { if (typeof p === 'string') boards.find(root)?.release(p); });
+handle('board:owners', () => ({ ...(boards.find(root)?.owners ?? {}) }));
+handle('board:clearBox', (_e, k) => { boards.clearBox(boxKeyOf(k), root); watchAwayBoards(); });
 
 handle('team:parse', async (_e, text) => parseMentions(String(text ?? ''), await teamAgents()));
 handle('team:claim', async (_e, o) => {
@@ -3044,7 +3085,7 @@ async function runAntigravity(runId: number, run: Run, { mode, prompt, session, 
       text: ev.text,
       kind: ev.kind,
       label: ev.label,
-      path: ev.path ? relOut(ev.path) : undefined,
+      path: ev.path ? relOut(ev.path, runId) : undefined,
       ok: ev.ok,
     });
   });
@@ -3209,12 +3250,12 @@ function mcpConfigFile(shell: boolean, breezeUrl?: string | null): string | null
 }
 const NO_BLOCK_NOTE = 'Claude can\'t be blocked from teammates\' files on this computer, so Breeze will undo any edit it makes to them instead.';
 // What each Claude Code tool call looks like in the chat.
-const CLAUDE_TOOLS: Record<string, (i: Loose) => string[]> = {
-  Read: i => ['read', `Read ${relOut(i.file_path)}`],
-  Edit: i => ['edit', `Edited ${relOut(i.file_path)}`, i.file_path],
-  MultiEdit: i => ['edit', `Edited ${relOut(i.file_path)}`, i.file_path],
-  Write: i => ['edit', `Wrote ${relOut(i.file_path)}`, i.file_path],
-  NotebookEdit: i => ['edit', `Edited ${relOut(i.notebook_path)}`, i.notebook_path],
+const CLAUDE_TOOLS: Record<string, (i: Loose, rel: (p: string) => string) => string[]> = {
+  Read: (i, rel) => ['read', `Read ${rel(i.file_path)}`],
+  Edit: (i, rel) => ['edit', `Edited ${rel(i.file_path)}`, i.file_path],
+  MultiEdit: (i, rel) => ['edit', `Edited ${rel(i.file_path)}`, i.file_path],
+  Write: (i, rel) => ['edit', `Wrote ${rel(i.file_path)}`, i.file_path],
+  NotebookEdit: (i, rel) => ['edit', `Edited ${rel(i.notebook_path)}`, i.notebook_path],
   Bash: i => ['run', `$ ${i.command}`],
   PowerShell: i => ['run', `PS> ${i.command}`],
   Grep: i => ['search', `Searched for ${i.pattern}`],
@@ -3262,7 +3303,7 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub?: string): v
     emit(runId, { t: 'subagent', id: c.id, text: String(c.input?.description ?? '').trim(), note: String(c.input?.prompt ?? ''), running: true });
     return;
   }
-  const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}) ?? ['tool', c.name];
+  const [kind, label, file] = CLAUDE_TOOLS[c.name]?.(c.input || {}, p => relOut(p, runId)) ?? ['tool', c.name];
   emit(runId, sub ? { t: 'subagent', id: sub, kind, label } : { t: 'tool', kind, label });
   if (CLAUDE_SHELL_TOOLS.includes(c.name) && c.id) {
     (ctx.shells ??= new Set()).add(c.id);
@@ -3270,10 +3311,10 @@ function claudeContent(runId: number, c: Loose, ctx: StreamCtx, sub?: string): v
   }
   if (!file) return;
   // A new file's whole text is in the call, before Claude writes it: the editor opens it and types it in.
-  const created = c.name === 'Write' && typeof c.input?.content === 'string' && !fs.existsSync(path.resolve(root || HOME, file));
-  if (created) emit(runId, { t: 'draft', path: relOut(file), text: c.input.content });
-  emit(runId, { t: 'file', path: relOut(file), created });
-  if (c.id) (ctx.writes ??= new Map()).set(c.id, relOut(file)); // its tool_result says whether the write landed
+  const created = c.name === 'Write' && typeof c.input?.content === 'string' && !fs.existsSync(path.resolve(runFolder(runId) || HOME, file));
+  if (created) emit(runId, { t: 'draft', path: relOut(file, runId), text: c.input.content });
+  emit(runId, { t: 'file', path: relOut(file, runId), created });
+  if (c.id) (ctx.writes ??= new Map()).set(c.id, relOut(file, runId)); // its tool_result says whether the write landed
 }
 // A subagent finished. Its report is added to its chat only when its own words weren't sent as it worked.
 function endSubagent(runId: number, id: string, ctx: StreamCtx, ok: boolean, report: string): void {
@@ -3371,13 +3412,14 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   const run: Run = { agent, child: undefined, abort: undefined, stopped: false, team: team || null, pick: pick || null };
   runs.set(runId, run);
   imageRuns.set(runId, { base, agent, pending: '', shown: new Set() });
-  if (isLlmAgent(agent)) return runLocal(runId, run, { mode, prompt, session, base }, agent);
+  if (isLlmAgent(agent)) return runLocal(runId, run, { mode, prompt, session, base }, agent); // has the brain as tools
+  prompt = withBrainNote(prompt, base, session);
   if (agent === 'antigravity') return runAntigravity(runId, run, { mode, prompt, session, base });
   const bin = agentBins.get(agent);
   if (!bin) throw new Error('That agent was not found on this computer. Rescan from Settings → Run Setup Again.');
   const shell = /\.(?:cmd|bat)$/i.test(bin);
   const direct = agent === 'dsh' ? dshProgram(bin, shell ? await which('node') : null, fs.existsSync) : null;
-  if (agent === 'dsh' && !direct) { runs.delete(runId); throw new Error('DeepSeek Harness needs Node.js 24.9 or newer. Install it, then run: npm install -g @deepseek-ai/dsh'); }
+  if (agent === 'dsh' && !direct) { runs.delete(runId); throw new Error('DeepSeek CLI needs Node.js 24.9 or newer. Install it, then run: npm install -g @deepseek-ai/dsh'); }
   // Breeze's own MCP server. A run still starts without it; the agent then has no way to ask or show.
   const hasMcp = await breezeMcp.listen().then(() => true, () => false);
   if (run.stopped) { runs.delete(runId); emit(runId, { t: 'done', ok: false, stopped: true }); return; }
@@ -3406,7 +3448,7 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
       child.stdin!.write(claudeUserLine(cli.prompt ?? ''));
       run.steerable = true;
     } else child.stdin!.end(cli.prompt ?? undefined);
-    if (agent === 'dsh') emit(runId, { t: 'note', text: 'Starting DeepSeek Harness. This can take half a minute.' });
+    if (agent === 'dsh') emit(runId, { t: 'note', text: 'Starting DeepSeek CLI. This can take half a minute.' });
     streamCli(runId, run, child, CLI_EVENTS[agent] ?? codexEvent, mode, retryModel);
   };
   // A retry starts from the close listener, so a failed launch there ends the run instead of throwing.
@@ -3425,7 +3467,7 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     if (!retried && (agent === 'claude' || agent === 'dsh') && session && NO_SESSION.test(errText)) {
       retried = true;
       session = null;
-      emit(runId, { t: 'note', text: `${agent === 'dsh' ? 'DeepSeek Harness' : 'Claude'} couldn’t find the earlier conversation, so this message starts a new one.` });
+      emit(runId, { t: 'note', text: `${agent === 'dsh' ? 'DeepSeek CLI' : 'Claude'} couldn’t find the earlier conversation, so this message starts a new one.` });
       return relaunch();
     }
     const model = !retried && agent === 'codex' ? codexFallback(errText) : null;
@@ -3491,9 +3533,9 @@ const CODEX_ITEMS: Record<string, (runId: number, it: Loose, ctx: StreamCtx) => 
   },
   file_change: (runId, it) => {
     for (const ch of it.changes || []) {
-      emit(runId, { t: 'tool', kind: 'edit', label: `${CHANGE_VERB[ch.kind] || 'Edited'} ${relOut(ch.path)}` });
+      emit(runId, { t: 'tool', kind: 'edit', label: `${CHANGE_VERB[ch.kind] || 'Edited'} ${relOut(ch.path, runId)}` });
       // Codex reports a change once it is on disk (`written`): the editor replays it from the committed text.
-      emit(runId, { t: 'file', path: relOut(ch.path), created: ch.kind === 'add', written: true });
+      emit(runId, { t: 'file', path: relOut(ch.path, runId), created: ch.kind === 'add', written: true });
     }
   },
   mcp_tool_call: (runId, it) => { if (it.server !== BREEZE_MCP) emit(runId, { t: 'tool', kind: 'tool', label: `${it.server}: ${it.tool}` }); },
@@ -3532,8 +3574,8 @@ function opencodeTool(runId: number, p: Loose): void {
   if (p.tool === 'bash') emit(runId, { t: 'tool', kind: 'run', label: `$ ${input.command ?? ''}` });
   else if (OPENCODE_EDITS.has(p.tool) && input.filePath) {
     const created = p.tool === 'write' && p.state?.metadata?.exists === false;
-    emit(runId, { t: 'tool', kind: 'edit', label: `${created ? 'Created' : 'Edited'} ${relOut(input.filePath)}` });
-    if (p.state?.status === 'completed') emit(runId, { t: 'file', path: relOut(input.filePath), created, written: true });
+    emit(runId, { t: 'tool', kind: 'edit', label: `${created ? 'Created' : 'Edited'} ${relOut(input.filePath, runId)}` });
+    if (p.state?.status === 'completed') emit(runId, { t: 'file', path: relOut(input.filePath, runId), created, written: true });
   } else if (p.tool === 'webfetch' || p.tool === 'websearch') emit(runId, { t: 'tool', kind: 'web', label: p.state?.title || 'Searched the web' });
   else if (p.tool === 'todowrite') emitTodos(runId, input.todos);
   else emit(runId, { t: 'tool', kind: 'tool', label: p.state?.title || String(p.tool ?? 'tool') });
@@ -3554,7 +3596,7 @@ function opencodeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): v
 }
 
 function dshEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
-  ctx.dsh ??= dshReader(relOut);
+  ctx.dsh ??= dshReader((p?: string | null) => relOut(p, runId));
   for (const ev of ctx.dsh(d, mode)) {
     if (ev.t === 'lastError') ctx.lastError = ev.text;
     else if (ev.t === 'output') commandOutput(runId, ev.text);
@@ -3792,7 +3834,7 @@ const clampSize = (v: unknown, lo: number, hi: number, dflt: number) => Number.i
 async function capturePreview(runId: number, args: Loose, signal?: AbortSignal): Promise<{ text: string; png: Buffer }> {
   const ir = imageRuns.get(runId);
   if (!ir) throw new Error('That run has ended.');
-  if (!root || ir.base !== root) throw new Error('The preview shows pages of an open project, and no project is open.');
+  if (!root || ir.base !== root) throw new Error('The preview shows pages of the open project, and this run\'s project is not the one open now.');
   const page = String(args?.page ?? '').trim().replace(/^\.[\\/]/, '') || defaultPreviewPage();
   if (!page) throw new Error('There is no index.html in the project. Give page: the HTML or Markdown file to show.');
   if (!PAGE_FILE.test(page)) throw new Error('page must be an .html or .md file in the project.');
@@ -3853,8 +3895,32 @@ const breezeMcp = new BreezeMcpServer({
 // through agent:reply. Tasks and memory live in userData.
 /* ----- Second brain: each folder's memory, from what agents' compactions said (secondbrain.ts) ----- */
 // Claude Code reports a compaction in its stream and writes the summary to its session log; Codex writes it to its
-// rollout log; Breeze's local loop drops old replies to fit. Antigravity reports nothing. Kept in userData only.
-const secondBrain = new BrainStore(path.join(app.getPath('userData'), 'second-brain.json'));
+// rollout log; Breeze's local loop drops old replies to fit. Antigravity reports nothing. Each project keeps its own in
+// <project>/.breezecode (brain.json, and brain.md for any agent to read), private to this computer; userData keeps
+// what was seen and the brains of folders that can't be written.
+const secondBrain = new BrainStore(path.join(app.getPath('userData'), 'second-brain.json'), process.platform, { writeDelay: 1500 });
+app.on('will-quit', () => secondBrain.flush());
+// Opening a folder makes its .breezecode, kept out of git through the repository's own .git/info/exclude (the
+// project's .gitignore is left alone). Not a repository, or no git: nothing to keep it out of.
+function openBrainFolder(dir: string): void {
+  if (!secondBrain.open(dir)) return;
+  void (async () => {
+    const out = (await runGitIn(dir, ['rev-parse', '--git-path', 'info/exclude'])).trim();
+    if (!out) return;
+    const file = path.resolve(dir, out);
+    const had = await fsp.readFile(file, 'utf8').catch(() => '');
+    if (had.split(/\r?\n/).some(l => l.trim() === `${BRAIN_DIR}/` || l.trim() === BRAIN_DIR)) return;
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    await fsp.appendFile(file, `${had && !had.endsWith('\n') ? '\n' : ''}# Breeze Code's second brain, private to this computer\n${BRAIN_DIR}/\n`);
+  })().catch(() => { /* not a repository */ });
+}
+// A new chat is told where the brain is as text, so an agent without Breeze's tools (or one that prefers files) can
+// read it too. Only when there is something in it, and only once per chat (a resumed one was told already).
+function withBrainNote(prompt: string, base: string, session: string | null | undefined): string {
+  if (session || !prompt.trim() || prompt.trim().startsWith('/')) return prompt;
+  if (!secondBrain.open(base) || !secondBrain.count(base)) return prompt;
+  return `${prompt}\n\n(This project's second brain, what earlier chats here learned, is in ${BRAIN_DIR}/brain.md. Read it when it would help.)`;
+}
 const runBase = (runId: number): string | null => imageRuns.get(runId)?.base ?? null;
 const brainText = (content: unknown): string => typeof content === 'string' ? content
   : Array.isArray(content) ? content.map((c: Loose) => (typeof c?.text === 'string' ? c.text : '')).join('\n') : '';
@@ -4289,7 +4355,7 @@ async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
     const abs = agentPath(ctx, rel);
     if (fs.existsSync(abs)) return null;
     if (ctx.team && await ctx.team.coordinator.foreignOwner(ctx.team.agentId, relTo(ctx.base, abs))) return null;
-    return relOut(abs);
+    return relOut(abs, ctx.runId);
   } catch { return null; }
 }
 // A command the local agent runs: both streams as they come (the end kept), what the agent has seen of them, and
@@ -4505,11 +4571,11 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<ToolOut>> 
     const before = await fsp.readFile(abs, 'utf8');
     const { text, line, count } = brain.applyEdit(before, a.old_text, a.new_text, a.replace_all === true);
     // The editor switches to the file first, showing it as it is now, so the change then types out in front of the user.
-    emit(ctx.runId, { t: 'opening', path: relOut(abs), text: before });
+    emit(ctx.runId, { t: 'opening', path: relOut(abs, ctx.runId), text: before });
     await fsp.writeFile(abs, text, 'utf8');
     ctx.touched.add(rel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Edited ${rel}` });
-    emit(ctx.runId, { t: 'file', path: relOut(abs) });
+    emit(ctx.runId, { t: 'file', path: relOut(abs, ctx.runId) });
     return count > 1 ? `Edited ${rel}: ${count} places, the first at line ${line}.` : `Edited ${rel} at line ${line}.`;
   },
   async write_file(ctx, a) {
@@ -4521,13 +4587,13 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<ToolOut>> 
     // opens empty from its draft).
     if (!created) {
       const before = await fsp.readFile(abs, 'utf8').catch(() => null);
-      if (before != null) emit(ctx.runId, { t: 'opening', path: relOut(abs), text: before });
+      if (before != null) emit(ctx.runId, { t: 'opening', path: relOut(abs, ctx.runId), text: before });
     }
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     await fsp.writeFile(abs, content, 'utf8');
     ctx.touched.add(relTo(ctx.base, abs));
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Wrote ${relTo(ctx.base, abs)}` });
-    emit(ctx.runId, { t: 'file', path: relOut(abs), created });
+    emit(ctx.runId, { t: 'file', path: relOut(abs, ctx.runId), created });
     return `Saved ${relTo(ctx.base, abs)} (${content.split('\n').length} lines).`;
   },
   // Files only: a folder may hold a teammate's files. The Recycle Bin keeps it, so the user can undo it.
@@ -4541,7 +4607,7 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<ToolOut>> 
     await shell.trashItem(abs);
     ctx.touched.add(rel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Deleted ${rel}` });
-    emit(ctx.runId, { t: 'file', path: relOut(abs) });
+    emit(ctx.runId, { t: 'file', path: relOut(abs, ctx.runId) });
     return `Deleted ${rel} (it is in the Recycle Bin).`;
   },
   async move_file(ctx, a) {
@@ -4557,8 +4623,8 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<ToolOut>> 
     await fsp.rename(from, to);
     ctx.touched.add(fromRel).add(toRel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Moved ${fromRel} to ${toRel}` });
-    emit(ctx.runId, { t: 'file', path: relOut(from) });
-    emit(ctx.runId, { t: 'file', path: relOut(to) });
+    emit(ctx.runId, { t: 'file', path: relOut(from, ctx.runId) });
+    emit(ctx.runId, { t: 'file', path: relOut(to, ctx.runId) });
     return `Moved ${fromRel} to ${toRel}.`;
   },
 };
@@ -5446,7 +5512,7 @@ const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: stri
 async function writerFor(agent: string | null | undefined): Promise<string | null | undefined> {
   if (agent !== 'dsh') return agent;
   if (await llmConfig('deepseek').catch(() => null)) return 'deepseek';
-  throw new Error("DeepSeek Harness can't do this yet. Add a DeepSeek API key or pick another agent.");
+  throw new Error("DeepSeek CLI can't do this yet. Add a DeepSeek API key or pick another agent.");
 }
 handle('git:genCommitMsg', async (_e, { agent, prompt, model, effort }) => {
   const base = root;
@@ -5506,7 +5572,6 @@ function addAccount(user: Account): void {
 function forgetSignIn(id: string): void {
   setSecret(`token:${id}`, null);
   setSecret(`ghrefresh:${id}`, null);
-  setSecret(`firebase:${id}`, null); // Friends' own session for this account
 }
 // GitHub can hand out user tokens that expire after eight hours, with a refresh token (good for six months) to get
 // the next one. Both are kept, so the sign-in lasts as long as Breeze is used at least every six months.
@@ -5578,9 +5643,7 @@ handle('auth:accounts', async () => { await fillAccountEmails(); return accounts
 handle('auth:switch', async (_e, id) => {
   const user = accountsState().accounts.find(a => accountId(a) === id);
   if (!user) throw new Error('That account is no longer signed in');
-  const apply = () => saveState({ user });
-  if (id !== accountsState().active) await friendsSwitching(apply); // presence stays with the account that shared it
-  else apply();
+  saveState({ user });
   return user;
 });
 // Signs the active account out and switches to the next one, if any.
@@ -5588,9 +5651,8 @@ handle('auth:signOut', async () => {
   const { accounts, active } = accountsState();
   const rest = accounts.filter(a => accountId(a) !== active);
   const user = rest[0] || null;
-  const apply = () => { if (active) forgetSignIn(active); saveState({ accounts: rest, user }); };
-  if (active) await friendsSwitching(apply);
-  else apply();
+  if (active) forgetSignIn(active);
+  saveState({ accounts: rest, user });
   return user;
 });
 // Forgets one remembered account (and its saved sign-in). Removing the active one switches to the next.
@@ -5599,9 +5661,8 @@ handle('auth:remove', async (_e, id) => {
   if (!accounts.some(a => accountId(a) === id)) throw new Error('That account is no longer signed in');
   const rest = accounts.filter(a => accountId(a) !== id);
   const user = id === active ? rest[0] || null : loadState().user || null;
-  const apply = () => { forgetSignIn(id); saveState({ accounts: rest, user }); };
-  if (id === active) await friendsSwitching(apply);
-  else apply();
+  forgetSignIn(id);
+  saveState({ accounts: rest, user });
   return user;
 });
 handle('auth:cancel', () => { authAbort?.abort(); authAbort = null; });
@@ -5613,7 +5674,7 @@ handle('auth:start', (_e, provider) => {
   const ac = new AbortController();
   authAbort = ac;
   (provider === 'GitHub' ? githubSignIn(cfg.github, ac.signal) : googleSignIn(cfg.google, ac.signal))
-    .then(async user => { await friendsSwitching(() => addAccount(user)); authEmit({ t: 'done', user }); }) // the new sign-in becomes the active account
+    .then(user => { addAccount(user); authEmit({ t: 'done', user }); }) // the new sign-in becomes the active account
     .catch(err => { if (!ac.signal.aborted) authEmit({ t: 'error', text: err.message }); })
     .finally(() => { if (authAbort === ac) authAbort = null; });
   return { started: true };
@@ -6066,183 +6127,3 @@ handle('discord:set', async (_e, a) => {
 });
 handle('discord:clear', async () => { discord.clear(); });
 app.on('before-quit', () => discord.close());
-
-/* ================= Friends ================= */
-// See what friends are building (never code). friends.js does the work over Firebase; this wires it to the active
-// account and the window. Keys: breeze.config.json "firebase" { apiKey, projectId }, or BREEZE_FIREBASE_API_KEY and
-// BREEZE_FIREBASE_PROJECT_ID. The web API key is public, not a secret.
-import * as friends from './friends';
-let friendsCfg: { apiKey: string; projectId: string; configured: boolean } | null = null;
-function friendsConfig() {
-  if (friendsCfg) return friendsCfg;
-  let file: Loose = {};
-  try { file = JSON.parse(fs.readFileSync(path.join(ROOT, 'breeze.config.json'), 'utf8')); } catch { /* not configured */ }
-  const apiKey = String(process.env.BREEZE_FIREBASE_API_KEY || file.firebase?.apiKey || '').trim();
-  const projectId = String(process.env.BREEZE_FIREBASE_PROJECT_ID || file.firebase?.projectId || '').trim();
-  return (friendsCfg = { apiKey, projectId, configured: !!(apiKey && projectId) });
-}
-// No call to Friends may hang the window.
-const friendsFetch = (url: string, init?: RequestInit) => fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
-
-// The access token Firebase trades for a session: GitHub's own, or a fresh Google one from the saved refresh token.
-async function friendsAccessToken(acct: string): Promise<{ provider: string; token: string } | null> {
-  const user = accountsState().accounts.find(a => accountId(a) === acct);
-  if (!user) return null;
-  if (user.provider === 'GitHub') {
-    const token = await githubToken(acct);
-    return token ? { provider: 'GitHub', token } : null;
-  }
-  const refreshToken = getSecret(`token:${acct}`);
-  if (!refreshToken) return null;
-  try { return { provider: 'Google', token: await syncEngine.googleAccessToken({ ...authConfig().google, refreshToken, fetch: friendsFetch }) }; }
-  catch (err) { throw new friends.FriendsError(err instanceof syncEngine.SyncError ? 'reauth' : 'network'); }
-}
-let friendsSessions: friends.SessionCache | null = null;
-function friendsCache(): friends.SessionCache {
-  return friendsSessions ||= new friends.SessionCache({
-    apiKey: friendsConfig().apiKey,
-    fetch: friendsFetch,
-    getAccessToken: friendsAccessToken,
-    loadRefresh: (acct: string) => getSecret(`firebase:${acct}`),
-    saveRefresh: (acct: string, rt: string | undefined) => { try { setSecret(`firebase:${acct}`, rt); } catch { /* no secure storage: signs in again next run */ } },
-  });
-}
-
-// Runs fn(api, session) as the active account. A stale session (401) is thrown away and tried once more.
-// The profile is written the first time each account gets a session in this run.
-// `expect` is the account a long-lived caller (the presence throttle) was made for: if another account is active by now,
-// nothing is sent, so a late write can never go out as the wrong person.
-// A failure that would come back the same next time (unverified, linked, or reauth after the retry) is held for that
-// account for 5 minutes: calls get it straight back without asking Firebase, and its presence stops. Signing in or
-// changing account clears it (friendsSwitching).
-const friendsProfiled = new Set();
-const friendsHeld = friends.failureHold();
-type FriendsApi = ReturnType<typeof friends.friendsApi>;
-async function friendsRun<T>(fn: (api: FriendsApi, session: friends.Session) => T | Promise<T>, expect?: string): Promise<T> {
-  const cfg = friendsConfig();
-  if (!cfg.configured) throw new friends.FriendsError('not-configured');
-  const user = loadState().user;
-  if (!user || (expect && accountId(user) !== expect)) throw new friends.FriendsError('signed-out');
-  const acct = accountId(user), cache = friendsCache();
-  const held = friendsHeld.check(acct);
-  if (held) throw held;
-  try {
-    return await friends.callWithRetry(async () => {
-      const session = await cache.get(acct);
-      const api = friends.friendsApi({ projectId: cfg.projectId, session, fetch: friendsFetch, me: { name: user.name, avatar: user.avatar } });
-      if (!friendsProfiled.has(acct)) { await api.upsertProfile(); friendsProfiled.add(acct); }
-      return fn(api, session);
-    }, () => cache.drop());
-  } catch (err) {
-    if (friendsHeld.note(acct, err) && friendsThrottleAcct === acct) void friendsStop(); // its "offline" is refused too
-    throw err;
-  }
-}
-// IPC drops an error's code, so Friends failures come back as { error, code } for the renderer to act on.
-function friendsFail(err: unknown) {
-  const reply = friends.friendsReply(err, loadState().user?.provider);
-  if (!reply) throw err;
-  return reply;
-}
-function friendsHandle(channel: string, fn: (api: FriendsApi, ...args: any[]) => unknown): void {
-  handle(channel, async (_e, ...args) => {
-    try { return await friendsRun(api => fn(api, ...args)); } catch (err) { return friendsFail(err); }
-  });
-}
-
-// Presence: one throttle for the active account, made when the renderer first shares.
-let friendsThrottle: ReturnType<typeof friends.presenceThrottle> | null = null, friendsThrottleAcct: string | null = null, friendsStopping: Promise<void> | null = null, friendsSwitchDepth = 0, friendsQuitting = false;
-function friendsStop() {
-  const t = friendsThrottle;
-  friendsThrottle = null; friendsThrottleAcct = null;
-  if (t) {
-    const p = t.stop().finally(() => { if (friendsStopping === p) friendsStopping = null; }); // writes "offline", 1.5 s at most
-    friendsStopping = p;
-  }
-  return friendsStopping || Promise.resolve();
-}
-// The active account is changing: say "offline" as the old one (its session is still cached), forget the session, then
-// run `change` (which saves the new account). Presence is refused until it is done, so nothing starts for the old account
-// in between, and a write that is still late afterwards is refused too (see friendsRun's `expect`).
-async function friendsSwitching<T>(change: () => T | Promise<T>): Promise<T> {
-  friendsSwitchDepth++;
-  try {
-    await friendsStop();
-    friendsSessions?.drop();
-    friendsHeld.clear(); // a new sign-in or another account: worth asking Firebase again
-    return await change();
-  } finally { friendsSwitchDepth--; }
-}
-
-friendsHandle('friends:list', api => api.list());
-friendsHandle('friends:incoming', api => api.incoming()); // just the badge count, for the slow poll while Friends is hidden
-friendsHandle('friends:add', (api, email) => api.sendRequest(email));
-friendsHandle('friends:accept', async (api, id) => { await api.accept(id); return { ok: true }; });
-friendsHandle('friends:decline', async (api, id) => { await api.decline(id); return { ok: true }; });
-friendsHandle('friends:cancel', async (api, id) => { await api.cancel(id); return { ok: true }; });
-friendsHandle('friends:remove', async (api, uid) => { await api.removeFriend(uid); return { ok: true }; });
-
-// Whether Friends is set up and usable, without asking the network when it can't be.
-// `fresh` (the Try again button) forgets a held failure and the cached session, so Firebase is asked again: after the
-// person clicks the verification link, the next sign-in comes back verified.
-handle('friends:status', async (_e, fresh) => {
-  if (fresh === true) { friendsHeld.clear(); friendsSessions?.drop(); }
-  const user = loadState().user;
-  const base = { configured: friendsConfig().configured, signedIn: !!user, email: null, provider: user?.provider || null };
-  if (!base.configured || !user) return base;
-  try { return { ...base, email: await friendsRun((api, session) => session.email) }; } catch (err) { return { ...base, ...friendsFail(err) }; }
-});
-
-// An unverified account (GitHub's emails are never taken on trust): sign in afresh and have Firebase email the person a
-// link that verifies the address. { sent: true, email } once the email is on its way, { verified: true } when the
-// account turns out to be verified already, else { error, code }. The unverified session's token stays in main.
-handle('friends:verify', async () => {
-  const cfg = friendsConfig();
-  if (!cfg.configured) return friendsFail(new friends.FriendsError('not-configured'));
-  const user = loadState().user;
-  if (!user) return friendsFail(new friends.FriendsError('signed-out'));
-  friendsHeld.clear(); friendsSessions?.drop();
-  try {
-    await friendsCache().get(accountId(user));
-    return { verified: true };
-  } catch (err) {
-    if (!(err instanceof friends.FriendsError) || err.code !== 'unverified' || !err.idToken) return friendsFail(err);
-    try {
-      // The email Firebase saw, else the one Breeze read from GitHub at sign-in (GitHub may hide it from Firebase).
-      const email = err.email || friends.normEmail(user.email);
-      if (!email) return friendsFail(new friends.FriendsError('unverified', "This account has no email Friends can use."));
-      await friends.sendVerifyEmail({ apiKey: cfg.apiKey, idToken: err.idToken, email, fetch: friendsFetch });
-      return { sent: true, email };
-    } catch (e) { return friendsFail(e); }
-  }
-});
-
-// p = { state, project, activity } to share (the throttle keeps writes polite), or null to stop sharing.
-handle('friends:presence', async (_e, p) => {
-  if (!p || typeof p !== 'object') { await friendsStop(); return { ok: true }; }
-  if (friendsQuitting || friendsSwitchDepth) return { ok: true }; // quitting, or the account is changing: the renderer re-sends later
-  const user = loadState().user;
-  if (!friendsConfig().configured) return friendsFail(new friends.FriendsError('not-configured'));
-  if (!user) return friendsFail(new friends.FriendsError('signed-out'));
-  const acct = accountId(user);
-  const held = friendsHeld.check(acct);
-  if (held) return friendsFail(held); // a held failure: no throttle, nothing sent
-  if (friendsThrottle && friendsThrottleAcct !== acct) await friendsSwitching(() => {}); // the account changed some other way
-  if (!friendsThrottle) {
-    friendsThrottleAcct = acct;
-    friendsThrottle = friends.presenceThrottle({ write: (q: friends.Presence) => friendsRun(api => api.writePresence(q), acct ?? undefined) });
-  }
-  friendsThrottle.set(p);
-  return { ok: true };
-});
-
-// Electron doesn't wait for promises in before-quit: hold the quit once, write "offline", then quit again.
-// The second pass finds nothing left to stop, so it goes straight through.
-// While quitting, presence is refused so nothing re-arms the hold; a vetoed quit gets sharing back after a few seconds.
-app.on('before-quit', e => {
-  friendsQuitting = true;
-  setTimeout(() => { friendsQuitting = false; }, 5000).unref();
-  if (!friendsThrottle && !friendsStopping) return;
-  e.preventDefault();
-  friendsStop().finally(() => app.quit());
-});

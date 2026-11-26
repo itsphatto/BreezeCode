@@ -77,9 +77,12 @@ type ImageAttachment = AgentAttachment;
 type SurfaceName = WorkMode | `board:${string}`;
 const isBoardSurface = (name: SurfaceName): name is `board:${string}` => name.startsWith('board:');
 const boxKeyOf = (name: SurfaceName): string => name.slice('board:'.length);
+// A board box whose project isn't the one open: its paths belong there, so the editor, the tree and git leave them alone.
+const surfaceAway = (name: SurfaceName): boolean => { const f = SURFACES[name]?.folder; return !!f && (!rootInfo || folderKey(f) !== folderKey(rootInfo.root)); };
 const attachmentsMap: Record<string, AgentAttachment[]> = { ide: [], box: [] };
 
-interface Surface { name: SurfaceName; chat: HTMLElement; prompt: HTMLTextAreaElement; send: HTMLElement; mode: HTMLSelectElement; attachmentsEl: HTMLElement; }
+// `folder`: an Agent board box's own project, which stays its own when another one is opened.
+interface Surface { name: SurfaceName; folder?: string | null; chat: HTMLElement; prompt: HTMLTextAreaElement; send: HTMLElement; mode: HTMLSelectElement; attachmentsEl: HTMLElement; }
 const SURFACES: Record<string, Surface> & Record<WorkMode, Surface> = {
   ide: { name: 'ide', chat: $('#chat'), prompt: $<HTMLTextAreaElement>('#prompt'), send: $('#send'), mode: $<HTMLSelectElement>('#agentMode'), attachmentsEl: $('#promptAttachments') },
   box: { name: 'box', chat: $('#boxChat'), prompt: $<HTMLTextAreaElement>('#boxPrompt'), send: $('#boxSend'), mode: $<HTMLSelectElement>('#boxMode'), attachmentsEl: $('#boxPromptAttachments') },
@@ -581,7 +584,6 @@ function updateTabBusyState(s: Surface, tab?: AgentTabState): void {
   const span = $('span', s.send);
   if (span) swapText(span, on ? 'Stop' : 'Send');
   s.send.title = on ? 'Stop the agent' : 'Send (Enter)';
-  s.prompt.closest('.composer-box')?.classList.toggle('busy', on);
 }
 
 function setBusy(on: boolean): void {
@@ -1123,7 +1125,7 @@ function toolLine(kind: string, label: string, tab?: AgentTabState): void {
 }
 
 // The open chat is kept per project folder (and once for Breeze Space) so a reload brings it back.
-const chatScope = (s: Surface) => (s.name === 'box' ? 'box' : rootInfo?.root ?? '');
+const chatScope = (s: Surface) => (s.name === 'box' ? 'box' : s.folder ?? rootInfo?.root ?? '');
 const chatKey = (s: Surface = msgSurface) => `breeze.chat:${chatScope(s)}`;
 const agentSessionKey = (s: Surface = msgSurface, agent: string | null = appState.agent) => `breeze.agentSession:${chatScope(s)}:${agent ?? ''}`;
 

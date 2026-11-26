@@ -15,9 +15,17 @@
 <body>
   <!-- Launch: a glimpse of light opens into the window with the swirl in the middle, then lifts off the app (init.ts) -->
   <div class="launch" id="launch" aria-hidden="true">
-    <div class="launch-sky"></div>
-    <div class="launch-glint"></div>
-    <img class="launch-logo" src="../../assets/brand/Agent.png" width="150" height="150" alt="" draggable="false">
+    <div class="launch-stage">
+      <div class="launch-sky"></div>
+      <div class="launch-glint"></div>
+      <img class="launch-logo" src="../../assets/brand/Agent.png" width="150" height="150" alt="" draggable="false">
+    </div>
+    <div class="launch-flight">
+      <i class="launch-trail"></i>
+      <i class="launch-trail"></i>
+      <i class="launch-trail"></i>
+      <div class="launch-glint"></div>
+    </div>
   </div>
   <!-- Filters for the liquid on/off switch (breeze.css "liquid switch"). Not display:none, or they stop applying. -->
   <svg class="sprite" width="0" height="0" aria-hidden="true">
@@ -312,15 +320,14 @@
         <span class="spacer"></span>
         <span class="project">Breeze Code</span>
         <span class="spacer"></span>
+        <button class="whatsnew-link" type="button" data-whatsnew hidden>What’s new</button>
         <button class="update-btn" id="homeUpdateBtn" data-update hidden><span>Update</span></button>
-        <div class="mode-switch" role="group" aria-label="Switch between Code and the Agent Board" id="homeSwitch"><button type="button" class="msw-seg" data-act="mode.ide" data-mode="ide" title="Code" aria-label="Code" aria-pressed="false"><svg data-i="codeXml" data-size="15"></svg></button><button type="button" class="msw-seg" data-act="view.board" data-mode="board" title="Agent Board" aria-label="Agent Board" aria-pressed="false"><span class="msw-agent"></span></button></div>
         <button class="avatars" id="homeProfile" aria-haspopup="menu" aria-label="Account"></button>
       </header>
       <div class="home-shell">
         <nav class="activity home-rail" aria-label="Home">
           <button class="act-btn on" data-home-view="session" aria-current="page" title="Home" aria-label="Home"><svg data-i="home" data-size="20"></svg></button>
           <button class="act-btn" data-home-view="agent" title="Agent" aria-label="Agent"><svg data-i="sparkles" data-size="20"></svg></button>
-          <button class="act-btn" data-home-view="friends" title="Friends" aria-label="Friends"><svg data-i="users" data-size="20"></svg><span class="rail-badge hidden" id="friendsBadge" aria-hidden="true"></span></button>
           <span class="flex-1"></span>
           <button class="act-btn" title="Settings" id="homeSettings" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false"><svg
               width="20" height="20">
@@ -418,22 +425,6 @@
               </div>
             </div>
           </div>
-          <!-- Friends: requests by email, and what accepted friends are building (friends.ts). -->
-          <div class="home-view hidden" data-view="friends">
-            <div class="friends">
-              <header class="friends-head">
-                <h2>Friends</h2>
-                <form class="friends-add" id="friendsAdd" autocomplete="off" novalidate>
-                  <input class="input" id="friendsEmail" type="email" placeholder="Add by email" aria-label="Friend's email" spellcheck="false">
-                  <button class="btn btn-primary" type="submit">Add</button>
-                </form>
-              </header>
-              <p class="friends-msg" id="friendsMsg" aria-live="polite"></p>
-              <div class="friends-state hidden" id="friendsState"></div>
-              <section class="friends-requests hidden" id="friendsRequests" aria-label="Requests"></section>
-              <section class="friends-list" id="friendsList" aria-label="Friends"></section>
-            </div>
-          </div>
         </main>
         <small class="home-copyright">© 2026 Breeze Code</small>
       </div>
@@ -451,8 +442,8 @@
       <span class="spacer"></span>
       <span class="project" id="projectName">No folder</span>
       <span class="spacer"></span>
+      <button class="whatsnew-link" type="button" data-whatsnew hidden>What’s new</button>
       <button class="update-btn" id="updateBtn" data-update hidden><span>Update</span></button>
-      <div class="mode-switch" data-on="ide" role="group" aria-label="Switch between Code and the Agent Board"><button type="button" class="msw-seg on" data-act="mode.ide" data-mode="ide" title="Code" aria-label="Code" aria-pressed="true"><svg data-i="codeXml" data-size="15"></svg></button><button type="button" class="msw-seg" data-act="view.board" data-mode="board" title="Agent Board" aria-label="Agent Board" aria-pressed="false"><span class="msw-agent"></span></button></div>
       <div class="layout-btns">
         <button class="icon-btn" id="tglSide" title="Toggle Primary Side Bar (Ctrl+B)"><svg width="16" height="16">
             <use href="#i-left-on" />
@@ -708,8 +699,8 @@
       <button class="icon-btn box-side-show" id="boxSideShow" type="button" title="Show chats" aria-controls="boxSide"><svg width="16" height="16"><use href="#i-left" /></svg></button>
       <button class="logo logo-home" id="boxLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeSpace.png" alt=""></button>
       <span class="spacer"></span>
+      <button class="whatsnew-link" type="button" data-whatsnew hidden>What’s new</button>
       <button class="update-btn" id="boxUpdateBtn" data-update hidden><span>Update</span></button>
-      <div class="mode-switch" data-on="box" role="group" aria-label="Switch between Code and the Agent Board"><button type="button" class="msw-seg" data-act="mode.ide" data-mode="ide" title="Code" aria-label="Code" aria-pressed="false"><svg data-i="codeXml" data-size="15"></svg></button><button type="button" class="msw-seg on" data-act="view.board" data-mode="board" title="Agent Board" aria-label="Agent Board" aria-pressed="true"><span class="msw-agent"></span></button></div>
       <button class="icon-btn box-gear" id="boxSettings" title="Settings" aria-haspopup="dialog"><svg width="18"
           height="18">
           <use href="#i-gear" />
@@ -770,18 +761,16 @@
 
   <!-- ================= DEBUGGER (full page; debugview.ts) ================= -->
   <!-- Shown with swapScreen like Breeze Space; leaving it keeps the session running. -->
-  <!-- Agent board (board.ts): drag agents into boxes; every box runs at once, and blocked edits are relayed -->
+  <!-- Agent board (board.ts): an agent in each box; every box runs at once, and blocked edits are relayed -->
   <div class="board hidden" id="board">
     <header class="titlebar board-bar">
       <button class="icon-btn board-side-show" id="boardSideShow" type="button" title="Show chats" aria-controls="boardSide"><svg width="16" height="16"><use href="#i-left" /></svg></button>
       <button class="logo logo-home" id="boardLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeCode.png" alt=""></button>
-      <div class="board-roster" id="boardRoster" role="list" aria-label="Your agents. Drag one into a box."></div>
       <span class="spacer"></span>
       <!-- The chats side bar (#boardSide) replaced the History button:
       <button class="btn btn-sm board-history" id="boardHistory" type="button" title="Earlier chats in this folder. Pick one to open it in a free box." aria-haspopup="menu"><svg width="13" height="13"><use href="#i-history" /></svg><span>History</span></button> -->
-      <!-- The Code / Agent Board switcher replaced Back to editor:
+      <!-- Removed: the activity bar's views lead back to the editor:
       <button class="btn btn-sm dbg-back" id="boardBack" title="Back to the editor. The boxes keep running."><svg data-i="chevronLeft" data-size="14"></svg><span>Back to editor</span></button> -->
-      <div class="mode-switch" data-on="board" role="group" aria-label="Switch between Code and the Agent Board"><button type="button" class="msw-seg" data-act="mode.ide" data-mode="ide" title="Code" aria-label="Code" aria-pressed="false"><svg data-i="codeXml" data-size="15"></svg></button><button type="button" class="msw-seg on" data-act="view.board" data-mode="board" title="Agent Board" aria-label="Agent Board" aria-pressed="true"><span class="msw-agent"></span></button></div>
     </header>
     <div class="board-main">
       <!-- The IDE's activity bar is copied in here at start-up, with the board lit -->
@@ -797,6 +786,7 @@
         <button class="box-side-row" type="button" data-ext-open="skills" aria-haspopup="dialog"><svg data-i="puzzle" data-size="15"></svg><span>Skills</span></button>
         <button class="box-side-row" type="button" data-ext-open="plugins" aria-haspopup="dialog"><svg data-i="blocks" data-size="15"></svg><span>Plugins</span></button>
         <button class="box-side-row" type="button" data-ext-open="mcp" aria-haspopup="dialog"><svg data-i="plug" data-size="15"></svg><span>MCP</span></button>
+        <button class="box-side-row" id="boardSideBrain" type="button" aria-pressed="false"><svg data-i="brain" data-size="15"></svg><span>Second brain</span></button>
         <div class="box-side-list" id="boardSideList" role="list"></div>
       </aside>
       <div class="board-grid" id="boardGrid" aria-label="Boxes"></div>
@@ -930,6 +920,7 @@
   <script src="breeze/onboarding.js" defer></script>
   <script src="breeze/sync.js" defer></script>
   <script src="breeze/statuscore.js" defer></script>
+  <script src="breeze/tipscore.js" defer></script>
   <script src="breeze/inkcore.js" defer></script>
   <script src="breeze/setup.js" defer></script>
   <script src="breeze/languages.js" defer></script>
@@ -987,8 +978,8 @@
   <script src="breeze/agentmode.js" defer></script>
   <script src="breeze/vibe.js" defer></script>
   <script src="breeze/discord.js" defer></script>
-  <script src="breeze/friends.js" defer></script>
   <script src="breeze/ui.js" defer></script>
+  <script src="breeze/tips.js" defer></script>
   <script src="breeze/whatsnew.js" defer></script>
   <script src="breeze/homedock.js" defer></script>
   <script src="breeze/init.js" defer></script>

@@ -76,6 +76,7 @@ async function swapWorkspace(info: RootInfo): Promise<void> {
   renderTabs(); renderEditor(); renderTree();
   restoreChat(SURFACES.ide);
   renderBoxFolder();
+  if (boardPageShowing() && boardFolder !== info.root) openBoard(); // its boxes are the last folder's
   void refreshLiveShare();
   void holdStartup(refreshGit());
   syncCheckedAt = 0; background(checkCloudNewer());
@@ -194,10 +195,13 @@ function mergeSyntax(diags: Diag[], r: SyntaxResult): Diag[] {
 async function lintBuffer(b: EditorBuffer): Promise<void> {
   if (b.kind !== 'text' || buffers.get(b.path) !== b) return;
   const seq = b.lintSeq = (b.lintSeq ?? 0) + 1;
-  const text = b.text, ext = extOf(b.path);
-  let diags: Diag[] = [];
+  const ext = extOf(b.path);
+  let text = b.text, diags: Diag[] = [];
   if (text.length <= LINT_MAX) {
-    diags = toDiags(text, lintStructure(text, b.path));
+    const got = await engineLint(b, seq);
+    if (seq !== b.lintSeq) return; // a newer check is on its way
+    if (got) ({ text, diags } = got);
+    else { text = b.text; diags = toDiags(text, lintStructure(text, b.path)); }
     if (V8_EXT.has(ext)) {
       const r = await api.lint.check(text, ext).catch(() => null);
       if (seq !== b.lintSeq) return; // a newer check is on its way
@@ -207,6 +211,25 @@ async function lintBuffer(b: EditorBuffer): Promise<void> {
   b.lint = { diags, lines: text.split('\n').length };
   b.runDiags = undefined;
   setDiags(b);
+}
+// The structural checks run by the engine (Rust) for a file it holds, so a big file isn't scanned on the page's
+// thread. Asked once every edit sent so far has reached it, so it checks exactly b.text as of the request; returns that
+// text with its problems. Null (and the page checks the file itself) with no document, no check for the file, a
+// failed request, a text the engine skipped, or a line count that says the engine's copy isn't the page's.
+async function engineLint(b: EditorBuffer, seq: number): Promise<{ text: string; diags: Diag[] } | null> {
+  const kind = lintKind(b.path);
+  if (!kind) return null;
+  for (let q = b.docQ; q && b.doc != null; q = b.docQ) {
+    await q.flush();
+    if (seq !== b.lintSeq) return null;
+    if (b.docQ !== q || !q.idle || b.doc == null) continue; // reopened, or edits pushed during the wait
+    const text = b.text;
+    let r: DocState & { diags: Diag[]; skipped?: true };
+    try { r = await api.doc.lint(b.doc, kind); } catch { return null; }
+    if (r.skipped || r.lines !== lineStartsOf(text).length) return null;
+    return { text, diags: r.diags };
+  }
+  return null;
 }
 // What the editor shows: its own findings plus the language server's, each only while it matches the line count
 // of the text on screen. The editor's own messages win on shared lines (they're written for beginners).
@@ -245,7 +268,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
     docSync(b, before, b.text, ta.lastEdits); // undo and redo come through here too (stepHistory dispatches 'input')
     if (wasDirty !== isDirty(b)) { renderTabs(); renderTree(); }
     if (b.path === splitPath) renderSplit();
-    if (findOpen) runFind(false);
+    if (findOpen) void runFind(false);
     queueRender(); saveSession(); scheduleLint(b); lspChanged(b); autoSaveSoon();
     // Suggest words while typing one; any other edit closes the list.
     if (b.lastEdit?.kind === 'type' && Date.now() - b.lastEdit.at < 100) editorSuggest(b); else hideSuggest();

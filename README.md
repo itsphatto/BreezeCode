@@ -13,7 +13,7 @@ and you see every file it reads, every edit and every command while it works.
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.8.1-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.8.2-007AFF?style=for-the-badge)
 ![Windows](https://img.shields.io/badge/Windows_10_%26_11-x64-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1d1d1f?style=for-the-badge&logo=apple&logoColor=f5f5f7)
 ![Linux](https://img.shields.io/badge/Linux-x64-1d1d1f?style=for-the-badge&logo=linux&logoColor=f5f5f7)
@@ -97,7 +97,7 @@ flowchart LR
 
 Run agents side by side. Open the board with `Ctrl+Shift+B`, the board button in the activity bar, or the **Code / Agent Board** switch in the title bar.
 
-- **Boxes.** Drag agents into boxes. Each box has its own agent, model, effort and prompt, and the boxes run at the same time. Resize the tiles, or give a box a live file pane with its **Code** switch to watch what it writes.
+- **Boxes.** Click the empty box to pick an agent, or drag a chat in from the side bar. Each box has its own agent, model, effort and prompt, and the boxes run at the same time. Resize the tiles, or give a box a live file pane with its **Code** switch to watch what it writes.
 - **File ownership.** A file belongs to the first box that edits it. If another box edits it, Breeze puts the file back and relays the change to the owner. The owner's answer goes back to the asker.
 - **Relay limits.** After three relays between the same two boxes Breeze pauses the loop. The **Auto-relay** switch turns relaying off.
 - **Chats in the side bar.** The board's side bar lists your Breeze chats and your earlier Claude Code and Codex chats (read from their own logs). Any of them can be carried on in a box, and **History** reopens older ones.
@@ -176,7 +176,7 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/settings-agents.jpg" alt="Settings, Agents page, with the installed agents, the Full access switch, Claude's 5-hour and weekly limits, and a tokens per day chart"></td>
+<td width="50%"><img src="docs/screenshots/settings-agents.jpg" alt="Settings, Agents page, with the installed agents, Claude's 5-hour and weekly limits, and a tokens per day chart"></td>
 <td width="50%"><img src="docs/screenshots/appearance.jpg" alt="Settings, Appearance page, with theme cards, the Glass switch, syntax colour presets and custom colours"></td>
 </tr>
 <tr>
@@ -195,7 +195,6 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 | --- | --- |
 | **Home** | New file, open folder or clone a repository, your recent projects and your GitHub contributions |
 | **First launch** | Looks for coding agents, Git, Node.js and your compilers, and lets you pick a theme and an agent |
-| **Friends** | Add friends by email and see who's online and what they're working on. You can hide your project name or stop sharing |
 | **Terminal** | A built-in terminal. Pop it out into its own window (with a system info banner) and the same sessions keep running. Glass and your background picture reach it too |
 | **Skills, Plugins and MCP** | A pop-up from the chats side bars: browse the skills and plugins your agents load, share skills between agents, and connect MCP servers for Claude Code without editing its config |
 | **Workspace sync** | Move workspaces between computers signed in to the same account, stored in a private GitHub repo or Google Drive's hidden app folder |
@@ -203,7 +202,8 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 | **Local models** | Requests stay small (a project map, ranged file reads and snippet edits) so they fit a small context window |
 | **Accounts** | Sign in with GitHub or Google, with more than one account |
 | **Vibe Code Mode** | Dims the editor and plays an Instagram or Facebook feed while an agent works, then a card tells you when the code is ready. Works in Breeze Space too |
-| **What's new** | After an update, the first launch shows that release's notes once |
+| **Tips** | The first time you open each screen, a blue tip points at where to start |
+| **What's new** | After an update, a blue **What's new** in the title bar opens that release's notes |
 | **Reopens where you left off** | Breeze starts in the view you last used |
 | **Discord** | Rich Presence shows what you're working on |
 | **Sounds** | Small sounds for clicks, typing and agents, with a volume slider |
@@ -341,7 +341,7 @@ flowchart TB
 | `src/main/officefile.ts` | Word, Excel, PowerPoint and PDF files as editable text |
 | `src/main/power.ts` | The power saver |
 | `src/main/skills.ts`, `mcp.ts` | Skills, plugins and MCP servers |
-| `src/main/sync.ts`, `friends.ts` | Workspace sync and Friends |
+| `src/main/sync.ts` | Workspace sync |
 | `src/main/previewServer.ts`, `previewInspector.ts` | The live preview and its element inspector |
 | `src/main/pricing.ts` | API-price estimates for Home's Agent tab |
 | `src/main/discord.ts` | Discord Rich Presence |

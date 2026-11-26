@@ -1,6 +1,6 @@
 /* ================= Settings ================= */
 // One pop-up for everything: the gear opens it (in the IDE and in Breeze Space) and turns while it is open.
-type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'friends' | 'help' | 'dev';
+type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
 // The controller Discord puts beside a game's elapsed time (Lucide's gamepad-2), for the Discord tab's preview.
 // The same language art main.js hands Discord, so the preview shows what friends see.
 const DC_ICON_URL = 'https://raw.githubusercontent.com/leonardssh/vscord/main/assets/icons/';
@@ -11,7 +11,6 @@ const SETTINGS_TABS: [SettingsTab, string, string][] = [
   ['controls', 'Controls', 'keyboard'],
   ['agents', 'Agents', 'terminal'],
   ['discord', 'Discord', 'discord'],
-  ['friends', 'Friends', 'users'],
   ['help', 'Help & About', 'info'],
   ['misc', 'Miscellaneous', 'more'],
   ['dev', 'Developer', 'code'],
@@ -41,7 +40,7 @@ const webSearchRowHtml = () => (braveKeySaved
   : settingRow('Web search', 'Add a Brave Search API key so local agents can search the web. <button class="link-btn" id="sBraveGet">Get a key</button>',
     '<div class="set-code"><input class="input" id="sBraveKey" type="password" aria-label="Brave Search API key" placeholder="API key" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sBraveSave" disabled>Save</button></div>'));
 let settingsTab: SettingsTab = 'general';
-let agentFullAccess = true; // on unless turned off in Settings → Agents; the main process keeps the real value; read each time Settings opens
+let agentFullAccess = true; // on unless turned off from a composer; the main process keeps the real value; read again each time Settings opens
 let justSwitched = false;
 const settingsRoot = () => document.querySelector<HTMLElement>('#modalRoot .scrim:not(.closing) .settings-modal');
 // The on/off switch (styles under "on/off switch" in breeze.css): a rounded track and a square knob that stretches as it slides.
@@ -1046,12 +1045,17 @@ function settingsBody(tab: SettingsTab): string {
       <div class="kb-list" id="kbList">${keyBindListHtml('')}</div>`;
     case 'agents': {
       const agents =[...appState.detect?.agents ?? []].sort((a, b) => agentRank(a) - agentRank(b));
+      // One row per agent, like the model menu: its logo, its name, the model it runs, and a check on the default.
       const list = agents.length
-        ? agents.map(a => a.found
-          ? `<button class="set-agent ${a.id === appState.agent ? 'on' : ''}" data-agent-pick="${a.id}" title="${escAttr(a.name)}">${brandMark('set-agent-mark', a.id, a.name[0])}<span class="nm">${esc(a.name)}</span></button>`
-          // Not installed: the card stays, dimmed, with an Install button that runs the install command in a terminal.
-          : `<div class="set-agent missing" title="${escAttr(a.name)} is not installed">${brandMark('set-agent-mark', a.id, a.name[0])}<span class="nm">${esc(a.name)}</span>
-              <button class="btn btn-sm btn-primary set-agent-install" data-agent-install="${a.id}">Install</button></div>`).join('')
+        ? agents.map(a => {
+          const face = `${modelMark(a, a.id)}<span class="nm">${esc(a.name)}</span>`;
+          const model = a.version && a.version !== 'default' ? versionLabel(a.version) : '';
+          const on = a.id === appState.agent;
+          return a.found
+            ? `<button class="set-agent" data-agent-pick="${a.id}" aria-pressed="${on}" title="${escAttr(a.name)}">${face}<span class="set-agent-model">${esc(model)}</span><span class="set-agent-check">${on ? svgIcon('check', 14) : ''}</span></button>`
+            // Not installed: the row stays, dimmed, with an Install button that runs the install command in a terminal.
+            : `<div class="set-agent missing" title="${escAttr(a.name)} is not installed">${face}<button class="btn btn-sm btn-primary set-agent-install" data-agent-install="${a.id}">Install</button></div>`;
+        }).join('')
         : '<p class="set-sub">No agents found yet. Install one and it shows up here.</p>';
       return `<h4>Agents</h4>
         <div class="set-agents">${list}</div>
@@ -1059,8 +1063,6 @@ function settingsBody(tab: SettingsTab): string {
         <h5>API keys</h5>
         ${apiKeyRowsHtml(agents)}
         ${webSearchRowHtml()}
-        <h5>Permissions</h5>
-        ${settingRow('Full access', fullAccessSub(), switchHtml('sFullAccess', agentFullAccess, 'Full access'))}
         <h5>Agent Board</h5>
         ${settingRow('Code', 'Each box shows the file its agent is editing, at the box\'s left.', switchHtml('sBoardCode', boardCodeOn, 'Show code in board boxes'))}
         ${settingRow('Auto-relay', 'A request one agent makes of another is sent on its own. Off, each waits for Send.', switchHtml('sAutoRelay', relayQueue.auto, 'Auto-relay'))}
@@ -1071,6 +1073,8 @@ function settingsBody(tab: SettingsTab): string {
       ${settingRow('Vibe Code Mode', 'Play your feed while agents work.', switchHtml('sVibe', appState.vibeArmed, 'Vibe Code Mode'))}
       <h5>Feed</h5>
       <div class="social-grid ${appState.vibeArmed ? '' : 'off'}" id="sFeeds"${appState.vibeArmed ? '' : ' inert'}></div>
+      <h5>Tips</h5>
+      ${settingRow('Show tips again', 'The blue tips come back the next time you open each screen.', '<button class="btn btn-sm" id="sTipsReset">Show again</button>')}
       <h5>Super Error Alert</h5>
       ${settingRow('Super Error Alert', 'When a file you run or compile fails, the window’s corners flash red and a siren sounds for 3 seconds.', switchHtml('sErrAlert', appState.superErrorAlert, 'Super Error Alert'))}
       <h5>Code</h5>
@@ -1096,15 +1100,6 @@ function settingsBody(tab: SettingsTab): string {
           </div>
         </div>
         <p class="set-sub">The Discord app must be running on this computer.</p></div>`;
-    }
-    case 'friends': {
-      // With sharing off, the project switch goes grey and can't be used, like Discord's.
-      const off = appState.friendsShare ? '' : 'off';
-      return `<h4>Friends</h4>
-        ${settingRow('Share my activity with friends', 'Friends see whether you are online and what you are doing: coding, building with an agent, debugging or in Breeze Space. Never your files, code or prompts.', switchHtml('sFriendsShare', appState.friendsShare, 'Share my activity with friends'))}
-        <div class="set-dim ${off}"${off ? ' inert' : ''}>
-        ${settingRow('Show my project name', 'The open folder’s name. Names can include client or employer names.', switchHtml('sFriendsProject', appState.friendsProject, 'Show my project name'))}</div>
-        ${friendsConfigured === false ? `<p class="set-sub">${esc(FRIENDS_COPY['not-configured'])}</p>` : ''}`;
     }
     case 'help': {
       const engine = /Electron\/[\d.]+|Chrome\/[\d.]+/.exec(navigator.userAgent)?.[0] ?? '';
@@ -1204,7 +1199,7 @@ document.addEventListener('pointerdown', e => {
 // The side tab, top to bottom: who you are, a search box, then the sections in groups.
 const SETTINGS_GROUPS: [string, SettingsTab[]][] = [
   ['', ['general', 'appearance', 'controls', 'agents']],
-  ['Apps', ['discord', 'friends', 'misc']],
+  ['Apps', ['discord', 'misc']],
   ['Support', ['help', 'dev']],
 ];
 let settingsQuery = '';
@@ -1225,7 +1220,7 @@ const SETTINGS_SYNONYMS: Record<string, string> = {
   shortcut: 'keybinds', shortcuts: 'keybinds', hotkey: 'keybinds', hotkeys: 'keybinds', keyboard: 'keybinds', keys: 'keybinds',
   zoom: 'font size', bigger: 'font size', smaller: 'font size', text: 'font size',
   typeface: 'font', fonts: 'font', monospace: 'code font', ligatures: 'code font', ui: 'interface font',
-  ai: 'agents', model: 'agents', models: 'agents', llm: 'agents', permission: 'full access', permissions: 'full access', sandbox: 'full access',
+  ai: 'agents', model: 'agents', models: 'agents', llm: 'agents', tips: 'show tips again', tutorial: 'show tips again',
   autosave: 'auto save', login: 'sign account', logout: 'sign out', profile: 'account', presence: 'discord rich',
   version: 'about', compiler: 'tools', compilers: 'tools', lsp: 'language servers', sidebar: 'side bar', highlight: 'syntax',
 };
@@ -1424,12 +1419,12 @@ function bindSettings(m: HTMLElement): void {
   // Coming back eases in more slowly than greying out.
   const DIMMABLE = '.set-dim, .social-grid';
   const was = pane.dataset.tab === settingsTab ? $$<HTMLElement>(DIMMABLE, pane).map(el => ({ opacity: getComputedStyle(el).opacity, filter: getComputedStyle(el).filter })) : [];
-  // Each row's title and description, by its control's id (else its title), so text a redraw changes blurs in: Full
-  // access's On/Off, or the opacity knob's row turning from Picture to Glass.
+  // Each row's title and description, by its control's id (else its title), so text a redraw changes blurs in, like
+  // the opacity knob's row turning from Picture to Glass.
   const rowKey = (r: HTMLElement) => r.querySelector('.set-ctl [id]')?.id || (r.querySelector('.set-title')?.textContent ?? '');
   const rowText = () => new Map($$<HTMLElement>('.set-row', pane).map(r => [rowKey(r), [r.querySelector<HTMLElement>('.set-title'), r.querySelector<HTMLElement>('.set-sub')]]));
   const wasText = pane.dataset.tab === settingsTab ? new Map(Array.from(rowText(), ([k, els]) => [k, els.map(el => el?.textContent ?? '')])) : null;
-  // The usage bars keep their place through a redraw of the same section (Full access flipped): rebuilt, they filled again.
+  // The usage bars keep their place through a redraw of the same section (another agent picked): rebuilt, they filled again.
   const keptUsage = pane.dataset.tab === settingsTab ? pane.querySelector('#sUsage') : null;
   // How far the rows' entrance has got, if a redraw of the same section lands mid-way (accounts answer ~70ms after
   // Settings opens): the new rows carry on from there instead of all popping in at once.
@@ -1482,7 +1477,7 @@ function bindSettings(m: HTMLElement): void {
     $$('[data-switch-acct]', pane).forEach(b => b.animate([{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 450, delay: 120, easing: SPRING, fill: 'backwards' }));
   }
   // A rebuilt switch starts where the old knob was (mid-drag or mid-slide too) and slides on with its own CSS
-  // transition, so it moves exactly as fast as a switch that was never rebuilt (the composer's Full access).
+  // transition, so it moves exactly as fast as a switch that was never rebuilt.
   pane.querySelectorAll<HTMLElement>('.switch').forEach(s => {
     const was = Number.parseFloat(prevSwitch.get(s.id) ?? '');
     const to = s.classList.contains('on') ? 100 : 0;
@@ -1576,13 +1571,11 @@ function bindSettings(m: HTMLElement): void {
   $$('[data-agent-pick]', pane).forEach(b => b.onclick = () => {
     const ag = appState.detect?.agents.find(a => a.id === b.dataset.agentPick);
     if (!ag?.found) return;
-    const from = pane.querySelector('.set-agent.on')?.getBoundingClientRect();
     appState.agent = ag.id;
     const curTab = surfaceTabs['ide']?.find(t => t.id === activeTabId['ide']);
     if (curTab) curTab.agentId = ag.id;
     saveApp(); renderAgentBar(); updateScmGenBtn();
     refreshSettings();
-    slideSelected(pane.querySelector<HTMLElement>(`[data-agent-pick="${CSS.escape(ag.id)}"]`), from);
   });
   if ($('#sEffort', pane)) seg('sEffort', v => { setEffort(v as EffortLevel); renderAgentBar(); refreshSettings(); });
   $$('[data-agent-install]', pane).forEach(b => b.onclick = async () => {
@@ -1602,7 +1595,6 @@ function bindSettings(m: HTMLElement): void {
     b.disabled = true;
     background(removeApiAgent(b.dataset.llmRemove ?? '').finally(refreshSettings));
   });
-  on('sFullAccess', () => setFullAccess(!agentFullAccess));
   const braveKey = $<HTMLInputElement>('#sBraveKey', pane), braveSave = $<HTMLButtonElement>('#sBraveSave', pane);
   if (braveKey && braveSave) {
     const save = async () => {
@@ -1626,7 +1618,7 @@ function bindSettings(m: HTMLElement): void {
   on('sBoardCode', el => { setBoardCode(!boardCodeOn); flip(el, boardCodeOn); });
   on('sAutoRelay', el => { setAutoRelay(!relayQueue.auto); flip(el, relayQueue.auto); });
   const usageEl = pane.querySelector<HTMLElement>('#sUsage');
-  // A kept list (a redraw of this section, Full access flipped) is left exactly as it is, timer and all: no fetch, so
+  // A kept list (a redraw of this section) is left exactly as it is, timer and all: no fetch, so
   // nothing in it moves because of the redraw.
   if (usageEl && !keptUsage) {
     fillUsageBars(usageEl);
@@ -1647,6 +1639,7 @@ function bindSettings(m: HTMLElement): void {
   // Vibe
   // Turns on without a feed (it plays nothing until one is connected): the feeds are locked while it's off.
   on('sVibe', () => setVibeArmed(!appState.vibeArmed));
+  on('sTipsReset', () => { resetTips(); toast('Tips will show again'); });
   // Super Error Alert: flipped in place; turning it on plays the alert once so you know what you signed up for.
   on('sErrAlert', el => {
     appState.superErrorAlert = !appState.superErrorAlert;
@@ -1675,9 +1668,6 @@ function bindSettings(m: HTMLElement): void {
   }
   on('sClassicSwitch', () => { setClassicSwitch(!classicSwitch); refreshSettings(); });
   on('sDevOff', () => { appState.devMode = false; saveApp(); applyDevMode(); settingsTab = 'misc'; refreshSettings(); });
-  // Friends
-  on('sFriendsShare', () => { appState.friendsShare = !appState.friendsShare; saveApp(); queueFriendsPresence(); refreshSettings(); });
-  on('sFriendsProject', () => { appState.friendsProject = !appState.friendsProject; saveApp(); queueFriendsPresence(); refreshSettings(); });
   // Discord
   on('sDiscord', el => {
     if (appState.discord) { discordOff(); return; }
@@ -1793,22 +1783,14 @@ function powerNote(): string {
 // Unplugging (or plugging in) with Settings open updates the row.
 document.addEventListener('powerchange', refreshSettings);
 
-const FULL_ACCESS_ON = 'On: in build mode agents run any command, reach any file on this computer (.env and .git too) and skip every check.';
-const FULL_ACCESS_OFF = 'Off: agents stay in the project, keep out of .env and .git, and Codex runs sandboxed.';
-const fullAccessSub = () => (agentFullAccess ? `<span class="set-warn">${FULL_ACCESS_ON}</span>` : FULL_ACCESS_OFF);
-// The switch beside each Send button is the same setting as Settings → Agents → Full access. Settings' row is updated
-// in place, not by redrawing the pane, so the switch slides with its own transition and nothing around it is rebuilt.
+// The Full access switch in Breeze Space's agent menu is the same setting as each composer's access chip. It is updated
+// in place, so it slides with its own transition and nothing around it is rebuilt.
 function renderAccessSwitches(): void {
-  $$<HTMLButtonElement>('[data-full-access], #sFullAccess').forEach(b => {
+  $$<HTMLButtonElement>('[data-full-access]').forEach(b => {
     b.classList.toggle('on', agentFullAccess);
     b.setAttribute('aria-checked', String(agentFullAccess));
     b.closest('.composer-access')?.classList.toggle('on', agentFullAccess);
   });
-  const sub = document.querySelector('#sFullAccess')?.closest('.set-row')?.querySelector<HTMLElement>('.set-sub');
-  if (sub && sub.textContent !== (agentFullAccess ? FULL_ACCESS_ON : FULL_ACCESS_OFF)) {
-    sub.innerHTML = fullAccessSub();
-    sub.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
-  }
 }
 // The switch flips at once instead of after main answers; main's answer only corrects it, and a failure flips it back.
 function setFullAccess(on: boolean): void {

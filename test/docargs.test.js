@@ -8,6 +8,7 @@ test('docLine', () => { assert.equal(a.docLine(0), 0); for (const v of [-1, 0.5,
 test('docCount', () => { assert.equal(a.docCount(5000), 5000); bad(() => a.docCount(5001)); bad(() => a.docCount(-1)); });
 test('docText', () => { assert.equal(a.docText(''), ''); bad(() => a.docText(5)); bad(() => a.docText({ length: 1 })); });
 test('docQuery', () => { assert.equal(a.docQuery('x'), 'x'); for (const v of ['', 'a\nb', 'a\rb', 'x'.repeat(1001), 7]) bad(() => a.docQuery(v)); });
+test('docHitLimit', () => { assert.equal(a.docHitLimit(1), 1); assert.equal(a.docHitLimit(20000), 20000); for (const v of [0, 20001, 1.5, '5', null]) bad(() => a.docHitLimit(v)); });
 test('docKind', () => { for (const k of ['type', 'delete', 'paste', 'other']) assert.equal(a.docKind(k), k); bad(() => a.docKind('eval')); });
 test('boundaries', () => {
   assert.equal(a.docText('x'.repeat(52428800)).length, 52428800);

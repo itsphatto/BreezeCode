@@ -369,7 +369,7 @@ async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, u
     const chat = tab.historyId ??= newChatId();
     // An Agent board box runs through the board, which keeps its files apart from the other boxes'.
     const id = isBoardSurface(tab.surfaceName)
-      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, chat, ...boardPickOf(boxKeyOf(tab.surfaceName)) })
+      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, chat, root: SURFACES[tab.surfaceName].folder ?? undefined, ...boardPickOf(boxKeyOf(tab.surfaceName)) })
       : await api.agent.run({ agent: agentId, mode, prompt, session, box, chat });
     const run: Run = {
       id,
@@ -416,6 +416,7 @@ function errorCard(text: string, hint?: string, tab?: AgentTabState): void {
 
 function onAgentFile(r: Run, path: string, created = false, written = false): void {
   r.files.add(path);
+  if (surfaceAway(r.surfaceName)) return;
   locks[path] = { phase: r.phase, agent: r.agent };
   renderTree(); renderTabs();
   queueGitRefresh();
@@ -466,6 +467,7 @@ async function openAgentFile(path: string, created = false, written = false): Pr
 }
 // The agent's text for a file it is creating, as it writes it.
 function onAgentDraft(r: Run, path: string, text: string): void {
+  if (surfaceAway(r.surfaceName)) return;
   if (r.surfaceName === 'box') { liveDraft(path, text, r.phase); return; }
   if (isBoardSurface(r.surfaceName)) boardLiveDraft(boxKeyOf(r.surfaceName), path, text, r.phase);
   if (!typeAgentDraft(path, text)) return;
@@ -473,6 +475,7 @@ function onAgentDraft(r: Run, path: string, text: string): void {
 }
 // Draft tabs whose file never got written (the run stopped, or the write was refused) close again.
 function dropUnwrittenDrafts(r: Run): void {
+  if (surfaceAway(r.surfaceName)) return; // its drafts closed with its project's tabs
   let dropped = false;
   for (const path of r.drafts ?? []) {
     const b = buffers.get(path);
@@ -1053,7 +1056,8 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
 
   for (const k of Object.keys(locks)) delete locks[k];
   renderTree(); renderTabs();
-  lastRunFiles = [...r.files];
+  const away = surfaceAway(r.surfaceName);
+  if (!away) lastRunFiles = [...r.files];
   queueGitRefresh();
 
   const allDone = !hasAnyActiveRun();
@@ -1083,11 +1087,11 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   if (r.files.size) {
     const files = [...r.files];
     const edits = addMsg(editsHtml(files, r.commands ?? 0), tab);
-    background(fillEditCounts(edits, files, tab));
+    if (!away) background(fillEditCounts(edits, files, tab));
   }
   addMsg(`<div class="run-done">${svgIcon('check', 14)}<span>${bits.length ? bits.join(' · ') : 'Done'}</span></div>`, tab);
   followUpCard(r, tab);
   if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
-  if (r.files.size && idePreview.running) autoReloadPreview();
+  if (r.files.size && !away && idePreview.running) autoReloadPreview();
 }
 

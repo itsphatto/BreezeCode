@@ -28,7 +28,7 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   const id = tab.historyId;
   const old = chatHistory(s);
   // A chat stays under the folder it began in, even if another folder is open by now.
-  const folder = old.find(e => e.id === id)?.folder ?? rootInfo?.root ?? null;
+  const folder = old.find(e => e.id === id)?.folder ?? s.folder ?? rootInfo?.root ?? null;
   const entry: ChatEntry = { id, title, at: Date.now(), html, agent, session: tab.sessions[tab.agentId] ?? null, sessions: { ...tab.sessions }, folder };
   let bytes = 0;
   const list = [entry, ...old.filter(e => e.id !== id)].filter(e => (bytes += e.html.length) < HISTORY_BYTES).slice(0, HISTORY_MAX);
@@ -200,25 +200,11 @@ function pruneBoxTabs(): void {
 // A folder path written one way, whichever slashes and case it came with, so two spellings of one folder match.
 const folderKey = (p: string) => p.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
 const chatInOpenFolder = (e: ChatEntry) => !e.folder || (!!rootInfo && folderKey(e.folder) === folderKey(rootInfo.root));
-// `working`: Agent Board boxes still running here, which stop with the folder, so that is asked first.
-// True once the chat's project is the open one; false when the switch was cancelled or failed.
-async function openChatFolder(e: ChatEntry, working = 0): Promise<boolean> {
-  const name = folderName(e.folder);
-  if (!(await confirmStopBoxes(working, `Open ${name}?`, `This chat belongs to ${name}.`, `Open ${name}`))) return false;
+// True once the chat's project is the open one; false when the switch was cancelled or failed. Agent Board boxes
+// working in the last one carry on (board.ts parkedBoxes).
+async function openChatFolder(e: ChatEntry): Promise<boolean> {
   await openRecentFolder(e.folder as string);
   return chatInOpenFolder(e);
-}
-// Asked before Agent Board boxes still working are closed (their runs stop); true at once when none are.
-function confirmStopBoxes(working: number, title: string, lead: string, go: string): Promise<boolean> {
-  if (!working) return Promise.resolve(true);
-  return new Promise<boolean>(res => {
-    const finish = settleOnce(res);
-    openModal(`<h3>${esc(title)}</h3>
-      <p class="sub">${esc(lead)} ${working} ${working === 1 ? 'box is' : 'boxes are'} still working and will stop.</p>
-      <div class="row end"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="stopBoxesGo">${esc(go)}</button></div>`, m => {
-      $('#stopBoxesGo', m).onclick = () => { modalOnClose = null; closeModal(); finish(true); };
-    }, () => finish(false));
-  });
 }
 
 function openBoxChat(e: ChatEntry): void {

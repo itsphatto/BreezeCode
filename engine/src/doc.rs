@@ -317,7 +317,7 @@ fn has_crlf(rope: &Rope) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::search::{Hit, COUNT_CAP, TEXT_CAP_BYTES, TEXT_CAP_MSG};
+    use crate::search::{Hit, COUNT_CAP, FIND_ALL_CAP, TEXT_CAP_BYTES, TEXT_CAP_MSG};
     use crate::testutil::TempDir;
 
     fn doc(s: &str) -> Doc { Doc::from_bytes(s.as_bytes().to_vec()) }
@@ -386,7 +386,32 @@ mod tests {
     }
     #[test] fn forward_from_caret_and_wrap() { let d = doc("foo\nbar foo"); assert_eq!(d.find("foo", true, p(0,1), false), Some(Hit { line: 1, col: 4, len: 3 })); assert_eq!(d.find("foo", true, p(1,5), false), Some(Hit { line: 0, col: 0, len: 3 })); }
     #[test] fn backward_and_wrap() { let d = doc("foo\nbar foo"); assert_eq!(d.find("foo", true, p(1,4), true), Some(Hit { line: 0, col: 0, len: 3 })); assert_eq!(d.find("foo", true, p(0,0), true), Some(Hit { line: 1, col: 4, len: 3 })); }
-    #[test] fn case_folding_is_ascii() { let d = doc("Foo É"); assert!(d.find("foo", false, p(0,0), false).is_some()); assert!(d.find("foo", true, p(0,0), false).is_none()); assert!(d.find("é", false, p(0,0), false).is_none()); }
+    #[test] fn case_folding() {
+        let d = doc("Foo É");
+        assert!(d.find("foo", false, p(0,0), false).is_some()); assert!(d.find("foo", true, p(0,0), false).is_none());
+        assert_eq!(d.find("é", false, p(0,0), false), Some(Hit { line: 0, col: 4, len: 1 }));   // a non-ASCII needle folds every char
+        assert!(d.find("é", true, p(0,0), false).is_none());
+    }
+    #[test] fn unicode_folding_counts_and_wraps() {
+        let d = doc("ÉCOLE école\nÉcole 😀Ü");
+        assert_eq!(d.count("école", false), (3, false));
+        assert_eq!(d.find("école", false, p(0,1), false), Some(Hit { line: 0, col: 6, len: 5 }));
+        assert_eq!(d.find("école", false, p(1,1), false), Some(Hit { line: 0, col: 0, len: 5 }));   // wraps round
+        assert_eq!(d.find("école", false, p(0,0), true), Some(Hit { line: 1, col: 0, len: 5 }));    // backward wraps too
+        assert_eq!(d.find("😀ü", false, p(0,0), false), Some(Hit { line: 1, col: 6, len: 3 }));
+        assert_eq!(doc("ééé").count("éé", false), (1, false));   // no overlap
+        assert_eq!(doc("İx").count("İx", false), (1, false));   // lowers to two chars: compared as itself
+    }
+    #[test] fn find_all_lists_hits_in_order_and_caps() {
+        let d = doc("ab\nxAB ab\r\nab");
+        assert_eq!(d.find_all("ab", false, 100), (vec![p(0,0), p(1,1), p(1,4), p(2,0)], false));
+        assert_eq!(d.find_all("ab", true, 100), (vec![p(0,0), p(1,4), p(2,0)], false));
+        assert_eq!(d.find_all("ab", false, 2), (vec![p(0,0), p(1,1)], true));
+        assert_eq!(d.find_all("ab", false, 4), (vec![p(0,0), p(1,1), p(1,4), p(2,0)], false));   // exactly the limit is not capped
+        assert_eq!(d.find_all("", false, 9), (vec![], false));
+        assert_eq!(doc(&"a".repeat(30_000)).find_all("a", true, usize::MAX).0.len(), FIND_ALL_CAP);
+        assert_eq!(doc("😀a😀a").find_all("😀A", false, 9).0, vec![p(0,0), p(0,3)]);   // columns in UTF-16 units
+    }
     #[test] fn col_and_len_are_utf16() { let d = doc("😀😀x"); assert_eq!(d.find("😀x", true, p(0,0), false), Some(Hit { line: 0, col: 2, len: 3 })); }
     #[test] fn hit_across_chunk_edges() {   // ropey chunks are about 1 KB: a needle placed every 997 bytes crosses many edges
         let mut s = String::new(); for _ in 0..200 { s.push_str(&"a".repeat(990)); s.push_str("NEEDLE!"); }
@@ -447,6 +472,29 @@ mod tests {
                     scan(&rope, nb, match_case, from, to, &mut |b| { got.push(b); true });
                     assert_eq!(got, want, "needle {needle} case {match_case} range {from}..{to}");
                 }
+            }
+        }
+    }
+    #[test] fn folded_scan_matches_a_naive_search_on_random_text() {
+        use crate::search::scan;
+        let mut seed = 777u64;
+        let mut next = move || { seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (seed >> 33) as usize };
+        let fold = |c: char| { let mut l = c.to_lowercase(); match (l.next(), l.next()) { (Some(x), None) => x, _ => c } };
+        for _ in 0..30 {
+            let text: String = (0..3000).map(|_| ['a', 'É', 'é', 'b', '😀', '\n'][next() % 6]).collect();
+            let rope = ropey::Rope::from_str(&text);
+            let chars: Vec<(usize, char)> = text.char_indices().collect();
+            for needle in ["é", "éa", "ÉÉ", "a😀é", "b\né"] {
+                let want_c: Vec<char> = needle.chars().map(fold).collect();
+                let (a, b) = (next() % (text.len() + 1), next() % (text.len() + 1));
+                let (from, to) = (rope.char_to_byte(rope.byte_to_char(a.min(b))), rope.char_to_byte(rope.byte_to_char(a.max(b))));
+                let mut want = Vec::new(); let mut i = chars.iter().position(|&(o, _)| o >= from).unwrap_or(chars.len());
+                while i + want_c.len() <= chars.len() && chars[i].0 < to {
+                    if chars[i..i + want_c.len()].iter().zip(&want_c).all(|(&(_, c), w)| fold(c) == *w) { want.push(chars[i].0); i += want_c.len(); } else { i += 1; }
+                }
+                let mut got = Vec::new();
+                scan(&rope, needle.as_bytes(), false, from, to, &mut |b| { got.push(b); true });
+                assert_eq!(got, want, "needle {needle} range {from}..{to}");
             }
         }
     }

@@ -125,18 +125,6 @@ interface CloudWorkspace { id: string; name: string; rev: number; device: string
 interface SyncStatus { remote: CloudWorkspace | null; newer: boolean; workspaces: CloudWorkspace[]; linked: boolean; device: string; }
 interface SyncSummary { id: string; rev: number; uploaded: number; downloaded: number; removed: number; conflicts: string[]; backedUp: string[]; skipped: number; }
 interface SharedSettings { updatedAt: string; values: Record<string, unknown>; }
-// Friends (main.js + friends.js). A failure comes back as { error, code } instead of throwing, like sync.
-type FriendState = 'online' | 'away' | 'offline';
-type FriendActivity = 'editing' | 'agent' | 'debug' | 'space' | 'idle';
-interface FriendsFail { error: string; code: string | null; }
-interface FriendsStatus { configured: boolean; signedIn: boolean; email: string | null; provider: string | null; error?: string; code?: string | null; }
-// state is already 'offline' when the presence is stale (main judges it by Firestore's readTime); updatedAt is ms.
-interface Friend { uid: string; email: string; name: string; avatar: string | null; state: FriendState; project: string | null; activity: FriendActivity; updatedAt: number | null; }
-interface FriendRequest { id: string; email: string; name: string | null; avatar: string | null; createdAt: number | null; }
-interface FriendsList { friends: Friend[]; incoming: FriendRequest[]; outgoing: FriendRequest[]; readTime: number; }
-// How many incoming requests are waiting, without the rest of the list (the badge, while Friends is hidden).
-interface FriendsIncoming { count: number; }
-interface FriendsPresence { state: 'online' | 'away'; project: string | null; activity: FriendActivity; }
 interface Completion { text: string; dir: boolean; }
 interface DetectedTool { id: string; name: string; found: boolean; version: string | null; optional?: boolean; hint?: string | null; cmd?: string | null; url?: string | null; }
 interface Detection { agents: DetectedAgent[]; tools: DetectedTool[]; servers?: DetectedTool[]; platform: string; demo?: boolean; }
@@ -284,6 +272,10 @@ interface BreezeApi {
     text(id: number, start: DocPos, end: DocPos): Promise<DocState & { text: string }>;
     find(id: number, query: string, matchCase: boolean, from: DocPos, backward: boolean): Promise<DocState & { hit: (DocPos & { len: number }) | null }>;
     count(id: number, query: string, matchCase: boolean): Promise<DocState & { count: number; capped: boolean }>;
+    // Every hit from the top, as a flat [line, col, line, col, ...] list; `len` is the query's length.
+    findAll(id: number, query: string, matchCase: boolean, limit: number): Promise<DocState & { hits: number[]; len: number; capped: boolean }>;
+    // The quick structural checks (languages.ts lintKind names `kind`); `skipped` when the text is past LINT_MAX.
+    lint(id: number, kind: string): Promise<DocState & { diags: Diag[]; skipped?: true }>;
     save(id: number): Promise<DocState & { bytes: number }>;
     changed(id: number): Promise<DocState & { changed: boolean }>;
     reload(id: number): Promise<DocOpen>;
@@ -366,7 +358,7 @@ interface BreezeApi {
   };
   board: {
     open(): Promise<{ boardId: string; owners: Record<string, string> }>;
-    run(opts: { boxKey: string; agent: string; prompt: string; session: string | null; model?: string; effort?: string; chat?: string }): Promise<number>;
+    run(opts: { boxKey: string; agent: string; prompt: string; session: string | null; root?: string; model?: string; effort?: string; chat?: string }): Promise<number>;
     stop(boxKey: string): Promise<void>;
     stopAll(): Promise<void>;
     release(path: string): Promise<void>;
@@ -422,21 +414,6 @@ interface BreezeApi {
     signOut(): Promise<User | null>;
     remove(id: string): Promise<User | null>;
     onEvent(cb: (ev: AuthEvent) => void): () => void;
-  };
-  friends: {
-    // fresh: forget a held failure and ask Firebase again (Try again after verifying the email).
-    status(fresh?: boolean): Promise<FriendsStatus>;
-    // Emails the account a link that verifies its address (GitHub's emails aren't taken on trust).
-    verify(): Promise<{ sent: true; email: string | null } | { verified: true } | FriendsFail>;
-    list(): Promise<FriendsList | FriendsFail>;
-    incoming(): Promise<FriendsIncoming | FriendsFail>;
-    add(email: string): Promise<{ id: string } | FriendsFail>;
-    accept(id: string): Promise<{ ok: true } | FriendsFail>;
-    decline(id: string): Promise<{ ok: true } | FriendsFail>;
-    cancel(id: string): Promise<{ ok: true } | FriendsFail>;
-    remove(uid: string): Promise<{ ok: true } | FriendsFail>;
-    // null stops sharing (main writes "offline" once).
-    setPresence(p: FriendsPresence | null): Promise<{ ok: true } | FriendsFail>;
   };
   sync: {
     status(): Promise<SyncStatus | SyncFail>;

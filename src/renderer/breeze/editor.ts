@@ -230,7 +230,7 @@ function renderEditor(): void {
   }
   empty.classList.add('hidden');
   empty.classList.remove('enter');
-  if (findOpen) runFind(false);
+  if (findOpen) void runFind(false);
   renderCode();
   if (document.activeElement === document.body || (document.activeElement?.classList.contains('ta') && document.activeElement !== splitTa.input)) b.ta?.focus({ preventScroll: true });
 }
@@ -315,8 +315,13 @@ function box(cls: string, top: number, left: number, width?: number): HTMLElemen
   return d;
 }
 function findBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
-  if (!findOpen || !findLen) return [];
-  const vis = findHits.length > 3000 ? findHits.slice(Math.max(0, findIdx - 1500), findIdx + 1500) : findHits;
+  if (!findOpen || !findLen || findQuery !== findInput.value || findQueryCase !== findCase) return [];
+  let vis = findHits.length > 3000 ? findHits.slice(Math.max(0, findIdx - 1500), findIdx + 1500) : findHits;
+  // Typed since the search: until the new hits come in, only the old ones the text still has are drawn.
+  if (findText !== b.text) {
+    const n = findCase ? findQuery : findQuery.toLowerCase();
+    vis = vis.filter(off => { const got = b.text.slice(off, off + findLen); return (findCase ? got : got.toLowerCase()) === n; });
+  }
   // Only the hits in the drawn window get a box.
   const starts = lineStartsOf(b.text);
   return vis.filter(off => { const ln = lineOfOffset(starts, off); return ln >= winFirst && ln < winLast; }).map(off => {
@@ -1495,11 +1500,19 @@ function addCursorVertical(dir: -1 | 1): void {
 }
 
 /* ----- Find in file ----- */
+// A file with an engine document is searched by the engine (Rust), which reads its own copy without lowercasing the
+// whole text; a file without one is searched here. findHits are offsets into findText, the text they were found in: a
+// hit is only drawn, stepped to or replaced while that is still the buffer's text.
 let findOpen = false;
 let findHits: number[] = [];
+let findText: string | null = null;
+let findQuery = '', findQueryCase = false; // what findHits are hits of
+let findCapped = false;
 let findIdx = -1;
 let findLen = 0;
 let findCase = false;
+let findSeq = 0;
+const FIND_MAX = 20000;
 const findInput = $<HTMLInputElement>('#findInput');
 const replaceInput = $<HTMLInputElement>('#replaceInput');
 function openFind(replace = false): void {
@@ -1524,7 +1537,7 @@ function openFind(replace = false): void {
   // Ctrl+H with a search already typed goes straight to the replacement.
   const field = replace && findInput.value ? replaceInput : findInput;
   field.focus(); field.select();
-  runFind(true);
+  void runFind(true);
 }
 function showReplace(on: boolean): void {
   $('#replaceRow').classList.toggle('hidden', !on);
@@ -1533,33 +1546,79 @@ function showReplace(on: boolean): void {
 function closeFind(): void {
   $('#findToggle').classList.remove('hidden'); // hidden while the bar finds in a huge file
   if (!findOpen) return;
-  findOpen = false; findHits = []; findLen = 0;
+  findOpen = false; findHits = []; findText = null; findLen = 0; findSeq++;
   $('#findbar').classList.add('hidden');
   renderCode();
 }
-function runFind(jump: boolean): void {
+/** Finds the query in the active file. Resolves once the hits are in (an older search resolves without touching them
+ *  when a newer one has started). Never rejects. */
+function runFind(jump: boolean): Promise<void> {
   const big = activeBig();
-  if (big) { void bigFindCount(big); return; }
+  if (big) return bigFindCount(big);
   const b = activeText();
-  const q = findInput.value;
-  findHits = []; findLen = q.length;
-  if (b && q) {
-    const hay = findCase ? b.text : b.text.toLowerCase(), n = findCase ? q : q.toLowerCase();
-    for (let i = hay.indexOf(n); i !== -1 && findHits.length < 20000; i = hay.indexOf(n, i + n.length)) findHits.push(i);
+  const q = findInput.value, seq = ++findSeq;
+  if (b && q && b.docQ) return engineFind(b, q, jump, seq);
+  takeHits(b, q, findCase, b && q ? pageHits(b.text, q, findCase) : [], b?.text ?? null, false, jump);
+  return Promise.resolve();
+}
+// The page's own search, for a file the engine doesn't hold.
+function pageHits(text: string, q: string, matchCase: boolean): number[] {
+  const hits: number[] = [];
+  const hay = matchCase ? text : text.toLowerCase(), n = matchCase ? q : q.toLowerCase();
+  for (let i = hay.indexOf(n); i !== -1 && hits.length < FIND_MAX; i = hay.indexOf(n, i + n.length)) hits.push(i);
+  return hits;
+}
+// Asks the engine once every edit sent so far has reached it, so it holds exactly b.text. Hits are checked against
+// b.text before they are taken; any that don't match (a writer that skipped docSync), or a failed request, and the page
+// searches itself.
+async function engineFind(b: EditorBuffer, q: string, jump: boolean, seq: number): Promise<void> {
+  for (let dq = b.docQ; dq && b.doc != null; dq = b.docQ) {
+    await dq.flush();
+    if (seq !== findSeq) return;
+    if (b.docQ !== dq || !dq.idle || b.doc == null) continue; // reopened, or edits pushed during the wait
+    const text = b.text, matchCase = findCase;
+    let r: DocState & { hits: number[]; len: number; capped: boolean };
+    try { r = await api.doc.findAll(b.doc, q, matchCase, FIND_MAX); } catch { break; }
+    if (seq !== findSeq) return;
+    if (b.text !== text) continue; // changed by a writer that didn't search again
+    const hits = hitOffsets(text, r.hits, q, matchCase);
+    if (!hits) break;
+    takeHits(b, q, matchCase, hits, text, r.capped, jump);
+    return;
   }
-  const from = b ? b.ta.selectionStart : 0;
+  if (seq !== findSeq) return;
+  takeHits(b, q, findCase, pageHits(b.text, q, findCase), b.text, false, jump);
+}
+// The engine's [line, col, ...] hits as offsets into `text`, or null when one isn't the query there.
+function hitOffsets(text: string, flat: number[], q: string, matchCase: boolean): number[] | null {
+  const starts = lineStartsOf(text), n = matchCase ? q : q.toLowerCase(), hits: number[] = [];
+  for (let k = 0; k + 1 < flat.length; k += 2) {
+    const off = flat[k] < starts.length ? starts[flat[k]] + flat[k + 1] : -1;
+    const got = off < 0 ? '' : text.slice(off, off + q.length);
+    if ((matchCase ? got : got.toLowerCase()) !== n) return null;
+    hits.push(off);
+  }
+  return hits;
+}
+function takeHits(b: EditorBuffer | undefined, q: string, matchCase: boolean, hits: number[], text: string | null, capped: boolean, jump: boolean): void {
+  findHits = hits; findText = text; findCapped = capped; findLen = q.length; findQuery = q; findQueryCase = matchCase;
+  const from = b?.ta?.selectionStart ?? 0;
   findIdx = findHits.length ? Math.max(0, findHits.findIndex(h => h >= from)) : -1;
   if (findIdx === -1 && findHits.length) findIdx = 0;
   if (jump) selectHit(); else { renderFindCount(); queueRender(); }
 }
+// The hits belong to the buffer's text as it is now, and to the query and case in the bar.
+const findFresh = (b: EditorBuffer) => findText === b.text && findQuery === findInput.value && findQueryCase === findCase;
 function renderFindCount(): void {
   let text = '';
-  if (findInput.value) text = findHits.length ? `${findIdx + 1} of ${findHits.length}` : 'No results';
+  if (findInput.value) text = findHits.length ? `${findIdx + 1} of ${findHits.length}${findCapped ? '+' : ''}` : 'No results';
   $('#findCount').textContent = text;
 }
 function stepFind(d: number): void {
   const big = activeBig();
   if (big) { void bigFindStep(big, d < 0 ? -1 : 1); return; }
+  const b = activeText();
+  if (b && !findFresh(b)) { void runFind(false).then(() => { if (activeText() === b && findFresh(b)) stepFind(d); }); return; }
   if (!findHits.length) return;
   findIdx = (findIdx + d + findHits.length) % findHits.length;
   selectHit();
@@ -1567,14 +1626,14 @@ function stepFind(d: number): void {
 function selectHit(): void {
   const b = activeText();
   renderFindCount();
-  if (b && findIdx >= 0) {
+  if (b && findIdx >= 0 && findFresh(b)) {
     const off = findHits[findIdx];
     b.ta.setSelectionRange(off, off + findLen);
     revealOffset(b, off);
   }
   renderCode();
 }
-findInput.addEventListener('input', () => runFind(true));
+findInput.addEventListener('input', () => { void runFind(true); });
 findInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); sfx.play('tick'); stepFind(e.shiftKey ? -1 : 1); }
   if (e.key === 'Escape') { e.stopPropagation(); closeFind(); activeText()?.ta.focus(); activeBig()?.big?.surface.focus(); }
@@ -1582,29 +1641,35 @@ findInput.addEventListener('keydown', e => {
 $('#findNext').onclick = () => { sfx.play('tick'); stepFind(1); };
 $('#findPrev').onclick = () => { sfx.play('tick'); stepFind(-1); };
 $('#findClose').onclick = () => { closeFind(); activeText()?.ta.focus(); activeBig()?.big?.surface.focus(); };
-$('#findCase').onclick = () => { findCase = !findCase; $('#findCase').classList.toggle('on', findCase); runFind(false); };
+$('#findCase').onclick = () => { findCase = !findCase; $('#findCase').classList.toggle('on', findCase); void runFind(false); };
 $('#findToggle').onclick = () => {
   const on = $('#replaceRow').classList.contains('hidden');
   showReplace(on);
   (on ? replaceInput : findInput).focus();
 };
 // The match under the selection is replaced; otherwise the first press only selects the next one, like VS Code.
-function replaceOne(): void {
+// Hits still being found are waited for first: only hits of the text as it is now are replaced.
+async function replaceOne(): Promise<void> {
   const b = activeText();
-  if (!b || findIdx < 0) return;
+  if (!b) return;
+  if (!findFresh(b)) await runFind(false);
+  if (activeText() !== b || !findFresh(b) || findIdx < 0) return;
   const off = findHits[findIdx];
   if (b.ta.selectionStart !== off || b.ta.selectionEnd !== off + findLen) { selectHit(); return; }
   const rep = replaceInput.value;
   replaceRange(b.ta, off, off + findLen, rep, off + rep.length);
-  runFind(false); // picks up the edit; the next match is the one after the replacement
+  await runFind(false); // picks up the edit; the next match is the one after the replacement
+  if (activeText() !== b || !findFresh(b)) return;
   findIdx = findHits.findIndex(h => h >= off + rep.length);
   if (findIdx === -1 && findHits.length) findIdx = 0;
   selectHit();
   replaceInput.focus();
 }
-function replaceAll(): void {
+async function replaceAll(): Promise<void> {
   const b = activeText();
-  if (!b || !findHits.length) return;
+  if (!b) return;
+  if (!findFresh(b)) await runFind(false);
+  if (activeText() !== b || !findFresh(b) || !findHits.length) return;
   const rep = replaceInput.value, n = findHits.length;
   let out = '', at = 0;
   for (const h of findHits) { out += b.text.slice(at, h) + rep; at = h + findLen; }
@@ -1614,12 +1679,12 @@ function replaceAll(): void {
   toast(`Replaced ${n} ${n === 1 ? 'match' : 'matches'}`);
 }
 replaceInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.altKey) { e.preventDefault(); replaceAll(); return; }
-  if (e.key === 'Enter') { e.preventDefault(); sfx.play('tick'); replaceOne(); }
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.altKey) { e.preventDefault(); void replaceAll(); return; }
+  if (e.key === 'Enter') { e.preventDefault(); sfx.play('tick'); void replaceOne(); }
   if (e.key === 'Escape') { e.stopPropagation(); closeFind(); activeText()?.ta.focus(); }
 });
-$('#replaceOne').onclick = () => { sfx.play('tick'); replaceOne(); };
-$('#replaceAll').onclick = replaceAll;
+$('#replaceOne').onclick = () => { sfx.play('tick'); void replaceOne(); };
+$('#replaceAll').onclick = () => { void replaceAll(); };
 
 /* ----- Go to line / file ----- */
 function goToLine(): void {

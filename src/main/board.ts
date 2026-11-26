@@ -3,6 +3,7 @@
 // what it wanted goes to the owner's box as a relay (the renderer queues and shows relays).
 // No Electron here: main.ts passes `deps` and feeds every run event to `observe`, as it does for teams.
 
+import path from 'node:path';
 import { absOf, throughLink, readEntry, cleanRel, ownerOf, claimFirstTouch, addToSnapshot, restore, notesFor } from './team';
 import type { RunId, Owners, RunEvent, Snapshot } from './team';
 
@@ -204,7 +205,7 @@ class BoardCoordinator {
     for (const [id, r] of this.runs) if (!r.done) this.#stopRun(id);
   }
 
-  // The folder changed or the app is leaving: stop everything for good.
+  // Its last box was closed after its folder was left: stop everything for good.
   close(): void {
     this.stopAll();
     this.stopped = true;
@@ -325,4 +326,47 @@ class BoardCoordinator {
   }
 }
 
-export { lineDiff, boardBrief, commandNames, BoardCoordinator };
+// One board for each folder with boxes: opening another folder leaves the last one's agents working in theirs.
+// A box key is one box in one folder at a time (the renderer hands them out), so a key alone finds its board.
+const folderId = (dir: string) => (process.platform === 'win32' ? path.resolve(dir).toLowerCase() : path.resolve(dir));
+class BoardSet {
+  #boards = new Map<string, BoardCoordinator>();
+  #make: (root: string) => BoardCoordinator;
+
+  constructor(make: (root: string) => BoardCoordinator) { this.#make = make; }
+
+  find(dir: string | null): BoardCoordinator | null { return (dir && this.#boards.get(folderId(dir))) || null; }
+  all(): BoardCoordinator[] { return [...this.#boards.values()]; }
+
+  open(dir: string): BoardCoordinator {
+    const had = this.find(dir);
+    if (had) return had;
+    const made = this.#make(dir);
+    this.#boards.set(folderId(dir), made);
+    return made;
+  }
+
+  // The board a box runs on: the one of its own folder, which must still have one when it isn't the open folder.
+  forRun(dir: string | null, openDir: string | null): BoardCoordinator {
+    const want = dir ?? openDir;
+    if (!want) throw new Error('Open a folder first');
+    const had = this.find(want);
+    if (had) return had;
+    if (!openDir || folderId(want) !== folderId(openDir)) throw new Error('That chat’s project is no longer open.');
+    return this.open(openDir);
+  }
+
+  stopBox(boxKey: string): void { for (const b of this.all()) b.stopBox(boxKey); }
+
+  // A board left with no boxes closes, unless its folder is the open one.
+  clearBox(boxKey: string, openDir: string | null): void {
+    for (const [id, b] of [...this.#boards]) {
+      b.clearBox(boxKey);
+      if (b.members.length || (openDir && id === folderId(openDir))) continue;
+      b.close();
+      this.#boards.delete(id);
+    }
+  }
+}
+
+export { lineDiff, boardBrief, commandNames, folderId, BoardCoordinator, BoardSet };

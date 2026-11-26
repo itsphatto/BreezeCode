@@ -45,6 +45,9 @@ impl WirePos {
 struct FindArgs { doc: u64, query: String, match_case: bool, from: WirePos, backward: bool }
 #[derive(Deserialize)] #[serde(rename_all = "camelCase")]
 struct CountArgs { doc: u64, query: String, match_case: bool }
+#[derive(Deserialize)] #[serde(rename_all = "camelCase")]
+struct FindAllArgs { doc: u64, query: String, match_case: bool, limit: u64 }
+#[derive(Deserialize)] struct LintArgs { doc: u64, kind: String }
 
 /// Reads the arguments of a request. Anything missing or of the wrong type is a bad request.
 fn args<T: DeserializeOwned>(req: &Value) -> Result<T, String> {
@@ -168,6 +171,26 @@ impl Engine {
                 let (doc, _) = self.open_doc(a.doc)?;
                 let (count, capped) = doc.count(&a.query, a.match_case);
                 Ok(with_state(doc, fields(json!({ "count": count, "capped": capped }))))
+            }
+            "findAll" => {
+                // Hits go as one flat [line, col, line, col, ...] list: a few numbers each, for up to 20,000 hits.
+                let a: FindAllArgs = args(req)?;
+                let (doc, _) = self.open_doc(a.doc)?;
+                let (hits, capped) = doc.find_all(&a.query, a.match_case, clamp(a.limit));
+                let flat: Vec<usize> = hits.iter().flat_map(|p| [p.line, p.col]).collect();
+                let len = a.query.encode_utf16().count();
+                Ok(with_state(doc, fields(json!({ "hits": flat, "len": len, "capped": capped }))))
+            }
+            "lint" => {
+                // The quick structural checks, on the text as the page holds it. A text past LINT_MAX is skipped.
+                let a: LintArgs = args(req)?;
+                let kind = crate::lint::Kind::parse(&a.kind).ok_or_else(|| BAD_REQUEST.to_string())?;
+                let (doc, _) = self.open_doc(a.doc)?;
+                let f = match crate::lint::page_units(doc.rope()) {
+                    Some(units) => json!({ "diags": crate::lint::lint(&units, kind) }),
+                    None => json!({ "diags": [], "skipped": true }),
+                };
+                Ok(with_state(doc, fields(f)))
             }
             "save" => {
                 let a: DocArgs = args(req)?;
@@ -319,6 +342,31 @@ mod tests {
         assert_eq!(h["ok"], json!(true)); assert!(h["hit"].is_null());
         let c = call(&mut e, json!({"id":4,"op":"count","doc":1,"query":"ab","matchCase":false}));
         assert_eq!((c["count"].clone(), c["capped"].clone()), (json!(3), json!(false)));
+    }
+    #[test] fn find_all_shape() {
+        let t = TempDir::new(); let f = t.file("f.txt", b"ab\r\nAB ab"); let mut e = Engine::new(None);
+        call(&mut e, json!({"id":1,"op":"open","path":f}));
+        let r = call(&mut e, json!({"id":2,"op":"findAll","doc":1,"query":"ab","matchCase":false,"limit":100}));
+        assert_eq!(r, json!({"id":2,"ok":true,"hits":[0,0,1,0,1,3],"len":2,"capped":false,"rev":0,"lines":2,"dirty":false}));
+        let r = call(&mut e, json!({"id":3,"op":"findAll","doc":1,"query":"ab","matchCase":true,"limit":1}));
+        assert_eq!((r["hits"].clone(), r["capped"].clone()), (json!([0,0]), json!(true)));
+        let r = call(&mut e, json!({"id":4,"op":"findAll","doc":1,"query":"😀","matchCase":true,"limit":u64::MAX}));
+        assert_eq!((r["hits"].clone(), r["len"].clone()), (json!([]), json!(2)));
+        assert_eq!(call(&mut e, json!({"id":5,"op":"findAll","doc":1,"query":"ab","matchCase":true}))["error"], json!("Bad request"));
+    }
+    #[test] fn lint_shape() {
+        let t = TempDir::new(); let f = t.file("f.py", b"if x\r\n    y\r\n"); let mut e = Engine::new(None);
+        call(&mut e, json!({"id":1,"op":"open","path":f}));
+        let r = call(&mut e, json!({"id":2,"op":"lint","doc":1,"kind":"py"}));
+        assert_eq!(r, json!({"id":2,"ok":true,"diags":[
+            {"line":0,"col":4,"len":1,"msg":"Expected ':' after the 'if' line"},
+            {"line":1,"col":0,"len":4,"msg":"Unexpected indent"}],"rev":0,"lines":3,"dirty":false}));
+        assert_eq!(call(&mut e, json!({"id":3,"op":"lint","doc":1,"kind":"cobol"}))["error"], json!("Bad request"));
+        assert_eq!(call(&mut e, json!({"id":4,"op":"lint","doc":1}))["error"], json!("Bad request"));
+        let g = t.file("g.json", &vec![b' '; crate::lint::LINT_MAX + 1]);
+        call(&mut e, json!({"id":5,"op":"open","path":g}));
+        let r = call(&mut e, json!({"id":6,"op":"lint","doc":2,"kind":"json"}));
+        assert_eq!((r["diags"].clone(), r["skipped"].clone()), (json!([]), json!(true)));
     }
     #[test] fn text_returns_the_range() {
         let t = TempDir::new(); let f = t.file("f.txt", b"ab\r\ncd"); let mut e = Engine::new(None);

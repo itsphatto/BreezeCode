@@ -658,7 +658,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
 
 /* ----- Agents: names, mentions and the default agent ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
-const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter'], ['deepseek', 'DeepSeek']]);
+const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter'], ['deepseek', 'DeepSeek API'], ['dsh', 'DeepSeek CLI']]);
 function agentShortName(a: DetectedAgent): string {
   return AGENT_SHORT_NAMES.get(a.id) || a.name;
 }
@@ -708,7 +708,6 @@ function renderAgentBar(): void {
   updateScmGenBtn();
   if (typeof renderHomeAsk === 'function') renderHomeAsk(); // Home's prompt box shows the same model and effort
   if (typeof renderBoardModels === 'function') renderBoardModels(); // and so do the Agent board's boxes
-  if (typeof renderModeSwitch === 'function') renderModeSwitch(); // the switcher's Agent Board half wears the default agent's logo
 }
 
 
@@ -742,11 +741,15 @@ function openAgentPicker(): void {
     };
     pickerRefresh = render;
     render();
+    offerTip('agents'); // first time here: point at the agent list
     lastAutoScan = Date.now();
     // The first scan of the session fills the list; later ones redraw it only on a change (announceAgentChanges).
     const first = !appState.detect;
     detectTools(!first).then(() => { if (first) render(); }, () => { /* shown in the agent card */ });
-  }, () => { pickerRefresh = null; });
+  }, () => {
+    pickerRefresh = null;
+    if (settingsTab === 'agents') refreshSettings(); // Settings, still open underneath, shows the agent and model picked here
+  });
 }
 
 /* ----- Home: jump back into a recent project, or start one ----- */
@@ -774,7 +777,6 @@ function showHomeView(view: string): void {
   $('.home-main').scrollTop = 0;
   // Coming to the page, the bars rise in afresh rather than morph from the last visit's.
   if (view === 'agent') { dashDrawn = dashSized = ''; $('#adBars').textContent = ''; loadAgentDash(); }
-  if (view === 'friends') openFriends(); else closeFriends();
 }
 
 /* ----- Home → Agent: one agent's token use, and the other agents ----- */
@@ -1478,7 +1480,6 @@ function swapScreen(to: string): void {
 
   const prev = screens.find(el => el !== next && !el.classList.contains('hidden') && !el.classList.contains('screen-out') && !el.classList.contains('screen-prep'));
   const debugSwap = !!prev && ['debug', 'board'].some(id => prev.id === id || next.id === id); // full pages cross-fade in place
-  if (typeof resetModeSwitches === 'function') resetModeSwitches(prev); // the one fading out keeps the slide it just played
   // Clicked away while a debugger swap is still playing: the next one plays faster.
   const quick = debugSwap && next.classList.contains('screen-out');
   clearTimeout(swapTimer);
@@ -1558,6 +1559,7 @@ function showIde(): void {
   applyLayout();
   renderEditor();
   updateActIndicator(true);
+  offerTip('editor', () => $('#prompt').focus()); // first time in the editor: point at the agent prompt
 }
 
 /* ================= Agents (data) ================= */

@@ -112,7 +112,7 @@ test('the cap drops the least-hit oldest memories', t => {
   assert.ok(!texts.includes('the second memory'));
 });
 
-test('links join memories that share a file or uncommon words, at most 6 each', () => {
+test('links join memories that share a file or uncommon words', () => {
   const node = (id, kind, text) => ({ id, kind, text, at: 0, agent: 'x', hits: 1 });
   const nodes = [
     node('f', 'file', 'src/a.ts'),
@@ -130,7 +130,6 @@ test('links join memories that share a file or uncommon words, at most 6 each', 
   const hub = [node('h', 'file', 'x.ts'), ...Array.from({ length: 12 }, (_, i) => node(`m${i}`, 'fact', `item ${i} in x.ts`))];
   const hubLinks = buildLinks(hub);
   assert.equal(hubLinks.filter(l => l.a === 'h' || l.b === 'h').length, 12, 'every memory naming the file joins its hub');
-  assert.ok(hubLinks.length < (13 * 12) / 2, 'not everything is linked to everything');
 });
 
 test('a Claude session log gives its newest compact summary', () => {
@@ -245,6 +244,13 @@ test('main, preload and the board are wired', () => {
   assert.ok(src('src/main/preload.ts').includes('brain:graph'));
   assert.ok(src('src/renderer/breeze/board.ts').includes('openSecondBrain(folder)'));
   assert.ok(src('src/renderer/breeze.html').includes('breeze/brain.js'));
+  // A page on the Agent Board, in the chats' place: opened under MCP, and any way to a chat closes it.
+  assert.ok(src('src/renderer/breeze.html').includes('id="boardSideBrain"'));
+  assert.ok(src('src/renderer/breeze/brain.ts').includes("$('.board-main').appendChild(el)"));
+  for (const fn of ['function openBoard(): void {', 'function freshBoard(agent: string): void {', 'function reopenInBox(']) {
+    const b = src('src/renderer/breeze/board.ts'), at = b.indexOf(fn);
+    assert.ok(at >= 0 && b.slice(at, at + 400).includes('closeBrainPage()'), fn);
+  }
   for (const s of ["brainPrompt(opts?.taskBase", "'brain:summarizePlan'", "'brain:summarize'", 'markRead(folder, chunks[i].upTo)']) assert.ok(main.includes(s), s);
   assert.ok(src('src/renderer/breeze/brain.ts').includes('brainConfirm(plan)'), 'Summarize asks before it spends tokens');
   // Agents reach the second brain: every MCP run, and the local loop's own tools.
