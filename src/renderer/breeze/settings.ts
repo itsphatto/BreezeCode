@@ -33,6 +33,12 @@ function apiKeyRowsHtml(agents: DetectedAgent[]): string {
   return apis.map(a => settingRow(a.name, [a.keyUrl ? 'Key saved' : a.path ?? 'Local server', a.version].filter(Boolean).join(' · '),
     `<button class="btn btn-sm" data-llm-remove="${escAttr(a.id)}">Remove</button>`)).join('');
 }
+// The local agent's web search runs on the user's own Brave Search API key, kept in main's secrets.
+let braveKeySaved = false; // read each time Settings opens
+const webSearchRowHtml = () => (braveKeySaved
+  ? settingRow('Web search', 'Brave Search key saved. Local agents can search the web.', '<button class="btn btn-sm" id="sBraveRemove">Remove</button>')
+  : settingRow('Web search', 'Add a Brave Search API key so local agents can search the web. <button class="link-btn" id="sBraveGet">Get a key</button>',
+    '<div class="set-code"><input class="input" id="sBraveKey" type="password" aria-label="Brave Search API key" placeholder="API key" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sBraveSave" disabled>Save</button></div>'));
 let settingsTab: SettingsTab = 'general';
 let agentFullAccess = true; // on unless turned off from a composer; the main process keeps the real value; read again each time Settings opens
 let justSwitched = false;
@@ -1056,6 +1062,7 @@ function settingsBody(tab: SettingsTab): string {
         ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
         <h5>API keys</h5>
         ${apiKeyRowsHtml(agents)}
+        ${webSearchRowHtml()}
         <h5>Agent Board</h5>
         ${settingRow('Code', 'Each box shows the file its agent is editing, at the box\'s left.', switchHtml('sBoardCode', boardCodeOn, 'Show code in board boxes'))}
         ${settingRow('Auto-relay', 'A request one agent makes of another is sent on its own. Off, each waits for Send.', switchHtml('sAutoRelay', relayQueue.auto, 'Auto-relay'))}
@@ -1588,6 +1595,24 @@ function bindSettings(m: HTMLElement): void {
     b.disabled = true;
     background(removeApiAgent(b.dataset.llmRemove ?? '').finally(refreshSettings));
   });
+  const braveKey = $<HTMLInputElement>('#sBraveKey', pane), braveSave = $<HTMLButtonElement>('#sBraveSave', pane);
+  if (braveKey && braveSave) {
+    const save = async () => {
+      if (!braveKey.value.trim()) return;
+      braveSave.disabled = braveKey.disabled = true;
+      swapText(braveSave, 'Checking');
+      try {
+        braveKeySaved = await api.web.setSearchKey(braveKey.value);
+        toast('Brave Search key saved. Local agents can search the web.');
+      } catch (err) { toast(`Couldn't save the key: ${errMsg(err)}`); }
+      refreshSettings();
+    };
+    braveKey.oninput = () => { braveSave.disabled = !braveKey.value.trim(); };
+    braveKey.onkeydown = e => { if (e.key === 'Enter') background(save()); };
+    braveSave.onclick = () => background(save());
+  }
+  on('sBraveGet', () => background(api.sys.openExternal('https://api-dashboard.search.brave.com/')));
+  on('sBraveRemove', () => background(api.web.setSearchKey(null).then(v => { braveKeySaved = v; toast('Brave Search key removed'); refreshSettings(); })));
   // The Agent Board's switches (board.ts), here instead of in the board's bar.
   const flip = (el: HTMLElement, v: boolean) => { el.classList.toggle('on', v); el.setAttribute('aria-checked', String(v)); };
   on('sBoardCode', el => { setBoardCode(!boardCodeOn); flip(el, boardCodeOn); });
@@ -1781,6 +1806,7 @@ background(api.agent.fullAccess().then(v => { agentFullAccess = v; if (typeof re
 function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   if (settingsRoot()) { closeModal(); return; }
   background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); if (typeof refreshComposers === 'function') refreshComposers(); } }));
+  background(api.web.searchKey().then(v => { if (v !== braveKeySaved) { braveKeySaved = v; refreshSettings(); } }));
   closeMenu();
   if (tab) settingsTab = tab;
   const gears = [$('#settingsBtn'), $('#boxSettings'), $('#homeSettings')];

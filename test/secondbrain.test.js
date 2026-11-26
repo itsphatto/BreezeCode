@@ -199,6 +199,27 @@ test('agents remember a memory and link it to related ones', t => {
   assert.ok(!s.graph('/a').links.some(l => l.a === pay.id || l.b === pay.id), 'forgetting drops its links');
 });
 
+test('deleting a chat forgets what only it said', t => {
+  const file = tmpFile(t);
+  const s = new BrainStore(file, 'linux');
+  s.addSummary('/a', 'Facts:\n- The router lives in src/router.ts\n- Login uses cookies for the token', 'claude', 1, ['A']);
+  s.addSummary('/a', 'Facts:\n- Login uses cookies for the token', 'claude', 2, ['B']); // said by A and B
+  s.addFacts('/a', ['The build runs with tsc only'], 'you', 3, ['A']);
+  s.addFacts('/a', ['The build runs with tsc only'], 'claude', 4); // also said outside any chat: kept for good
+  s.markRead('/a', { A: 50, B: 20 });
+  const kept = s.remember('/a', 'Releases ship from GitHub', 'fact', [], 'codex', 5, ['A']);
+  assert.deepEqual(s.forgetChats(['A']), ['/a']);
+  const texts = new BrainStore(file, 'linux').graph('/a').nodes.map(n => n.text).sort();
+  assert.deepEqual(texts, ['Login uses cookies for the token', 'The build runs with tsc only'], 'the router fact, its file and the remembered fact went');
+  assert.ok(!texts.includes(kept.text));
+  assert.equal(s.newText('/a', [{ key: 'A', title: 'A', text: 'x'.repeat(10) }])[0].from, 0, 'A would be read from the start again');
+  // A summary of a deleted chat that lands afterwards is dropped.
+  assert.equal(s.addSummary('/a', 'Facts:\n- Late news from chat A arrives', 'claude', 6, ['A']), 0);
+  assert.throws(() => s.remember('/a', 'Late memory from chat A', 'fact', [], 'x', 6, ['A']), /deleted/);
+  assert.deepEqual(s.forgetChats(['B']), ['/a']);
+  assert.deepEqual(s.graph('/a').nodes.map(n => n.text), ['The build runs with tsc only']);
+});
+
 test('the tools agents get are defined once', () => {
   assert.deepEqual(BRAIN_TOOL_DEFS.map(t => t.name), ['second_brain_search', 'second_brain_remember']);
   for (const t of BRAIN_TOOL_DEFS) assert.equal(t.schema.type, 'object');

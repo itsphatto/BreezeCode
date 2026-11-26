@@ -143,6 +143,10 @@ contextBridge.exposeInMainWorld('breeze', {
     setModel: (provider: unknown, model: unknown) => invoke('llm:setModel', provider, model),
     disconnect: (provider: unknown) => invoke('llm:disconnect', provider),
   },
+  web: {
+    searchKey: () => invoke('web:searchKey'),
+    setSearchKey: (key: unknown) => invoke('web:setSearchKey', key),
+  },
   emmet: {
     expand: (abbr: unknown, syntax: unknown) => invoke('emmet:expand', abbr, syntax),
   },
@@ -182,6 +186,8 @@ contextBridge.exposeInMainWorld('breeze', {
     onChange: (cb: Listener) => listen('brain:changed', cb),
     summarizePlan: (folder: unknown, chats: unknown) => invoke('brain:summarizePlan', folder, chats),
     summarize: (folder: unknown, chats: unknown) => invoke('brain:summarize', folder, chats),
+    syncChat: (folder: unknown, chat: unknown) => invoke('brain:syncChat', folder, chat),
+    forgetChats: (keys: unknown) => invoke('brain:forgetChats', keys),
     onProgress: (cb: Listener) => listen('brain:progress', cb),
   },
   skills: {

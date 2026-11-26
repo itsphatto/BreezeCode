@@ -8,7 +8,8 @@ import * as crypto from 'node:crypto';
 import { memoryRefusal, scopeOf, MAX_TEXT } from './agentmemory';
 
 export type Kind = 'fact' | 'decision' | 'task' | 'file';
-export interface BrainNode { id: string; kind: Kind; text: string; at: number; agent: string; hits: number }
+// `chats`: the chats it came from; it goes when the last of them is deleted. None: it came from elsewhere too and stays.
+export interface BrainNode { id: string; kind: Kind; text: string; at: number; agent: string; hits: number; chats?: string[] }
 export interface BrainLink { a: string; b: string; w: number }
 export interface Graph { nodes: BrainNode[]; links: BrainLink[] }
 export const MAX_NODES = 1500;
@@ -211,13 +212,13 @@ const nodeId = (kind: Kind, text: string) => crypto.createHash('sha1').update(`$
 export const BRAIN_TOOL_DEFS = [
   {
     name: 'second_brain_search',
-    description: "Search this project's second brain: what earlier chats in this folder learned (facts, decisions and why, open tasks, what files are for). Each hit comes with the memories linked to it. Search it before working on a part of the project you haven't seen in this chat, or when the user mentions something from an earlier chat.",
-    schema: { type: 'object', properties: { query: { type: 'string', description: 'Words or a file path to look for' }, limit: { type: 'integer', description: 'At most this many hits; 8 when left out' } }, required: ['query'] },
+    description: "Search what earlier chats in this project learned (facts, decisions, open tasks, what files are for), with linked memories. Use it before working on a part you haven't seen in this chat, or when the user mentions an earlier chat.",
+    schema: { type: 'object', properties: { query: { type: 'string', description: 'Words or a file path' }, limit: { type: 'integer', description: '8 by default' } }, required: ['query'] },
   },
   {
     name: 'second_brain_remember',
-    description: "Add one lasting memory to this project's second brain, for later chats: a fact, a decision and why, an open task, or what a file is for. One short sentence; never code, keys or passwords. Pass the ids of memories it relates to (from second_brain_search) to link them.",
-    schema: { type: 'object', properties: { text: { type: 'string' }, kind: { type: 'string', enum: ['fact', 'decision', 'task'] }, related: { type: 'array', items: { type: 'string' }, description: 'Ids of memories this one relates to' } }, required: ['text'] },
+    description: 'Save one lasting memory for later chats: a fact, a decision and why, an open task, or what a file is for. One short sentence, never code, keys or passwords. Link it with related ids from second_brain_search.',
+    schema: { type: 'object', properties: { text: { type: 'string' }, kind: { type: 'string', enum: ['fact', 'decision', 'task'] }, related: { type: 'array', items: { type: 'string' } } }, required: ['text'] },
   },
 ];
 export interface SearchHit { node: BrainNode; linked: BrainNode[] }
@@ -235,7 +236,10 @@ export const BRAIN_DIR = '.breezecode';
 const KINDS: Kind[] = ['fact', 'decision', 'task', 'file'];
 const cleanNodes = (v: unknown): BrainNode[] => (Array.isArray(v) ? v : [])
   .filter(n => n && typeof n.text === 'string' && typeof n.id === 'string' && KINDS.includes(n.kind))
-  .map(n => ({ id: n.id, kind: n.kind, text: n.text, at: Number(n.at) || 0, agent: String(n.agent ?? ''), hits: Number(n.hits) || 1 }));
+  .map(n => {
+    const chats = Array.isArray(n.chats) ? n.chats.filter((c: unknown) => typeof c === 'string') : null;
+    return { id: n.id, kind: n.kind, text: n.text, at: Number(n.at) || 0, agent: String(n.agent ?? ''), hits: Number(n.hits) || 1, ...(chats?.length ? { chats } : {}) };
+  });
 // Written beside the file and then swapped in, so a crash mid-write leaves the old file whole.
 function writeAtomic(file: string, text: string): void {
   const tmp = `${file}.${process.pid}.tmp`;
@@ -393,7 +397,14 @@ export class BrainStore {
     writeAtomic(path.join(dir, 'brain.md'), brainMarkdown(g));
   }
 
-  #add(folder: string, items: { kind: Kind; text: string }[], agent: string, now: number): number {
+  // Chats deleted this session: a summary of one still being written when it went is dropped, not kept.
+  #forgotten = new Set<string>();
+
+  #add(folder: string, items: { kind: Kind; text: string }[], agent: string, now: number, chats?: string[]): number {
+    if (chats) {
+      chats = chats.filter(k => !this.#forgotten.has(k));
+      if (!chats.length) return 0;
+    }
     const scope = this.#scope(folder);
     const list = this.#folders[scope] ??= [];
     const byId = new Map(list.map(n => [n.id, n]));
@@ -403,8 +414,14 @@ export class BrainStore {
       if (done.has(id)) continue;
       done.add(id);
       const old = byId.get(id);
-      if (old) { old.hits++; old.at = now; continue; }
-      const n: BrainNode = { id, kind: it.kind, text: it.text, at: now, agent, hits: 1 };
+      if (old) {
+        old.hits++;
+        old.at = now;
+        if (!chats) delete old.chats; // said somewhere that is no chat too: it stays
+        else if (old.chats) old.chats = [...new Set([...old.chats, ...chats])];
+        continue;
+      }
+      const n: BrainNode = { id, kind: it.kind, text: it.text, at: now, agent, hits: 1, ...(chats ? { chats: [...chats] } : {}) };
       list.push(n);
       byId.set(id, n);
     }
@@ -417,12 +434,13 @@ export class BrainStore {
   }
 
   // A compaction summary: split, typed and kept. Returns how many memories were added or seen again.
-  addSummary(folder: string, summary: string, agent: string, now = Date.now()): number {
-    return this.#add(folder, extractMemories(summary), agent, now);
+  // `chats`: the chats it came from (see BrainNode).
+  addSummary(folder: string, summary: string, agent: string, now = Date.now(), chats?: string[]): number {
+    return this.#add(folder, extractMemories(summary), agent, now, chats);
   }
   // Loose texts (the local loop's dropped replies): each is split like a summary without headings.
-  addFacts(folder: string, texts: string[], agent: string, now = Date.now()): number {
-    return this.#add(folder, texts.flatMap(t => extractMemories(t)), agent, now);
+  addFacts(folder: string, texts: string[], agent: string, now = Date.now(), chats?: string[]): number {
+    return this.#add(folder, texts.flatMap(t => extractMemories(t)), agent, now, chats);
   }
   graph(folder: string): Graph {
     return this.#graphOf(this.#scope(folder));
@@ -466,12 +484,13 @@ export class BrainStore {
     }));
   }
   // An agent's own memory (second_brain_remember), linked to the memories it names. Throws why it can't be kept.
-  remember(folder: string, text: string, kind: unknown, related: unknown, agent: string, now = Date.now()): BrainNode {
+  remember(folder: string, text: string, kind: unknown, related: unknown, agent: string, now = Date.now(), chats?: string[]): BrainNode {
     const why = memoryRefusal(String(text ?? ''));
     if (why) throw new Error(why);
     const clean = String(text).trim().replace(/\s+/g, ' ');
     const k: Kind = kind === 'decision' || kind === 'task' ? kind : 'fact';
-    this.#add(folder, [{ kind: k, text: clean }, ...filesIn(clean).map(f => ({ kind: 'file' as Kind, text: f }))], agent, now);
+    if (chats?.length && chats.every(c => this.#forgotten.has(c))) throw new Error('This chat was deleted, so nothing from it is kept.');
+    this.#add(folder, [{ kind: k, text: clean }, ...filesIn(clean).map(f => ({ kind: 'file' as Kind, text: f }))], agent, now, chats);
     const scope = this.#scope(folder);
     const id = nodeId(k, clean);
     const ids = new Set((this.#folders[scope] ?? []).map(n => n.id));
@@ -494,6 +513,32 @@ export class BrainStore {
     this.#save(scope);
     return true;
   }
+  // Chats deleted: what only they said goes, with links agents made to it and how far Summarize had read them.
+  // Returns the folders whose memories changed.
+  forgetChats(keys: string[]): string[] {
+    const gone = new Set(keys);
+    for (const k of gone) this.#forgotten.add(k);
+    const changed: string[] = [];
+    for (const [scope, list] of Object.entries(this.#folders)) {
+      const drop = new Set<string>();
+      let touched = false;
+      for (const n of list) {
+        if (!n.chats?.some(k => gone.has(k))) continue;
+        touched = true;
+        n.chats = n.chats.filter(k => !gone.has(k));
+        if (!n.chats.length) drop.add(n.id);
+      }
+      if (!touched) continue;
+      this.#folders[scope] = list.filter(n => !drop.has(n.id));
+      if (this.#edges[scope]) this.#edges[scope] = this.#edges[scope].filter(e => !drop.has(e[0]) && !drop.has(e[1]));
+      changed.push(scope);
+    }
+    // Each folder's brain is saved where it lives (.breezecode or the app-data file).
+    const save = new Set(changed);
+    for (const [scope, r] of Object.entries(this.#read)) for (const k of gone) if (k in r) { delete r[k]; save.add(scope); }
+    for (const scope of save) this.#save(scope);
+    return changed;
+  }
   // The part of each chat Summarize hasn't read yet. A chat that got shorter (edited) is read again from its start.
   newText(folder: string, chats: ChatText[]): ChatText[] {
     const read = this.#read[this.#scope(folder)] ?? {};
@@ -506,7 +551,7 @@ export class BrainStore {
   markRead(folder: string, upTo: Record<string, number>): void {
     const scope = this.#scope(folder);
     const read = this.#read[scope] ??= {};
-    for (const [k, n] of Object.entries(upTo)) read[k] = n;
+    for (const [k, n] of Object.entries(upTo)) if (!this.#forgotten.has(k)) read[k] = n;
     this.#save(scope);
   }
   // True when `key` (a summary's hash) was taken before; otherwise it is noted and false comes back.

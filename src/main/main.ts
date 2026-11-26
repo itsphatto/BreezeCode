@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as vm from 'node:vm';
 import { LANG_KINDS, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } from './toolchains';
-import { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, cleanEnv } from './guard';
+import { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, readOnlyCommand, cleanEnv } from './guard';
 import { AntigravityAgentService } from './antigravityAgentService.js';
 import { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } from './github';
 import { costOf } from './pricing';
@@ -37,7 +37,7 @@ import { MemoryStore } from './agentmemory';
 import { BrainStore, claudeCompactSummary, codexCompactions, droppedReplies, summaryKey, summaryChunks, summarizePrompt, SUMMARY_MAX_CHUNKS, BRAIN_TOOL_DEFS, BRAIN_DIR, formatSearch } from './secondbrain';
 import type { ChatText } from './secondbrain';
 import { detectIntent } from './agentintent';
-import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal } from './agentimages';
+import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal, imageMime } from './agentimages';
 import { parseTestOutput } from './testresults';
 import { expandAbbr } from './emmet';
 import { markdownBody } from './markdown';
@@ -2483,8 +2483,11 @@ function stopRun(runId: number | string): void {
   r.abort?.abort();
 }
 handle('agent:run', (_e, opts) => {
-  brainPrompt(opts?.taskBase || root || (opts?.box ? boxDir() : null), opts?.prompt);
-  return launchRun({ ...opts, team: null });
+  const chat = chatKeyOf(opts?.chat);
+  brainPrompt(opts?.taskBase || root || (opts?.box ? boxDir() : null), opts?.prompt, chat);
+  const runId = launchRun({ ...opts, team: null });
+  if (chat) runChat.set(runId, chat);
+  return runId;
 });
 // One user message in Claude Code's stream-json input.
 const claudeUserLine = (text: string) => `${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })}\n`;
@@ -2966,7 +2969,10 @@ handle('board:run', async (_e, o) => {
   if (agent.id === 'dsh') throw new Error(DSH_SOLO);
   if (typeof o.prompt !== 'string' || !o.prompt.trim()) throw new Error('Tell the agent what to do first.');
   const session = typeof o.session === 'string' && SAFE_ID.test(o.session) ? o.session : null;
-  return boards.forRun(typeof o.root === 'string' ? o.root : null, root).startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session, pick: boardPick(o, agent.id) });
+  const runId = boards.forRun(typeof o.root === 'string' ? o.root : null, root).startBox(boxKey, { agent: agent.id, name: `${shortName(agent)} · ${boxKey.slice(3)}`, prompt: o.prompt.slice(0, MAX_TASK), session, pick: boardPick(o, agent.id) });
+  const chat = chatKeyOf(o?.chat);
+  if (chat) runChat.set(Number(runId), chat);
+  return runId;
 });
 // A box's model and effort, when it picked its own: a plain model name (it reaches a command line; a local model
 // never does, and runLocal only takes one its server lists) and a known effort.
@@ -3369,9 +3375,9 @@ function claudeContextWindow(runId: number, d: Loose, ctx: StreamCtx): void {
 }
 function claudeEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
   if (d.type === 'system' && d.subtype === 'init' && d.session_id) emit(runId, { t: 'session', id: d.session_id });
-  else if (d.type === 'system' && d.subtype === 'compact_boundary') brainFromClaude(runBase(runId), d.session_id);
+  else if (d.type === 'system' && d.subtype === 'compact_boundary') brainFromClaude(runBase(runId), d.session_id, chatsOf(runId));
   else if (d.type === 'system' && d.subtype === 'task_notification') { if (d.tool_use_id) endSubagent(runId, d.tool_use_id, ctx, d.status === 'completed', String(d.summary ?? '')); }
-  else if (d.type === 'user' && d.isCompactSummary) brainTake(runBase(runId), brainText(d.message?.content), 'claude');
+  else if (d.type === 'user' && d.isCompactSummary) brainTake(runBase(runId), brainText(d.message?.content), 'claude', chatsOf(runId));
   else if (d.type === 'assistant' && d.parent_tool_use_id) { for (const c of d.message?.content || []) claudeContent(runId, c, ctx, d.parent_tool_use_id); }
   else if (d.type === 'assistant') { claudeContextUse(runId, d, ctx); for (const c of d.message?.content || []) claudeContent(runId, c, ctx); }
   else if (d.type === 'user') claudeToolResults(runId, d, ctx);
@@ -3556,7 +3562,7 @@ function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void
     if (mode === 'plan' && ctx.lastText) emit(runId, { t: 'plan', text: ctx.lastText });
     const ctxUse = ctx.session ? codexContext(ctx.session) : null;
     if (ctxUse) emit(runId, { t: 'ctx', ...ctxUse });
-    if (ctx.session) brainFromCodex(runBase(runId), ctx.session);
+    if (ctx.session) brainFromCodex(runBase(runId), ctx.session, chatsOf(runId));
     emit(runId, { t: 'done', ok: true, tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0) });
   }
 }
@@ -3634,18 +3640,23 @@ async function saveLlmSession(sid: string, base: string, messages: brain.ChatMes
   await Promise.all(dated.slice(LLM_SESSIONS_KEPT).map(({ n }) => fsp.rm(path.join(LLM_SESSION_DIR, n), { force: true })));
 }
 const LLM_TOOLS = [
-  { name: 'list_files', description: 'List the files and folders under a folder, two levels deep. Folders end with "/".', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Folder relative to the project root; "." for the root' } } } },
-  { name: 'read_file', description: `Read numbered lines of a text file (${brain.READ_LINES} lines unless end_line says otherwise). Read only the part you need.`, parameters: { type: 'object', properties: { path: { type: 'string' }, start_line: { type: 'integer', description: 'First line to read, from 1' }, end_line: { type: 'integer', description: 'Last line to read' } }, required: ['path'] } },
-  { name: 'search_files', description: 'Find lines that match across the project (plain text unless regex is true). Use it to find code before reading files.', parameters: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string', description: 'Only search here: a folder ("src"), or a file pattern ("*.css", "src/**/*.ts")' }, regex: { type: 'boolean', description: 'Treat query as a regular expression' }, case_sensitive: { type: 'boolean' } }, required: ['query'] } },
-  { name: 'edit_file', description: 'Change a file by replacing one exact snippet. old_text must appear exactly once in the file: copy it from read_file, without the line numbers.', parameters: { type: 'object', properties: { path: { type: 'string' }, old_text: { type: 'string' }, new_text: { type: 'string' } }, required: ['path', 'old_text', 'new_text'] } },
-  { name: 'write_file', description: 'Create a new file, or replace a whole file, with its complete contents. For changes to an existing file use edit_file.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
-  { name: 'delete_file', description: 'Delete one file (it goes to the Recycle Bin, so the user can get it back).', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
-  { name: 'move_file', description: 'Move or rename a file or folder. new_path must not exist yet.', parameters: { type: 'object', properties: { path: { type: 'string' }, new_path: { type: 'string' } }, required: ['path', 'new_path'] } },
-  { name: 'run_command', description: 'Run a shell command in the project folder (build, test, install, git…) and get its output. The user may be asked to OK it first. It stops after 2 minutes, so don\'t start servers or watchers.', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
-  { name: 'ask_user', description: 'Ask the user one question and wait for the answer. Use it when the request is unclear and a wrong guess would waste work.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', description: '2 to 4 answers to pick from; the user can also type another', items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } }, multi_select: { type: 'boolean', description: 'Let the user pick more than one' } }, required: ['question'] } },
-  { name: 'propose_plan', description: 'Show the user your plan and wait for their OK before you change files. Use it before a change that touches several files or is hard to undo; skip it for small, clear requests.', parameters: { type: 'object', properties: { plan: { type: 'string', description: 'A short numbered list of what you will change, file by file' } }, required: ['plan'] } },
-  { name: 'capture_preview', description: 'Take a screenshot of a page of the project as the Preview pane shows it, and show it to the user. Use it to check a page you built or changed.', parameters: { type: 'object', properties: { page: { type: 'string', description: 'The .html or .md file; index.html when left out' }, width: { type: 'integer', description: 'Window width in pixels (1280 when left out)' }, height: { type: 'integer' } } } },
-  { name: 'show_image', description: 'Show the user a picture from the project (png, jpg, gif, webp or svg) in the chat, such as one you made or a screenshot.', parameters: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string', description: 'One short line about it' } }, required: ['path'] } },
+  // Each definition goes with every request, so a description says what the tool does once, in few words; when to
+  // use it is the system prompt's job.
+  { name: 'list_files', description: 'List files and folders under a folder, two levels deep. Folders end with "/". With pattern, find files by name at any depth instead.', parameters: { type: 'object', properties: { path: { type: 'string', description: '"." for the project root' }, pattern: { type: 'string', description: 'A name or glob: "vite.config.js", "*.test.ts"' } } } },
+  { name: 'read_file', description: `Read numbered lines of a text file, ${brain.READ_LINES} unless end_line says otherwise, or look at a picture. Read only what you need.`, parameters: { type: 'object', properties: { path: { type: 'string' }, start_line: { type: 'integer', description: 'From 1' }, end_line: { type: 'integer' } }, required: ['path'] } },
+  { name: 'search_files', description: 'Find matching lines across the project, plain text unless regex is true. Find code with it before reading files.', parameters: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string', description: 'A folder ("src") or file pattern ("src/**/*.ts")' }, regex: { type: 'boolean' }, case_sensitive: { type: 'boolean' }, context: { type: 'integer', description: 'Lines to show around each match' } }, required: ['query'] } },
+  { name: 'edit_file', description: 'Replace one exact snippet in a file. old_text must appear exactly once, unless replace_all is set: copy it from read_file without the line numbers.', parameters: { type: 'object', properties: { path: { type: 'string' }, old_text: { type: 'string' }, new_text: { type: 'string' }, replace_all: { type: 'boolean', description: 'Change every place old_text appears' } }, required: ['path', 'old_text', 'new_text'] } },
+  { name: 'write_file', description: 'Create a file, or replace a whole file, with its full contents. To change part of a file use edit_file.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
+  { name: 'delete_file', description: 'Delete a file or an empty folder. It goes to the Recycle Bin.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+  { name: 'move_file', description: 'Move or rename a file or folder. new_path must not exist.', parameters: { type: 'object', properties: { path: { type: 'string' }, new_path: { type: 'string' } }, required: ['path', 'new_path'] } },
+  { name: 'run_command', description: 'Run a shell command in the project folder and get its output. The user may have to OK it. It stops after 2 minutes unless timeout_minutes says more; a server or watcher goes in the background.', parameters: { type: 'object', properties: { command: { type: 'string' }, timeout_minutes: { type: 'integer', description: 'Up to 10' }, background: { type: 'boolean', description: 'Keep it running and return its first output; read more with command_output. It stops when you finish.' } }, required: ['command'] } },
+  { name: 'command_output', description: 'Read what a background command printed since you last looked, or stop it.', parameters: { type: 'object', properties: { id: { type: 'string' }, wait_seconds: { type: 'integer', description: 'Wait up to this long (at most 60) for new output' }, stop: { type: 'boolean' } }, required: ['id'] } },
+  { name: 'web_fetch', description: 'Read a web page (docs, an issue, an API) as text, 10,000 characters at a time. The user may have to OK it.', parameters: { type: 'object', properties: { url: { type: 'string' }, start: { type: 'integer', description: 'Where to go on in a long page' } }, required: ['url'] } },
+  { name: 'web_search', description: 'Search the web; returns titles, addresses and snippets. The user may have to OK it.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+  { name: 'ask_user', description: 'Ask the user one question and wait for the answer.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', description: '2 to 4 choices; the user can also type one', items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } }, multi_select: { type: 'boolean' } }, required: ['question'] } },
+  { name: 'propose_plan', description: 'Show the user your plan and wait for their OK before changing files.', parameters: { type: 'object', properties: { plan: { type: 'string', description: 'Short numbered list of changes, file by file' } }, required: ['plan'] } },
+  { name: 'capture_preview', description: 'Screenshot a page of the project as the Preview pane shows it, and show it to the user. Use it to check a page you built or changed.', parameters: { type: 'object', properties: { page: { type: 'string', description: 'An .html or .md file; index.html by default' }, width: { type: 'integer', description: 'Pixels; 1280 by default' }, height: { type: 'integer' } } } },
+  { name: 'show_image', description: 'Show the user a picture from the project (png, jpg, gif, webp, svg) in the chat.', parameters: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string', description: 'One short line' } }, required: ['path'] } },
   ...BRAIN_TOOL_DEFS.map(t => ({ name: t.name, description: t.description, parameters: t.schema })),
 ].map(fn => ({ type: 'function', function: fn }));
 const WRITE_TOOLS = new Set(['edit_file', 'write_file', 'delete_file', 'move_file', 'run_command']);
@@ -3660,7 +3671,7 @@ const COMMAND_OUT_MAX = 8000; // characters of output the model gets back; the e
 interface LlmCtx {
   runId: number; base: string; full: boolean; allowAll?: boolean; touched: Set<string>; team?: Loose; signal?: AbortSignal;
   drafts: Map<string, Loose>; mode: string; seen: Map<string, number>; turn: number; toolNames: string[]; cfg: LlmConfig;
-  noStream?: boolean; noTools?: boolean; [key: string]: Loose;
+  noStream?: boolean; noTools?: boolean; attached?: string[]; jobs: Map<string, AgentJob>; [key: string]: Loose;
 }
 function agentPath(ctx: LlmCtx, rel: unknown): string {
   if (ctx.full) return path.resolve(ctx.base, String(rel ?? ''));
@@ -3668,6 +3679,14 @@ function agentPath(ctx: LlmCtx, rel: unknown): string {
   const why = agentBlocked(ctx.base, abs);
   if (why) throw new Error(why);
   return abs;
+}
+// What the user attached may sit outside the project: a pasted file waits in Breeze's temp folder, a dropped one
+// keeps its own path (ctx.attached, from the message's attachment lines). The read tools open those in every mode.
+function agentReadPath(ctx: LlmCtx, rel: unknown): string {
+  const abs = path.resolve(ctx.base, String(rel ?? ''));
+  const under = (dir: string) => { const r = path.relative(dir, abs); return !r.startsWith('..') && !path.isAbsolute(r); };
+  if (!ctx.full && (under(STASH_DIR()) || (ctx.attached ?? []).some(p => under(p) && !blockedRel(path.relative(p, abs))))) return abs;
+  return agentPath(ctx, rel);
 }
 // On a team, a write to a teammate's file is refused before it lands. A file no one owns becomes this agent's.
 async function checkTeamWrite(ctx: LlmCtx, rel: string): Promise<void> {
@@ -3681,19 +3700,25 @@ async function checkTeamWrite(ctx: LlmCtx, rel: string): Promise<void> {
   throw new Error(`That file belongs to ${name} on this team. Leave it and mention what you need in your final message.`);
 }
 // A command can read secrets or reach past the project, so run_command asks the user first. Full access, plain
-// checks and builds (guard.autoCommand) and "Allow all" for the rest of the run skip the question.
+// checks and builds (guard.autoCommand) and "Allow all" for the rest of the run skip the question. In Ask and Plan
+// mode only git commands that read skip it. A web request (kind 'web', the address or search as `command`) asks
+// the same way, since a URL can carry what the model read out of the project; its "Allow all" is separate.
 const pendingAsks = new Map<string, (answer: string) => void>(); // ask id -> answer function
-async function mayRun(ctx: LlmCtx, command: string): Promise<boolean> {
-  if (ctx.full || ctx.allowAll || autoCommand(command, { packageChanged: ctx.touched.has('package.json') })) return true;
+async function mayRun(ctx: LlmCtx, command: string, kind: 'command' | 'web' = 'command'): Promise<boolean> {
+  const readMode = ctx.mode !== 'build';
+  const flag = kind === 'web' ? 'allowWeb' : 'allowAll';
+  if (ctx.full || ctx[flag]) return true;
+  if (kind === 'command' && (readMode ? readOnlyCommand(command) : autoCommand(command, { packageChanged: ctx.touched.has('package.json') }))) return true;
   const id = crypto.randomUUID();
+  const hint = kind === 'command' && readMode ? 'Files can’t change in this mode, but a command still can.' : undefined;
   const answer = await new Promise<string>(resolve => {
     const done = (a: string) => { pendingAsks.delete(id); ctx.signal?.removeEventListener('abort', deny); resolve(a); };
     const deny = () => done('deny'); // stopping the run says no
     pendingAsks.set(id, done);
     ctx.signal?.addEventListener('abort', deny, { once: true });
-    emit(ctx.runId, { t: 'approve', id, command });
+    emit(ctx.runId, { t: 'approve', id, command, kind, ...(hint ? { hint } : {}) });
   });
-  if (answer === 'all') ctx.allowAll = true;
+  if (answer === 'all') ctx[flag] = true;
   return answer !== 'deny';
 }
 handle('agent:answer', (_e, id, answer) => pendingAsks.get(String(id))?.(['once', 'all'].includes(answer) ? answer : 'deny'));
@@ -3774,7 +3799,7 @@ function watchImages(runId: number, ev: Loose): void {
   // Claude reports a file before writing it ('written' follows); Codex and the local model once it is written.
   const written = ev.t === 'written' || (ev.t === 'file' && (ev.written || isLlmAgent(ir.agent)));
   if (written && IMAGE_EXT.test(String(ev.path ?? ''))) { try { showImage(runId, ev.path); } catch { /* deleted, or off limits */ } }
-  if (ev.t === 'done') imageRuns.delete(runId);
+  if (ev.t === 'done') { imageRuns.delete(runId); runChat.delete(runId); }
 }
 // A command's output: a picture it names shows, and test results in it become a result card ('tests' event).
 // A failure's file is kept only when it is in the open project, so clicking it opens the file at that line.
@@ -3900,19 +3925,23 @@ const runBase = (runId: number): string | null => imageRuns.get(runId)?.base ?? 
 const brainText = (content: unknown): string => typeof content === 'string' ? content
   : Array.isArray(content) ? content.map((c: Loose) => (typeof c?.text === 'string' ? c.text : '')).join('\n') : '';
 const brainChanged = (folder: string) => { if (win && !win.isDestroyed()) win.webContents.send('brain:changed', { folder }); };
+// The page's chat a run belongs to, so what the run adds to the second brain goes when that chat is deleted.
+const runChat = new Map<number, string>();
+const chatKeyOf = (v: unknown) => (typeof v === 'string' && v && v.length <= 200 ? v : undefined);
+const chatsOf = (runId: number) => { const c = runChat.get(runId); return c ? [c] : undefined; };
 // True when the summary is new to this folder (and is now kept).
-function brainTake(folder: string | null, summary: string | null, agent: string): boolean {
+function brainTake(folder: string | null, summary: string | null, agent: string, chats?: string[]): boolean {
   if (!folder || !summary?.trim() || secondBrain.seen(summaryKey(`${folder}\n${summary}`))) return false;
-  if (secondBrain.addSummary(folder, summary, agent)) brainChanged(folder);
+  if (secondBrain.addSummary(folder, summary, agent, undefined, chats)) brainChanged(folder);
   return true;
 }
-function brainFacts(folder: string | null, texts: string[], agent: string): void {
+function brainFacts(folder: string | null, texts: string[], agent: string, chats?: string[]): void {
   if (!folder) return;
   const fresh = texts.filter(t => !secondBrain.seen(summaryKey(`${folder}\n${t}`)));
-  if (fresh.length && secondBrain.addFacts(folder, fresh, agent)) brainChanged(folder);
+  if (fresh.length && secondBrain.addFacts(folder, fresh, agent, undefined, chats)) brainChanged(folder);
 }
 // The summary lands in the session log just after the stream says so: looked for a few times.
-function brainFromClaude(folder: string | null, session: unknown, tries = 4): void {
+function brainFromClaude(folder: string | null, session: unknown, chats?: string[], tries = 4): void {
   if (!folder || typeof session !== 'string' || !SAFE_ID.test(session)) return;
   setTimeout(() => {
     let lines: string[] = [];
@@ -3923,11 +3952,11 @@ function brainFromClaude(folder: string | null, session: unknown, tries = 4): vo
         if (fs.existsSync(f)) { lines = fs.readFileSync(f, 'utf8').split('\n'); break; }
       }
     } catch { /* no log yet */ }
-    if (!brainTake(folder, claudeCompactSummary(lines), 'claude') && tries > 1) brainFromClaude(folder, session, tries - 1);
+    if (!brainTake(folder, claudeCompactSummary(lines), 'claude', chats) && tries > 1) brainFromClaude(folder, session, chats, tries - 1);
   }, 1500);
 }
 // Codex's rollout log is filed under the day the thread started.
-function brainFromCodex(folder: string | null, thread: string): void {
+function brainFromCodex(folder: string | null, thread: string, chats?: string[]): void {
   if (!folder || !SAFE_ID.test(thread)) return;
   try {
     const base = path.join(process.env.CODEX_HOME || path.join(HOME, '.codex'), 'sessions');
@@ -3936,7 +3965,7 @@ function brainFromCodex(folder: string | null, thread: string): void {
       const dir = path.join(base, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
       const name = fs.existsSync(dir) && fs.readdirSync(dir).find(n => n.endsWith(`${thread}.jsonl`));
       if (!name) continue;
-      for (const s of codexCompactions(fs.readFileSync(path.join(dir, name), 'utf8').split('\n'))) brainTake(folder, s, 'codex');
+      for (const s of codexCompactions(fs.readFileSync(path.join(dir, name), 'utf8').split('\n'))) brainTake(folder, s, 'codex', chats);
       return;
     }
   } catch { /* no log, or one being written */ }
@@ -3961,7 +3990,7 @@ function brainSearchTool(runId: number, folder: string | null, a: Loose): string
 }
 function brainRememberTool(runId: number, folder: string | null, a: Loose, agent: string): string {
   if (!folder) throw new Error('This run has no project folder.');
-  const m = secondBrain.remember(folder, String(a?.text ?? ''), a?.kind, a?.related, agent);
+  const m = secondBrain.remember(folder, String(a?.text ?? ''), a?.kind, a?.related, agent, undefined, chatsOf(runId));
   brainChanged(folder);
   emit(runId, { t: 'tool', kind: 'tool', label: 'Added to the second brain' });
   return `Remembered as [${m.id}] (${m.kind}).`;
@@ -3971,13 +4000,45 @@ const BRAIN_TOOL_FNS: Record<string, (runId: number, args: Loose) => Promise<Too
   second_brain_remember: async (runId, a) => ({ text: brainRememberTool(runId, runBase(runId), a, runs.get(runId)?.agent ?? 'agent') }),
 };
 // Every prompt sent to an agent, read by Breeze itself (no model, no tokens). Slash commands are skipped.
-function brainPrompt(folder: string | null, prompt: unknown): void {
+function brainPrompt(folder: string | null, prompt: unknown, chat?: string): void {
   if (!folder || typeof prompt !== 'string' || !prompt.trim() || prompt.trim().startsWith('/')) return;
-  brainFacts(folder, [prompt.slice(0, 4000)], 'you');
+  brainFacts(folder, [prompt.slice(0, 4000)], 'you', chat ? [chat] : undefined);
 }
 // Summarize: the user's agent reads the folder's chats (only what it hasn't read before) and its bullets become
-// memories. This one does cost tokens, so the page shows brain:summarizePlan's estimate and asks first.
-const brainBusy = new Set<string>();
+// memories, kept with the chats they came from. It costs tokens: pressed on the page, which shows
+// brain:summarizePlan's estimate and asks first, and for one chat each time it finishes a reply (brain:syncChat).
+// A folder's summaries run one at a time, so no part of a chat is read twice.
+const brainQueue = new Map<string, Promise<unknown>>();
+function brainQueued<T>(folder: string, job: () => Promise<T>): Promise<T> {
+  const key = folder.toLowerCase();
+  const next = (brainQueue.get(key) ?? Promise.resolve()).catch(() => {}).then(job);
+  brainQueue.set(key, next);
+  const clear = () => { if (brainQueue.get(key) === next) brainQueue.delete(key); };
+  next.then(clear, clear);
+  return next;
+}
+// `min`: less new text than this waits for more (a card's "✓ Kept" isn't worth a request).
+async function brainSummarizeNew(folder: string, chats: ChatText[], maxChunks: number, progress: boolean, min = 0): Promise<{ added: number; requests: number }> {
+  const fresh = secondBrain.newText(folder, chats);
+  if (!fresh.length || fresh.reduce((n, c) => n + c.text.length, 0) < min) return { added: 0, requests: 0 };
+  const agent = await defaultCommitAgent();
+  if (!agent) throw new Error('No AI agent is available to summarize');
+  const chunks = summaryChunks(fresh).slice(0, maxChunks);
+  const base = fs.existsSync(folder) ? folder : root || boxDir();
+  let added = 0;
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      if (progress) win?.webContents.send('brain:progress', { folder, done: i, total: chunks.length });
+      const reply = await COMMIT_WRITERS[agent](base, summarizePrompt(chunks[i].text), undefined, undefined, true);
+      added += secondBrain.addSummary(folder, String(reply ?? ''), agent, undefined, Object.keys(chunks[i].upTo));
+      secondBrain.markRead(folder, chunks[i].upTo);
+      brainChanged(folder);
+    }
+  } finally {
+    if (progress) win?.webContents.send('brain:progress', { folder, done: chunks.length, total: chunks.length });
+  }
+  return { added, requests: chunks.length };
+}
 function brainChats(chats: unknown): ChatText[] {
   if (!Array.isArray(chats)) return [];
   let total = 0;
@@ -4002,27 +4063,20 @@ handle('brain:summarizePlan', async (_e, folder, chats) => {
 });
 handle('brain:summarize', async (_e, folder, chats) => {
   if (typeof folder !== 'string' || !folder) throw new Error('No folder');
-  const key = folder.toLowerCase();
-  if (brainBusy.has(key)) throw new Error('Already summarizing this folder');
-  const agent = await defaultCommitAgent();
-  if (!agent) throw new Error('No AI agent is available to summarize');
-  const chunks = summaryChunks(secondBrain.newText(folder, brainChats(chats))).slice(0, SUMMARY_MAX_CHUNKS);
-  const base = fs.existsSync(folder) ? folder : root || boxDir();
-  brainBusy.add(key);
-  let added = 0;
-  try {
-    for (let i = 0; i < chunks.length; i++) {
-      win?.webContents.send('brain:progress', { folder, done: i, total: chunks.length });
-      const reply = await COMMIT_WRITERS[agent](base, summarizePrompt(chunks[i].text), undefined, undefined, true);
-      added += secondBrain.addSummary(folder, String(reply ?? ''), agent);
-      secondBrain.markRead(folder, chunks[i].upTo);
-      brainChanged(folder);
-    }
-  } finally {
-    brainBusy.delete(key);
-    win?.webContents.send('brain:progress', { folder, done: chunks.length, total: chunks.length });
-  }
-  return { added, requests: chunks.length };
+  const list = brainChats(chats);
+  return brainQueued(folder, () => brainSummarizeNew(folder, list, SUMMARY_MAX_CHUNKS, true));
+});
+// A chat that just finished a reply, in the background: one request at most (more waits for its next reply).
+handle('brain:syncChat', (_e, folder, chat) => {
+  if (typeof folder !== 'string' || !folder) return;
+  const list = brainChats([chat]);
+  if (list.length) brainQueued(folder, () => brainSummarizeNew(folder, list, 1, false, 400)).catch(() => { /* no agent, or it failed: the next reply tries again */ });
+});
+handle('brain:forgetChats', (_e, keys) => {
+  if (!Array.isArray(keys)) return 0;
+  const scopes = secondBrain.forgetChats(keys.filter((k): k is string => typeof k === 'string'));
+  for (const s of scopes) brainChanged(s);
+  return scopes.length;
 });
 
 const AGENT_TASKS_FILE = () => path.join(app.getPath('userData'), 'agent-tasks.json');
@@ -4304,17 +4358,111 @@ async function draftTarget(ctx: LlmCtx, rel: string): Promise<string | null> {
     return relOut(abs, ctx.runId);
   } catch { return null; }
 }
-const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> = {
+// A command the local agent runs: both streams as they come (the end kept), what the agent has seen of them, and
+// how it ended (code stays undefined while it runs).
+interface AgentJob { id: string; command: string; child: ChildProcess; out: string; total: number; read: number; code?: number | null; error?: string; done: Promise<void> }
+const pause = (ms: number) => new Promise<void>(res => setTimeout(res, ms));
+function startJob(ctx: LlmCtx, command: string): AgentJob {
+  const shellId = `sh_${++shellSeq}`;
+  shellEvent(ctx.runId, shellId, command);
+  const child = spawn(command, { cwd: ctx.base, shell: true, windowsHide: true, env: ctx.full ? process.env : cleanEnv(process.env) });
+  const job: AgentJob = { id: shellId, command, child, out: '', total: 0, read: 0, done: Promise.resolve() };
+  const add = (d: Buffer | string) => { const t = String(d); job.total += t.length; job.out = (job.out + t).slice(-COMMAND_OUT_MAX * 2); };
+  child.stdout?.on('data', add);
+  child.stderr?.on('data', add);
+  job.done = new Promise<void>(resolve => {
+    const end = (code: number | null) => { if (job.code !== undefined) return; job.code = code; shellEvent(ctx.runId, shellId); resolve(); };
+    child.on('error', err => { job.error = err.message; end(null); });
+    child.on('close', code => end(code));
+  });
+  return job;
+}
+const jobStatus = (job: AgentJob) => (job.error ? `Couldn't start it: ${job.error}` : job.code === null ? 'It was stopped.' : `Exit code ${job.code}.`);
+// What the job printed since the agent last looked, the end kept when it is more than fits.
+function jobOutput(ctx: LlmCtx, job: AgentJob): string {
+  const kept = job.total - job.out.length; // characters that no longer fit in job.out
+  let text = job.out.slice(Math.max(0, job.read - kept));
+  job.read = job.total;
+  if (text.length > COMMAND_OUT_MAX) text = `…${text.slice(-COMMAND_OUT_MAX)}`;
+  commandOutput(ctx.runId, text); // a picture it made, test results
+  return text;
+}
+// What a tool hands back: text, or text and a picture for the model to look at (wireMessages sends it).
+type ToolOut = string | { text: string; image: brain.Picture };
+const PICTURE_MAX = 5 * 1024 * 1024; // the largest picture most providers take
+// A png, jpg, gif or webp file as a picture for the model, or why it can't be one. svg is text: read_file reads it.
+async function pictureOf(abs: string, label: string): Promise<brain.Picture | string> {
+  if (!IMAGE_EXT.test(abs) || /\.svg$/i.test(abs)) return 'Not a picture.';
+  const st = await fsp.stat(abs);
+  if (st.size > PICTURE_MAX) return 'It is a picture larger than 5 MB, too big to look at.';
+  return { data: (await fsp.readFile(abs)).toString('base64'), mime: imageMime(abs), label };
+}
+// web_fetch: a page's text a part at a time. Breeze says who it is; a site that turns that away isn't for it.
+const WEB_PART = 10000; // characters of a page per call
+const webAgent = () => `BreezeCode/${app.getVersion()} (+https://breezecode.site)`;
+const webSignal = (ctx: LlmCtx) => AbortSignal.any([AbortSignal.timeout(20000), ...(ctx.signal ? [ctx.signal] : [])]);
+// web_search goes to the Brave Search API with the user's own key (secret braveKey, Settings → Agents → API keys).
+const BRAVE_SEARCH = 'https://api.search.brave.com/res/v1/web/search';
+async function braveSearch(key: string, query: string, signal: AbortSignal, count = 8): Promise<Loose> {
+  const r = await fetch(`${BRAVE_SEARCH}?${new URLSearchParams({ q: query, count: String(count) })}`, { headers: { Accept: 'application/json', 'X-Subscription-Token': key }, signal });
+  const j: Loose = await r.json().catch(() => ({}));
+  if (r.ok) return j;
+  if (r.status === 401 || r.status === 403 || r.status === 422) throw new Error('Brave rejected the search key. Check it at api-dashboard.search.brave.com.');
+  if (r.status === 429) throw new Error('Brave’s search limit is used up for now. Wait a moment, or check the plan at api-dashboard.search.brave.com.');
+  throw new Error(String(j?.error?.detail || j?.message || `Brave Search answered with status ${r.status}`));
+}
+handle('web:searchKey', () => !!getSecret('braveKey'));
+// Saving checks the key with one search, so a typo fails here and not in the middle of a run. Empty forgets it.
+handle('web:setSearchKey', async (_e, key) => {
+  const k = String(key ?? '').trim();
+  if (!k) { setSecret('braveKey', null); return false; }
+  await braveSearch(k, 'Breeze Code', AbortSignal.timeout(8000), 1);
+  setSecret('braveKey', k);
+  return true;
+});
+async function bodyText(r: Response, max: number): Promise<string> {
+  const chunks: Buffer[] = [];
+  let n = 0;
+  if (r.body) for await (const c of r.body as unknown as AsyncIterable<Uint8Array>) { chunks.push(Buffer.from(c)); n += c.length; if (n >= max) break; }
+  return Buffer.concat(chunks).toString('utf8');
+}
+const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<ToolOut>> = {
   ask_user: (ctx, a) => askUser(ctx.runId, a, ctx.signal),
   propose_plan: (ctx, a) => askUser(ctx.runId, a, ctx.signal, true),
   // agentPath keeps the file tools' rules (inside the project, no .env or .git) before showImage checks it again.
-  capture_preview: (ctx, a) => capturePreview(ctx.runId, a, ctx.signal).then(shot => shot.text),
+  // The model sees the screenshot too, when it can take pictures (wireMessages), so it can check its own work.
+  capture_preview: (ctx, a) => capturePreview(ctx.runId, a, ctx.signal).then(shot => ({ text: `${shot.text} It is attached below, so you can check it.`, image: { data: shot.png.toString('base64'), mime: 'image/png', label: `The screenshot of ${a.page || 'index.html'}:` } })),
+  async web_fetch(ctx, a) {
+    let url: URL;
+    try { url = new URL(String(a.url ?? '').trim()); } catch { throw new Error('url is not a web address. Give the whole address, starting with https://'); }
+    if (!/^https?:$/.test(url.protocol)) throw new Error('Only http and https addresses can be fetched.');
+    if (!await mayRun(ctx, url.href, 'web')) return 'The user chose not to open this address. Don\'t try it again: carry on without it.';
+    emit(ctx.runId, { t: 'tool', kind: 'read', label: `Read ${url.host}${url.pathname === '/' ? '' : url.pathname}` });
+    const r = await fetch(url, { headers: { 'User-Agent': webAgent(), Accept: 'text/html,text/plain,application/json;q=0.9,*/*;q=0.5' }, signal: webSignal(ctx) });
+    const type = r.headers.get('content-type') || '';
+    if (type && !/text|json|xml|javascript/i.test(type)) return `${r.url} is ${type.split(';')[0]}, not text, so it can't be read.`;
+    const raw = await bodyText(r, 2 * 1024 * 1024);
+    const { title, text } = /html/i.test(type) || /^\s*<(!doctype|html)/i.test(raw) ? brain.htmlText(raw) : { title: '', text: raw };
+    const start = Math.max(0, Math.floor(Number(a.start) || 0));
+    const more = start + WEB_PART < text.length ? `\n(more: web_fetch with start=${start + WEB_PART}; the page has ${text.length} characters)` : '';
+    return `${r.url} (status ${r.status})${title ? `\n${title}` : ''}\n\n${text.slice(start, start + WEB_PART) || '(no text)'}${more}`;
+  },
   show_image: (ctx, a) => { agentPath(ctx, a.path); return Promise.resolve(showImage(ctx.runId, a.path, a.caption)); },
   second_brain_search: (ctx, a) => Promise.resolve(brainSearchTool(ctx.runId, ctx.base, a)),
   second_brain_remember: (ctx, a) => Promise.resolve(brainRememberTool(ctx.runId, ctx.base, a, runs.get(ctx.runId)?.agent ?? 'local')),
   async list_files(ctx, a) {
-    const dir = agentPath(ctx, a.path || '.');
-    emit(ctx.runId, { t: 'tool', kind: 'read', label: `Listed ${a.path && a.path !== '.' ? a.path : 'the project'}` });
+    const dir = agentReadPath(ctx, a.path || '.');
+    emit(ctx.runId, { t: 'tool', kind: 'read', label: `${a.pattern ? `Found ${a.pattern} in` : 'Listed'} ${a.path && a.path !== '.' ? a.path : 'the project'}` });
+    // A pattern finds files by name at any depth; a bare name ("vite.config.js") matches it in any folder.
+    if (a.pattern) {
+      const p = String(a.pattern);
+      const match = brain.pathFilter(/[*?{/\\]/.test(p) ? p : `**/${p}`);
+      const inside = !relTo(ctx.base, dir).startsWith('..') && !path.isAbsolute(relTo(ctx.base, dir));
+      const found = (await listFiles(dir)).map(f => (inside ? relTo(ctx.base, f) : relTo(dir, f)))
+        .filter(r => match(r) && (ctx.full || !blockedRel(r)));
+      if (!found.length) return `No files match ${p}.`;
+      return found.slice(0, LIST_MAX).join('\n') + (found.length > LIST_MAX ? `\n… ${found.length - LIST_MAX} more; use a narrower pattern` : '');
+    }
     const out: string[] = [];
     const walk = async (d: string, indent: string, level: number): Promise<void> => {
       let entries: fs.Dirent[];
@@ -4331,12 +4479,25 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
     if (!out.length) return 'Empty folder.';
     return out.join('\n') + (out.length >= LIST_MAX ? '\n… more entries; list a subfolder' : '');
   },
+  async web_search(ctx, a) {
+    const query = String(a.query ?? '').trim();
+    if (!query) throw new Error('query is empty.');
+    const key = getSecret('braveKey');
+    if (!key) throw new Error('Web search needs a Brave Search key, in Settings → Agents → API keys.');
+    if (!await mayRun(ctx, `Search the web for: ${query}`, 'web')) return 'The user chose not to search the web for this. Don\'t try it again: carry on without it.';
+    emit(ctx.runId, { t: 'tool', kind: 'search', label: `Searched the web for ${query}` });
+    return brain.searchList(await braveSearch(key, query, webSignal(ctx)));
+  },
   async read_file(ctx, a) {
-    const abs = agentPath(ctx, a.path);
+    const abs = agentReadPath(ctx, a.path);
     await fsp.stat(abs); // a missing file comes back as an error the model can read
     const rel = relTo(ctx.base, abs);
     const range = a.start_line > 1 || a.end_line ? ` (lines ${a.start_line || 1}–${a.end_line || ''})` : '';
     emit(ctx.runId, { t: 'tool', kind: 'read', label: `Read ${rel}${range}` });
+    if (IMAGE_EXT.test(abs) && !/\.svg$/i.test(abs)) {
+      const pic = await pictureOf(abs, `The picture ${rel}:`);
+      return typeof pic === 'string' ? `${rel}: ${pic}` : { text: `${rel} is a picture (${Math.ceil(Buffer.byteLength(pic.data, 'base64') / 1024)} KB). It is attached below.`, image: pic };
+    }
     const text = await readSearchable(abs);
     if (text == null) return 'Not a readable text file (binary, or larger than 1 MB).';
     return brain.readRange(text, rel, a.start_line, a.end_line);
@@ -4347,9 +4508,19 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
     const where = a.path && a.path !== '.' ? ` in ${a.path}` : '';
     emit(ctx.runId, { t: 'tool', kind: 'search', label: `Searched for ${a.query}${where}` });
     const skip = (rel: string) => !inPath(rel) || (!ctx.full && !!blockedRel(rel));
-    return brain.formatHits(await searchFiles(find, ctx.base, skip));
+    const hits = await searchFiles(find, ctx.base, skip);
+    const lines = new Map<string, string[]>(); // the files whose hits get lines around them
+    if (Number(a.context) > 0) {
+      for (const p of new Set(hits.slice(0, 40).map(h => h.path))) {
+        const text = await readSearchable(path.join(ctx.base, p));
+        if (text != null) lines.set(p, text.split(/\r?\n/));
+      }
+    }
+    return brain.formatHits(hits, 40, a, p => lines.get(p));
   },
-  // The shell's output, both streams as they came. The whole process tree stops at the time limit or when the run is stopped.
+  // The shell's output, both streams as they came. The whole process tree stops at the time limit (2 minutes, or
+  // timeout_minutes up to 10) or when the run is stopped. With background set it keeps running, read through
+  // command_output, until it ends, the agent stops it, or the run is over.
   async run_command(ctx, a) {
     const command = String(a.command ?? '').trim();
     if (!command) throw new Error('command is empty.');
@@ -4358,42 +4529,54 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
       return 'The user chose not to run this command. Don\'t run it again: carry on without it, or say in your final message what you needed it for.';
     }
     emit(ctx.runId, { t: 'tool', kind: 'run', label: `$ ${command}` });
-    const shellId = `sh_${++shellSeq}`;
-    shellEvent(ctx.runId, shellId, command);
-    return new Promise<string>(resolve => {
-      const child = spawn(command, { cwd: ctx.base, shell: true, windowsHide: true, env: ctx.full ? process.env : cleanEnv(process.env) });
-      let out = '', timedOut = false;
-      const add = (d: Buffer | string) => { out = (out + d).slice(-COMMAND_OUT_MAX * 2); };
-      child.stdout.on('data', add);
-      child.stderr.on('data', add);
-      const stop = () => killTree(child);
-      const timer = setTimeout(() => { timedOut = true; stop(); }, COMMAND_MS);
-      ctx.signal?.addEventListener('abort', stop, { once: true });
-      const finish = (head: string) => {
-        shellEvent(ctx.runId, shellId);
-        clearTimeout(timer);
-        ctx.signal?.removeEventListener('abort', stop);
-        const body = out.length > COMMAND_OUT_MAX ? `…${out.slice(-COMMAND_OUT_MAX)}` : out;
-        commandOutput(ctx.runId, body); // a picture it made, test results
-        resolve(`${head}\n${body.trim() || '(no output)'}`);
-      };
-      child.on('error', err => finish(`Couldn't start it: ${err.message}`));
-      child.on('close', code => finish(timedOut ? `Stopped after ${COMMAND_MS / 60000} minutes.` : `Exit code ${code}.`));
-    });
+    const job = startJob(ctx, command);
+    if (a.background === true) {
+      ctx.jobs.set(job.id, job);
+      await Promise.race([job.done, pause(3000)]); // its first lines, or how it failed
+      const first = jobOutput(ctx, job).trim() || '(no output yet)';
+      return job.code === undefined
+        ? `Started ${job.id} in the background. It stops when you finish your answer. Read more with command_output.\n${first}`
+        : `${job.id} ended at once: ${jobStatus(job)}\n${first}`;
+    }
+    const minutes = Math.min(10, Math.max(1, Math.round(Number(a.timeout_minutes) || COMMAND_MS / 60000)));
+    let timedOut = false;
+    const stop = () => killTree(job.child);
+    const timer = setTimeout(() => { timedOut = true; stop(); }, minutes * 60000);
+    ctx.signal?.addEventListener('abort', stop, { once: true });
+    await job.done;
+    clearTimeout(timer);
+    ctx.signal?.removeEventListener('abort', stop);
+    const body = jobOutput(ctx, job);
+    return `${timedOut ? `Stopped after ${minutes} minute${minutes > 1 ? 's' : ''}.` : jobStatus(job)}\n${body.trim() || '(no output)'}`;
+  },
+  // A background command's output since the agent last looked: at once, or after waiting up to wait_seconds for more.
+  async command_output(ctx, a) {
+    const job = ctx.jobs.get(String(a.id ?? ''));
+    if (!job) throw new Error(`There is no background command ${a.id}. The id comes from run_command with background set.`);
+    emit(ctx.runId, { t: 'tool', kind: 'read', label: `${a.stop ? 'Stopped' : 'Checked'} $ ${job.command}` });
+    if (a.stop === true && job.code === undefined) {
+      killTree(job.child);
+      await Promise.race([job.done, pause(5000)]);
+    } else {
+      const until = Date.now() + Math.min(60, Math.max(0, Number(a.wait_seconds) || 0)) * 1000;
+      while (job.code === undefined && job.total === job.read && Date.now() < until && !ctx.signal?.aborted) await pause(250);
+    }
+    const body = jobOutput(ctx, job).trim() || '(nothing new)';
+    return `${job.code === undefined ? `${job.id} is still running.` : `${job.id} ${a.stop ? 'was stopped' : 'has ended'}: ${jobStatus(job)}`}\n${body}`;
   },
   async edit_file(ctx, a) {
     const abs = agentPath(ctx, a.path);
     const rel = relTo(ctx.base, abs);
     await checkTeamWrite(ctx, rel);
     const before = await fsp.readFile(abs, 'utf8');
-    const { text, line } = brain.applyEdit(before, a.old_text, a.new_text);
+    const { text, line, count } = brain.applyEdit(before, a.old_text, a.new_text, a.replace_all === true);
     // The editor switches to the file first, showing it as it is now, so the change then types out in front of the user.
     emit(ctx.runId, { t: 'opening', path: relOut(abs, ctx.runId), text: before });
     await fsp.writeFile(abs, text, 'utf8');
     ctx.touched.add(rel);
     emit(ctx.runId, { t: 'tool', kind: 'edit', label: `Edited ${rel}` });
     emit(ctx.runId, { t: 'file', path: relOut(abs, ctx.runId) });
-    return `Edited ${rel} at line ${line}.`;
+    return count > 1 ? `Edited ${rel}: ${count} places, the first at line ${line}.` : `Edited ${rel} at line ${line}.`;
   },
   async write_file(ctx, a) {
     const abs = agentPath(ctx, a.path);
@@ -4418,7 +4601,8 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
     const abs = agentPath(ctx, a.path);
     const rel = relTo(ctx.base, abs);
     if (!rel) throw new Error('That is the project folder itself.');
-    if ((await fsp.stat(abs)).isDirectory()) throw new Error(`${rel} is a folder. Delete the files in it one at a time.`);
+    // A folder goes only once it is empty, so one call never bins a whole tree.
+    if ((await fsp.stat(abs)).isDirectory() && (await fsp.readdir(abs)).length) throw new Error(`${rel} is a folder with files in it. Delete the files one at a time, then the empty folder.`);
     await checkTeamWrite(ctx, rel);
     await shell.trashItem(abs);
     ctx.touched.add(rel);
@@ -4444,11 +4628,12 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<string>> =
     return `Moved ${fromRel} to ${toRel}.`;
   },
 };
-async function llmTool(ctx: LlmCtx, call: brain.ToolCall): Promise<string> {
+async function llmTool(ctx: LlmCtx, call: brain.ToolCall): Promise<ToolOut> {
   const name = call.function?.name ?? '';
   const fn = LLM_TOOL_FNS[name];
   if (!fn) throw new Error(`There is no tool called ${name}. Use one of: ${ctx.toolNames.join(', ')}.`);
-  if (WRITE_TOOLS.has(name) && ctx.mode !== 'build') throw new Error('This is read-only mode, so files can’t be changed and commands can’t run. Describe the change instead.');
+  // Ask and Plan mode keep run_command: mayRun lets only git commands that read through without the user's OK.
+  if (WRITE_TOOLS.has(name) && name !== 'run_command' && ctx.mode !== 'build') throw new Error('This is read-only mode, so files can’t be changed. Describe the change instead.');
   let args: Loose;
   try { args = JSON.parse(call.function!.arguments || '{}'); } catch { throw new Error('The arguments were not valid JSON. Call the tool again with a JSON object.'); }
   if (WRITE_TOOLS.has(name)) ctx.seen.clear(); // files changed, so reading them again is fair
@@ -4463,9 +4648,9 @@ async function llmTool(ctx: LlmCtx, call: brain.ToolCall): Promise<string> {
 // after the calls before it and before the ones after it (a later call may read what it wrote).
 async function runToolCalls(ctx: LlmCtx, calls: brain.ToolCall[]): Promise<brain.ChatMessage[]> {
   const reply = async (call: brain.ToolCall): Promise<brain.ChatMessage> => {
-    let content: string;
-    try { content = String(await llmTool(ctx, call)); } catch (err) { content = `Error: ${(err as Error).message}`; }
-    return { role: 'tool', tool_call_id: call.id, content };
+    let out: ToolOut;
+    try { out = await llmTool(ctx, call); } catch (err) { out = `Error: ${(err as Error).message}`; }
+    return typeof out === 'string' ? { role: 'tool', tool_call_id: call.id, content: out } : { role: 'tool', tool_call_id: call.id, content: out.text, images: [out.image] };
   };
   const out: brain.ChatMessage[] = [];
   for (let i = 0; i < calls.length;) {
@@ -4479,8 +4664,8 @@ async function runToolCalls(ctx: LlmCtx, calls: brain.ToolCall[]): Promise<brain
 }
 const LLM_MODE_NOTE: Record<string, string> = {
   build: 'Build mode: make the change with edit_file (write_file only for new files), run_command to build or test it, then say what you changed.',
-  plan: 'Plan mode: read only. Look at the code you need, then reply with a short numbered plan of the changes.',
-  ask: 'Ask mode: read only. Answer the question directly.',
+  plan: 'Plan mode: files can’t change; run_command runs git commands that only read, anything else waits for the user’s OK. Look at the code you need, then reply with a short numbered plan of the changes.',
+  ask: 'Ask mode: files can’t change; run_command runs git commands that only read, anything else waits for the user’s OK. Answer the question directly.',
 };
 // Claude Code-style prompt (agentbrain.systemPrompt) plus the CLAUDE.md / AGENTS.md files the user wrote for Claude and Codex.
 // Reliability rules adapted from the Gravitas skill (MIT, github.com/udaysharmadev/Gravitas).
@@ -4533,7 +4718,7 @@ async function llmRequest(ctx: Partial<LlmCtx> & { cfg: LlmConfig }, body: Loose
       return await llmStream(ctx.cfg, b, signal, onDelta);
     } catch (err) {
       // A tool refusal is handled below; a key, quota or credit problem would only fail again.
-      if (signal?.aborted || accountError(err) || /tool/i.test((err as Error).message)) throw err;
+      if (signal?.aborted || accountError(err) || /tool|image|vision/i.test((err as Error).message)) throw err;
       ctx.noStream = true;
       return llmPost(ctx.cfg, b, signal);
     }
@@ -4607,12 +4792,20 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
   })();
   llmSessions.set(sid, messages);
   emit(runId, { t: 'session', id: sid, model: cfg.model });
-  const map = fresh ? `Project map:\n${brain.projectMap((await listFiles(base)).map(f => relTo(base, f)), Math.min(2400, Math.floor(budget * 0.8)))}\n\n` : '';
-  messages.push({ role: 'user', content: `${map}${prompt}\n\n(${LLM_MODE_NOTE[mode] ?? LLM_MODE_NOTE.ask})` });
-  const tools = LLM_TOOLS.filter(t => mode === 'build' || !WRITE_TOOLS.has(t.function.name));
+  const files = (await listFiles(base)).map(f => relTo(base, f));
+  const map = fresh ? `Project map:\n${brain.projectMap(files, Math.min(2400, Math.floor(budget * 0.8)))}\n\n` : '';
+  // Pictures the user attached go with their message; the attachment line keeps the path for read_file later.
+  const pictures: brain.Picture[] = [];
+  for (const p of brain.attachedPaths(prompt).map(q => path.resolve(base, q))) {
+    const pic = IMAGE_EXT.test(p) ? await pictureOf(p, `The attached picture ${path.basename(p)}:`).catch(() => null) : null;
+    if (pic && typeof pic !== 'string') pictures.push(pic);
+  }
+  messages.push({ role: 'user', content: `${map}${prompt}\n\n(${LLM_MODE_NOTE[mode] ?? LLM_MODE_NOTE.ask})`, ...(pictures.length ? { images: pictures } : {}) });
+  const idle = new Set(brain.idleTools(mode, files, secondBrain.graph(base).nodes.length > 0, !!getSecret('braveKey')));
+  const tools = LLM_TOOLS.filter(t => (mode === 'build' || !WRITE_TOOLS.has(t.function.name) || t.function.name === 'run_command') && !idle.has(t.function.name));
   run.abort = new AbortController();
   const full = mode === 'build' && fullAccess();
-  const ctx: LlmCtx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, noStream: false, allowAll: false, seen: new Map(), touched: new Set(), drafts: new Map(), turn: 0, toolNames: tools.map(t => t.function.name) };
+  const ctx: LlmCtx = { runId, base, cfg, mode, full, signal: run.abort.signal, team: run.team, noTools: false, noStream: false, allowAll: false, seen: new Map(), touched: new Set(), drafts: new Map(), jobs: new Map(), attached: messages.filter(m => m.role === 'user').flatMap(m => brain.attachedPaths(m.content).map(p => path.resolve(base, p))), turn: 0, toolNames: tools.map(t => t.function.name) };
   const started = Date.now();
   let tokens = 0, lastText = '';
   // One request; only the assistant's text and tool calls are kept (servers add extra fields), and its thinking where
@@ -4620,9 +4813,10 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
   const ask = async (withTools: boolean) => {
     const fitted = brain.compactHistory(messages, budget);
     // Replies dropped to fit go to the folder's second brain, so what they said isn't lost.
-    if (fitted.length < messages.length) brainFacts(base, droppedReplies(messages, fitted), provider);
-    const body: Loose = { model: cfg.model, messages: brain.reasoningFor(fitted, keepsReasoning(provider)), temperature: 0.2, stream: false };
-    if (withTools) body.tools = tools;
+    if (fitted.length < messages.length) brainFacts(base, droppedReplies(messages, fitted), provider, chatsOf(runId));
+    const body: Loose = { model: cfg.model, messages: brain.wireMessages(brain.reasoningFor(fitted, keepsReasoning(provider)), !ctx.noImages), temperature: 0.2, stream: false };
+    // command_output joins the tools once something runs in the background.
+    if (withTools) body.tools = ctx.jobs.size ? tools : tools.filter(t => t.function.name !== 'command_output');
     // The text shows as it is written. Thinking isn't shown, only how long it took.
     const sent = Date.now();
     let shown = '', shownAt = 0, thought = false, noted = false;
@@ -4645,7 +4839,16 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
       shownAt = Date.now();
       emit(runId, { t: 'text', text: visible });
     };
-    const j = await llmRequest(ctx, body, run.abort!.signal, onDelta);
+    let j: Loose;
+    try {
+      j = await llmRequest(ctx, body, run.abort!.signal, onDelta);
+    } catch (err) {
+      // A model that can't take pictures says so in its error: send the words without them, from now on.
+      if (ctx.noImages || !brain.hasPictures(fitted) || accountError(err) || !/image|vision|multimodal|modalit/i.test((err as Error).message)) throw err;
+      ctx.noImages = true;
+      emit(runId, { t: 'note', text: `${cfg.model} can't take pictures, so Breeze leaves them out.` });
+      j = await llmRequest(ctx, { ...body, messages: brain.wireMessages(fitted, false) }, run.abort!.signal, onDelta);
+    }
     tokens += j.usage?.total_tokens || 0;
     const msg = j.choices?.[0]?.message;
     if (!msg) throw new Error('The model returned no answer');
@@ -4667,6 +4870,7 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
   } catch (err) {
     if (!run.stopped) throw err; // stopping aborts the request
   } finally {
+    for (const job of ctx.jobs.values()) if (job.code === undefined) killTree(job.child); // background commands end with the run
     // Later turns keep the conversation, not this turn's raw tool output.
     messages.splice(0, messages.length, ...brain.settle(messages));
     saveLlmSession(sid, base, messages).catch(logError('llm session'));

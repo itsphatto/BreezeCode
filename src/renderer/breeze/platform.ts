@@ -210,6 +210,8 @@ function demoBrain(): BreezeApi['brain'] {
       progress.forEach(cb => cb({ folder, done: made.length, total: made.length }));
       return { added: made.length, requests: 1 };
     },
+    async syncChat() { /* the preview has no agent to summarize with */ },
+    async forgetChats() { return 0; },
     onProgress(cb) { progress.push(cb); return () => { const i = progress.indexOf(cb); if (i >= 0) progress.splice(i, 1); }; },
   };
 }
@@ -508,6 +510,10 @@ function demoApi(): BreezeApi {
       },
       async setModel(provider, model) { store.set(demoLlmKey(provider), model); },
       async disconnect(provider) { store.del(demoLlmKey(provider)); },
+    },
+    web: {
+      async searchKey() { return store.get<boolean>('breeze.demoBraveKey', false) === true; },
+      async setSearchKey(key) { await wait(400); const on = !!key?.trim(); if (on) store.set('breeze.demoBraveKey', true); else store.del('breeze.demoBraveKey'); return on; },
     },
     agent: {
       async run({ mode }) {

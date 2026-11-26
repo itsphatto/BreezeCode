@@ -365,10 +365,12 @@ async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, u
     const box = tab.surfaceName === 'box';
     // Each agent resumes only its own session (a Codex thread id means nothing to Claude Code).
     const session = tab.sessions[agentId] ?? null;
+    // The chat's id from its first message, so what the run tells the second brain goes if the chat is deleted.
+    const chat = tab.historyId ??= newChatId();
     // An Agent board box runs through the board, which keeps its files apart from the other boxes'.
     const id = isBoardSurface(tab.surfaceName)
-      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, root: SURFACES[tab.surfaceName].folder ?? undefined, ...boardPickOf(boxKeyOf(tab.surfaceName)) })
-      : await api.agent.run({ agent: agentId, mode, prompt, session, box });
+      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, chat, root: SURFACES[tab.surfaceName].folder ?? undefined, ...boardPickOf(boxKeyOf(tab.surfaceName)) })
+      : await api.agent.run({ agent: agentId, mode, prompt, session, box, chat });
     const run: Run = {
       id,
       tabId: tab.id,
@@ -495,12 +497,14 @@ function approveCard(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   const id = ev.id;
   if (!id || !ev.command) return;
   r.lastMsg = undefined;
-  setAgent(r.phase, 'waiting', 'Waiting for your OK to run a command', r.tools);
+  // A web request (kind 'web') waits on the same card: the address or search the agent wants, sent out of Breeze.
+  const web = ev.kind === 'web';
+  setAgent(r.phase, 'waiting', web ? 'Waiting for your OK to use the web' : 'Waiting for your OK to run a command', r.tools);
   sfx.play('plan');
-  const el = addMsg(`<div class="card warn"><h5>${svgIcon('alert', 14)} Run this command?</h5><pre>${esc(ev.command)}</pre><div class="row" data-live><button class="btn btn-primary btn-sm" data-ask="once">Run it</button><button class="btn btn-sm" data-ask="all">Allow all this run</button><button class="btn btn-sm" data-ask="deny">Don’t run</button></div></div>`, tab);
+  const el = addMsg(`<div class="card warn"><h5>${svgIcon('alert', 14)} ${web ? 'Let the agent use the web?' : 'Run this command?'}</h5><pre>${esc(ev.command)}</pre>${ev.hint ? `<p>${esc(ev.hint)}</p>` : ''}<div class="row" data-live><button class="btn btn-primary btn-sm" data-ask="once">${web ? 'Allow' : 'Run it'}</button><button class="btn btn-sm" data-ask="all">Allow all this run</button><button class="btn btn-sm" data-ask="deny">${web ? 'Don’t allow' : 'Don’t run'}</button></div></div>`, tab);
   $$<HTMLElement>('[data-ask]', el).forEach(b => b.onclick = () => {
     const answer = b.dataset.ask === 'once' || b.dataset.ask === 'all' ? b.dataset.ask : 'deny';
-    $('[data-live]', el).outerHTML = `<div class="resolved">${answer === 'deny' ? '✕ Not run' : '✓ Allowed'}</div>`;
+    $('[data-live]', el).outerHTML = `<div class="resolved">${answer === 'deny' ? (web ? '✕ Not allowed' : '✕ Not run') : '✓ Allowed'}</div>`;
     refreshNeedsYou(tab);
     setAgent(r.phase, 'working', 'Working on your request', r.tools);
     background(api.agent.answer(id, answer));

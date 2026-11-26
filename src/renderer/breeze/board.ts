@@ -1074,10 +1074,7 @@ async function boardFolderChats(folder: string): Promise<BrainChat[]> {
     if (e.log) {
       const msgs = await api.agent.chatLog(e.log.agent, e.log.session).catch(() => null);
       text = (msgs ?? []).map(m => `${m.role === 'user' ? 'User' : 'Agent'}: ${m.text}`).join('\n\n');
-    } else if (e.html) {
-      const html = e.html.replace(/<\/(?:p|div|li|h\d|pre|tr|blockquote)>|<br\s*\/?>/gi, '$&\n');
-      text = (new DOMParser().parseFromString(html, 'text/html').body.textContent ?? '').replace(/\n{3,}/g, '\n\n');
-    }
+    } else if (e.html) text = chatPlainText(e.html);
     if (text.trim()) out.push({ key: e.id, title: e.title || 'Chat', text: text.trim() });
   }
   return out;
@@ -1216,6 +1213,7 @@ function renameBoardChat(id: string): void {
 }
 function deleteBoardChat(id: string): void {
   if (pinnedChats().includes(id)) store.set(PINNED_KEY, pinnedChats().filter(x => x !== id));
+  background(api.brain.forgetChats([id])); // what only this chat told the second brain goes with it
   if (boardLogs.some(e => e.id === id)) {
     store.set(LOG_HIDDEN_KEY, [...store.get<string[]>(LOG_HIDDEN_KEY, []), id]);
     renderBoardSide();
