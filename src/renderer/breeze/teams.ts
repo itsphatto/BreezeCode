@@ -365,6 +365,8 @@ async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, u
     const box = tab.surfaceName === 'box';
     // Each agent resumes only its own session (a Codex thread id means nothing to Claude Code).
     const session = tab.sessions[agentId] ?? null;
+    // Settings -> Agents -> Instructions go to every agent with every message.
+    prompt = withAgentInstructions(prompt);
     // The chat's id from its first message, so what the run tells the second brain goes if the chat is deleted.
     const chat = tab.historyId ??= newChatId();
     // An Agent board box runs through the board, which keeps its files apart from the other boxes'.

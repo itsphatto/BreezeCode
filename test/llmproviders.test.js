@@ -4,10 +4,20 @@ const llm = require('../src/main/llmproviders');
 
 test('filterModels gemini keeps chat models and strips models/', () => {
   const json = { data: [
-    { id: 'models/gemini-2.5-flash' }, { id: 'models/gemini-2.5-pro' }, { id: 'models/text-embedding-004' },
-    { id: 'models/gemini-2.5-flash-preview-tts' }, { id: 'models/gemini-2.5-flash-image' }, { id: 'models/gemini-live-2.5-flash' },
+    { id: 'models/gemini-3.8-flash' }, { id: 'models/gemini-3-pro' }, { id: 'models/text-embedding-004' },
+    { id: 'models/gemini-3.8-flash-preview-tts' }, { id: 'models/gemini-3.8-flash-image' }, { id: 'models/gemini-live-3.8-flash' },
   ] };
-  assert.deepEqual(llm.filterModels('gemini', json).models, ['gemini-2.5-flash', 'gemini-2.5-pro']);
+  assert.deepEqual(llm.filterModels('gemini', json).models, ['gemini-3.8-flash', 'gemini-3-pro']);
+});
+
+test('filterModels gemini drops the retired 1.x and 2.x models', () => {
+  const json = { data: [
+    { id: 'models/gemini-1.5-pro' }, { id: 'models/gemini-2.0-flash' }, { id: 'models/gemini-2.5-flash' },
+    { id: 'models/gemini-2.5-pro-preview-06-05' }, { id: 'models/gemini-3.8-flash' }, { id: 'models/gemini-3.8-flash-lite' },
+    { id: 'models/gemini-flash-latest' },
+  ] };
+  assert.deepEqual(llm.filterModels('gemini', json).models, ['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-flash-latest']);
+  assert.throws(() => llm.filterModels('gemini', { data: [{ id: 'models/gemini-2.5-flash' }] }));
 });
 
 test('filterModels openrouter keeps tool models with their context', () => {
@@ -54,6 +64,15 @@ test('refreshedEntry saves a changed model list and keeps the chosen model', () 
   const fresh = { models: ['a/b', 'e/f'], contexts: { 'a/b': 1000, 'e/f': 2000 } };
   assert.deepEqual(llm.refreshedEntry(saved, fresh), { model: 'a/b', models: ['a/b', 'e/f'], contexts: { 'a/b': 1000, 'e/f': 2000 } });
   assert.equal(llm.refreshedEntry(saved, { models: ['a/b', 'c/d'], contexts: { 'a/b': 1000 } }), null);
+});
+
+test('refreshedEntry moves a model the provider dropped to its newest Flash', () => {
+  const saved = { model: 'gemini-2.5-flash', models: ['gemini-2.5-flash', 'gemini-3.8-flash'] };
+  const fresh = { models: ['gemini-3-pro', 'gemini-3.8-flash'], contexts: {} };
+  assert.deepEqual(llm.refreshedEntry(saved, fresh, 'gemini'), { model: 'gemini-3.8-flash', models: fresh.models, contexts: {} });
+  // Same list as saved, but the chosen model isn't in it: still moved.
+  const stale = { model: 'gemini-2.5-flash', models: fresh.models, contexts: {} };
+  assert.deepEqual(llm.refreshedEntry(stale, fresh, 'gemini'), { model: 'gemini-3.8-flash', models: fresh.models, contexts: {} });
 });
 
 test('contextWindow follows each provider', () => {
@@ -117,10 +136,16 @@ test('deepseek: key, balance and rate errors say what to do', () => {
   assert.match(llm.friendlyError('deepseek', 429, {}).message, /wait/i);
 });
 
-test('only deepseek keeps its thinking and can turn it off', () => {
+test('only deepseek keeps its thinking; deepseek and gemini can turn it down', () => {
   assert.deepEqual(llm.LLM_PROVIDER_IDS.filter(llm.keepsReasoning), ['deepseek']);
   assert.deepEqual(llm.withoutThinkingBody('deepseek'), { thinking: { type: 'disabled' } });
-  for (const id of ['local', 'gemini', 'openrouter']) assert.deepEqual(llm.withoutThinkingBody(id), {});
+  assert.deepEqual(llm.withoutThinkingBody('gemini'), { reasoning_effort: 'low' });
+  for (const id of ['local', 'openrouter']) assert.deepEqual(llm.withoutThinkingBody(id), {});
+});
+
+test('agent steps: gemini thinks low at its own temperature, the others run cool', () => {
+  assert.deepEqual(llm.agentBody('gemini'), { reasoning_effort: 'low' });
+  for (const id of ['local', 'openrouter', 'deepseek']) assert.deepEqual(llm.agentBody(id), { temperature: 0.2 });
 });
 
 test('only gemini takes an effort, capped at high', () => {
@@ -139,5 +164,7 @@ test('keyProvider tells a pasted key by its shape', () => {
   assert.equal(keyProvider('sk-' + '0123456789abcdef'.repeat(2)), 'deepseek');
   assert.equal(keyProvider('sk-or-v1-' + 'a'.repeat(64)), 'openrouter');
   assert.equal(keyProvider('AIzaSyX'), 'gemini');
+  assert.equal(keyProvider('AQ.Ab8RN6' + 'x_y-Z'.repeat(9)), 'gemini'); // Google's newer key format
+  assert.equal(keyProvider('AQ.short'), 'local');
   for (const k of ['', 'sk-1234', 'sk-lm-abc', 'sk-' + 'a'.repeat(33), 'sk-proj-' + 'a'.repeat(32)]) assert.equal(keyProvider(k), 'local', k);
 });

@@ -432,7 +432,24 @@
       <button class="logo logo-home" id="logoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeCode.png" alt=""></button>
       <nav class="menubar" id="menubar" aria-label="Application menu"></nav>
       <span class="spacer"></span>
-      <span class="project" id="projectName">No folder</span>
+      <!-- Search files and commands (F1, Ctrl+P): the pill grows into its own dropdown. palette.ts -->
+      <div class="cmd-center" id="cmdCenter">
+        <div class="cmd-box" id="cmdBox">
+          <div class="cmd-head">
+            <svg class="cmd-glass" width="14" height="14" aria-hidden="true"><use href="#i-search" /></svg>
+            <button class="cmd-label" id="cmdLabel" type="button" title="Search files and commands (Ctrl+P, F1)" aria-label="Search files and commands"><span class="project" id="projectName">No folder</span></button>
+            <input class="cmd-in" id="cmdIn" type="text" spellcheck="false" autocomplete="off" tabindex="-1" role="combobox"
+              aria-expanded="false" aria-controls="cmdList" aria-autocomplete="list" aria-label="Search files and commands">
+            <kbd class="cmd-esc" aria-hidden="true">esc</kbd>
+          </div>
+          <div class="cmd-body" id="cmdBody">
+            <div class="cmd-inner">
+              <div class="cmd-list" id="cmdList" role="listbox" aria-label="Results"></div>
+              <div class="cmd-foot" id="cmdFoot"></div>
+            </div>
+          </div>
+        </div>
+      </div>
       <span class="spacer"></span>
       <button class="whatsnew-link" type="button" data-whatsnew hidden>What’s new</button>
       <button class="update-btn" id="updateBtn" data-update hidden><span>Update</span></button>
@@ -772,7 +789,7 @@
       <!-- Chats, grouped by folder: a click opens one in a free box, or drag it onto a box (board.ts). -->
       <aside class="board-side" id="boardSide" aria-label="Chats">
         <div class="box-side-top">
-          <button class="box-side-row" id="boardSideNew" type="button" title="A new chat with your default agent, in a box of its own"><svg data-i="plus" data-size="15"></svg><span>New chat</span></button>
+          <button class="box-side-row" id="boardSideNew" type="button" draggable="true" title="A new chat with your default agent. Drag it onto a chat to open them side by side."><svg data-i="plus" data-size="15"></svg><span>New chat</span></button>
           <button class="icon-btn box-side-hide" id="boardSideHide" type="button" title="Hide chats" aria-controls="boardSide"><svg width="16" height="16"><use href="#i-left-on" /></svg></button>
         </div>
         <button class="box-side-row" id="boardSideSearchBtn" type="button" aria-controls="boardSideSearch"><svg data-i="search" data-size="15"></svg><span>Search</span></button>

@@ -89,6 +89,7 @@ const SECRET_TEXT = [
   /\bAKIA[0-9A-Z]{16}\b/,                    // AWS access keys
   /\bxox[abpr]-[A-Za-z0-9-]{10,}/,           // Slack tokens
   /\bAIza[0-9A-Za-z_-]{35}\b/,               // Google API keys
+  /\bAQ\.[0-9A-Za-z_-]{40,}/,                // Google API keys, newer format
 ];
 export const looksLikeSecret = (text: string): boolean => SECRET_TEXT.some(r => r.test(text));
 // A card number: 13 to 19 digits (spaces or dashes between) that pass the Luhn check.

@@ -2295,7 +2295,7 @@ function setSecret(name: string, value: string | null | undefined): void {
 }
 
 /* ================= LLM APIs (Ollama, LM Studio or any OpenAI-compatible server; Gemini; OpenRouter; DeepSeek) ================= */
-import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, keepsReasoning, withoutThinkingBody, effortBody, type LlmProviderId, type ModelList } from './llmproviders';
+import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, keepsReasoning, withoutThinkingBody, agentBody, effortBody, type LlmProviderId, type ModelList } from './llmproviders';
 // The usual addresses of Ollama and LM Studio, tried when nothing is configured yet.
 const LLM_DEFAULTS = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1'];
 // The server address without trailing slashes.
@@ -2352,8 +2352,10 @@ async function llmReachable(cfg: LlmConfig): Promise<string[]> {
   // A cloud provider adds and drops models over time: the saved list (the Setup picker's) follows what it offers now.
   if (cfg.provider !== 'local') {
     const saved = loadState().llmProviders?.[cfg.provider];
-    const next = saved?.model ? refreshedEntry(saved, fresh) : null;
+    const next = saved?.model ? refreshedEntry(saved, fresh, cfg.provider) : null;
     if (next) saveLlmProvider(cfg.provider, next);
+    // The saved model was dropped and moved: this run uses the new one too.
+    if (next && cfg.model === saved?.model && next.model !== saved.model) cfg.model = next.model;
   }
   if (cfg.model && !models.includes(cfg.model)) {
     throw new Error(cfg.provider === 'local'
@@ -4983,7 +4985,7 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
     const fitted = brain.compactHistory(messages, budget);
     // Replies dropped to fit go to the folder's second brain, so what they said isn't lost.
     if (fitted.length < messages.length) brainFacts(base, droppedReplies(messages, fitted), provider, chatsOf(runId));
-    const body: Loose = { model: cfg.model, messages: brain.wireMessages(brain.reasoningFor(fitted, keepsReasoning(provider)), !ctx.noImages), temperature: 0.2, stream: false, ...effortBody(provider, effortArg(run.pick?.effort ?? loadState().geminiEffort)) };
+    const body: Loose = { model: cfg.model, messages: brain.wireMessages(brain.reasoningFor(fitted, keepsReasoning(provider)), !ctx.noImages), ...agentBody(provider), stream: false, ...effortBody(provider, effortArg(run.pick?.effort ?? loadState().geminiEffort)) };
     // command_output joins the tools once something runs in the background.
     if (withTools) body.tools = ctx.jobs.size ? tools : tools.filter(t => t.function.name !== 'command_output');
     // The text shows as it is written. Thinking isn't shown, only how long it took.

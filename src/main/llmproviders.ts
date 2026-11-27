@@ -57,9 +57,10 @@ export function filterModels(provider: LlmProviderId, json: unknown): ModelList 
   const contexts: Record<string, number> = {};
   let models: string[];
   if (provider === 'gemini') {
-    // Only chat models: embeddings, speech, image and live (audio) models can't run the agent loop.
+    // Only chat models: embeddings, speech, image and live (audio) models can't run the agent loop. Gemini 1.x
+    // and 2.x still show in the list, but Google refuses them for new users, so they're left out too.
     models = list.map(m => String(m?.id || m?.name || '').replace(/^models\//, ''))
-      .filter(id => /gemini/i.test(id) && !/(embed|tts|image|live|audio|aqa)/i.test(id));
+      .filter(id => /gemini/i.test(id) && !/(embed|tts|image|live|audio|aqa)/i.test(id) && !/^gemini-[12](?:\.\d+)?-/i.test(id));
   } else if (provider === 'openrouter') {
     // The agent needs tool calls; models that can't make them are left out.
     const usable = list.filter(m => m?.id && Array.isArray(m.supported_parameters) && m.supported_parameters.includes('tools'));
@@ -100,12 +101,14 @@ export function keyCheckPath(provider: LlmProviderId): string | null {
   return provider === 'openrouter' ? '/key' : null;
 }
 
-// A saved cloud entry with a newer model list, or null when nothing changed. The chosen model stays as it is
-// (a run that finds it gone says so).
-export function refreshedEntry(saved: { model: string; models: string[]; contexts?: Record<string, number> }, fresh: ModelList): { model: string; models: string[]; contexts: Record<string, number> } | null {
+// A saved cloud entry with a newer model list, or null when nothing changed. The chosen model stays as it is,
+// unless the provider no longer offers it: then it moves to the one picked on connecting (the newest Flash).
+export function refreshedEntry(saved: { model: string; models: string[]; contexts?: Record<string, number> }, fresh: ModelList, provider?: LlmProviderId): { model: string; models: string[]; contexts: Record<string, number> } | null {
+  const gone = !!provider && !!fresh.models.length && !fresh.models.includes(saved.model);
   const same = saved.models.length === fresh.models.length && saved.models.every((m, i) => m === fresh.models[i])
     && JSON.stringify(saved.contexts ?? {}) === JSON.stringify(fresh.contexts);
-  return same ? null : { model: saved.model, models: fresh.models, contexts: fresh.contexts };
+  if (same && !gone) return null;
+  return { model: gone ? defaultModel(provider!, fresh.models) : saved.model, models: fresh.models, contexts: fresh.contexts };
 }
 
 // Cloud models take far more than this, but every turn resends the history: a cap keeps free quotas and bills small.
@@ -155,7 +158,17 @@ export function effortBody(provider: LlmProviderId, effort: string | null | unde
   return { reasoning_effort: effort === 'low' || effort === 'medium' ? effort : 'high' };
 }
 
-// Body fields that turn thinking off, for a short job such as a commit message.
+// Body fields that turn thinking off (or as far down as it goes), for a short job such as a commit message.
+// Gemini 3 can't turn thinking off; low is its least.
 export function withoutThinkingBody(provider: LlmProviderId): Record<string, unknown> {
-  return provider === 'deepseek' ? { thinking: { type: 'disabled' } } : {};
+  if (provider === 'deepseek') return { thinking: { type: 'disabled' } };
+  if (provider === 'gemini') return { reasoning_effort: 'low' };
+  return {};
+}
+
+// Body fields for each step of the agent loop. Gemini 3 thinks at high by default, which makes every tool step
+// take minutes; low is plenty for reading and editing files. Google also says a temperature under 1.0 makes
+// Gemini 3 loop, so it keeps its own default. The others run cool, for steady tool calls.
+export function agentBody(provider: LlmProviderId): Record<string, unknown> {
+  return provider === 'gemini' ? { reasoning_effort: 'low' } : { temperature: 0.2 };
 }

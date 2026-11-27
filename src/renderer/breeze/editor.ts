@@ -1717,7 +1717,7 @@ function fileScore(p: string, q: string): number {
   for (const ch of full) if (ch === q[i]) i++;
   return i === q.length ? 1 : 0;
 }
-function quickOpen(): void {
+function quickOpenModal(): void {
   if (!rootInfo) { toast('Open a folder first'); return; }
   let all: string[] = [];
   let sel = 0;
@@ -1736,7 +1736,7 @@ function quickOpen(): void {
     };
     // A leading ">" turns Go to File into the Command Palette.
     input.oninput = () => {
-      if (input.value.startsWith('>')) { closeModal(); openPalette(input.value.slice(1)); return; }
+      if (input.value.startsWith('>')) { closeModal(); openPaletteModal(input.value.slice(1)); return; }
       sel = 0; render();
     };
     input.onkeydown = e => {

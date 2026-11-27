@@ -225,7 +225,7 @@ function cliAgentHtml(a: DetectedAgent, on: boolean, mark: string, demo: boolean
 // Which API agent a pasted key is for, by its prefix. Anything else, or no key, goes to the local server (Ollama, LM Studio).
 function keyProvider(key: string): string {
   if (/^sk-or-/i.test(key)) return 'openrouter';
-  if (/^AIza/.test(key)) return 'gemini';
+  if (/^AIza/.test(key) || /^AQ\.[\w-]{20,}$/.test(key)) return 'gemini'; // AQ.… is Google's newer key format
   if (/^sk-[0-9a-f]{32}$/.test(key)) return 'deepseek'; // strict: a local server's own "sk-…" key must not be sent to DeepSeek
   return 'local';
 }
@@ -721,7 +721,8 @@ function renderAgentBar(): void {
 let pickerRefresh: (() => void) | null = null;
 // No Scan button: the picker scans as it opens, and any scan that finds an agent added or gone redraws it and says so
 // (announceAgentChanges). Rows that change place slide there; a key half typed survives the redraw.
-function openAgentPicker(): void {
+// `toKey`: opened from Settings -> Agents -> Add an API key, so the key field is brought into view and focused.
+function openAgentPicker(toKey = false): void {
   openModal(`<h3>Choose your AI agent</h3><p class="sub">Installed coding agents are found automatically. Paste an API key to add Gemini, OpenRouter, DeepSeek or a local LLM.</p>
     <div class="agent-list" id="pickList"></div>
     <div class="row end spaced"><button class="btn btn-primary" data-close>Done</button></div>`, m => {
@@ -745,12 +746,19 @@ function openAgentPicker(): void {
         if (Math.abs(dy) > 1) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 360, easing: 'cubic-bezier(.3, 0, .2, 1)' });
       });
     };
+    const focusKey = () => {
+      const k = list.querySelector<HTMLInputElement>('[data-llm-key]');
+      if (!k) return;
+      k.closest('[data-llm-key-card]')?.scrollIntoView({ block: 'center', behavior: motionOff() || reducedMotion() ? 'auto' : 'smooth' });
+      k.focus({ preventScroll: true });
+    };
     pickerRefresh = render;
     render();
+    if (toKey) focusKey();
     lastAutoScan = Date.now();
     // The first scan of the session fills the list; later ones redraw it only on a change (announceAgentChanges).
     const first = !appState.detect;
-    detectTools(!first).then(() => { if (first) render(); }, () => { /* shown in the agent card */ });
+    detectTools(!first).then(() => { if (first) { render(); if (toKey) focusKey(); } }, () => { /* shown in the agent card */ });
   }, () => {
     pickerRefresh = null;
     if (settingsTab === 'agents') refreshSettings(); // Settings, still open underneath, shows the agent and model picked here

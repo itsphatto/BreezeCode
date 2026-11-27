@@ -103,7 +103,7 @@ const commands: Record<string, () => unknown> = {
   },
   'win.reload': () => { flushSession(); return api.win.reload(); },
   'win.devtools': () => api.win.toggleDevTools(),
-  'go.file': quickOpen,
+  'go.file': () => quickOpen(),
   'go.line': goToLine,
   'go.nextProblem': nextProblem,
   'mark.toggle': () => { const b = activeText(); if (b) toggleMark(b.path, lineAt(b.text, b.ta.selectionStart)); },
