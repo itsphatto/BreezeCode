@@ -195,9 +195,6 @@ const commands: Record<string, () => unknown> = {
   'help.setup': () => backToOnboarding(STEP.tools),
   'account.signIn': addAccount,
   'account.signOut': signOut,
-  'sync.run': () => runSync('sync'),
-  'sync.pull': confirmPull,
-  'sync.open': () => openCloudWorkspaces(),
   'mode.ide': () => enterMode('ide'),
   // Breeze Space removed (2026-11-18), kept commented for now: 'mode.box': () => enterMode('box'),
   'mode.box': () => openBoard(), // old bindings and saved settings land on the Agent Board
@@ -469,9 +466,6 @@ const MENUS: Menu[] = [
       // Breeze Space removed (2026-11-18), kept commented for now:
       // { label: 'Breeze Space', act: 'mode.box', checked: () => appState.mode === 'box' },
       { label: 'Agent Board', act: 'view.board' },
-      { sep: true },
-      { label: 'Sync Workspace', act: 'sync.run', enabled: () => !!user && !!rootInfo },
-      { label: 'Open Cloud Workspace', act: 'sync.open', enabled: () => !!user },
       { sep: true },
       { label: 'Add Account', act: 'account.signIn' },
       { label: 'Sign Out', act: 'account.signOut', enabled: () => !!user },
@@ -1169,8 +1163,8 @@ const debugKeyAct = (act: string | undefined) => (act === 'run.stop' && debugSta
 const DEBUG_PAGE_ACTS = new Set(['run.start', 'debug.start', 'debug.stop', 'debug.restart', 'debug.continue', 'debug.pause', 'debug.stepOver',
   'debug.stepInto', 'debug.stepOut', 'debug.toggleBreakpoint', 'view.palette', 'view.paletteF1', 'settings.open', 'help.keys', 'win.reload', 'win.devtools',
   'view.board']);
-// The Agent board page takes only the shortcuts that switch to the debugger.
-const BOARD_PAGE_ACTS = new Set(['debug.start', 'debug.open']);
+// The Agent board page takes only the shortcuts that switch to the debugger, and the ones that open its search.
+const BOARD_PAGE_ACTS = new Set(['debug.start', 'debug.open', 'go.file', 'view.palette', 'view.paletteF1', 'view.board']);
 function debugPageKey(e: KeyboardEvent, acts = DEBUG_PAGE_ACTS): void {
   // Typing in the page's own boxes (watch, console, program input) is theirs: only F-keys and Ctrl/Cmd chords
   // still reach the debugger from there.

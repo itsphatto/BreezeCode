@@ -120,12 +120,6 @@ interface ChatLogInfo { agent: 'claude' | 'codex'; session: string; title: strin
 interface ChatLogMsg { role: 'user' | 'agent'; text: string; at: number }
 interface AgentHistory { from: string; days: number; agents: Record<string, { days: Record<string, TokenDay>; tools: number; last: number; priced?: boolean; unpriced?: number }>; }
 interface Accounts { accounts: User[]; active: string | null; }
-// Workspace sync (main.js + sync.js). A failure comes back as { error, code } instead of throwing.
-interface SyncFail { error: string; code: string | null; }
-interface CloudWorkspace { id: string; name: string; rev: number; device: string; deviceNo?: number; updatedAt: string; }
-interface SyncStatus { remote: CloudWorkspace | null; newer: boolean; workspaces: CloudWorkspace[]; linked: boolean; device: string; }
-interface SyncSummary { id: string; rev: number; uploaded: number; downloaded: number; removed: number; conflicts: string[]; backedUp: string[]; skipped: number; }
-interface SharedSettings { updatedAt: string; values: Record<string, unknown>; }
 interface Completion { text: string; dir: boolean; }
 interface DetectedTool { id: string; name: string; found: boolean; version: string | null; optional?: boolean; hint?: string | null; cmd?: string | null; url?: string | null; }
 interface Detection { agents: DetectedAgent[]; tools: DetectedTool[]; servers?: DetectedTool[]; platform: string; demo?: boolean; }
@@ -415,13 +409,6 @@ interface BreezeApi {
     signOut(): Promise<User | null>;
     remove(id: string): Promise<User | null>;
     onEvent(cb: (ev: AuthEvent) => void): () => void;
-  };
-  sync: {
-    status(): Promise<SyncStatus | SyncFail>;
-    run(mode: 'sync' | 'pull'): Promise<SyncSummary | SyncFail>;
-    clone(id: string): Promise<{ info: RootInfo; summary: SyncSummary } | null | SyncFail>;
-    remove(id: string): Promise<{ ok: true } | SyncFail>;
-    settings(local: SharedSettings | null): Promise<{ settings: SharedSettings | null; pulled: boolean } | SyncFail>;
   };
   // Social feeds for Vibe Mode. The desktop app signs in through its own browser window and lays the feed over #vibeFrame.
   vibe: {

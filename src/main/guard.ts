@@ -46,7 +46,7 @@ function resolveUnder(base: string, rel = ''): string {
 
 /* ----- What agents may touch ----- */
 // Secrets (.env, .env.local…) and git's own folder, whose config and hooks run commands. A template (.env.example…)
-// is committed with placeholders, as sync.ts assumes too, and it is where an agent learns which keys a project reads.
+// is committed with placeholders, and it is where an agent learns which keys a project reads.
 // `rel` is relative to the project; returns why the path is off limits, or null.
 function blockedRel(rel: unknown): string | null {
   const parts = String(rel).split(/[\\/]/).filter(p => p && p !== '.');

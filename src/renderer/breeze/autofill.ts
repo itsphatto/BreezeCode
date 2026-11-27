@@ -491,7 +491,7 @@ const COMMON_WORDS = [...new Set((
 ).split(' '))]; // once each, at its first (most common) place
 function isTextbox(el: EventTarget | null): el is Textbox {
   const ok = el instanceof HTMLTextAreaElement ? !el.classList.contains('code-input')
-    : el instanceof HTMLInputElement && ['text', 'search'].includes(el.type) && el !== termInput && !el.matches('#qoIn, #cmdIn, .menu input'); // those two arrow through their own lists
+    : el instanceof HTMLInputElement && ['text', 'search'].includes(el.type) && el !== termInput && !el.matches('#qoIn, .cmd-in, .menu input'); // those two arrow through their own lists
   return ok && !(el as Textbox).readOnly && !(el as Textbox).disabled;
 }
 // Which word follows which, so after a word the list offers the next, like a search box: keyed by the one word before

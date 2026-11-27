@@ -59,8 +59,7 @@ async function swapWorkspace(info: RootInfo): Promise<void> {
   loadMarks();
   loadBreakpoints();
   background(holdStartup(loadNpmScripts()));
-  swapText($('#projectName'), info.name);
-  $('#projectName').title = info.root;
+  for (const el of $$('.cmd-label .project')) { swapText(el, info.name); el.title = info.root; } // the IDE's pill and the board's
   document.title = `${info.name} — Breeze Code`;
   const s = store.get<Session>(sessionKey(), { tabs: [], active: null, expanded: [], pos: {} });
   const dirty = store.get<Record<string, string>>(hotExitKey(), {});
@@ -81,7 +80,6 @@ async function swapWorkspace(info: RootInfo): Promise<void> {
   if (boardPageShowing() && boardFolder !== info.root) openBoard(); // its boxes are the last folder's
   void refreshLiveShare();
   void holdStartup(refreshGit());
-  syncCheckedAt = 0; background(checkCloudNewer());
   term.cwd = await api.term.cwd(); renderPs();
 }
 function resetWorkspace(): void {
@@ -91,7 +89,7 @@ function resetWorkspace(): void {
   treeOrder = {};
   openTabs = []; active = null; rootInfo = null;
   stopPreview();
-  swapText($('#projectName'), 'No folder');
+  for (const el of $$('.cmd-label .project')) swapText(el, 'No folder');
   document.title = 'Breeze Code';
   gitState = { repo: false }; gitLog = { head: null, commits: [] };
   renderScm(); renderBranch(); emptyChat();

@@ -424,12 +424,20 @@ function onAgentFile(r: Run, path: string, created = false, written = false): vo
   queueGitRefresh();
   if (r.surfaceName === 'ide') background(openAgentFile(path, created, written));
   else if (r.surfaceName === 'box') liveFile(path);
-  else if (isBoardSurface(r.surfaceName)) boardLiveFile(boxKeyOf(r.surfaceName), path); // a board box leaves the editor alone: several agents would fight over it
+  else if (isBoardSurface(r.surfaceName)) {
+    const key = boxKeyOf(r.surfaceName);
+    boardLiveFile(key, path);
+    // A box leaves the editor alone (several agents would fight over it), unless it is the only chat on the board:
+    // then the board steps aside and the edit types out in the editor (boardWatchFor).
+    if (boardWatchFor(key)) { boardWatchStart(key); background(openAgentFile(path, created, written).finally(boardWatchArm)); }
+  }
 }
 // The agent is about to change `path` (`before`: the file as it is now). Its tab opens with that text and is shown
 // first; the write then types out in it (fs.onChange → reloadText → typeAgentEdit).
 function onAgentOpening(r: Run, path: string, before: string | undefined): void {
-  if (r.surfaceName !== 'ide' || !rootInfo || baseName(path).startsWith('.env')) return;
+  if (!rootInfo || baseName(path).startsWith('.env')) return;
+  if (isBoardSurface(r.surfaceName) && !surfaceAway(r.surfaceName) && boardWatchFor(boxKeyOf(r.surfaceName))) boardWatchStart(boxKeyOf(r.surfaceName));
+  else if (r.surfaceName !== 'ide') return;
   locks[path] = { phase: r.phase, agent: r.agent };
   if (!buffers.has(path)) {
     if (before == null) { background(openAgentFile(path)); return; }
@@ -437,6 +445,7 @@ function onAgentOpening(r: Run, path: string, before: string | undefined): void 
     renderTabs();
   }
   void inAgentTurn(() => followAgentTo(path));
+  boardWatchArm();
 }
 // Opens the file an agent is editing and shows it, so its changes type out in front of the person.
 // `written`: the agent reported the change after making it (Codex), so the file opens as committed and the change
@@ -471,8 +480,12 @@ async function openAgentFile(path: string, created = false, written = false): Pr
 function onAgentDraft(r: Run, path: string, text: string): void {
   if (surfaceAway(r.surfaceName)) return;
   if (r.surfaceName === 'box') { liveDraft(path, text, r.phase); return; }
-  if (isBoardSurface(r.surfaceName)) boardLiveDraft(boxKeyOf(r.surfaceName), path, text, r.phase);
+  if (isBoardSurface(r.surfaceName)) {
+    boardLiveDraft(boxKeyOf(r.surfaceName), path, text, r.phase);
+    if (boardWatchFor(boxKeyOf(r.surfaceName))) boardWatchStart(boxKeyOf(r.surfaceName));
+  }
   if (!typeAgentDraft(path, text)) return;
+  boardWatchArm();
   (r.drafts ??= new Set()).add(path);
 }
 // Draft tabs whose file never got written (the run stopped, or the write was refused) close again.
@@ -1059,6 +1072,7 @@ function showPlan(r: Run, tab: AgentTabState): void {
 }
 
 function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
+  if (isBoardSurface(r.surfaceName)) boardWatchRunEnded(boxKeyOf(r.surfaceName)); // back to the board once its last edit has typed out
   if (tab.agentTeam?.runs.has(r.id)) { finishTeamMember(r, ev, tab, tab.agentTeam); return; }
   tab.runId = null;
   tab.run = null;

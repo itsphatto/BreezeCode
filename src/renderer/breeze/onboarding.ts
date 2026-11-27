@@ -866,7 +866,7 @@ function accountItems(): MenuItem[] {
   }));
   return [...list, ...(list.length ? [{ sep: true }] : []), { label: 'Add account', run: addAccount }];
 }
-// Clicking your picture: who you are, your other accounts (in a submenu) and signing out.
+// Clicking your picture: who you are, your other accounts (in a submenu), Settings and signing out.
 function openAccountMenu(anchor: HTMLElement): void {
   if (menuWasOpen(anchor)) {
     closeMenu();
@@ -876,7 +876,7 @@ function openAccountMenu(anchor: HTMLElement): void {
   anchor.classList.add('open');
   const r = anchor.getBoundingClientRect();
   const items: MenuItem[] = user
-    ? [{ header: user }, { label: 'Accounts', sub: accountItems }, { sep: true }, ...syncMenuItems(), { sep: true }, { label: 'Sign Out', run: () => background(signOut()) }]
+    ? [{ header: user }, { label: 'Accounts', sub: accountItems }, { sep: true }, { label: 'Settings', act: 'settings.open', key: 'Ctrl+,' }, { sep: true }, { label: 'Sign Out', run: () => background(signOut()) }]
     : [{ label: 'Sign in', run: addAccount }, ...(accounts.accounts.length ? [{ label: 'Accounts', sub: accountItems }] : [])];
   popupMenu(r.right, r.bottom + 6, items, () => anchor.classList.remove('open'), anchor);
   const m = $('#menuRoot .menu');
@@ -1016,7 +1016,6 @@ api.auth.onEvent(ev => {
     setUser(ev.user);
     signinView(false);
     background(refreshAccounts());
-    background(afterSignIn());
     // On the account screen the row that replaces the buttons says it; the box to tick is what's next.
     if (signinRoot === onboardSignin) { if (!appState.onboarded && step === STEP.signIn) termsBox.focus(); }
     else { toast(`Signed in as ${ev.user.name}`); closeModal(); }

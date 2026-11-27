@@ -197,7 +197,6 @@ A chat-only view with no editor. The conversation runs edge to edge, scrolling b
 | **First launch** | Looks for coding agents, Git, Node.js and your compilers, and lets you pick a theme and an agent |
 | **Terminal** | A built-in terminal. Pop it out into its own window (with a system info banner) and the same sessions keep running. Glass and your background picture reach it too |
 | **Skills, Plugins and MCP** | A pop-up from the chats side bars: browse the skills and plugins your agents load, share skills between agents, and connect MCP servers for Claude Code without editing its config |
-| **Workspace sync** | Move workspaces between computers signed in to the same account, stored in a private GitHub repo or Google Drive's hidden app folder |
 | **Image attachments** | Drop or paste images into a prompt. Pasted images go to a temp folder, so nothing is added to your project |
 | **Local models** | Requests stay small (a project map, ranged file reads and snippet edits) so they fit a small context window |
 | **Accounts** | Sign in with GitHub or Google, with more than one account |
@@ -340,7 +339,6 @@ flowchart TB
 | `src/main/officefile.ts` | Word, Excel, PowerPoint and PDF files as editable text |
 | `src/main/power.ts` | The power saver |
 | `src/main/skills.ts`, `mcp.ts` | Skills, plugins and MCP servers |
-| `src/main/sync.ts` | Workspace sync |
 | `src/main/previewServer.ts`, `previewInspector.ts` | The live preview and its element inspector |
 | `src/main/pricing.ts` | API-price estimates for Home's Agent tab |
 | `src/main/discord.ts` | Discord Rich Presence |

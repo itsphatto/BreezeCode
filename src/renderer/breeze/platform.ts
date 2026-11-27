@@ -876,14 +876,6 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       async set() { return { user: null }; },
       async clear() { /* nothing to clear in the browser */ },
     },
-    // Sync needs an account's cloud, which only the desktop app reaches.
-    sync: {
-      async status() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
-      async run() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
-      async clone() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
-      async remove() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
-      async settings() { return { error: 'Workspace sync works in the desktop app.', code: 'demo' }; },
-    },
     // The browser can't tell the page about the battery: the saver is on only when chosen, for this visit.
     power: (() => {
       const info = (mode: PowerMode): PowerInfo => ({ mode, saver: mode === 'on', onBattery: false, lowEnd: false, reason: mode === 'on' ? 'forced' : null });

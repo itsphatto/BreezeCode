@@ -56,7 +56,6 @@ These four points are equally weighted and should not be traded against each oth
 - Multi-cursor editing (Alt+Click, Ctrl+D, Ctrl+Shift+L, Shift+Alt+drag for a column) and Emmet shortcuts (press Tab on something like `ul>li*3` in HTML, JSX or CSS). Emmet is off while several cursors are active.
 - Git: a full-page Source Control to stage, discard, commit and push, with a graph of checkpoints and branches. Files an agent is editing are marked in the explorer and tabs.
 - Pull requests: read, comment on, merge or close GitHub PRs from Source Control. Merge conflicts are resolved in a separate worktree so the user's checkout is never touched. **Conflict Duel** has an agent argue for each side, then a judge proposes a merged block you accept, edit or reject.
-- Workspace sync: carry workspaces between computers signed in to the same account, stored in a private GitHub repo or Google Drive's hidden app folder. Deleting a cloud workspace leaves local files alone.
 - Image attachments: drop or paste images into a prompt. Dropped files are used where they are and pasted ones go to a temp folder, so nothing lands in the project.
 - Local LLM loop is token-efficient (project map, ranged reads, snippet edits). It assumes a 4k-token context on Ollama and 8k elsewhere (`llmContext` in saved state overrides it).
 - Discord Rich Presence. Small synthesized sounds for clicks, typing and agents. Auto-updates via electron-updater, which asks before downloading. API keys and sign-in tokens are encrypted with the Windows keychain; expiring GitHub tokens renew themselves.

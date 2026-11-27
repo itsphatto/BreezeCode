@@ -267,6 +267,54 @@ function setBoardCode(on: boolean): void {
 paintBoardLive();
 function boardLiveFile(key: string, path: string): void { anyBox(key)?.live.file(path); }
 function boardLiveDraft(key: string, path: string, text: string, phase?: string): void { anyBox(key)?.live.draft(path, text, phase); }
+
+/* ----- One chat alone on the board: its edits are watched in the editor, then the board comes back ----- */
+// While the box's agent changes a file, the board steps aside for the editor, which opens the file and types the
+// change out line by line (explorer.ts typeAgentEdit). Once nothing is left to type the board returns. The person
+// taking over meanwhile (typing, or going to another page) ends the trip where they are.
+let boardWatch: { key: string } | null = null;
+let boardWatchSeq = 0;
+const BOARD_WATCH_BACK_MS = 1600; // the finished change stays in view this long before the board comes back
+const boardShowing = () => { const el = $('#board'); return !el.classList.contains('hidden') && !el.classList.contains('screen-out'); };
+// True when `key`'s edits should be watched in the editor: it is the only chat on the board, and the board is on
+// screen (or already handed over to the editor for it). Not while the person is writing to it or busy elsewhere.
+function boardWatchFor(key: string): boolean {
+  if (boardBoxes.size !== 1 || !boardBoxes.has(key) || !rootInfo) return false;
+  if (boardWatch?.key === key) return !$('#ide').classList.contains('hidden');
+  if (!boardShowing() || modalOpen() || $('#board').classList.contains('brain-open')) return false;
+  const box = boardBoxes.get(key)!;
+  if (document.activeElement === box.surface.prompt && box.surface.prompt.value.trim()) return false; // writing the next message
+  return true;
+}
+// Hands the board over to the editor for `key`'s edit (the caller then opens and types the file).
+function boardWatchStart(key: string): void {
+  if (boardWatch?.key !== key) {
+    boardWatch = { key };
+    leaveBoard();
+  }
+  boardWatchArm();
+}
+// Comes back to the board once the editor has typed out everything queued, and nothing new came in meanwhile.
+function boardWatchArm(): void {
+  if (!boardWatch) return;
+  const seq = ++boardWatchSeq;
+  void inAgentTurn(() => undefined).then(() => setTimeout(() => {
+    if (seq !== boardWatchSeq || !boardWatch) return;
+    if (typingTo.size) { boardWatchArm(); return; } // a write that landed meanwhile is still typing out
+    boardWatchEnd();
+  }, BOARD_WATCH_BACK_MS));
+}
+function boardWatchEnd(): void {
+  const trip = boardWatch;
+  boardWatch = null;
+  boardWatchSeq++;
+  if (!trip) return;
+  // Left where they are: the person moved on to another page, or is typing in the editor.
+  if ($('#ide').classList.contains('hidden') || Date.now() - lastUserTypeAt < 3000 || modalOpen()) return;
+  openBoard();
+}
+// The run ended: come back once its last change has typed out.
+function boardWatchRunEnded(key: string): void { if (boardWatch?.key === key) boardWatchArm(); }
 // Grid lines for each box; on a page too narrow for them side by side, two to a row with rows to scroll to.
 // With room for them, the boxes are tiles placed by boardTiles, with a handle in each gap to drag them wider or taller
 // (any number of boxes). Too narrow, the scrolling grid of boardLayout, without handles.

@@ -15,11 +15,11 @@ import { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGit
 import { AntigravityAgentService } from './antigravityAgentService.js';
 import { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } from './github';
 import { costOf } from './pricing';
+import { codexLogFile, codexStep, codexTurnTokens, type CodexUsage } from './codexusage';
 import { DSH_PATCH, dshArgs, dshEnv, dshFailure, dshProgram, dshReader } from './dsh';
 import * as prconflict from './prconflict';
 import { looksBinary } from './sniff';
 import { isDocFile, docFileToText, textToDocFile, blankDocFile, officeMedia } from './officefile';
-import * as syncEngine from './sync';
 import { TeamCoordinator, claudeDenyArgs, opencodeDenyRules } from './team';
 import { BoardCoordinator, BoardSet, folderId } from './board';
 import { listChatLogs, readChatLog } from './agentlogs';
@@ -2656,23 +2656,19 @@ function codexLimits() {
       .map(w => limitWindow(windowLabel(w.window_minutes), w.used_percent, w.resets_at));
   } catch { return []; }
 }
-// How full a Codex chat's context window is, from its session log (rollout-*-<thread id>.jsonl, in the last few days'
-// folders): the last request's tokens out of the model's window, as Codex's own status line counts them.
-function codexContext(thread: string): { used: number; window: number } | null {
+// How full a Codex chat's context window is, from its session log: the last request's tokens out of the model's
+// window, as Codex's own status line counts them.
+function codexTokenInfo(thread: string): Loose {
   try {
-    const base = path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions');
-    for (let back = 0; back < 3; back++) {
-      const d = new Date(Date.now() - back * 86_400_000);
-      const dir = path.join(base, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
-      const name = fs.existsSync(dir) && fs.readdirSync(dir).find(n => n.endsWith(`${thread}.jsonl`));
-      if (!name) continue;
-      const line = lastLogLine(path.join(dir, name), l => l.includes('"token_count"') && l.includes('"last_token_usage"'));
-      const info = line && JSON.parse(line).payload?.info;
-      const used = info?.last_token_usage?.total_tokens, window = info?.model_context_window;
-      return typeof used === 'number' && typeof window === 'number' && window > 0 ? { used, window } : null;
-    }
-  } catch { /* no log, or one being written: no number this turn */ }
-  return null;
+    const file = codexLogFile(path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions'), thread);
+    const line = file && lastLogLine(file, l => l.includes('"token_count"') && l.includes('"last_token_usage"'));
+    return line ? JSON.parse(line).payload?.info : null;
+  } catch { return null; } // no log, or one being written: no number this turn
+}
+function codexContext(thread: string): { used: number; window: number } | null {
+  const info = codexTokenInfo(thread);
+  const used = info?.last_token_usage?.total_tokens, window = info?.model_context_window;
+  return typeof used === 'number' && typeof window === 'number' && window > 0 ? { used, window } : null;
 }
 // Live numbers, the ones Codex's /status shows, asked for with the ChatGPT sign-in Codex saved on this computer (sent
 // only to OpenAI), so they show without running Codex. At most once a minute; null when it can't (signed in with an API
@@ -2891,13 +2887,10 @@ async function codexHistory(since: number) {
           if (!line.includes('"token_count"')) continue;
           const d = JSON.parse(line), t = d.payload?.info?.total_token_usage;
           if (typeof t?.total_tokens !== 'number') continue;
-          const cur = { input: t.input_tokens || 0, cached: t.cached_input_tokens || 0, output: (t.output_tokens || 0) + (t.reasoning_output_tokens || 0) };
-          const step: Loose = prev
-            ? { at: d.timestamp, input: Math.max(0, cur.input - cur.cached - (prev.input - prev.cached)), cacheRead: Math.max(0, cur.cached - prev.cached), output: Math.max(0, cur.output - prev.output) }
-            : { at: d.timestamp, input: cur.input - cur.cached, cacheRead: cur.cached, output: cur.output };
+          const step: Loose = { at: d.timestamp, ...codexStep(t, prev) };
           step.cost = costOf(model, step);
           steps.push(step);
-          prev = cur;
+          prev = t;
         } catch { /* a line still being written */ }
       }
       return { steps, calls };
@@ -3177,7 +3170,7 @@ const effortArg = (effort: unknown) => EFFORT_ARGS[String(effort || '').toLowerC
 // Command-line flags for a CLI agent, and the prompt it reads from stdin.
 // What to start an agent CLI with: its arguments, what it reads on stdin, and the files this run created.
 interface CliSpec { args: string[]; prompt?: string; deny?: string[]; mcpFile?: string | null; env?: Record<string, string> }
-interface StreamCtx { dsh?: ReturnType<typeof dshReader>; done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number; subagents?: Set<string>; subSaid?: Set<string> }
+interface StreamCtx { dsh?: ReturnType<typeof dshReader>; done: boolean; lastError: string; stderr: string; lastText: string; writes?: Map<string, string>; shells?: Set<string>; retryModel?: (errText: string) => boolean; retry?: string; session?: string; tokens?: number; final?: Loose; ctxUsed?: number; ctxWindow?: number; codexBefore?: CodexUsage | null; subagents?: Set<string>; subSaid?: Set<string> }
 // `breezeUrl`: this run's address on Breeze's own MCP server (ask_user and the rest), or null when it couldn't start.
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
@@ -3506,7 +3499,10 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
       run.steerable = true;
     } else child.stdin!.end(cli.prompt ?? undefined);
     if (agent === 'dsh') emit(runId, { t: 'note', text: 'Starting DeepSeek CLI. This can take half a minute.' });
-    streamCli(runId, run, child, CLI_EVENTS[agent] ?? codexEvent, mode, retryModel);
+    // A resumed Codex thread reports its running total: what it had before this turn is noted before Codex adds to it.
+    // null: a new thread. undefined: resumed but its log can't be read, so this turn shows no count.
+    const codexBefore: CodexUsage | null | undefined = agent === 'codex' && session ? codexTokenInfo(session)?.total_token_usage : null;
+    streamCli(runId, run, child, CLI_EVENTS[agent] ?? codexEvent, mode, retryModel, codexBefore);
   };
   // A retry starts from the close listener, so a failed launch there ends the run instead of throwing.
   const relaunch = () => {
@@ -3538,8 +3534,8 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
   launch();
 }
 // Parses one JSON event per line from the agent's stdout.
-function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: number, d: Loose, ctx: StreamCtx, mode: string) => void, mode: string, retryModel: (errText: string) => boolean): void {
-  const ctx: StreamCtx = { done: false, lastError: '', stderr: '', lastText: '', retryModel };
+function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: number, d: Loose, ctx: StreamCtx, mode: string) => void, mode: string, retryModel: (errText: string) => boolean, codexBefore?: CodexUsage | null): void {
+  const ctx: StreamCtx = { done: false, lastError: '', stderr: '', lastText: '', retryModel, codexBefore };
   let buf = '';
   const line = (text: string) => {
     if (!text) return;
@@ -3626,7 +3622,7 @@ function codexEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void
     const ctxUse = ctx.session ? codexContext(ctx.session) : null;
     if (ctxUse) emit(runId, { t: 'ctx', ...ctxUse });
     if (ctx.session) brainFromCodex(runBase(runId), ctx.session, chatsOf(runId));
-    emit(runId, { t: 'done', ok: true, tokens: (d.usage?.input_tokens || 0) + (d.usage?.output_tokens || 0) });
+    emit(runId, { t: 'done', ok: true, tokens: ctx.codexBefore === undefined ? 0 : codexTurnTokens(d.usage, ctx.codexBefore) });
   }
 }
 
@@ -5859,7 +5855,7 @@ async function githubSignIn({ clientId }: { clientId: string }, signal: AbortSig
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })).json();
-  const dc = await post('https://github.com/login/device/code', { client_id: clientId, scope: 'read:user user:email repo' }); // repo: workspace sync keeps a private breeze-sync repo
+  const dc = await post('https://github.com/login/device/code', { client_id: clientId, scope: 'read:user user:email repo' }); // repo: pull requests, and cloning or pushing private repositories
   if (dc.error) throw new Error(dc.error_description || dc.error);
   clipboard.writeText(dc.user_code); // here, not in the page: the browser opening next takes focus, and an unfocused page can't write the clipboard
   authEmit({ t: 'code', provider: 'GitHub', code: dc.user_code, uri: dc.verification_uri });
@@ -5960,9 +5956,8 @@ function waitForGoogleCode({ clientId, challenge, state }: { clientId: string; c
       redirect = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
       const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth');
       auth.search = new URLSearchParams({
-        // drive.appdata reaches only Breeze's hidden app folder in Drive, where workspace sync lives.
-        client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: `openid email profile ${DRIVE_SCOPE}`,
-        code_challenge: challenge, code_challenge_method: 'S256', state, access_type: 'offline', prompt: 'consent select_account',
+        client_id: clientId, redirect_uri: redirect, response_type: 'code', scope: 'openid email profile',
+        code_challenge: challenge, code_challenge_method: 'S256', state, prompt: 'select_account',
       }).toString();
       openInBrowser(auth.href);
       authEmit({ t: 'waiting', provider: 'Google' });
@@ -5989,113 +5984,8 @@ async function googleSignIn({ clientId, clientSecret }: { clientId: string; clie
   if (!ur.ok) throw new Error('Google signed you in but did not share your profile. Try again.');
   const u = await ur.json();
   const user = { provider: 'Google', name: u.name || u.email, login: u.email, email: u.email || null, avatar: u.picture || null };
-  if (tok.refresh_token) setSecret(`token:${accountId(user)}`, tok.refresh_token);
   return user;
 }
-
-/* ================= Workspace sync ================= */
-// The engine is in sync.js. Here: which cloud the signed-in account uses, and what each folder last synced.
-const DRIVE_SCOPE = syncEngine.DRIVE_SCOPE;
-const syncDir = () => path.join(app.getPath('userData'), 'sync');
-// One small file per account and folder: { id, rev, base } from the last sync.
-// The file is named by a hash of the account and folder (just a stable name, nothing secret).
-const linkName = (algo: string, acct: string, dir: string) => crypto.createHash(algo).update(acct + '\0' + dir).digest('hex') + '.json'; // NOSONAR: sha1 only matches the names of pre-sha256 link files
-const linkFile = (acct: string, dir: string) => path.join(syncDir(), linkName('sha256', acct, dir));
-function readLink(acct: string, dir: string): Loose {
-  const file = linkFile(acct, dir);
-  // Links saved before the switch to sha256 sit under their sha1 name; move one over the first time it's read.
-  // (sha1 here only recognises an old name; nothing is protected by it.)
-  const legacy = path.join(syncDir(), linkName('sha1', acct, dir));
-  try { if (!fs.existsSync(file) && fs.existsSync(legacy)) fs.renameSync(legacy, file); } catch { /* read the old one below */ }
-  for (const f of [file, legacy]) {
-    try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* try the next */ }
-  }
-  return null;
-}
-function writeLink(acct: string, dir: string, link: Loose): void {
-  fs.mkdirSync(syncDir(), { recursive: true });
-  fs.writeFileSync(linkFile(acct, dir), JSON.stringify(link));
-}
-async function syncStore() {
-  const user = loadState().user;
-  if (!user) throw new syncEngine.SyncError('Sign in to sync your workspaces.', 'signed-out');
-  const acct = accountId(user);
-  const secret = user.provider === 'GitHub' ? await githubToken(acct) : getSecret(`token:${acct}`);
-  if (!secret) throw new syncEngine.SyncError(`Sign in to ${user.provider} again to let Breeze sync your workspaces.`, 'reauth');
-  if (user.provider === 'GitHub') return { acct, store: syncEngine.githubStore({ token: secret, login: user.login }) };
-  const accessToken = await syncEngine.googleAccessToken({ ...authConfig().google, refreshToken: secret });
-  return { acct, store: syncEngine.driveStore({ accessToken }) };
-}
-// IPC drops an error's code, so sync failures come back as { error, code } for the renderer to act on.
-function syncHandle(channel: string, fn: IpcHandler): void {
-  handle(channel, async (...args) => {
-    try { return await fn(...args); } catch (err) {
-      if (err instanceof syncEngine.SyncError) return { error: err.message, code: err.code || null };
-      throw err;
-    }
-  });
-}
-let syncBusy = false;
-async function oneSync(work: () => Promise<Loose>): Promise<Loose> {
-  if (syncBusy) throw new syncEngine.SyncError('A sync is already running.');
-  syncBusy = true;
-  try { return await work(); } finally { syncBusy = false; }
-}
-const syncBackupDir = () => path.join(app.getPath('userData'), 'sync-backups', new Date().toISOString().replace(/[:.]/g, '-'));
-
-// What the cloud holds, and whether it is ahead of the open folder.
-syncHandle('sync:status', async () => {
-  const { acct, store } = await syncStore();
-  const link = root ? readLink(acct, root) : null;
-  const status = await syncEngine.workspaceStatus(store, link);
-  return { ...status, linked: !!link, device: os.hostname() };
-});
-// mode 'sync' merges both ways; 'pull' makes this folder match the cloud (edits it replaces are backed up).
-syncHandle('sync:run', (_e, mode) => oneSync(async () => {
-  if (!root) throw new syncEngine.SyncError('Open a folder to sync it.');
-  const { acct, store } = await syncStore();
-  const dir = root;
-  const { link, summary } = await syncEngine.syncWorkspace({
-    store, dir, link: readLink(acct, dir), mode: mode === 'pull' ? 'pull' : 'sync',
-    device: os.hostname(), name: path.basename(dir), backupDir: syncBackupDir(),
-  });
-  writeLink(acct, dir, link);
-  return summary;
-}));
-// Downloads a cloud workspace into a new folder the user picks the place of, then opens it.
-syncHandle('sync:clone', (_e, id) => oneSync(async () => {
-  const { acct, store } = await syncStore();
-  const ws = (await syncEngine.listWorkspaces(store)).find(w => w.id === id);
-  if (!ws) throw new syncEngine.SyncError('That workspace is no longer in the cloud.');
-  const r = await dialog.showOpenDialog(win!, {
-    title: `Where should ${ws.name} go?`, buttonLabel: 'Download here',
-    defaultPath: app.getPath('documents'), properties: ['openDirectory', 'createDirectory'],
-  });
-  if (r.canceled || !r.filePaths[0]) return null;
-  const safeName = ws.name.replace(/[/\\:*?"<>|]/g, '-').replace(/^\.+$/, '') || 'workspace';
-  // The first of "name", "name (2)", "name (3)"… that doesn't exist yet or is an empty folder.
-  const taken = async (d: string) => fs.existsSync(d) && (await fsp.readdir(d)).length > 0;
-  let dir = path.join(r.filePaths[0], safeName);
-  let n = 2;
-  while (await taken(dir)) dir = path.join(r.filePaths[0], `${safeName} (${n++})`);
-  await fsp.mkdir(dir, { recursive: true });
-  const { link, summary } = await syncEngine.syncWorkspace({
-    store, dir, link: { id, rev: 0, base: {} }, mode: 'pull', device: os.hostname(), name: ws.name,
-  });
-  writeLink(acct, dir, link);
-  return { info: await setRoot(dir), summary };
-}));
-// Deletes a cloud workspace for good (the renderer asks first). This computer's folders keep their files.
-syncHandle('sync:delete', (_e, id) => oneSync(async () => {
-  const { store } = await syncStore();
-  await syncEngine.deleteWorkspace(store, String(id ?? ''));
-  return { ok: true };
-}));
-// The renderer's shared settings ({ updatedAt, values }); the newer side wins.
-syncHandle('sync:settings', async (_e, local) => {
-  const { store } = await syncStore();
-  return syncEngine.syncSettings(store, local && typeof local === 'object' ? local : null);
-});
 
 /* ================= Vibe Mode: social feeds ================= */
 // Feeds live in their own browser session (persist:vibe), apart from the app. Signing in happens on the

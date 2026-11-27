@@ -65,7 +65,7 @@ test('an emptied box is cleared in main', () => {
 
 test('side-bar chats can be dragged (the global -webkit-user-drag: none is undone for them)', () => {
   const css = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze.css'), 'utf8');
-  assert.match(css, /\.board-side \.box-side-chat\[draggable="true"\]\s*\{\s*-webkit-user-drag: element;/);
+  assert.match(css, /\.board-side \.box-side-chat\[draggable="true"\][^{]*\{\s*-webkit-user-drag: element;/); // one selector of the rule's list
 });
 
 test('clicking an empty box opens the agent picker', () => {
@@ -201,4 +201,23 @@ test('a reopened chat shows its latest message: scrolled once its box is laid ou
   const render = fnBody(board, 'function renderBoard(');
   assert.ok(render.indexOf('scrollRestoredChats()') > render.indexOf('layoutBoard()'), 'after layoutBoard');
   assert.match(render, /box\.scrollPending = true/); // put (back) in the grid, it lost its scroll
+});
+
+test('a chat alone on the board hands over to the editor to type its edit out, then comes back', () => {
+  const src = f => fs.readFileSync(path.join(__dirname, '../src/renderer/breeze', f), 'utf8');
+  const board = src('board.ts'), teams = src('teams.ts');
+  const watchFor = fnBody(board, 'function boardWatchFor');
+  assert.match(watchFor, /boardBoxes\.size !== 1/); // only with one chat on the board
+  assert.match(watchFor, /box\.surface\.prompt\.value\.trim\(\)/); // not while the next message is being written
+  assert.match(fnBody(board, 'function boardWatchStart'), /leaveBoard\(\);/);
+  const arm = fnBody(board, 'function boardWatchArm');
+  assert.match(arm, /inAgentTurn\(/); // after everything queued has typed out
+  assert.match(arm, /if \(typingTo\.size\) \{ boardWatchArm\(\); return; \}/);
+  const end = fnBody(board, 'function boardWatchEnd');
+  assert.match(end, /lastUserTypeAt < 3000/); // the person typing in the editor keeps it
+  assert.match(end, /openBoard\(\);/);
+  assert.match(fnBody(teams, 'function onAgentFile'), /if \(boardWatchFor\(key\)\) \{ boardWatchStart\(key\); background\(openAgentFile\(path, created, written\)\.finally\(boardWatchArm\)\); \}/);
+  assert.match(fnBody(teams, 'function onAgentOpening'), /boardWatchFor\(boxKeyOf\(r\.surfaceName\)\)\) boardWatchStart/);
+  assert.match(fnBody(teams, 'function onAgentDraft'), /boardWatchStart\(boxKeyOf\(r\.surfaceName\)\)/);
+  assert.match(fnBody(teams, 'function finishRun'), /boardWatchRunEnded\(boxKeyOf\(r\.surfaceName\)\)/);
 });

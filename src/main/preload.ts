@@ -262,13 +262,6 @@ contextBridge.exposeInMainWorld('breeze', {
     remove: (id: unknown) => invoke('auth:remove', id),
     onEvent: (cb: Listener) => listen('auth:event', cb),
   },
-  sync: {
-    status: () => invoke('sync:status'),
-    run: (mode: unknown) => invoke('sync:run', mode),
-    clone: (id: unknown) => invoke('sync:clone', id),
-    remove: (id: unknown) => invoke('sync:delete', id),
-    settings: (local: unknown) => invoke('sync:settings', local),
-  },
   vibe: {
     status: () => invoke('vibe:status'),
     connect: (id: unknown, bounds: unknown) => invoke('vibe:connect', id, bounds),
