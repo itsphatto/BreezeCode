@@ -135,9 +135,20 @@ function restoreChat(s: Surface = SURFACES.ide): void {
   restoreDraft(s.prompt); // the message this folder's box held when it was last open
 }
 
+// A chat with nothing said yet: no messages and no run.
+const chatUnstarted = (t: AgentTabState): boolean => !t.runId && !t.historyId && (!!t.panel.querySelector('.empty') || !t.panel.children.length);
+// Something typed or attached and not sent yet. The chat on screen keeps its draft in the prompt itself.
+function tabHasDraft(s: Surface, t: AgentTabState): boolean {
+  const onScreen = t.id === activeTabId[s.name];
+  const text = onScreen ? s.prompt.value : t.promptDraft;
+  const atts = onScreen ? attachmentsMap[s.name] : t.attachments;
+  return !!text?.trim() || !!atts?.length;
+}
+
 function openChat(s: Surface, e: ChatEntry): void {
   const cur = getActiveTab(s);
-  const isCurEmpty = !cur.runId && (cur.panel.querySelector('.empty') || !cur.panel.children.length);
+  // An unstarted chat is reused for the one opened, unless it holds a draft: that stays with it (images included).
+  const isCurEmpty = !cur.runId && (cur.panel.querySelector('.empty') || !cur.panel.children.length) && !tabHasDraft(s, cur);
   const tab = isCurEmpty ? cur : createAgentTab(s, e.title);
   tab.title = e.title;
   tab.historyId = e.id;
@@ -223,7 +234,8 @@ function setBoxSide(open: boolean): void {
 }
 function pruneBoxTabs(): void {
   const s = SURFACES.box;
-  for (const t of [...surfaceTabs.box]) if (t.id !== activeTabId.box && !tabBusy(t)) closeAgentTab(s, t.id);
+  // A new chat with an unsent draft stays open, so New chat brings it back with its text and attachments.
+  for (const t of [...surfaceTabs.box]) if (t.id !== activeTabId.box && !tabBusy(t) && !(chatUnstarted(t) && tabHasDraft(s, t))) closeAgentTab(s, t.id);
 }
 /* A chat belongs to the project it began in. Opened from another project's group, that project is opened first, so the
    chat stays filed under it and its agent carries on in its own folder, never in whichever one happens to be open. */
@@ -253,7 +265,10 @@ function newBoxChat(): void {
   const cur = getActiveTab(SURFACES.box);
   // Already on an empty chat: just put the cursor in it.
   if (!cur.historyId && cur.panel.querySelector('.empty')) { SURFACES.box.prompt.focus(); return; }
-  newAgentTabAction(SURFACES.box);
+  // A new chat left with a draft (pruneBoxTabs kept it): back to that one instead of a blank one.
+  const kept = surfaceTabs.box.find(t => t !== cur && chatUnstarted(t) && tabHasDraft(SURFACES.box, t));
+  if (kept) switchAgentTab(SURFACES.box, kept.id);
+  else newAgentTabAction(SURFACES.box);
   pruneBoxTabs();
   renderBoxSide();
 }
@@ -296,6 +311,9 @@ function deleteBoxChat(id: string): void {
   renderBoxSide();
   toast('Chat deleted');
 }
+// The list as last drawn. Run events redraw it many times a second; rebuilding unchanged rows re-pops their hover tip
+// and makes the list flicker, so an unchanged list is left alone.
+let boxSideHtml = '';
 function renderBoxSide(): void {
   const list = $('#boxSideList');
   if (list.querySelector('.rename-input')) return; // a chat is being renamed: redrawn once that is done
@@ -313,11 +331,12 @@ function renderBoxSide(): void {
   }
   if (!groups.size) {
     list.innerHTML = `<div class="box-side-empty">${q ? 'No chats match' : 'Your chats show up here'}</div>`;
+    boxSideHtml = '';
     return;
   }
   // Where each chat and folder sits now, so a chat that moves (the newest jumps to the top) slides to its new place.
   const before = new Map($$<HTMLElement>('[data-chat], [data-folder]', list).map(el => [el.dataset.chat ?? `f:${el.dataset.folder}`, el.getBoundingClientRect().top]));
-  list.innerHTML = [...groups].map(([folder, chats]) => {
+  const html = [...groups].map(([folder, chats]) => {
     const folded = !q && boxSideFolded.has(folder);
     const name = folderName(folder) || 'Breeze Space';
     const rows = chats.map(e => `<button class="box-side-chat${e.id === activeId ? ' on' : ''}" type="button" data-chat="${escAttr(e.id)}" title="${escAttr(e.title)}">
@@ -328,6 +347,9 @@ function renderBoxSide(): void {
       <div class="box-side-chats">${rows}</div>
     </div>`;
   }).join('');
+  if (html === boxSideHtml && list.querySelector('[data-chat]')) return;
+  boxSideHtml = html;
+  list.innerHTML = html;
   if (motionOff() || !before.size) return;
   for (const el of $$<HTMLElement>('[data-chat], [data-folder]', list)) {
     const from = before.get(el.dataset.chat ?? `f:${el.dataset.folder}`);

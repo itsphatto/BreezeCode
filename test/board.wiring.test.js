@@ -128,8 +128,27 @@ test("a box's own model is saved, picked on its chip, and sent with its runs", (
   const board = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/board.ts'), 'utf8');
   const teams = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/teams.ts'), 'utf8');
   assert.match(board, /model: b\.model, effort: b\.effort/); // saved with the board
-  assert.match(board, /target: \(\) => boxModelTarget\(box\)/); // the prompt chip
-  assert.match(teams, /api\.board\.run\(\{[^}]*\.\.\.boardPickOf\(/);
+  assert.match(board, /target: a => \(a\.id === box\.agent \? boxModelTarget\(box\) : undefined\)/); // the prompt chip
+  assert.match(teams, /api\.board\.run\(\{[^}]*\.\.\.boardPickOf\(boxKeyOf\(tab\.surfaceName\), agentId\)/);
+  // A tagged agent never gets the box's own model.
+  assert.match(fnBody(board, 'function boardPickOf'), /if \(!b \|\| \(agent && agent !== b\.agent\)\) return \{\};/);
+});
+
+test('@tagging an agent in a box brings it into that chat, under its own logo', () => {
+  const src = f => fs.readFileSync(path.join(__dirname, '../src/renderer/breeze', f), 'utf8');
+  const board = src('board.ts'), mentions = src('mentions.ts'), agents = src('agents.ts');
+  assert.match(board, /mentions: true/); // @Agent words turn blue in a box's prompt
+  assert.match(board, /wireMentions\(s, foundAgents\);/); // the @ menu, without DeepSeek CLI (it works alone)
+  assert.ok(fnBody(board, 'function wireBox').indexOf('wireMentions(') < fnBody(board, 'function wireBox').indexOf("addEventListener('keydown'"), 'the menu takes Enter before Send');
+  assert.match(mentions, /wireMentions\(SURFACES\.ide,/);
+  const send = fnBody(board, 'async function sendBox');
+  assert.match(send, /const tagged = taggedAgents\(text\);/);
+  assert.match(send, /await runBox\(box, taggedPrompt\(tagged\[0\], prompt\), tagged\[0\]\.id\);/);
+  assert.match(fnBody(board, 'async function runBox'), /box\.tab\.agentId = box\.agent;/); // the chat stays the box's agent's
+  assert.match(board, /nextTagged\(box, stopped \|\| !!ev\.stopped\); onBoxIdle\(/); // the next tagged agent before relays
+  assert.match(fnBody(board, 'function paintBoxGuest'), /brandMark\('board-box-logo', guest/); // header: who's answering
+  assert.match(fnBody(agents, 'function agentMsg'), /speaker\(k, agentId\)/); // each reply signs with its own agent's logo
+  assert.match(agents, /mentionHtml\(text, t\.surfaceName === 'ide' \|\| isBoardSurface\(t\.surfaceName\)\)/);
 });
 
 test('the board lays its boxes out for how many there are, and morphs between layouts', () => {

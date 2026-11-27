@@ -1,6 +1,6 @@
 /* ----- "@" mentions in the agents panel's prompt: a menu of installed agents, and a warning for one that is not installed ----- */
 const MENTION_AT_CARET = /(^|\s)@([\w-]*)$/;
-let mentionList: { items: MenuItem[]; ids: string } | null = null;
+let mentionList: { items: MenuItem[]; ids: string; s: Surface } | null = null;
 
 const mentionOpen = (): boolean => !!mentionList && openMenuIdx !== -1 && menuItems === mentionList.items;
 function closeMention(): void {
@@ -9,8 +9,8 @@ function closeMention(): void {
   if (open) closeMenu();
 }
 // Replaces the "@word" before the caret with "@<Short> ".
-function pickMention(a: DetectedAgent): void {
-  const ta = SURFACES.ide.prompt;
+function pickMention(s: Surface, a: DetectedAgent): void {
+  const ta = s.prompt;
   const caret = ta.selectionStart ?? ta.value.length;
   const m = MENTION_AT_CARET.exec(ta.value.slice(0, caret));
   const start = m ? caret - m[2].length - 1 : caret;
@@ -18,16 +18,18 @@ function pickMention(a: DetectedAgent): void {
   ta.focus();
   ta.dispatchEvent(new Event('input', { bubbles: true }));
 }
-function updateMentionMenu(): void {
-  const ta = SURFACES.ide.prompt;
+// `taggable`: the agents this prompt can tag (the Agents tab: every installed one; a board box leaves out DeepSeek CLI).
+function updateMentionMenu(s: Surface, taggable: () => DetectedAgent[]): void {
+  const ta = s.prompt;
   const m = MENTION_AT_CARET.exec(ta.value.slice(0, ta.selectionStart ?? 0));
+  if (m && document.activeElement !== ta) { if (mentionList?.s === s) closeMention(); return; } // a draft restored on start-up
   const word = m ? m[2].toLowerCase() : '';
-  const matches = m ? (appState.detect?.agents ?? []).filter(a => a.found && agentMentionNames(a).some(n => n.startsWith(word))) : [];
-  if (!matches.length) { closeMention(); return; }
+  const matches = m ? taggable().filter(a => agentMentionNames(a).some(n => n.startsWith(word))) : [];
+  if (!matches.length) { if (!mentionList || mentionList.s === s) closeMention(); return; }
   const ids = matches.map(a => a.id).join(',');
-  if (mentionOpen() && mentionList?.ids === ids) return; // the same agents are already listed
-  const items: MenuItem[] = matches.map(a => ({ label: agentShortName(a), icon: brandMark('menu-ico', a.id, a.name[0]), run: () => pickMention(a) }));
-  mentionList = { items, ids };
+  if (mentionOpen() && mentionList?.ids === ids && mentionList.s === s) return; // the same agents are already listed
+  const items: MenuItem[] = matches.map(a => ({ label: agentShortName(a), icon: brandMark('menu-ico', a.id, a.name[0]), run: () => pickMention(s, a) }));
+  mentionList = { items, ids, s };
   const r = ta.getBoundingClientRect();
   popupMenu(r.left, r.top, items, () => { if (mentionList?.items === items) mentionList = null; }, ta);
   const menu = document.querySelector<HTMLElement>('#menuRoot .menu');
@@ -38,18 +40,24 @@ function updateMentionMenu(): void {
   kbIdx = -1;
   moveKbSelection(true);
 }
-// The menu is open: Up, Down, Enter, Tab and Escape belong to it. Registered before the send handler below, so Enter picks instead of sending.
-SURFACES.ide.prompt.addEventListener('keydown', e => {
-  if (!mentionOpen() || e.isComposing) return;
-  const own = () => { e.preventDefault(); e.stopImmediatePropagation(); };
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { own(); moveKbSelection(e.key === 'ArrowDown'); }
-  else if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { own(); if (kbIdx >= 0) activateMenuItem(menuItems[kbIdx]); }
-  else if (e.key === 'Escape') { own(); closeMention(); }
-});
-SURFACES.ide.prompt.addEventListener('input', () => { mentionWarning(SURFACES.ide); updateMentionMenu(); });
-SURFACES.ide.prompt.addEventListener('keyup', e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionMenu(); });
-SURFACES.ide.prompt.addEventListener('click', updateMentionMenu);
-SURFACES.ide.prompt.addEventListener('blur', closeMention);
+// The "@" menu on a prompt. Registered before its send handler, so Enter picks instead of sending: while the menu
+// is open, Up, Down, Enter, Tab and Escape belong to it.
+function wireMentions(s: Surface, taggable: () => DetectedAgent[]): void {
+  const update = () => updateMentionMenu(s, taggable);
+  s.prompt.addEventListener('keydown', e => {
+    if (!mentionOpen() || mentionList?.s !== s || e.isComposing) return;
+    const own = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { own(); moveKbSelection(e.key === 'ArrowDown'); }
+    else if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { own(); if (kbIdx >= 0) activateMenuItem(menuItems[kbIdx]); }
+    else if (e.key === 'Escape') { own(); closeMention(); }
+  });
+  s.prompt.addEventListener('input', update);
+  s.prompt.addEventListener('keyup', e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) update(); });
+  s.prompt.addEventListener('click', update);
+  s.prompt.addEventListener('blur', () => { if (mentionList?.s === s) closeMention(); });
+}
+SURFACES.ide.prompt.addEventListener('input', () => mentionWarning(SURFACES.ide));
+wireMentions(SURFACES.ide, () => (appState.detect?.agents ?? []).filter(a => a.found));
 
 /* ----- "/" in either prompt: the skills and plugin skills the agents can run, picked from a menu ----- */
 // A user skill is "/name"; a plugin's is "/plugin:skill", as Claude Code names them. Loaded on the first "/" and
@@ -277,8 +285,8 @@ function onPromptModelClick(e: MouseEvent, kit: PromptKit = IDE_KIT): void {
 }
 // The Agents tab: an agent tagged in the prompt has its @mention swapped for the new one; with none tagged, the new
 // agent becomes the default. Either way it gets the model picked.
-function ideSwitchAgent(from: DetectedAgent, to: DetectedAgent, model: string): void {
-  const ta = SURFACES.ide.prompt;
+// `ta`: the prompt the chip is under (an Agent board box's, for an agent tagged there).
+function ideSwitchAgent(from: DetectedAgent, to: DetectedAgent, model: string, ta = SURFACES.ide.prompt): void {
   const text = ta.value;
   const names = agentMentionNames(from);
   const hits = mentionRanges(text).filter(([a, b]) => names.includes(text.slice(a + 1, b).toLowerCase()));

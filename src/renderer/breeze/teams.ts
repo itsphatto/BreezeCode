@@ -369,7 +369,7 @@ async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, u
     const chat = tab.historyId ??= newChatId();
     // An Agent board box runs through the board, which keeps its files apart from the other boxes'.
     const id = isBoardSurface(tab.surfaceName)
-      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, chat, root: SURFACES[tab.surfaceName].folder ?? undefined, ...boardPickOf(boxKeyOf(tab.surfaceName)) })
+      ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, chat, root: SURFACES[tab.surfaceName].folder ?? undefined, ...boardPickOf(boxKeyOf(tab.surfaceName), agentId) })
       : await api.agent.run({ agent: agentId, mode, prompt, session, box, chat });
     const run: Run = {
       id,

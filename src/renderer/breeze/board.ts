@@ -26,6 +26,7 @@ interface BoardBox {
   term?: BoxTerminal;      // made the first time its terminal opens
   preview?: BoxBrowser;    // made the first time its preview opens: a small browser (boxbrowser.ts)
   ctx?: BoxContext;        // how full its chat's context window was after the last request (paintBoxContext)
+  tagged?: { agent: string; prompt: string }[]; // agents @tagged in the last message, still to answer it here, in turn
 }
 type BoxSide = 'term' | 'preview';
 interface BoxContext { used: number; window: number }
@@ -655,6 +656,7 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     <header class="board-box-head">
       ${brandMark('board-box-logo', agent, agentNameOf(agent)[0] ?? '?')}
       <b class="board-box-name"></b>
+      <span class="board-box-guest hidden" role="status"></span>
       <span class="board-box-model" role="status" title="Context"><span class="bbm-label"></span></span>
       <span class="board-dot" role="status"></span>
       <span class="flex-1"></span>
@@ -724,10 +726,13 @@ function wireBox(box: BoardBox): void {
   const { el, surface: s } = box;
   // The prompt works as the Agents tab's: its text drawn by a layer, the agent's model chip and Full access once
   // something is typed, "/skill" suggestions, examples in the placeholder, and a height that eases as it grows.
-  const kit: PromptKit = { ta: s.prompt, hl: $('.prompt-hl', el), models: $('.prompt-models', el), picked: () => { const a = boxAgent(box); return a ? [a] : []; }, mentions: false, anim: null, target: () => boxModelTarget(box), switchAgent: (_from, to, m) => switchBoxAgent(box, to, m) };
+  const kit: PromptKit = { ta: s.prompt, hl: $('.prompt-hl', el), models: $('.prompt-models', el), picked: text => boxPickedAgents(box, text), mentions: true, anim: null,
+    // A tagged agent's chip shows and sets that agent's own model (as the Agents tab's does); the box's agent's, the box's.
+    target: a => (a.id === box.agent ? boxModelTarget(box) : undefined), switchAgent: (from, to, m) => (from.id === box.agent ? switchBoxAgent(box, to, m) : ideSwitchAgent(from, to, m, s.prompt)) };
   box.kit = kit;
   wirePromptKit(kit);
   wireSlash(s); // before the send handler below, so Enter picks a skill instead of sending
+  wireMentions(s, foundAgents); // "@Codex" brings another agent into this chat (sendBox)
   rotatePlaceholder(s.prompt, ' ', IDE_PLACEHOLDERS);
   s.send.onclick = () => (tabBusy(box.tab) ? stopBox(box) : void sendBox(box));
   // The composer's own buttons (+, paperclip, access, mic) and the line under it; drops go through drop.ts and
@@ -789,6 +794,7 @@ function paintBox(box: BoardBox): void {
   else if (boardWaiting(box.key)) box.status = 'waiting';
   else if (box.status === 'working' || box.status === 'waiting') box.status = 'idle';
   swapText($('.board-box-name', box.el), boxName(box));
+  paintBoxGuest(box);
   paintBoardSideRow(box);
   paintBoxContext(box);
   const dot = $('.board-dot', box.el);
@@ -829,9 +835,10 @@ function boxModelTarget(box: BoardBox): ModelTarget {
   };
 }
 // What board:run sends for a box: only what it picked itself, so an untouched box follows the agent's settings.
-function boardPickOf(key: string): { model?: string; effort?: string } {
+// Only for the box's own agent: a tagged agent runs on its own default model (another agent's name means nothing to it).
+function boardPickOf(key: string, agent?: string): { model?: string; effort?: string } {
   const b = anyBox(key);
-  if (!b) return {};
+  if (!b || (agent && agent !== b.agent)) return {};
   const model = b.model ? boxModelOf(b) : '';
   return { ...(model ? { model } : {}), ...(b.effort ? { effort: b.effort } : {}) };
 }
@@ -841,6 +848,19 @@ function boardPickOf(key: string): { model?: string; effort?: string } {
 // in the prompt's chip.
 const ctxTokens = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
 const ctxPct = (c: BoxContext) => Math.max(0, Math.min(100, Math.round((c.used / c.window) * 100)));
+// Another agent tagged into this chat and answering now: its logo beside the box's name, so it's clear who's working.
+function paintBoxGuest(box: BoardBox): void {
+  const el = $('.board-box-guest', box.el);
+  const id = boxBusy(box) ? box.tab.run?.agent : undefined;
+  const guest = id && id !== box.agent ? id : '';
+  if ((el.dataset.agent ?? '') === guest) return;
+  el.dataset.agent = guest;
+  el.classList.toggle('hidden', !guest);
+  if (!guest) { el.innerHTML = ''; el.removeAttribute('title'); return; }
+  const name = agentNameOf(guest);
+  el.innerHTML = `${brandMark('board-box-logo', guest, name[0] ?? '?')}<span>${esc(agentNameOf(guest))} is answering</span>`;
+  el.title = `${name} was tagged in this chat and is answering`;
+}
 function paintBoxContext(box: BoardBox): void {
   const el = $('.board-box-model', box.el), c = box.ctx;
   const pct = c ? ctxPct(c) : 0;
@@ -898,19 +918,42 @@ async function sendBox(box: BoardBox): Promise<void> {
   if (box.tab.panel.querySelector('.empty')) box.tab.panel.innerHTML = '';
   sfx.play('send');
   userMsg(text, attachments, box.tab);
-  await runBox(box, withAttachments(attachmentHeaders(attachments), text)); // the agent reads them from where they are
+  const prompt = withAttachments(attachmentHeaders(attachments), text); // the agent reads them from where they are
+  // "@Codex …" in a Claude box: Codex answers in this chat, under its own logo, and the box's agent stays Claude.
+  // Several tagged agents answer one after another (a box runs one agent at a time).
+  const tagged = taggedAgents(text);
+  if (!tagged.length) { box.tagged = undefined; await runBox(box, prompt); return; }
+  box.tagged = tagged.slice(1).map(a => ({ agent: a.id, prompt: taggedPrompt(a, prompt) }));
+  await runBox(box, taggedPrompt(tagged[0], prompt), tagged[0].id);
 }
-// Starts a build run on this box (a person's message or a relay) and remembers its run id.
-async function runBox(box: BoardBox, prompt: string): Promise<void> {
+// The agents @tagged in a box's message that can run on the board (DeepSeek CLI works alone: main.ts DSH_SOLO).
+const taggedAgents = (text: string) => mentionedAgents(text).filter(a => a.id !== 'dsh');
+// The chips under a box's prompt: the agents tagged in it, or with none tagged the box's own.
+function boxPickedAgents(box: BoardBox, text: string): DetectedAgent[] {
+  const tagged = taggedAgents(text);
+  if (tagged.length) return tagged;
+  const a = boxAgent(box);
+  return a ? [a] : [];
+}
+// A tagged agent reads the message as written, told it is the one being asked.
+function taggedPrompt(a: DetectedAgent, prompt: string): string {
+  return `${prompt}
+
+(You are ${agentShortName(a)}: you were tagged as @${agentShortName(a)} in this message, so answer the part meant for you.)`;
+}
+// Starts a build run on this box (a person's message or a relay) and remembers its run id. `agent`: another agent
+// tagged into this chat for this one message; the box keeps its own agent.
+async function runBox(box: BoardBox, prompt: string, agent = box.agent): Promise<void> {
   const prev = msgSurface;
   msgSurface = box.surface;
   box.lastText = '';
   box.status = 'working';
   box.starting = true;
   try {
-    await startAgentRun(box.agent, 'build', prompt, 'build', box.tab, false);
+    await startAgentRun(agent, 'build', prompt, 'build', box.tab, false);
   } finally {
     box.starting = false;
+    box.tab.agentId = box.agent; // the chat is still the box's agent's (its history, its next message)
     msgSurface = prev; // the IDE's own chat helpers go back to the IDE
   }
   if (box.tab.runId != null && box.tab.runId > 0) box.runIds.add(box.tab.runId);
@@ -1335,7 +1378,7 @@ api.agent.onEvent((runId, ev) => {
     box.status = ev.ok ? 'done' : ev.stopped || stopped ? 'idle' : 'failed';
     refreshOwnersSoon();
     // After the chat's own done handler has run (tab.runId is free again).
-    setTimeout(() => { paintBox(box); onBoxIdle(box, runId, stopped || !!ev.stopped); finishParked(box); saveBoard(); refreshBoardLimits(true); }, 0);
+    setTimeout(() => { paintBox(box); nextTagged(box, stopped || !!ev.stopped); onBoxIdle(box, runId, stopped || !!ev.stopped); finishParked(box); saveBoard(); refreshBoardLimits(true); }, 0);
     return;
   }
   paintBox(box);
@@ -1504,6 +1547,17 @@ function closeAsk(r: Relay): void {
 
 // A box's run ended: an answered ask goes back to the asker, then the next relay waiting for this box starts.
 // A stopped run answers nobody: the asker hears it was stopped, and nothing waiting for this box starts on its own.
+// The next agent tagged in the last message takes its turn in this chat. Stop ends the round.
+function nextTagged(box: BoardBox, stopped: boolean): void {
+  const next = box.tagged?.shift();
+  if (!box.tagged?.length) box.tagged = undefined;
+  if (stopped) { box.tagged = undefined; return; }
+  if (!next) return;
+  if (boxBusy(box)) { (box.tagged ??= []).unshift(next); return; } // a queued message went first: its turn comes after
+
+  if (!appState.detect?.agents.some(a => a.id === next.agent && a.found)) { nextTagged(box, false); return; }
+  void runBox(box, next.prompt, next.agent);
+}
 function onBoxIdle(box: BoardBox, runId: number, stopped = false): void {
   const answered = relayRuns.get(runId);
   if (answered) {
