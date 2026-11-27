@@ -329,13 +329,12 @@ function handle(channel: string, fn: IpcHandler): void {
   });
 }
 
-// The launch intro (launch.html) plays in its own see-through window over the whole screen, so the light flies in over
-// the desktop itself and opens into the app window's place. Only a transparent window shows the desktop unblurred, and a transparent window
+// The launch intro (launch.html) plays in its own see-through, click-through window, so the light bubbles over the
+// desktop itself, darkened but sharp. Only a transparent window shows the desktop unblurred, and a transparent window
 // can't be resized, so the app window is a normal one: it loads hidden behind the splash and takes over at
 // LAUNCH_HANDOFF (win:launchWait, then win:launchShow), fading in straight onto the welcome or Home.
 const SPLASH_PAGE = path.join(ROOT, 'src', 'renderer', 'launch.html');
-const LAUNCH_HANDOFF = 3900; // ms: 1.4s flying in, 1s opening, the swirl in by 2.7s, then held 1.2s
-const LAUNCH_OPENED = 2500; // ms: nothing is drawn outside the app window's place from here on
+const LAUNCH_HANDOFF = 3900; // ms: 0.8s bubbling, 1s opening, the swirl in by 2.1s, then held 1.8s
 let splash: BrowserWindow | null = null;
 let splashStart = 0;
 let splashShown: Promise<void> = Promise.resolve();
@@ -347,17 +346,9 @@ function holidayToday(): string | null {
   return HOLIDAYS[`${d.getMonth() + 1}-${d.getDate()}`] ?? null;
 }
 
-// stage: where the app window is. The splash covers the rest of its screen too, for the light to fly in over. Not on
-// Linux: Wayland doesn't let a window pick its place, so there the light stays inside the app window's.
-function createSplash(stage: Electron.Rectangle) {
-  const area = process.platform === 'linux' ? stage : screen.getDisplayMatching(stage).workArea;
-  const x = Math.min(stage.x, area.x), y = Math.min(stage.y, area.y);
-  const place = { x: stage.x - x, y: stage.y - y, width: stage.width, height: stage.height }; // inside the splash
+function createSplash(bounds: Electron.Rectangle) {
   splash = new BrowserWindow({
-    x,
-    y,
-    width: Math.max(stage.x + stage.width, area.x + area.width) - x,
-    height: Math.max(stage.y + stage.height, area.y + area.height) - y,
+    ...bounds,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -377,28 +368,18 @@ function createSplash(stage: Electron.Rectangle) {
   // showing through. The splash can't take focus, so a click on it simply does nothing.
   splash.webContents.on('will-navigate', e => e.preventDefault());
   // The intro always opens on the signature sky, whatever the theme; only a holiday swaps in the day's colours
-  // (launch.css). The page runs no scripts of its own, so the day and the app window's place are set from here, before
-  // its first frame shows.
+  // (launch.css). The page runs no scripts of its own, so the day is set from here, before its first frame shows.
   const day = holidayToday();
   const sp = splash;
-  const vars = { '--stage-x': place.x, '--stage-y': place.y, '--stage-w': place.width, '--stage-h': place.height };
-  sp.webContents.once('dom-ready', () => {
-    splash?.webContents.executeJavaScript(`{
-      const launch = document.querySelector('.launch'), vars = ${JSON.stringify(vars)}, day = ${JSON.stringify(day)};
-      for (const k in vars) launch.style.setProperty(k, vars[k] + 'px');
-      if (day) document.documentElement.dataset.holiday = day;
-    }`).catch(logError('splash'));
-  });
+  if (day) {
+    sp.webContents.once('dom-ready', () => {
+      splash?.webContents.executeJavaScript(`document.documentElement.dataset.holiday = ${JSON.stringify(day)}`).catch(logError('splash'));
+    });
+  }
   sp.on('closed', () => { splash = null; });
   // The hand-off counts from when the intro first shows; a splash that never paints doesn't hold the app back.
   splashShown = new Promise<void>(done => {
-    sp.once('ready-to-show', () => {
-      splashStart = Date.now();
-      splash?.show();
-      done();
-      // Opened: the splash lets go of the rest of the screen, so the desktop there can be clicked again.
-      if (isWin) setTimeout(() => { if (!sp.isDestroyed()) sp.setShape([place]); }, LAUNCH_OPENED);
-    });
+    sp.once('ready-to-show', () => { splashStart = Date.now(); splash?.show(); done(); });
     setTimeout(done, 3000);
   });
   sp.loadFile(SPLASH_PAGE).catch(logError('splash'));
