@@ -20759,7 +20759,8 @@ input.dbg-edit.bad:focus-visible {
 }
 
 /* The global `-webkit-user-drag: none` rule would stop a chat in the board's side bar from dragging at all. */
-.board-side .box-side-chat[draggable="true"] {
+.board-side .box-side-chat[draggable="true"],
+.board-side #boardSideNew[draggable="true"] {
   -webkit-user-drag: element;
 }
 

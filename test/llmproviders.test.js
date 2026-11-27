@@ -4,10 +4,20 @@ const llm = require('../src/main/llmproviders');
 
 test('filterModels gemini keeps chat models and strips models/', () => {
   const json = { data: [
-    { id: 'models/gemini-2.5-flash' }, { id: 'models/gemini-2.5-pro' }, { id: 'models/text-embedding-004' },
-    { id: 'models/gemini-2.5-flash-preview-tts' }, { id: 'models/gemini-2.5-flash-image' }, { id: 'models/gemini-live-2.5-flash' },
+    { id: 'models/gemini-3.8-flash' }, { id: 'models/gemini-3-pro' }, { id: 'models/text-embedding-004' },
+    { id: 'models/gemini-3.8-flash-preview-tts' }, { id: 'models/gemini-3.8-flash-image' }, { id: 'models/gemini-live-3.8-flash' },
   ] };
-  assert.deepEqual(llm.filterModels('gemini', json).models, ['gemini-2.5-flash', 'gemini-2.5-pro']);
+  assert.deepEqual(llm.filterModels('gemini', json).models, ['gemini-3.8-flash', 'gemini-3-pro']);
+});
+
+test('filterModels gemini drops the retired 1.x and 2.x models', () => {
+  const json = { data: [
+    { id: 'models/gemini-1.5-pro' }, { id: 'models/gemini-2.0-flash' }, { id: 'models/gemini-2.5-flash' },
+    { id: 'models/gemini-2.5-pro-preview-06-05' }, { id: 'models/gemini-3.8-flash' }, { id: 'models/gemini-3.8-flash-lite' },
+    { id: 'models/gemini-flash-latest' },
+  ] };
+  assert.deepEqual(llm.filterModels('gemini', json).models, ['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-flash-latest']);
+  assert.throws(() => llm.filterModels('gemini', { data: [{ id: 'models/gemini-2.5-flash' }] }));
 });
 
 test('filterModels openrouter keeps tool models with their context', () => {
@@ -54,6 +64,15 @@ test('refreshedEntry saves a changed model list and keeps the chosen model', () 
   const fresh = { models: ['a/b', 'e/f'], contexts: { 'a/b': 1000, 'e/f': 2000 } };
   assert.deepEqual(llm.refreshedEntry(saved, fresh), { model: 'a/b', models: ['a/b', 'e/f'], contexts: { 'a/b': 1000, 'e/f': 2000 } });
   assert.equal(llm.refreshedEntry(saved, { models: ['a/b', 'c/d'], contexts: { 'a/b': 1000 } }), null);
+});
+
+test('refreshedEntry moves a model the provider dropped to its newest Flash', () => {
+  const saved = { model: 'gemini-2.5-flash', models: ['gemini-2.5-flash', 'gemini-3.8-flash'] };
+  const fresh = { models: ['gemini-3-pro', 'gemini-3.8-flash'], contexts: {} };
+  assert.deepEqual(llm.refreshedEntry(saved, fresh, 'gemini'), { model: 'gemini-3.8-flash', models: fresh.models, contexts: {} });
+  // Same list as saved, but the chosen model isn't in it: still moved.
+  const stale = { model: 'gemini-2.5-flash', models: fresh.models, contexts: {} };
+  assert.deepEqual(llm.refreshedEntry(stale, fresh, 'gemini'), { model: 'gemini-3.8-flash', models: fresh.models, contexts: {} });
 });
 
 test('contextWindow follows each provider', () => {

@@ -2341,8 +2341,10 @@ async function llmReachable(cfg: LlmConfig): Promise<string[]> {
   // A cloud provider adds and drops models over time: the saved list (the Setup picker's) follows what it offers now.
   if (cfg.provider !== 'local') {
     const saved = loadState().llmProviders?.[cfg.provider];
-    const next = saved?.model ? refreshedEntry(saved, fresh) : null;
+    const next = saved?.model ? refreshedEntry(saved, fresh, cfg.provider) : null;
     if (next) saveLlmProvider(cfg.provider, next);
+    // The saved model was dropped and moved: this run uses the new one too.
+    if (next && cfg.model === saved?.model && next.model !== saved.model) cfg.model = next.model;
   }
   if (cfg.model && !models.includes(cfg.model)) {
     throw new Error(cfg.provider === 'local'
