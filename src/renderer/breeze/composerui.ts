@@ -48,11 +48,6 @@ function insertAtCaret(ta: HTMLTextAreaElement, text: string): void {
   }
 }
 
-const ACCESS_TIP = {
-  on: 'Full access: agents can run any command and edit files anywhere on this computer. Click to change.',
-  off: 'Project only: agents stay in this folder, keep out of .env and .git, and Codex runs sandboxed. Click to change.',
-};
-
 function wireComposer(c: Composer): void {
   composers.push(c);
   paintIcons(c.box);
@@ -81,11 +76,6 @@ function wireComposer(c: Composer): void {
     }
     composerMenu(plus, items);
   };
-  const perm = $<HTMLButtonElement>('.cmp-perm', c.box);
-  perm.onclick = () => composerMenu(perm, [
-    { label: 'Full access', icon: svgIcon('shield', 14), key: 'run anything', checked: () => agentFullAccess, run: () => { setFullAccess(true); refreshComposers(); } },
-    { label: 'Project only', icon: svgIcon('shieldCheck', 14), key: 'this folder', checked: () => !agentFullAccess, run: () => { setFullAccess(false); refreshComposers(); } },
-  ]);
   // The usage meter's arrow opens a bar for every plan window (the 5-hour one, the week's), not just the tightest.
   // The bar, the % and the arrow are one button, so the whole meter is the hitbox.
   const meterEl = $('.cmp-ctx', c.meta);
@@ -232,14 +222,6 @@ async function flushQueue(tab: AgentTabState): Promise<void> {
 const cmpShow = (el: HTMLElement, on: boolean) => composersReady ? morphShow(el, on) : el.classList.toggle('hidden', !on);
 const cmpText = (el: HTMLElement, text: string) => { if (composersReady) swapText(el, text); else el.textContent = text; };
 function paintComposer(c: Composer): void {
-  // Access: one setting for every agent, shown on every composer.
-  const perm = $<HTMLButtonElement>('.cmp-perm', c.box);
-  const label = agentFullAccess ? 'Full access' : 'Project only';
-  const lab = $('.cmp-perm-label', perm);
-  if (lab.textContent !== label) lab.textContent = label;
-  perm.title = agentFullAccess ? ACCESS_TIP.on : ACCESS_TIP.off;
-  perm.classList.toggle('limited', !agentFullAccess);
-
   // Folder: a composer that owns its folder chip (Home, Breeze Space) names it itself.
   const dir = composerFolder(c);
   const name = c.meta.querySelector<HTMLElement>('.cmp-folder-name');

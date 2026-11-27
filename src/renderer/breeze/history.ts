@@ -133,6 +133,26 @@ function restoreChat(s: Surface = SURFACES.ide): void {
   renderAgentTabs(s);
   scrollChat(s);
   restoreDraft(s.prompt); // the message this folder's box held when it was last open
+  void reattachRuns(s);
+}
+// Chats whose agent kept working in main while the page reloaded or crashed: each comes back in its own tab, saved up to
+// the message that started the run, and the run's events so far play again on top (then it carries on live).
+async function reattachRuns(s: Surface): Promise<void> {
+  let live: Awaited<ReturnType<typeof api.agent.live>>;
+  try { live = await api.agent.live(); } catch { return; }
+  for (const r of live) {
+    if (r.box !== (s.name === 'box') || findTabForRun(r.runId)) continue; // another surface's, or already on screen
+    const e = chatHistory(s).find(x => x.id === r.chat);
+    if (!e) continue;
+    const tab = createAgentTab(s, e.title, e.html);
+    tab.historyId = e.id;
+    tab.sessions = e.sessions ? { ...e.sessions } : {};
+    const users = tab.panel.querySelectorAll('.msg.user');
+    const last = users[users.length - 1];
+    while (last?.nextSibling) last.nextSibling.remove();
+    attachLiveRun(tab, r);
+    if (!r.done) switchAgentTab(s, tab.id);
+  }
 }
 
 function openChat(s: Surface, e: ChatEntry): void {

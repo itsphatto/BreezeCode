@@ -40,7 +40,7 @@ function cleanNotes(html: string): DocumentFragment {
   return out;
 }
 
-function showReleaseNotes(n: ReleaseNotes): void {
+function showReleaseNotes(n: ReleaseNotes, onClose?: () => void): void {
   openModal(`<h3>What's new in Breeze Code ${esc(n.version)}</h3>
     <p class="sub">You're up to date. Here's what changed in this release.</p>
     <div class="whatsnew-body"></div>
@@ -58,7 +58,7 @@ function showReleaseNotes(n: ReleaseNotes): void {
       background(api.sys.openExternal(a.dataset.href!));
     });
     m.querySelector<HTMLElement>('#whatsNewMore')?.addEventListener('click', () => background(api.sys.openExternal(n.url)));
-  });
+  }, onClose);
 }
 
 // Called once start-up has settled and the window is showing. The text only appears once the notes are in hand.
@@ -79,8 +79,8 @@ async function offerWhatsNew(): Promise<void> {
     link.animate([{ opacity: 0, transform: 'scale(.6)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 500, easing: SPRING_BOUNCE });
     link.onclick = () => {
       store.set(NOTES_SEEN_KEY, current);
-      for (const l of links) l.hidden = true;
-      showReleaseNotes(notes);
+      // The buttons stay until the dialog has shrunk back into the one it grew from (closeModal's 380ms).
+      showReleaseNotes(notes, () => setTimeout(() => { for (const l of links) l.hidden = true; }, 380));
     };
   }
 }

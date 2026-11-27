@@ -524,7 +524,14 @@ function createWindow() {
     // The popped-out terminal is a page the IDE drew; reloaded, the IDE can't take it back, so it closes.
     if (termPopupWin && !termPopupWin.isDestroyed()) termPopupWin.close();
   });
-  win.webContents.on('render-process-gone', killAllTerms);
+  // A crashed page comes back by itself: chats still working in main reattach to it (agent:live). Not in a loop.
+  let lastCrash = 0;
+  win.webContents.on('render-process-gone', (_e, d) => {
+    killAllTerms();
+    if (d.reason === 'clean-exit' || Date.now() - lastCrash < 10_000) return;
+    lastCrash = Date.now();
+    win?.webContents.reload();
+  });
   // Terminal windows belong to this one: they close with it.
   // With the agentic-tasks tray up, closing hides the window: schedules and triggers keep running.
   win.on('close', e => { hideToTray(e); });
@@ -2032,10 +2039,8 @@ handle('sys:runCommand', async (_e, cmd) => {
   return true;
 });
 // Full access: build mode runs with no guard. Agents may reach files outside the project, .env files and .git,
-// Claude skips every permission check and Codex leaves its sandbox. On unless the user turns it off in Settings.
-const fullAccess = () => loadState().agentFullAccess !== false;
-handle('agent:fullAccess', () => fullAccess());
-handle('agent:setFullAccess', (_e, on) => { saveState({ agentFullAccess: on === true }); return on === true; });
+// Claude skips every permission check and Codex leaves its sandbox. Always on.
+const fullAccess = () => true;
 // Skills view: the agents' skills (removed to the Recycle Bin) and Claude Code's plugins (turned on or off).
 const skillDirs = () => ({
   claudeHome: process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'),
@@ -2112,7 +2117,8 @@ handle('live:stop', async () => {
 });
 handle('win:reload', () => win?.webContents.reload());
 handle('win:devtools', () => win?.webContents.toggleDevTools());
-handle('win:quit', () => app.quit());
+// File → Exit while a chat's agent works closes the window instead: Breeze quits once it's done (hideToTray).
+handle('win:quit', () => (chatsWorking() && win ? win.close() : app.quit()));
 // The window's own background follows Settings → Appearance.
 const THEME_BG: Record<string, string> = { dark: '#1d1d1f', contrast: '#000000', light: '#eeeae6' };
 let themeBg = THEME_BG.dark, glassOn = false, themeName = 'dark';
@@ -2421,7 +2427,21 @@ handle('emmet:expand', (_e, abbr, syntax) => expandAbbr(String(abbr).slice(0, 50
 interface Run { agent?: string; child?: ChildProcess; service?: { stop(): Promise<unknown> }; onStopped?: () => void; abort?: AbortController; stopped?: boolean; [key: string]: Loose }
 const runs = new Map<number, Run>();
 let nextRun = 1;
-const sendEvent = (runId: number | string, ev: Loose) => win?.webContents.send('agent:event', runId, ev);
+// A chat run's events, kept so a page that reloaded or crashed takes the run back (agent:live) and shows it again.
+interface LiveRun { runId: number; agent: string; mode: string; box: boolean; chat: string; events: Loose[]; done: boolean }
+const liveRuns = new Map<number, LiveRun>();
+const LIVE_MAX = 50_000; // shortcut: a run past this many events stops recording, so a reload shows it cut short; trim text deltas if that bites
+const chatsWorking = () => [...liveRuns.values()].filter(r => !r.done).length;
+function sendEvent(runId: number | string, ev: Loose): void {
+  const live = liveRuns.get(Number(runId));
+  if (live && ev?.t !== 'draft' && live.events.length < LIVE_MAX) live.events.push(ev); // drafts are big and only preview a write
+  if (live && ev?.t === 'done') {
+    live.done = true;
+    setTimeout(() => liveRuns.delete(live.runId), 60_000); // a page reloading right now still gets its ending
+    chatRunEnded();
+  }
+  win?.webContents.send('agent:event', runId, ev);
+}
 // A team run's events go through its coordinator first, which hides the claim pass and enforces ownership.
 // A dropped team keeps the runs still going until their done, so a team stopped by a folder change hears them end.
 const teamOf = new Map<number, { team: TeamCoordinator | BoardCoordinator; done: boolean }>(); // runId -> its team or board
@@ -2493,9 +2513,13 @@ handle('agent:run', (_e, opts) => {
   const chat = chatKeyOf(opts?.chat);
   brainPrompt(opts?.taskBase || root || (opts?.box ? boxDir() : null), opts?.prompt, chat);
   const runId = launchRun({ ...opts, team: null });
-  if (chat) runChat.set(runId, chat);
+  if (chat) {
+    runChat.set(runId, chat);
+    liveRuns.set(runId, { runId, agent: String(opts?.agent ?? ''), mode: String(opts?.mode ?? 'build'), box: !!opts?.box, chat, events: [], done: false });
+  }
   return runId;
 });
+handle('agent:live', () => [...liveRuns.values()]);
 // One user message in Claude Code's stream-json input.
 const claudeUserLine = (text: string) => `${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })}\n`;
 // A message sent while the agent works, added to the task it is on. Only Claude Code takes one mid-task, and only
@@ -4355,7 +4379,9 @@ function refreshTray(): void {
     { label: 'Quit Breeze', click: () => { quitting = true; app.quit(); } },
   ];
   tray.setContextMenu(Menu.buildFromTemplate(items));
-  tray.setToolTip(running.length ? `Breeze · ${running.length} task${running.length === 1 ? '' : 's'} running` : 'Breeze Code');
+  const chats = chatsWorking();
+  if (chats) items.splice(2, 0, { label: `${chats} chat${chats === 1 ? '' : 's'} still working`, enabled: false });
+  tray.setToolTip(running.length ? `Breeze · ${running.length} task${running.length === 1 ? '' : 's'} running` : chats ? `Breeze · finishing ${chats} chat${chats === 1 ? '' : 's'}` : 'Breeze Code');
 }
 function showFromTray(): void {
   startHidden = false;
@@ -4365,7 +4391,7 @@ function showFromTray(): void {
 }
 // Puts the tray icon up or takes it down to match the setting and the tasks. refreshTray fills its menu.
 function syncTray(): void {
-  const on = trayWanted && tasksNeedTray();
+  const on = (trayWanted && tasksNeedTray()) || (hiddenForChats && chatsWorking() > 0);
   if (on && !tray) {
     try {
       tray = new Tray(nativeImage.createFromPath(APP_ICON).resize({ width: 16, height: 16, quality: 'best' }));
@@ -4375,16 +4401,30 @@ function syncTray(): void {
   } else if (!on && tray) { tray.destroy(); tray = null; }
   if (!tray && startHidden) showFromTray(); // no tray to open it from: show the window
 }
+// The last chat run that kept a closed window alive is done: Breeze quits, after the page has saved the reply.
+function chatRunEnded(): void {
+  if (!hiddenForChats || chatsWorking()) { if (tray) refreshTray(); return; }
+  hiddenForChats = false;
+  if (win && !win.isDestroyed() && !win.isVisible() && !(trayWanted && tasksNeedTray())) setTimeout(() => { if (!win?.isVisible() && !chatsWorking()) { quitting = true; app.quit(); } }, 2000);
+  else syncTray();
+}
 function setTray(on: boolean): void {
   trayWanted = on;
   syncTray();
 }
-// Closing the window hides it to the tray instead, while the tray is on. Returns true when it hid.
+// Closing the window hides it to the tray instead, while the tray is on or a chat's agent is still working (Breeze
+// then quits once the last one is done). Returns true when it hid.
+let hiddenForChats = false;
 function hideToTray(e: Electron.Event): boolean {
-  if (!trayWanted || !tray || quitting || !win) return false;
+  if (quitting || !win) return false;
+  const chats = chatsWorking();
+  if (chats) { hiddenForChats = true; syncTray(); refreshTray(); }
+  if (!tray) return false;
   e.preventDefault();
   win.hide();
-  if (!loadState().trayToldOnce) {
+  if (chats) {
+    try { if (Notification.isSupported()) new Notification({ title: 'Breeze is finishing your chat', body: 'The agent keeps working from the tray, and Breeze closes when it’s done.', icon: APP_ICON }).show(); } catch { /* fine */ }
+  } else if (!loadState().trayToldOnce) {
     saveState({ trayToldOnce: true });
     try { if (Notification.isSupported()) new Notification({ title: 'Breeze is still running', body: 'Your agentic tasks keep going from the tray. Quit from the tray icon.', icon: APP_ICON }).show(); } catch { /* fine */ }
   }

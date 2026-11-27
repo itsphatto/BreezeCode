@@ -605,7 +605,7 @@ function boxHelloHtml(agent: string): string {
 // A wrapped heading's box stays as wide as the row, leaving the logo far from the text: shrink it to its widest line.
 function fitHello(row: Element | null): void {
   const h = row?.querySelector<HTMLElement>('h4');
-  if (!h) return;
+  if (!h || h.classList.contains('tm-run')) return; // mid-morph its letters are spans: measured before the morph (morphText)
   h.style.width = '';
   const r = document.createRange();
   r.selectNodeContents(h);
@@ -616,15 +616,7 @@ const helloFit = new ResizeObserver((es) => es.forEach((e) => fitHello(e.target)
 // Every 10 seconds each new chat's greeting fades to another line (greetings.ts BOARD_GREETINGS).
 decorInterval(() => {
   for (const h of document.querySelectorAll<HTMLElement>('.board-hello h4')) {
-    const line = boardGreeting();
-    if (motionReduced()) { h.textContent = line; fitHello(h.parentElement); continue; }
-    const out = h.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
-    out.finished.then(() => {
-      h.textContent = line;
-      fitHello(h.parentElement);
-      out.cancel();
-      h.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' });
-    }, () => {});
+    morphText(h, boardGreeting(), () => fitHello(h.parentElement));
   }
 }, 10_000, 10_000);
 // `fresh` while the chat is only its greeting. The prompt glides between the middle and the bottom (FLIP).
@@ -670,7 +662,7 @@ function fillBox(key: string, agent: string, saved?: { historyId?: string; sessi
     <div class="composer board-composer"><div class="composer-box cmp">
       <div class="composer-attachments hidden"></div>
       <div class="prompt-field"><div class="prompt-hl" aria-hidden="true"></div><textarea rows="1" data-no-grow aria-label="Message to ${escAttr(agentNameOf(agent))} in box ${boxNumber(key)}" placeholder=" "></textarea></div>
-      <div class="row cmp-row"><select class="select hidden" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select><button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden><button class="cmp-perm" type="button" aria-haspopup="menu"><svg data-i="shield" data-size="14"></svg><span class="cmp-perm-label">Full access</span><svg data-i="chevronDown" data-size="12"></svg></button><span class="flex-1"></span><span class="prompt-models"></span><button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
+      <div class="row cmp-row"><select class="select hidden" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select><button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden><span class="flex-1"></span><span class="prompt-models"></span><button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
         <button class="cmp-send board-send" title="Send (Enter)" aria-label="Send"><svg data-i="arrowUp" data-size="15"></svg></button></div>
     </div><div class="cmp-meta"><span class="cmp-folder"><svg data-i="folder" data-size="13"></svg><span class="cmp-folder-name">No folder</span></span><span class="cmp-env" title="Agents run on this computer"><svg data-i="monitor" data-size="13"></svg><span>Local</span></span><span class="cmp-branch hidden"><svg data-i="gitBranch" data-size="13"></svg><span class="cmp-branch-name"></span></span><span class="flex-1"></span><span class="cmp-ctx hidden" role="meter" aria-label="Context used" aria-valuemin="0" aria-valuemax="100"><span class="cmp-ctx-bar"><i></i></span><span class="cmp-ctx-pct"></span></span></div></div>
     </div>

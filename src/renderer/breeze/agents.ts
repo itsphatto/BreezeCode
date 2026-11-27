@@ -749,34 +749,99 @@ const MORPH_MOVE = 'cubic-bezier(.65, 0, .35, 1)'; // ease-in-out: dots moving f
 const DOT_STYLES = ['jump', 'pulse', 'fade', 'bars', 'orbit', 'glide', 'atom', 'helix', 'flip', 'pop'];
 const stillMotion = (): boolean => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// A copy's CSS animations start from zero; set each to where the original's is, so the outgoing word's sweep carries on.
-function keepPhase(from: Element, to: Element): void {
-  const css = (el: Element) => el.getAnimations({ subtree: true }).filter((a): a is CSSAnimation => 'animationName' in a);
-  const a = css(from), b = css(to);
-  b.forEach((x, i) => { if (a[i]?.animationName === x.animationName && a[i].currentTime != null) x.currentTime = a[i].currentTime; });
-}
-
-// The word's morph: a copy of the old word sits exactly over the label and blurs up and out while the new word blurs in
-// from below. The label sits in a wrapper (.morph) and only the wrapper moves, so the label's own sweep runs on.
-function morphWord(lbl: HTMLElement, text: string): void {
-  const wrap = lbl.parentElement, head = wrap?.parentElement;
-  if (!wrap || !head || lbl.textContent === text) return;
-  let ghost: HTMLElement | null = null;
-  if (lbl.getClientRects().length) {
-    ghost = wrap.cloneNode(true) as HTMLElement;
-    const r = wrap.getBoundingClientRect(), hr = head.getBoundingClientRect();
-    ghost.classList.add('morph-ghost');
-    Object.assign(ghost.style, { left: `${r.left - hr.left - head.clientLeft}px`, top: `${r.top - hr.top - head.clientTop}px`, width: `${r.width}px` });
-    head.append(ghost);
-    keepPhase(wrap, ghost);
+/* Text morph, for text that cycles (status words, headings, greetings, placeholders): letters the old and new text
+   share (in order, a longest common subsequence) slide from where they stood to where they land; the others blur out
+   where they stood or blur in where they land, and the box eases to its new width. While it runs the text sits in
+   per-letter spans (grouped by word, so lines wrap as before); it ends as plain text. `layout` runs once the new text
+   is in, before it is measured (fitting a box to it). Reduced motion: a fade. */
+interface CharBox { ch: string; x: number; y: number }
+const textMorphs = new WeakMap<HTMLElement, () => void>();
+function stopTextMorph(el: HTMLElement): void { textMorphs.get(el)?.(); }
+// Each letter's place inside `el`, from its text nodes (code points, so an emoji stays one letter).
+function charBoxes(el: HTMLElement): CharBox[] {
+  const o = el.getBoundingClientRect(), r = document.createRange(), out: CharBox[] = [];
+  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    let i = 0;
+    for (const ch of n.textContent ?? '') {
+      r.setStart(n, i); r.setEnd(n, i += ch.length);
+      const b = r.getBoundingClientRect();
+      out.push({ ch, x: b.left - o.left, y: b.top - o.top });
+    }
   }
-  lbl.textContent = text;
-  if (!ghost) return;
-  const g = ghost, still = stillMotion();
-  const away = still ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, filter: 'blur(0)', transform: 'translateY(0)' }, { opacity: 0, filter: 'blur(4px)', transform: 'translateY(-6px)' }];
-  const into = still ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 0, filter: 'blur(4px)', transform: 'translateY(6px)' }, { opacity: 1, filter: 'blur(0)', transform: 'translateY(0)' }];
-  g.animate(away, { duration: MORPH_MS * .8, easing: MORPH_EASE, fill: 'forwards' }).finished.then(() => g.remove(), () => g.remove());
-  wrap.animate(into, { duration: MORPH_MS, easing: MORPH_EASE });
+  return out;
+}
+// For each new letter, the index of the old letter it came from (-1: new). Spaces never pair.
+function pairLetters(a: string[], b: string[]): number[] {
+  const n = a.length, m = b.length, L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = a[i] === b[j] && a[i].trim() ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const to = new Array<number>(m).fill(-1);
+  for (let i = 0, j = 0; i < n && j < m;) {
+    if (a[i] === b[j] && a[i].trim() && L[i][j] === L[i + 1][j + 1] + 1) to[j++] = i++;
+    else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++;
+  }
+  return to;
+}
+function morphText(el: HTMLElement, text: string, layout?: () => void): void {
+  stopTextMorph(el);
+  if (el.textContent === text) return;
+  const shown = el.isConnected && !!el.getClientRects().length;
+  const before = shown ? charBoxes(el) : [], w0 = shown ? el.getBoundingClientRect().width : 0;
+  el.textContent = text;
+  layout?.();
+  if (!shown) return;
+  if (stillMotion()) { el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS, easing: MORPH_EASE }); return; }
+  const w1 = el.getBoundingClientRect().width;
+  // The new text as letters, a word to a nowrap span, so they can move on their own and lines still break at spaces.
+  const letters: HTMLElement[] = [];
+  el.textContent = '';
+  for (const part of text.split(/(\s+)/)) {
+    if (!part) continue;
+    if (/^\s/.test(part)) { el.append(part); continue; }
+    const word = el.appendChild(document.createElement('span'));
+    word.className = 'tm-w';
+    for (const ch of part) { const c = word.appendChild(document.createElement('span')); c.className = 'tm-c'; c.textContent = ch; letters.push(c); }
+  }
+  el.classList.add('tm-run');
+  const after = charBoxes(el).filter(c => c.ch.trim()), old = before.map(c => c.ch);
+  const from = pairLetters(old, after.map(c => c.ch)), kept = new Set(from);
+  const anims: Animation[] = [], ghosts: HTMLElement[] = [], soft = 'blur(4px)';
+  const move = { duration: MORPH_MS, easing: MORPH_MOVE };
+  // Letters that leave roll up and out, new ones roll up in from below, left to right a beat apart (capped for long text).
+  const roll = (i: number) => Math.min(i, 24) * 12;
+  letters.forEach((c, j) => {
+    const k = from[j];
+    if (k >= 0) anims.push(c.animate([{ transform: `translate(${before[k].x - after[j].x}px, ${before[k].y - after[j].y}px)` }, { transform: 'none' }], move));
+    else anims.push(c.animate([{ opacity: 0, filter: soft, transform: 'translateY(.8em)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: MORPH_MS, delay: MORPH_MS * .15 + roll(j), easing: MORPH_EASE, fill: 'backwards' }));
+  });
+  // Letters that leave: a copy where each stood, blurring away.
+  before.forEach((b, i) => {
+    if (kept.has(i) || !b.ch.trim()) return;
+    const g = el.appendChild(document.createElement('span'));
+    g.className = 'tm-ghost';
+    g.textContent = b.ch;
+    g.style.left = `${b.x}px`; g.style.top = `${b.y}px`;
+    // Where its letter landed may be off by the border and line box: move it by the difference.
+    const o = el.getBoundingClientRect(), r = document.createRange();
+    r.selectNodeContents(g);
+    const p = r.getBoundingClientRect();
+    g.style.left = `${2 * b.x - (p.left - o.left)}px`; g.style.top = `${2 * b.y - (p.top - o.top)}px`;
+    ghosts.push(g);
+    anims.push(g.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: soft, transform: 'translateY(-.8em)' }], { duration: MORPH_MS * .6, delay: roll(i), easing: MORPH_EASE, fill: 'both' }));
+  });
+  if (Math.abs(w1 - w0) > .5) anims.push(el.animate([{ width: `${w0}px` }, { width: `${w1}px` }], move));
+  let done = false;
+  const end = () => {
+    if (done) return;
+    done = true;
+    anims.forEach(a => a.cancel());
+    ghosts.forEach(g => g.remove());
+    el.classList.remove('tm-run');
+    el.textContent = text;
+    if (textMorphs.get(el) === end) textMorphs.delete(el);
+  };
+  textMorphs.set(el, end);
+  Promise.all(anims.map(a => a.finished)).then(end, () => {});
 }
 
 // Where each visible dot is: its box on screen and brightness. Glide draws one dot (::before) for all three.
@@ -827,8 +892,8 @@ function morphDots(row: HTMLElement, style: string): void {
 }
 
 function nextStatus(el: HTMLElement): void {
-  const lbl = el.querySelector<HTMLElement>('.think-head .morph:not(.morph-ghost) > .lbl');
-  if (lbl) morphWord(lbl, pickOther(STATUS_WORDS, lbl.textContent ?? ''));
+  const lbl = el.querySelector<HTMLElement>('.think-head .morph > .lbl');
+  if (lbl) morphText(lbl, pickOther(STATUS_WORDS, lbl.textContent ?? ''));
   morphDots(el, pickOther(DOT_STYLES, el.dataset.dots ?? ''));
 }
 
@@ -995,13 +1060,13 @@ function rotatePlaceholder(ta: HTMLTextAreaElement, home: string, list: string[]
   place(); sync();
   phRotators.set(layer, { ta, list, layer });
   // Typing mid-swap: drop the swap so the placeholder can blur away at once.
-  ta.addEventListener('input', () => layer.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); }));
+  ta.addEventListener('input', () => stopTextMorph(layer));
 }
 // Keyed by layer, so a closed box's composer drops out on its own.
 const phRotators = new WeakMap<HTMLElement, PlaceholderRotator>();
 function nextPlaceholder(r: PlaceholderRotator): void {
   if (r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
-  blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
+  morphText(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
 }
 // Every 2 s each visible composer shows another example, power saver included (one small swap); it rests only while
 // the window is unseen (power.ts).
@@ -1017,7 +1082,7 @@ rotatePlaceholder(SURFACES.ide.prompt, ' ', IDE_HINTS);
 rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS[0], BOX_PLACEHOLDERS);
 // Rests under the power saver and while the window is unseen (power.ts).
 decorInterval(() => {
-  for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) blurSwap(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
+  for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) morphText(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
 }, 5000);
 // The empty state's logo: Agent.png with its strokes rippling in a breeze, as a lossless animated WebP rendered from
 // that image. An image, not a video: a looping video shows a seam each time it restarts. Reduced motion and the power

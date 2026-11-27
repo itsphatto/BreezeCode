@@ -378,7 +378,7 @@
                   <div class="composer-attachments hidden" id="homeAskFiles"></div>
                   <textarea id="homeAskInput" rows="2" spellcheck="true" aria-label="Message to the agent" placeholder="Ask an agent to build something…"></textarea>
                   <div class="row cmp-row">
-                    <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden><button class="cmp-perm" type="button" aria-haspopup="menu"><svg data-i="shield" data-size="14"></svg><span class="cmp-perm-label">Full access</span><svg data-i="chevronDown" data-size="12"></svg></button>
+                    <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden>
                     <span class="flex-1"></span>
                     <span class="prompt-models home-ask-models" id="homeAskModels"></span>
                     <button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
@@ -631,7 +631,9 @@
         <div class="agent-fluid-blur" aria-hidden="true"></div>
         <canvas class="agent-fluid-canvas" aria-hidden="true" tabindex="-1"></canvas>
         <div class="sash sash-v sash-left" data-sash="agents"></div>
-        <div class="side-head"><span class="row gap-6 agent-head-title">Agents<span class="head-count hidden" id="agentCount"></span></span><span class="row gap-6 agent-head-tools"><button class="icon-btn"
+        <div class="side-head"><span class="row gap-6 agent-head-title">Agents<span class="head-count hidden" id="agentCount"></span></span><span class="row gap-6 agent-head-tools"><!-- Vibe Mode collapsed: one click brings the feed back. --><button
+              class="icon-btn hidden" id="vibePeek" title="Back to your feed" aria-label="Back to your feed"><svg
+                data-i="eye" data-size="14"></svg></button><button class="icon-btn"
               id="chatHistory" title="Chat history" aria-haspopup="menu"><svg width="14" height="14">
                 <use href="#i-history" />
               </svg></button><button class="icon-btn flip" data-act="view.toggleAgents"
@@ -654,7 +656,7 @@
             <div class="row cmp-row">
               <!-- No mode picker: the agent decides for itself whether to answer, plan or change files. -->
               <select class="select hidden" id="agentMode" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select>
-              <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden><button class="cmp-perm" type="button" aria-haspopup="menu"><svg data-i="shield" data-size="14"></svg><span class="cmp-perm-label">Full access</span><svg data-i="chevronDown" data-size="12"></svg></button>
+              <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden>
               <span class="flex-1"></span>
               <span class="prompt-models" id="promptModels"></span>
               <button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
@@ -739,7 +741,7 @@
         </div>
         <div class="row cmp-row">
           <select class="select hidden" id="boxMode" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select>
-          <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden><button class="cmp-perm" type="button" aria-haspopup="menu"><svg data-i="shield" data-size="14"></svg><span class="cmp-perm-label">Full access</span><svg data-i="chevronDown" data-size="12"></svg></button>
+          <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden>
           <span class="flex-1"></span>
           <button class="cmp-model" id="boxModel" aria-haspopup="menu" title="Choose the agent">No agent</button>
           <button class="icon-btn improve-prompt" data-improve-prompt type="button" title="Improve prompt" aria-label="Improve prompt"><svg data-i="sparkles" data-size="14"></svg><span class="spinner sm" aria-hidden="true"></span></button>
@@ -886,7 +888,6 @@
           class="btn btn-primary btn-sm" id="vibeBack">Show me</button></div>
     </dialog>
   </div>
-
   <div id="menuRoot"></div>
   <div id="modalRoot"></div>
   <div id="toastRoot"></div>
@@ -930,6 +931,7 @@
   <script src="breeze/boxbrowser.js" defer></script>
   <script src="breeze/terminal.js" defer></script>
   <script src="breeze/nextlinecore.js" defer></script>
+  <script src="breeze/autofillcore.js" defer></script>
   <script src="breeze/autofill.js" defer></script>
   <script src="breeze/layout.js" defer></script>
   <script src="breeze/commands.js" defer></script>

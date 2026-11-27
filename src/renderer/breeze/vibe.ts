@@ -8,6 +8,7 @@ let vibeClock: IntervalId | undefined;
 let vibeStarted = 0;
 let vibeMuted = false;
 let vibeSiteShown: string | null = null;
+let vibeCollapsed = false; // the user closed the feed: new runs leave it on the eye until they click it
 const vibeFrame = $('#vibeFrame');
 const agentWorking = () => Object.values(agentsDef).some(a => a.status === 'working');
 function setVibeArmed(on: boolean): void {
@@ -20,6 +21,7 @@ function setVibeArmed(on: boolean): void {
   const feeds = document.getElementById('sFeeds');
   feeds?.classList.toggle('off', !on);
   feeds?.toggleAttribute('inert', !on); // greyed out and locked: no clicks, no keyboard focus
+  if (!on) { $('#vibePeek').classList.add('hidden'); vibeCollapsed = false; }
 }
 function openFeedPicker(): void {
   openModal(`<h3>Vibe Mode feeds</h3><p class="sub">Pick what plays while your agents work. Connecting opens the site so you can sign in.</p>
@@ -75,36 +77,43 @@ function fitVibeSide(): void {
   s.setProperty('--vibe-bottom', `${innerHeight - bottom}px`);
   s.setProperty('--vibe-h', `${h}px`);
 }
-function enterVibe(): void {
+// `fresh`: a new run started it. Reopening from the eye keeps the run's clock and its ready card.
+function enterVibe(fresh = true): void {
   if (vibeOn) return;
   vibeOn = true;
   closeMenu();
-  vibeStarted = Date.now();
-  $('#vibeReady').classList.add('hidden');
-  $('#vibeStatus').classList.remove('hidden');
+  if (fresh) vibeStarted = Date.now();
+  const working = fresh || agentWorking();
+  $('#vibeReady').classList.toggle('hidden', working);
+  $('#vibeStatus').classList.toggle('hidden', !working);
+  $('#vibePeek').classList.add('hidden');
   $('#vibe').classList.remove('hidden');
   // In Breeze Space the feed takes the window's right side and the chat stays usable beside it (breeze.css).
   document.body.classList.toggle('vibe-side', !$('#box').classList.contains('hidden'));
   document.body.classList.add('vibing');
   fitVibeSide();
-  tickVibeClock();
-  vibeClock = setInterval(tickVibeClock, 1000);
+  if (working) {
+    tickVibeClock();
+    vibeClock = setInterval(tickVibeClock, 1000);
+  }
   // Wait for the stage to settle before laying the live feed over it.
   setTimeout(() => { if (vibeOn) showFeed(); }, 450);
 }
 function exitVibe(): void {
   if (!vibeOn) return;
   vibeOn = false;
+  vibeCollapsed = true;
   clearInterval(vibeClock);
   if (isDesktop) background(api.vibe.hide());
   document.body.classList.remove('vibing', 'vibe-side');
   ['--vibe-top', '--vibe-bottom', '--vibe-h'].forEach(p => document.body.style.removeProperty(p));
   $('#vibe').classList.add('hidden');
+  $('#vibePeek').classList.remove('hidden'); // collapsed, not gone: the eye brings the feed back
 }
 // Called whenever an agent's status changes.
 function vibeTick(): void {
   if (vibeOn && agentWorking() && !$('#vibeReady').classList.contains('hidden')) { resumeVibe(); return; }
-  if (!appState.vibeArmed || !connectedSites().length || vibeOn || vibeTimer != null || !agentWorking()) return;
+  if (vibeCollapsed || !appState.vibeArmed || !connectedSites().length || vibeOn || vibeTimer != null || !agentWorking()) return;
   vibeTimer = setTimeout(() => {
     vibeTimer = undefined;
     if (agentWorking()) enterVibe();
@@ -122,7 +131,8 @@ function resumeVibe(): void {
 function vibeDone(ok: boolean, plan = false): void {
   clearTimeout(vibeTimer);
   vibeTimer = undefined;
-  if (!vibeOn) return;
+  // Collapsed to the eye: still update the card, so reopening shows how the run ended.
+  if (!vibeOn && $('#vibePeek').classList.contains('hidden')) return;
   clearInterval(vibeClock);
   $('#vibeStatus').classList.add('hidden');
   $('#vibeReady').classList.remove('hidden');
@@ -135,6 +145,7 @@ function vibeDone(ok: boolean, plan = false): void {
     backBtnText = plan ? 'Review plan' : 'Show me';
   }
   swapText($('#vibeBack'), backBtnText);
+  if (!vibeOn) return;
   // The feed keeps playing; leaving Vibe Mode stays the user's call. The card pops and the system says so.
   const card = $('#vibeReady');
   card.classList.remove('ping');
@@ -153,6 +164,7 @@ function notifyVibe(title: string, body: string): void {
   else if (Notification.permission !== 'denied') void Notification.requestPermission().then(p => { if (p === 'granted') show(); });
 }
 $('#vibeClose').onclick = exitVibe;
+$('#vibePeek').onclick = () => { vibeCollapsed = false; enterVibe(false); };
 // Clicking the dimmed backdrop around the panel leaves Vibe Mode too.
 $('#vibe').addEventListener('click', e => { if (e.target === e.currentTarget) exitVibe(); });
 $('#vibeBack').onclick = () => {

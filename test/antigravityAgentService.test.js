@@ -250,6 +250,16 @@ test('Parsing: handles agy native stream-json events (init, step_update, result)
   assert.ok(outputs.some((ev) => ev.type === 'done' && ev.ok === true));
 });
 
+test('Parsing: a turn agy ended on a denied permission says so instead of stopping silently', () => {
+  const service = new AntigravityAgentService();
+  const outputs = [];
+  service.on('output', (ev) => outputs.push(ev));
+  service['handleStdoutChunk']('{"event":"result","result":{"status":"SUCCESS","response":"","denied_actions":[{"action":"command","display_name":"Bash"}]}}\n');
+  const err = outputs.find((ev) => ev.type === 'error');
+  assert.ok(err && err.text.includes('Bash'));
+  assert.ok(outputs.some((ev) => ev.type === 'done' && ev.ok === false));
+});
+
 test('buildSpawnArgs: configures agy with requested model, effort, and headless permissions', () => {
   const service = new AntigravityAgentService({
     mode: 'build',

@@ -1,8 +1,9 @@
 /* ================= Autofill ================= */
 // One suggestion list, used by the code editor (words and keywords) and the terminal (files, commands, history).
 // insert/from: a language server's completion, which may insert other text than its label, from another spot.
-// run: does its own thing instead of inserting; plain: the typed prefix is not part of its label, so none of it is bolded.
-interface Suggestion { text: string; hint?: string; insert?: string; from?: number; run?: () => void; plain?: boolean; }
+// run: does its own thing instead of inserting; plain: the typed prefix is not part of its label, so none of it is bolded;
+// marks: the letters of its label that matched, bolded instead of the typed prefix (autofillcore.ts).
+interface Suggestion { text: string; hint?: string; insert?: string; from?: number; run?: () => void; plain?: boolean; marks?: number[]; }
 interface SuggestState { owner: HTMLElement; items: Suggestion[]; sel: number; typed: number; accept: (s: Suggestion) => void; onRender?: () => void; }
 let suggest: SuggestState | null = null;
 const suggestEl = document.createElement('div');
@@ -19,12 +20,25 @@ suggestEl.addEventListener('click', e => {
   const row = (e.target as HTMLElement).closest<HTMLElement>('[data-sg]');
   if (row && suggest) suggest.accept(suggest.items[Number(row.dataset.sg)]);
 });
+// The label with its matched letters in bold, a run of them at a time.
+function boldMarks(text: string, marks: number[]): string {
+  let out = '';
+  for (let i = 0; i < text.length;) {
+    const on = marks.includes(i);
+    let j = i + 1;
+    while (j < text.length && marks.includes(j) === on) j++;
+    out += on ? `<b>${esc(text.slice(i, j))}</b>` : esc(text.slice(i, j));
+    i = j;
+  }
+  return out;
+}
 function renderSuggest(): void {
   if (!suggest) return;
   const { items, sel, typed } = suggest;
   suggestEl.innerHTML = items.map((s, i) => {
     const hint = s.hint ? `<small>${esc(s.hint)}</small>` : '';
-    return `<div class="${i === sel ? 'on' : ''}" data-sg="${i}" role="option"><span><b>${esc(s.text.slice(0, s.plain ? 0 : typed))}</b>${esc(s.text.slice(s.plain ? 0 : typed))}</span>${hint}</div>`;
+    const marks = s.marks ?? (s.plain ? [] : Array.from({ length: typed }, (_, k) => k));
+    return `<div class="${i === sel ? 'on' : ''}" data-sg="${i}" role="option"><span>${boldMarks(s.text, marks)}</span>${hint}</div>`;
   }).join('');
   suggestEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
   suggest.onRender?.();
@@ -81,28 +95,45 @@ const EDITOR_WORDS: Record<string, string[]> = {
   ...Object.fromEntries(Object.entries({ go: GO_KW, rb: RB_KW, kt: KT_KW, swift: SWIFT_KW, dart: DART_KW, zig: ZIG_KW, scala: SCALA_KW, groovy: GROOVY_KW, ex: EX_KW, hs: HS_KW, r: R_KW, pl: PL_KW }).map(([id, kw]) => [id, kw.split(' ')])),
 };
 // Word counts per open file, refreshed while typing: small files almost every keystroke, so a word just typed is offered.
-const wordCache = new WeakMap<EditorBuffer, { at: number; counts: Map<string, number> }>();
+const wordCache = new WeakMap<EditorBuffer, { at: number; text: string; counts: Map<string, number> }>();
 function fileWords(b: EditorBuffer): Map<string, number> {
   const cached = wordCache.get(b);
-  // Big files are counted less often: the count takes longer and a few new words barely change it.
-  if (cached && Date.now() - cached.at < Math.max(150, b.text.length / 50)) return cached.counts;
+  // Big files are counted less often: the count takes longer and a few new words barely change it. Unchanged ones never again.
+  if (cached && (cached.text === b.text || Date.now() - cached.at < Math.max(150, b.text.length / 50))) return cached.counts;
   const counts = new Map<string, number>();
-  for (const m of b.text.slice(0, LINT_MAX).matchAll(/[A-Za-z_$][\w$-]{2,}/g)) counts.set(m[0], (counts.get(m[0]) ?? 0) + 1);
-  wordCache.set(b, { at: Date.now(), counts });
+  for (const m of b.text.slice(0, LINT_MAX).matchAll(WORD_RE)) counts.set(m[0], (counts.get(m[0]) ?? 0) + 1);
+  wordCache.set(b, { at: Date.now(), text: b.text, counts });
   return counts;
 }
-function editorCandidates(b: EditorBuffer, prefix: string): Suggestion[] {
-  const counts = fileWords(b);
-  const lower = prefix.toLowerCase();
-  const words = new Map<string, number>();
-  for (const w of EDITOR_WORDS[langOf(b.path)[0]] ?? []) words.set(w, 1000);
-  for (const [w, n] of counts) words.set(w, (words.get(w) ?? 0) + n);
-  // The word being typed is in the file too; it isn't a suggestion by itself. (A word written once elsewhere still is.)
-  return [...words]
-    .filter(([w]) => w.toLowerCase().startsWith(lower) && w !== prefix)
-    .sort((a, b2) => Number(b2[0].startsWith(prefix)) - Number(a[0].startsWith(prefix)) || b2[1] - a[1] || a[0].length - b2[0].length)
-    .slice(0, 8)
-    .map(([w, n]) => ({ text: w, hint: n >= 1000 ? 'keyword' : '' }));
+// The word taken after typing a start of it, under that start and each longer one (us → userName for us, use, user…),
+// so the same start offers it first next time. The oldest are dropped past 500.
+const picks = new Map<string, string>(store.get<[string, string][]>('breeze.picks', []));
+let pickSave = 0;
+function rememberPick(typed: string, word: string): void {
+  const keys = [typed.toLowerCase()];
+  if (word.toLowerCase().startsWith(keys[0])) for (let n = typed.length + 1; n < word.length; n++) keys.push(word.slice(0, n).toLowerCase());
+  for (const k of keys) { picks.delete(k); picks.set(k, word); }
+  for (const k of picks.keys()) { if (picks.size <= 500) break; picks.delete(k); }
+  clearTimeout(pickSave);
+  pickSave = window.setTimeout(() => store.set('breeze.picks', [...picks]), 1000);
+}
+function editorCandidates(b: EditorBuffer, prefix: string, pos: number): Suggestion[] {
+  const lang = langOf(b.path)[0], counts = fileWords(b), keywords = new Set(EDITOR_WORDS[lang] ?? []);
+  const weights = new Map<string, number>();
+  const add = (w: string, n: number) => weights.set(w, (weights.get(w) ?? 0) + n);
+  // A keyword counts like a name used about seven times: it no longer outranks every name in the file.
+  for (const w of keywords) add(w, 6);
+  // Each further use counts a little less (log), so a name used a lot doesn't bury one used a few times right here.
+  for (const [w, n] of counts) add(w, Math.log2(1 + n) * 2);
+  // The names in the other open files of the same language, at half weight: a project's names cross files.
+  for (const o of buffers.values()) if (o !== b && o.kind === 'text' && langOf(o.path)[0] === lang) for (const [w, n] of fileWords(o)) add(w, Math.log2(1 + n));
+  // The words around the caret are the likeliest to come next.
+  for (const [w, near] of nearWords(b.text, pos, 3000)) add(w, near * 6);
+  const ranked = rankWords(prefix, weights, 8, picks.get(prefix.toLowerCase()));
+  // The typed word is in the file too, so a count of one is just itself. A word that is already one (used elsewhere, or
+  // a keyword) gets no list of part-matches only: Enter would swap it for another name.
+  if ((ranked[0]?.tier ?? 0) >= 2 && ((counts.get(prefix) ?? 0) >= 2 || keywords.has(prefix))) return [];
+  return ranked.map(r => ({ text: r.text, marks: r.marks, hint: keywords.has(r.text) ? 'keyword' : '' }));
 }
 // The word (letters, digits, _ $ and -) that ends at the caret.
 function wordBefore(ta: CodeSurface): string {
@@ -145,12 +176,13 @@ function editorSuggest(b: EditorBuffer, force = false): void {
       owner: ta.input, items: emmetItem ? [emmetItem, ...items] : items, sel: 0, typed: prefix.length,
       accept: s => {
         hideSuggest();
+        if (!s.run && s.insert == null) rememberPick(prefix, s.text); // the file's words; the server ranks its own
         if (s.run) s.run(); else replaceRange(ta, s.from ?? pos - prefix.length, ta.selectionStart, s.insert ?? s.text);
       },
       onRender: ghost,
     }, x - 8, top + LINE_H + 2, top - 2);
   };
-  const words = member || short ? [] : editorCandidates(b, prefix);
+  const words = member || short ? [] : editorCandidates(b, prefix, pos);
   if (words.length) show(words); else hideSuggest();
   // The expansion goes on top of the list once main has it, unless the user moved on or closed the list (Esc).
   if (abbr) {
@@ -341,7 +373,7 @@ const learned = new Map<string, number>(store.get<[string, number][]>('breeze.wo
 let learnSave = 0;
 // So there is something to offer before anything is learned: everyday English, then app and code words. Ranked below
 // your own words and the open files'.
-const COMMON_WORDS = (
+const COMMON_WORDS = [...new Set((
   'about above across actually after again against almost alone along already also although always among another ' +
   'answer anything anyone anywhere appear around asked away back because become been before began begin behind ' +
   'being believe below better between both bring brought build built business called came cannot change check ' +
@@ -360,6 +392,8 @@ const COMMON_WORDS = (
   'tried true trying turn under understand until upon used useful using usually very want wanted water week well ' +
   'went were what whatever when where whether which while white whole whose why will with within without word ' +
   'words work working world would write writing wrong year years yesterday young your yourself ' +
+  "I'm I've I'll I'd don't doesn't didn't isn't aren't wasn't weren't can't couldn't shouldn't wouldn't won't haven't " +
+  "hasn't it's that's there's what's let's you're you've you'll we're we've we'll they're here's " +
   'ability able absolutely accept according actual afraid afternoon agree ahead amazing amount anymore apart ' +
   'appreciate approach area arrive article asking attention available avoid aware awesome basic basically ' +
   'beautiful beginning best black blue body book bottom brief broken busy calm care careful carefully case ' +
@@ -415,15 +449,54 @@ const COMMON_WORDS = (
   'sort spinner sqlite stack staging static status storage stream struct subscribe swift tabs tailwind thread ' +
   'throttle timeout timer timestamp toast toolbar transform tree trigger tuple typo undo unicode uninstall unit ' +
   'upgrade username utility validate validation vector viewport vite warning webhook websocket widget windows ' +
-  'wrapper yaml zoom'
-).split(' ');
+  'wrapper yaml zoom ' +
+  // The forms a request takes (suggested, suggestions, improving), and the rest of everyday writing.
+  'accepted accepts achieve achieved adds adjust adjusted affect affected affects allowed allowing allows alternative ' +
+  'alternatively anybody anyway applied applies applying appears approve approved arrange asks assume assumed assuming ' +
+  'attached attempt attempted avoided based becomes behave behaves behavior behaviour belongs benefit beside besides ' +
+  'beyond bigger bit blank bold borders boxes breaks breaking broke brings builds calculate calculated calls cases ' +
+  'categories category caused causes causing center centered changed changing chat chats checked checking checks ' +
+  'chosen cleaner clearer clicked clicking clicks closed closes closing collapsed combine combined comes compared ' +
+  'comparing comparison completed complex concept confirm confirmed confused confusing connected consistent contains ' +
+  'continued continues controls convert converted copied corner corners correctly covered covers created creates ' +
+  'crashed crashes crashing currently custom cut decrease deleted deleting delay demo depends described description ' +
+  'designed designs detected determine developer developers differences differently disabled disappear disappeared ' +
+  'disappears displayed displays documentation drop dropped edges edit edited editing efficient elements ended ends ' +
+  'english enter entered errors etc events examples existing expanded expects explained explaining explanation ' +
+  'explicitly extremely fails failed failing feedback feels fewer fields filled filtered finds fits fixed fixes ' +
+  'fixing flicker flickers flow focused folders follows fonts forgot forms functions further furthermore gap gaps ' +
+  'generated generates gets gives goals goes grows guide handled handles happened happening happens helps helpers ' +
+  'hides hiding hints hit holds hopefully icons ideally ideas ignore ignored ignores images imported improved ' +
+  'improvement improvements improving included includes including inconsistent increase increased info information ' +
+  'inputs installed instructions interaction issues items itself jumps keeps keys knows labels language larger ' +
+  'lately latest latter learned leaves let lets lighter likes limited limits lines links listed lists loaded loads ' +
+  'logs longer looked looks lose losing lost mainly makes manual manually margins matched matches matching means ' +
+  'meant menus merged messages methods minimal missed missing mixed mode modes modules mostly moved moves multiple ' +
+  'names needed needs nested newer noticed odd older onto opened opening opens options ordered overlap overlapping ' +
+  'pages parts paste pasted pattern patterns picked placed points popups possibly potentially preferences ' +
+  'preferred pressed prevent prevents previous previously problems projects proper properly questions randomly ' +
+  'rarely readable realized reasons received recent recently recommend recommended reduce reduced regardless ' +
+  'regarding related relevant reliable reloaded remembered removed removes removing renamed rendered rendering ' +
+  'repeated replaced replies reported requested requests required requires requirements resized resolved restarted ' +
+  'results returned returns reused reverted rows rules runs running safer saved saves saw says screens scrolled ' +
+  'scrolling sections seems selecting sends sent separate separately sets shape shapes shorter shortcuts showed ' +
+  'showing shown shows similar similarly simpler slightly slower smaller smooth smoother snippet solid solution ' +
+  'solutions solved somehow somewhat sorted sounds specific specifically stable standard started starts states stays ' +
+  'steps stopped stops stored strange strings strongly structure stuck styles submitted subtle successful ' +
+  'successfully suddenly suggested suggestion suggestions suggests summary supported supports switched takes tasks ' +
+  'temporarily terms tested tests therefore thus tiny titles tools tries triggered turned turns typed typing ugly ' +
+  'unclear unexpected unfortunately unlike unused updated updates updating usage users uses values variables versions ' +
+  'views visible visual warnings ways weird whenever wherever wide wondering workflow works worked wrapped writes ' +
+  'written wrote yet receive'
+).split(' '))]; // once each, at its first (most common) place
 function isTextbox(el: EventTarget | null): el is Textbox {
   const ok = el instanceof HTMLTextAreaElement ? !el.classList.contains('code-input')
     : el instanceof HTMLInputElement && ['text', 'search'].includes(el.type) && el !== termInput && !el.matches('#qoIn, .menu input'); // those two arrow through their own lists
   return ok && !(el as Textbox).readOnly && !(el as Textbox).disabled;
 }
-// Which word follows which, so after one word the list offers the next, like a search box. Learned pairs count three
-// times a seed pair. The seeds are everyday requests, so there is something to offer before anything is learned.
+// Which word follows which, so after a word the list offers the next, like a search box: keyed by the one word before
+// ("the") and by the two before ("fix the"), which say far more. Learned ones count three times a seed. The seeds are
+// everyday requests, so there is something to offer before anything is learned.
 const pairs = new Map<string, Map<string, number>>();
 const addPair = (a: string, b: string, n: number) => { const m = pairs.get(a) ?? new Map<string, number>(); m.set(b, (m.get(b) ?? 0) + n); pairs.set(a, m); };
 const SEED_TEXT = [
@@ -448,28 +521,32 @@ const SEED_TEXT = [
   'write the docs for the new feature', 'add a search box to the list', 'sort the list by date', 'keep it simple',
   'do the same for the other files', 'make the colors match the theme', 'center the text in the header', 'hide the scrollbar',
   'add a confirm dialog before deleting', 'the request times out after a few seconds', 'cache the result so it loads faster',
+  "i don't know why this happens", "it doesn't work", "i'm not sure what you mean", "that's not what i meant", "it's still broken",
+  "don't change anything else", "i think it's fixed now", "let's try something else", "can't find the file", "what's wrong with this",
 ].join(' . ');
 const SEED_WORDS = SEED_TEXT.split(' ');
 const seedPairs = new Map<string, number>();
+const seedPair = (a: string, b: string) => { addPair(a, b, 1); seedPairs.set(`${a} ${b}`, (seedPairs.get(`${a} ${b}`) ?? 0) + 1); };
 SEED_WORDS.forEach((w, i) => {
-  const next = SEED_WORDS[i + 1];
+  const next = SEED_WORDS[i + 1], prev = SEED_WORDS[i - 1];
   if (!next || w === '.' || next === '.') return;
-  addPair(w, next, 1);
-  seedPairs.set(`${w} ${next}`, (seedPairs.get(`${w} ${next}`) ?? 0) + 1);
+  seedPair(w, next);
+  if (prev && prev !== '.') seedPair(`${prev} ${w}`, next);
 });
 for (const [a, b, n] of store.get<[string, string, number][]>('breeze.pairs', [])) addPair(a, b, n * 3);
 let pairSave = 0;
 const secretField = (el: Textbox) => /key|token|secret|pass/i.test(`${el.id} ${el.name} ${el.placeholder} ${el.getAttribute('aria-label') ?? ''}`);
-function learnWord(word: string, prev?: string): void {
+function learnWord(word: string, prev?: string, prev2?: string): void {
   if (/\d/.test(word) || word.length > 30) return;
   if (prev && !/\d/.test(prev)) {
     addPair(prev.toLowerCase(), word.toLowerCase(), 3);
+    if (prev2) addPair(`${prev2.toLowerCase()} ${prev.toLowerCase()}`, word.toLowerCase(), 3);
     clearTimeout(pairSave);
     // Only the learned share is saved: the seeds come from the list above on every run.
     pairSave = window.setTimeout(() => {
       const out: [string, string, number][] = [];
       for (const [a, m] of pairs) for (const [w, n] of m) { const own = Math.round((n - (seedPairs.get(`${a} ${w}`) ?? 0)) / 3); if (own >= 1) out.push([a, w, own]); }
-      store.set('breeze.pairs', out.sort((x, y) => y[2] - x[2]).slice(0, 3000));
+      store.set('breeze.pairs', out.sort((x, y) => y[2] - x[2]).slice(0, 6000));
     }, 1000);
   }
   if (word.length < 3) return;
@@ -480,12 +557,12 @@ function learnWord(word: string, prev?: string): void {
 // Every word of `text`, each with the one before it. Punctuation ends a run; @mentions, /commands, #refs, numbers and
 // code aren't words and end one too.
 function learnText(text: string): void {
-  let prev: string | undefined;
+  let prev: string | undefined, prev2: string | undefined;
   for (const token of text.split(/\s+/)) {
     const m = /^["'(\[]*([A-Za-z](?:[\w'-]*\w)?)([^\w\s]*)$/.exec(token);
-    if (!m || /\d/.test(m[1])) { prev = undefined; continue; }
-    learnWord(m[1], prev);
-    prev = m[2] ? undefined : m[1];
+    if (!m || /\d/.test(m[1])) { prev = prev2 = undefined; continue; }
+    learnWord(m[1], prev, prev2);
+    [prev2, prev] = m[2] ? [undefined, undefined] : [prev, m[1]];
   }
 }
 // What you send is your wording: a box is learned from when Enter sends it or you leave it, not keystroke by keystroke,
@@ -514,21 +591,43 @@ if (!store.get('breeze.wordsFromChats', false)) {
   });
 }
 const commonRank = new Map(COMMON_WORDS.map((w, i) => [w, 1 - i / COMMON_WORDS.length]));
-// Words that finish `prefix`, the ones that often follow `prev` first. With no prefix, only the ones that follow `prev`.
-function textboxCandidates(prefix: string, prev?: string): Suggestion[] {
-  const lower = prefix.toLowerCase(), words = new Map<string, number>(), next = prev ? pairs.get(prev.toLowerCase()) : undefined;
+// Every language's keywords and built-ins: an open file's `const` and `return` are no words for a message.
+const CODE_WORDS = new Set(Object.values(EDITOR_WORDS).flat());
+const DICTIONARY = [...new Set([...COMMON_WORDS, ...SEED_WORDS].map(w => w.toLowerCase()))];
+const inDictionary = new Set(DICTIONARY);
+const typos = new Map<string, boolean>();
+// A word sent once that isn't in the lists but is one letter off one that is: a typo (teh, recieve), not offered back.
+// Sent again, it's meant (lint next to line).
+function typo(w: string): boolean {
+  const k = w.toLowerCase();
+  if (inDictionary.has(k)) return false;
+  if (!typos.has(k)) typos.set(k, DICTIONARY.some(d => oneEditApart(k, d)));
+  return typos.get(k)!;
+}
+// Words that finish `prefix`, the ones that often follow `prev` (and `prev2` before it) first. With no prefix, only those.
+function textboxCandidates(prefix: string, prev?: string, prev2?: string): Suggestion[] {
+  const lower = prefix.toLowerCase(), words = new Map<string, number>();
+  const next = prev ? pairs.get(prev.toLowerCase()) : undefined;
+  const next2 = prev && prev2 ? pairs.get(`${prev2.toLowerCase()} ${prev.toLowerCase()}`) : undefined;
   if (prefix) {
     COMMON_WORDS.forEach((w, i) => words.set(w, 0.9 - i / COMMON_WORDS.length / 2));
-    for (const w of SEED_WORDS) if (w !== '.') words.set(w, Math.min(1.5, Math.max(words.get(w) ?? 0, 0.8) + 0.1)); // "can" and "the" by how often they come up
-    for (const [w, n] of learned) words.set(w, n * 3);
-    for (const b of buffers.values()) if (b.kind === 'text') for (const [w, n] of fileWords(b)) words.set(w, (words.get(w) ?? 0) + n);
+    // Each time a word comes up in the seeds lifts it ("can", "the"), but one mention doesn't put "confirm" over "could".
+    for (const w of SEED_WORDS) if (w !== '.') words.set(w, Math.min(1.5, Math.max(words.get(w) ?? 0, 0.6) + 0.15));
+    for (const [w, n] of learned) if (w.toLowerCase().startsWith(lower) && (n > 1 || !typo(w))) words.set(w, n * 3);
+    // The open files' names you may mention, by how often they're used, but never above the words you write yourself.
+    const named = new Map<string, number>();
+    for (const b of buffers.values()) if (b.kind === 'text') for (const [w, n] of fileWords(b)) if (!CODE_WORDS.has(w) && w.toLowerCase().startsWith(lower)) named.set(w, (named.get(w) ?? 0) + n);
+    for (const [w, n] of named) words.set(w, (words.get(w) ?? 0) + Math.min(1, Math.log2(1 + n) / 5));
   }
-  // Ties between next words go to the more common one ("help" over "so" after "can you").
-  for (const [w, n] of next ?? []) words.set(w, (words.get(w) ?? 0) + n * 10 + (commonRank.get(w) ?? 0));
+  // Ties between next words go to the more common one ("help" over "so" after "can you"). A typo learned with its
+  // neighbours stays out here too.
+  const meant = (w: string) => (learned.get(w) ?? 0) > 1 || !typo(w);
+  for (const [w, n] of next ?? []) if (meant(w)) words.set(w, (words.get(w) ?? 0) + n * 10 + (commonRank.get(w) ?? 0));
+  for (const [w, n] of next2 ?? []) if (meant(w)) words.set(w, (words.get(w) ?? 0) + n * 25);
   // Your own spelling of a word ("React", "GitHub") over the lowercase one the pairs and the lists keep; "i" is "I".
   const form = new Map<string, [string, number]>();
   for (const [w, n] of learned) { const k = w.toLowerCase(), f = form.get(k); if (!f || n > f[1]) form.set(k, [w, n]); }
-  const spell = (w: string) => form.get(w.toLowerCase())?.[0] ?? (w === 'i' ? 'I' : w);
+  const spell = (w: string) => form.get(w.toLowerCase())?.[0] ?? (/^i(?:'|$)/.test(w) ? `I${w.slice(1)}` : w); // i'm → I'm
   return [...words]
     .filter(([w]) => w.length > prefix.length && w.toLowerCase().startsWith(lower))
     .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)
@@ -555,15 +654,12 @@ function caretBox(el: Textbox, pos: number): { x: number; top: number; bottom: n
   return { x: r.left + m.left, top: r.top + m.top - el.scrollTop, bottom: r.top + m.bottom - el.scrollTop };
 }
 let textboxAccepting = false;
-// The word being typed (two letters at least) or, right after a word and a space, the next word.
+// The word being typed (two letters at least) or, right after a word and a space, the next word (autofillcore.ts).
 function textboxSuggest(el: Textbox): void {
   const pos = el.selectionStart ?? 0;
-  const before = el.value.slice(Math.max(0, pos - 80), pos);
-  // @mentions, /commands and #refs have their own menus; mid-word typing gets none.
-  const m = /(?:^|[^@/#\w'-])(?:([A-Za-z][\w'-]*) )?([A-Za-z][\w'-]*)?$/.exec(before);
-  const prefix = m?.[2] ?? '', prev = m?.[1];
-  const ok = m && (prefix ? prefix.length >= 2 : !!prev && before.endsWith(' ')) && !/[\w'-]/.test(el.value[pos] ?? '');
-  const items = ok ? textboxCandidates(prefix, prev) : [];
+  const ctx = textboxContext(el.value.slice(Math.max(0, pos - 80), pos), el.value.slice(pos, pos + 1));
+  const prefix = ctx?.prefix ?? '';
+  const items = ctx ? textboxCandidates(prefix, ctx.prev, ctx.prev2) : [];
   if (!items.length) { if (suggest?.owner === el) hideSuggest(); return; }
   const from = pos - prefix.length, at = caretBox(el, from);
   showSuggest({

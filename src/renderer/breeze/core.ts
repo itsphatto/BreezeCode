@@ -323,13 +323,13 @@ interface BreezeApi {
     run(opts: { agent: string; mode: AgentMode; prompt: string; session: string | null; box?: boolean; chat?: string }): Promise<number>;
 
     stop(runId: number): Promise<void>;
+    // Chat runs main still has (going, or done in the last minute), each with every event it sent: a reloaded page takes them back.
+    live(): Promise<{ runId: number; agent: string; mode: AgentMode; box: boolean; chat: string; events: AgentEvent[]; done: boolean }[]>;
     steer(runId: number, text: string): Promise<boolean>; // adds a message to the running task; false: queue it instead
     answer(id: string, answer: 'once' | 'all' | 'deny'): Promise<void>;
     // The answer to an agent's question; false when it had already stopped waiting.
     reply(id: string, reply: AskReply | null): Promise<boolean>;
     setModel(agent: string, model: string, effort?: string): Promise<boolean>;
-    fullAccess(): Promise<boolean>;
-    setFullAccess(on: boolean): Promise<boolean>;
     usage(): Promise<AgentUsage>;
     history(): Promise<AgentHistory>;
     // Chats from Claude Code's and Codex's own logs (main/agentlogs.ts), newest first; one of them's messages.
