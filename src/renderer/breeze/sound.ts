@@ -216,6 +216,8 @@ const sfx = (() => {
     // Two dull taps: clearly "no", without the old square-wave buzz.
     deny: () => { snip(1600, 0.08, { q: 1.2 }); snip(1400, 0.07, { q: 1.2, at: 0.07 }); },
     slide: () => snip(5000 * jitter(0.15), 0.025, { q: 3 }),
+    // Resizing a panel: the terminal's show/hide flutter (whoosh), played again for each step of the drag.
+    ratchet: () => [2500, 3500, 4800, 6200].forEach((f, i) => snip(f, 0.035, { q: 2, at: i * 0.018 })),
     keyDel: () => snip(3600 * jitter(0.2), 0.035, { q: 2 }),
     keyEnter: () => { snip(3000, 0.05, { q: 1.8 }); tone(1175, 0.03, { vol: 0.02, ...C }); },
     remove: () => { snip(4400, 0.05, { q: 2 }); snip(3000, 0.04, { q: 2, at: 0.03 }); },
@@ -228,9 +230,9 @@ const sfx = (() => {
   };
   type Sound = keyof typeof SOUNDS;
   // Fast repeating sounds (typing, tool lines) are spaced out so they stay ticks and don't buzz.
-  const GAP: Partial<Record<Sound, number>> = { key: 18, keyDel: 18, keyEnter: 18, tool: 40, rowHover: 60, hover: 50, slide: 35, stream: 90, remove: 70, trash: 200, drop: 150 };
+  const GAP: Partial<Record<Sound, number>> = { key: 18, keyDel: 18, keyEnter: 18, tool: 40, rowHover: 60, hover: 50, slide: 35, ratchet: 70, stream: 90, remove: 70, trash: 200, drop: 150 };
   const last: Partial<Record<Sound, number>> = {};
-  const AMBIENT = new Set<Sound>(['key', 'keyDel', 'keyEnter', 'stream', 'hum', 'tool', 'rowHover', 'hover', 'slide']);
+  const AMBIENT = new Set<Sound>(['key', 'keyDel', 'keyEnter', 'stream', 'hum', 'tool', 'rowHover', 'hover', 'slide', 'ratchet']);
   // Left–right position of the last press, hover or focused box, as a gentle pan (±0.35 at the window edges).
   let place = 0;
   let placeAt = -Infinity;
@@ -481,6 +483,21 @@ const sfx = (() => {
   });
   document.addEventListener('change', e => { if ((e.target as Element).matches?.('select')) play('select'); });
   document.addEventListener('input', e => { if ((e.target as Element).matches?.('input[type="range"]')) play('slide'); });
+  // Dragging any resize handle clicks like a wheel turning: one detent per 24px the pointer travels. Every resizer
+  // marks the drag on the page (layout.ts's sashes, the split editor and debug panes: body.resizing / resizing-h;
+  // the board's sashes and code view handle: html.board-resizing-x / -y), so this one listener covers them all.
+  const DETENT = 30;
+  let dragX: number | null = null, dragY = 0, travel = 0;
+  const resizingNow = () => {
+    const b = document.body?.classList, h = document.documentElement.classList;
+    return !!b && (b.contains('resizing') || b.contains('resizing-h')) || h.contains('board-resizing-x') || h.contains('board-resizing-y');
+  };
+  document.addEventListener('pointermove', e => {
+    if (!resizingNow()) { dragX = null; travel = 0; return; }
+    if (dragX !== null) travel += Math.abs(e.clientX - dragX) + Math.abs(e.clientY - dragY);
+    dragX = e.clientX; dragY = e.clientY;
+    if (travel >= DETENT) { travel %= DETENT; play('ratchet'); }
+  }, { capture: true, passive: true });
   // Caught on the way down: some drop zones stop the event before it would bubble back up here.
   document.addEventListener('drop', () => play('drop'), true);
   // Typing anywhere in Breeze ticks (the editor's own ticks fall inside the same gap, so they never double up).
