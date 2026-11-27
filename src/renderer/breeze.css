@@ -7009,21 +7009,6 @@ textarea:not(:placeholder-shown) + .ph-rot {
   transform: rotate(180deg);
 }
 
-/* Squeezed, the model chip gives way (its model name shortens first); access always reads in full. */
-.cmp-row .cmp-perm {
-  flex-shrink: 0;
-}
-
-.cmp-perm-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Project only reads as the safer setting. */
-.cmp-perm.limited > svg:first-child {
-  color: var(--ok);
-}
-
 .cmp-row .cmp-model {
   flex-shrink: 1;
   overflow: hidden;
@@ -12331,12 +12316,19 @@ body.vibe-side .box :is(.box-chat, .box-composer) {
   font-size: 13px;
 }
 
-/* Status words (agents.ts): the label sits in a wrapper that moves when the word changes, so the label's own sweep runs
-   on; the outgoing word is a copy laid over it in the head. The dots' morph draws stand-ins on a layer beside them that
-   sits at its containing block's corner, so a stand-in's place is its place on screen less the layer's. */
+/* Text morph (morphText, agents.ts): while cycling text changes, its letters are spans that move on their own and the
+   leaving ones are copies laid where they stood. The sweep's clipped gradient can't follow moving letters, so the
+   label shows its resting colour until the morph ends (the sweep's clock runs on). */
+:where(.tm-run) { position: relative; } /* no weight: a positioned box (.ph-rot) keeps its own */
+.tm-w { white-space: nowrap; }
+.tm-c { display: inline-block; white-space: pre; }
+.tm-ghost { position: absolute; white-space: pre; pointer-events: none; }
+:is(.thinking .lbl, .sub-live .lbl, .sub-busy).tm-run { color: var(--text-3); }
+
+/* Status words (agents.ts): the dots' morph draws stand-ins on a layer beside them that sits at its containing block's
+   corner, so a stand-in's place is its place on screen less the layer's. */
 .thinking .think-head { position: relative; }
 .thinking .morph { display: inline-flex; min-width: 0; }
-.thinking .morph-ghost { position: absolute; pointer-events: none; }
 .dots-morph { position: absolute; left: 0; top: 0; pointer-events: none; }
 .dots-morph i { position: absolute; border-radius: 999px; background: var(--blue-text); }
 
@@ -16066,58 +16058,7 @@ body.layout-animating #previewPane {
   border-radius: 4px;
 }
 
-/* Full access, beside Send: its label turns amber while it's on, as a reminder agents can reach anything. */
-.composer-access {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  margin-right: 4px;
-  font-size: 11.5px;
-  color: var(--text-3);
-  white-space: nowrap;
-  transition: color .2s ease;
-}
-
-.composer-access.on {
-  color: var(--warn);
-}
-
-/* Breeze Space keeps it at the foot of the agent menu, label left and switch right like a menu row. */
-.menu-access {
-  display: flex;
-  justify-content: space-between;
-  margin: 0;
-  padding: 4px 12px 6px;
-  font-size: inherit;
-  cursor: pointer;
-}
-
-/* The info mark after "Full access": hovering it shows what the switch does. */
-.ca-label .ca-info {
-  display: inline-flex;
-  vertical-align: -2px;
-  margin-left: 5px;
-  opacity: .6;
-  transition: opacity .15s ease;
-}
-
-.ca-label .ca-info:hover {
-  opacity: 1;
-}
-
-/* It stays put: no hover zoom or press squeeze from the shared icon rule. */
-.ca-label .ca-info svg.ico-svg {
-  transform: none;
-}
-
-/* The Agents tab's prompt: Full access only shows once something is typed (mentions.ts sets .has-text), next to the
-   model chip that comes in at the same time. */
-.composer .composer-box:not(.has-text) .composer-access {
-  display: none;
-}
-
-/* Improve prompt, beside Send: in the Agents tab it comes in with Full access, once something is typed. */
+/* Improve prompt, beside Send: in the Agents tab it comes in once something is typed. */
 .composer .composer-box:not(.has-text) .improve-prompt {
   display: none;
 }

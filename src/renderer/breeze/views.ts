@@ -135,12 +135,6 @@ $('#boxModel').onclick = e => {
   const r = btn.getBoundingClientRect();
   popupMenu(r.left, r.top - 8, boxAgentItems(), () => btn.classList.remove('open'));
   const m = $('#menuRoot .menu');
-  // Full access lives at the foot of this menu instead of beside Send; flipping it leaves the menu open.
-  const accessTip = 'Full access lets agents run any command and reach any file. Off keeps them in the project.';
-  m.insertAdjacentHTML('beforeend', `<div class="menu-sep"></div><label class="composer-access menu-access"><span class="ca-label">Full access<span class="ca-info" role="img" aria-label="${accessTip}" title="${accessTip}">${svgIcon('info', 13)}</span></span><button class="switch switch-sm" data-full-access type="button" role="switch" aria-checked="false" aria-label="Full access"><span class="sw-knob"></span></button></label>`);
-  $<HTMLButtonElement>('.menu-access [data-full-access]', m).onclick = () => setFullAccess(!agentFullAccess);
-  $('.menu-access .ca-info', m).onclick = e => e.preventDefault(); // reading the tip shouldn't flip the switch
-  renderAccessSwitches();
   m.classList.add('up');
   m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`; // open upwards, above the composer
 };

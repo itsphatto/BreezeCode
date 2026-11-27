@@ -907,6 +907,21 @@ function handleAgentEvent(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   if (NEEDS_YOU_EVENTS.has(ev.t)) refreshNeedsYou(tab);
 }
 
+// A run started before the page reloaded (reattachRuns): `events` is everything it sent until main answered.
+function attachLiveRun(tab: AgentTabState, r: Awaited<ReturnType<typeof api.agent.live>>[number]): void {
+  const phase = phaseFor(r.mode);
+  tab.agentId = r.agent;
+  showThinking(`${speaker(phase, r.agent).name} is working`, phase, tab, r.agent);
+  const run: Run = { id: r.runId, tabId: tab.id, surfaceName: tab.surfaceName, agent: r.agent, mode: r.mode, uiMode: tab.uiMode, phase, tools: 0, files: new Set(), plan: null, lastText: '', replied: false, announce: false };
+  tab.runId = r.runId;
+  tab.run = run;
+  // Events that came in while main was answering are in `events` already: IPC keeps them in order.
+  for (let i = earlyEvents.length - 1; i >= 0; i--) if (earlyEvents[i][0] === r.runId) earlyEvents.splice(i, 1);
+  updateTabBusyState(SURFACES[tab.surfaceName], tab);
+  renderAgentTabs(SURFACES[tab.surfaceName]);
+  for (const ev of r.events) handleAgentEvent(run, ev, tab);
+}
+
 const earlyEvents: [number, AgentEvent][] = [];
 api.agent.onEvent((runId, ev) => {
   const found = findTabForRun(runId);

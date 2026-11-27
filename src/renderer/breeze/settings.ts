@@ -40,7 +40,6 @@ const webSearchRowHtml = () => (braveKeySaved
   : settingRow('Web search', 'Add a Brave Search API key so local agents can search the web. <button class="link-btn" id="sBraveGet">Get a key</button>',
     '<div class="set-code"><input class="input" id="sBraveKey" type="password" aria-label="Brave Search API key" placeholder="API key" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sBraveSave" disabled>Save</button></div>'));
 let settingsTab: SettingsTab = 'general';
-let agentFullAccess = true; // on unless turned off from a composer; the main process keeps the real value; read again each time Settings opens
 let justSwitched = false;
 const settingsRoot = () => document.querySelector<HTMLElement>('#modalRoot .scrim:not(.closing) .settings-modal');
 // The on/off switch (styles under "on/off switch" in breeze.css): a rounded track and a square knob that stretches as it slides.
@@ -1780,29 +1779,8 @@ function powerNote(): string {
 // Unplugging (or plugging in) with Settings open updates the row.
 document.addEventListener('powerchange', refreshSettings);
 
-// The Full access switch in Breeze Space's agent menu is the same setting as each composer's access chip. It is updated
-// in place, so it slides with its own transition and nothing around it is rebuilt.
-function renderAccessSwitches(): void {
-  $$<HTMLButtonElement>('[data-full-access]').forEach(b => {
-    b.classList.toggle('on', agentFullAccess);
-    b.setAttribute('aria-checked', String(agentFullAccess));
-    b.closest('.composer-access')?.classList.toggle('on', agentFullAccess);
-  });
-}
-// The switch flips at once instead of after main answers; main's answer only corrects it, and a failure flips it back.
-function setFullAccess(on: boolean): void {
-  const show = (v: boolean) => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); if (typeof refreshComposers === 'function') refreshComposers(); } };
-  show(on);
-  background(api.agent.setFullAccess(on).then(v => {
-    show(v);
-    toast(v ? 'Full access on: agents can run anything in build mode' : 'Full access off');
-  }, (e: unknown) => { show(!on); throw e; }));
-}
-background(api.agent.fullAccess().then(v => { agentFullAccess = v; if (typeof refreshComposers === 'function') refreshComposers(); }));
-
 function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   if (settingsRoot()) { closeModal(); return; }
-  background(api.agent.fullAccess().then(v => { if (v !== agentFullAccess) { agentFullAccess = v; renderAccessSwitches(); if (typeof refreshComposers === 'function') refreshComposers(); } }));
   background(api.web.searchKey().then(v => { if (v !== braveKeySaved) { braveKeySaved = v; refreshSettings(); } }));
   closeMenu();
   if (tab) settingsTab = tab;

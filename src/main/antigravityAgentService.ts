@@ -910,9 +910,19 @@ export class AntigravityAgentService extends EventEmitter {
           this.emit('output', { type: 'text', text: resText, timestamp: Date.now() });
         }
         this.accumulatedText = '';
+        // Headless agy can't ask for a permission: it denies the tool and ends the turn, often with no reply at all,
+        // which looked like the run had crashed. Say what was denied and how to allow it.
+        const denied: string[] = Array.isArray(res?.denied_actions)
+          ? [...new Set<string>(res.denied_actions.map((d: any) => String(d?.display_name || d?.action || '')).filter(Boolean))]
+          : [];
+        if (denied.length) {
+          const why = `Antigravity stopped: it needed permission to use ${denied.join(', ')}, and it can't ask for permission when Breeze runs it. `
+            + 'Turn on Full access for build runs, or add an allow rule under permissions.allow in Antigravity\'s settings.json.';
+          this.emit('output', { type: resText ? 'note' : 'error', text: why, timestamp: Date.now() });
+        }
         this.emit('output', {
           type: 'done',
-          ok: res?.status === 'SUCCESS',
+          ok: res?.status === 'SUCCESS' && !(denied.length && !resText),
           raw: msg,
           timestamp: Date.now(),
         } as AgentOutputEvent);
