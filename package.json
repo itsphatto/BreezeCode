@@ -1,7 +1,7 @@
 {
   "name": "breeze-code",
   "private": true,
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Blazing Fast Muti Agent IDE",
   "author": "itsphatto",
   "license": "SEE LICENSE IN LICENSE",
@@ -17,9 +17,11 @@
     "dist": "tsc && electron-builder --win --publish never",
     "dist:mac": "tsc && electron-builder --mac",
     "dist:linux": "tsc && electron-builder --linux",
+    "dist:win": "tsc && electron-builder --win",
     "predist": "node scripts/write-config.js && node scripts/build-engine.js",
     "predist:mac": "node scripts/write-config.js && node scripts/build-engine.js",
-    "predist:linux": "node scripts/write-config.js && node scripts/build-engine.js"
+    "predist:linux": "node scripts/write-config.js && node scripts/build-engine.js",
+    "predist:win": "node scripts/write-config.js && node scripts/build-engine.js"
   },
   "devDependencies": {
     "electron": "^44.7.2",

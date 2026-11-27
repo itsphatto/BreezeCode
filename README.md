@@ -13,7 +13,7 @@ and you see every file it reads, every edit and every command while it works.
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.8.2-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.8.3-007AFF?style=for-the-badge)
 ![Windows](https://img.shields.io/badge/Windows_10_%26_11-x64-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1d1d1f?style=for-the-badge&logo=apple&logoColor=f5f5f7)
 ![Linux](https://img.shields.io/badge/Linux-x64-1d1d1f?style=for-the-badge&logo=linux&logoColor=f5f5f7)

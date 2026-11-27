@@ -61,7 +61,7 @@ These four points are equally weighted and should not be traded against each oth
 - Local LLM loop is token-efficient (project map, ranged reads, snippet edits). It assumes a 4k-token context on Ollama and 8k elsewhere (`llmContext` in saved state overrides it).
 - Discord Rich Presence. Small synthesized sounds for clicks, typing and agents. Auto-updates via electron-updater, which asks before downloading. API keys and sign-in tokens are encrypted with the Windows keychain; expiring GitHub tokens renew themselves.
 - The agents are optional: the editor, terminal, Git and preview all work without one.
-- Stack: Electron 44, TypeScript 7 (`src/renderer/breeze/*.ts`, one file per feature, plus `editcore.ts` and `codeview.ts` for the editor, compiled to JS), and plain HTML/CSS. Current version 0.8.2. Windows, macOS (Apple Silicon) and Linux (x64); no Intel Mac build yet.
+- Stack: Electron 44, TypeScript 7 (`src/renderer/breeze/*.ts`, one file per feature, plus `editcore.ts` and `codeview.ts` for the editor, compiled to JS), and plain HTML/CSS. Current version 0.8.3. Windows, macOS (Apple Silicon) and Linux (x64); no Intel Mac build yet.
 
 ## Brand Commitments
 
