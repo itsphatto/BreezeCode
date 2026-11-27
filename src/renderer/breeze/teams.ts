@@ -817,7 +817,7 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
       const bodyEl = r.lastMsg.querySelector<HTMLElement>('.body');
       if (bodyEl) {
         bodyEl.dataset.noGrow = ''; // until settleReply
-        bodyEl.innerHTML = md(ev.text);
+        bodyEl.innerHTML = md(ev.text, true);
         r.lastText = ev.text;
         sfx.play('stream'); // a light patter while the answer streams in
         if (tab.id === activeTabId[tab.surfaceName]) scrollChat(SURFACES[tab.surfaceName]);
@@ -825,9 +825,10 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
         return;
       }
     }
-    settleReply(r);
+    settleReply(r, tab);
     r.lastText = ev.text;
-    r.lastMsg = agentMsg(r.phase, md(ev.text), tab, r.agent);
+    r.lastMsg = agentMsg(r.phase, md(ev.text, true), tab, r.agent);
+    r.lastMsg.querySelector<HTMLElement>('.body')?.setAttribute('data-no-grow', ''); // settleReply draws it whole, artifacts live
   },
   tool: (r, ev, tab) => {
     r.lastMsg = undefined;
@@ -877,12 +878,13 @@ const AGENT_EVENTS: Partial<Record<AgentEvent['t'], (r: Run, ev: AgentEvent, tab
 
 // A streamed reply is redrawn whole every 60 ms, each time all new elements; while it streams, data-no-grow keeps the grow
 // watcher (mentions.ts) from measuring and observing every one of them. Once it's complete it's drawn once more without
-// the flag, so its text eases on a panel resize like any other.
-function settleReply(r: Run): void {
+// the flag, so its text eases on a panel resize like any other, and its artifacts run live; that drawing is the one saved.
+function settleReply(r: Run, tab: AgentTabState): void {
   const body = r.lastMsg?.querySelector<HTMLElement>('.body[data-no-grow]');
   if (!body) return;
   delete body.dataset.noGrow;
   body.innerHTML = md(r.lastText);
+  saveChat(tab);
 }
 
 const NEEDS_YOU_EVENTS = new Set<AgentEvent['t']>(['question', 'approve', 'question-end', 'done', 'error']);
@@ -893,7 +895,7 @@ function handleAgentEvent(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   labelAgent = team && ev.t !== 'team-done' ? r.agent : null;
   const prevTab = eventTab;
   eventTab = tab;
-  if (ev.t !== 'text') settleReply(r); // anything else ends the reply being streamed
+  if (ev.t !== 'text') settleReply(r, tab); // anything else ends the reply being streamed
   try {
     AGENT_EVENTS[ev.t]?.(r, ev, tab);
   } finally {

@@ -58,6 +58,24 @@ test('show_image reaches every agent type that can take a tool', () => {
   assert.match(main, /watchImages\(runId, ev\)/);
 });
 
+test('check_artifact reaches every agent type and hands back both screenshots', async () => {
+  const { handleRpc } = require('../src/main/breezemcp');
+  const tool = BREEZE_TOOLS.find(t => t.name === 'check_artifact');
+  assert.ok(tool, 'Claude Code and Codex get it through Breeze\'s MCP server');
+  assert.deepEqual(tool.inputSchema.required, ['language', 'code']);
+  const main = read('src/main/main.ts');
+  assert.match(main, /name: 'check_artifact'/, 'local models get it as a tool');
+  assert.match(main, /check_artifact: \(ctx, a\) =>/);
+  assert.match(main, /check_artifact: async \(runId, args, signal\)/);
+  // Its sizes are the chat's: the frame's 16:10 at Breeze Space's width, and the dialog opened large.
+  assert.match(main, /width: 760, height: 475/);
+  assert.match(read('src/renderer/breeze.css'), /\.artifact-frame \{[^}]*aspect-ratio: 16 \/ 10;[^}]*max-height: 480px;/);
+  // One reply carries several pictures, in order.
+  const png = n => ({ data: `P${n}`, mimeType: 'image/png' });
+  const out = await handleRpc({ id: 1, method: 'tools/call', params: { name: 'check_artifact', arguments: { language: 'html', code: '<!doctype html>' } } }, BREEZE_TOOLS, async () => ({ text: 'Ran it', images: [png(1), png(2)] }));
+  assert.deepEqual(out.result.content, [{ type: 'text', text: 'Ran it' }, { type: 'image', data: 'P1', mimeType: 'image/png' }, { type: 'image', data: 'P2', mimeType: 'image/png' }]);
+});
+
 test('the chat draws an agent\'s picture with the attachment lightbox', () => {
   const teams = read('src/renderer/breeze/teams.ts');
   assert.match(teams, /image: \(r, ev, tab\) => agentImage\(r, ev, tab\)/);

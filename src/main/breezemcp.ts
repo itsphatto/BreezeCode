@@ -9,8 +9,8 @@ import { isLocalHost } from './guard';
 
 export const BREEZE_MCP = 'breeze';
 export interface McpTool { name: string; description: string; inputSchema: Record<string, unknown>; annotations?: Record<string, unknown> }
-// What a tool gives back: text for the agent, and optionally a picture it can look at.
-export interface ToolReply { text: string; isError?: boolean; image?: { data: string; mimeType: string } }
+// What a tool gives back: text for the agent, and optionally pictures it can look at.
+export interface ToolReply { text: string; isError?: boolean; images?: { data: string; mimeType: string }[] }
 export type ToolCall = (runId: number, name: string, args: Record<string, unknown>, signal: AbortSignal) => Promise<ToolReply>;
 
 const ASK_USER: McpTool = {
@@ -65,12 +65,25 @@ const PROPOSE_PLAN: McpTool = {
   },
   annotations: { readOnlyHint: true },
 };
-const BREEZE_TOOLS: McpTool[] = [ASK_USER, PROPOSE_PLAN, SHOW_IMAGE, CAPTURE_PREVIEW];
+const CHECK_ARTIFACT: McpTool = {
+  name: 'check_artifact',
+  description: 'Run an artifact the way Breeze\'s chat will show it, in its frame (760×475) and opened large (1000×700), and get both screenshots and its console. The user doesn\'t see them.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      language: { type: 'string', enum: ['html', 'svg', 'mermaid'] },
+      code: { type: 'string', description: 'The whole artifact, as it will go in your reply' },
+    },
+    required: ['language', 'code'],
+  },
+  annotations: { readOnlyHint: true },
+};
+const BREEZE_TOOLS: McpTool[] = [ASK_USER, PROPOSE_PLAN, SHOW_IMAGE, CAPTURE_PREVIEW, CHECK_ARTIFACT];
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 // Sent with initialize: agents that read MCP instructions (Claude Code does) format a closing question so Breeze can
 // show its answers as buttons under the reply (followup.ts).
-const INSTRUCTIONS = 'When your reply ends with a question for the user that has a few likely answers, put the question on its own line and the answers right under it as a bulleted list: 2 to 4 items, each starting with a bold label of a few words. Breeze shows them as buttons the user can click instead of typing. For a question that needs the answer before you can go on, use ask_user instead.';
+const INSTRUCTIONS = 'When your reply ends with a question for the user that has a few likely answers, put the question on its own line and the answers right under it as a bulleted list: 2 to 4 items, each starting with a bold label of a few words. Breeze shows them as buttons the user can click instead of typing. For a question that needs the answer before you can go on, use ask_user instead. If the user wants to see or try something rather than add it to the project (a demo, chart, diagram, mockup, small game), reply with an artifact instead of writing a file, without asking which: one complete HTML page in a fenced block named with a file, like ```html chart.html, an SVG as ```svg logo.svg, or a diagram as ```mermaid. Breeze runs it live in the chat, so there is nothing for the user to open or save. Make it finished and complete, as a careful designer would: cover the cases the user would want to compare, show its content at once rather than behind tabs, and base anything about the project on its real code. It must work from its first moment: nothing should start or end before the user acts. It shows in a 16:10 frame in the chat (760×475) that the user can open large (1000×700), so lay it out to fill either without scrolling or empty space. Keep it to that one block: CSS and JS inline, libraries only from cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com or cdn.tailwindcss.com, pictures as inline SVG or data: URLs (it can\'t load other sites or project files), and give body a background. Before you reply, run it through check_artifact and look at both screenshots and the console; fix anything broken, cut off, overlapping, cramped or left empty, and check again after a fix. Write nothing while you check: the reply says what you made and what you checked, not the fixes on the way, and holds the code you checked.';
 const MAX_BODY = 1024 * 1024;
 const KEEPALIVE_MS = 15000;
 
@@ -97,7 +110,7 @@ async function handleRpc(msg: RpcMessage | null | undefined, tools: McpTool[], c
     try { reply = await call(name, args && typeof args === 'object' ? args as Record<string, unknown> : {}); }
     catch (err) { reply = { text: (err as Error).message, isError: true }; }
     const content: Record<string, unknown>[] = [{ type: 'text', text: reply.text }];
-    if (reply.image) content.push({ type: 'image', data: reply.image.data, mimeType: reply.image.mimeType });
+    for (const im of reply.images ?? []) content.push({ type: 'image', data: im.data, mimeType: im.mimeType });
     return ok({ content, isError: reply.isError === true });
   }
   return rpcError(msg.id, -32601, `Method not found: ${msg.method}`);

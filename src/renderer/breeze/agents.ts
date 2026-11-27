@@ -690,7 +690,7 @@ function thinkingLabel(k: AgentKey, agentId?: string | null): string {
 const THINK_OPEN_KEY = 'breeze.thinkOpen';
 const thinkOpen = (): boolean => { try { return localStorage.getItem(THINK_OPEN_KEY) === '1'; } catch { return false; } };
 const thinkStarts = new WeakMap<HTMLElement, { start: number; step: number }>();
-const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+const secs = (ms: number) => `${Math.floor(ms / 1000)}s`;
 
 // "Claude is planning the steps" → "Planning the steps"; "Claude · Writing code" → "Writing code".
 function stepText(label: string, who: string): string {
@@ -735,7 +735,7 @@ function thinkStep(el: HTMLElement, icon: string, text: string): void {
     if (t) t.textContent = secs(now - st.step);
   }
   st.step = now;
-  list.insertAdjacentHTML('beforeend', `<li class="think-step live"><span class="ti">${svgIcon(icon, 13)}</span><span class="ts-lbl">${esc(text)}</span><span class="ts-time">0.0s</span></li>`);
+  list.insertAdjacentHTML('beforeend', `<li class="think-step live"><span class="ti">${svgIcon(icon, 13)}</span><span class="ts-lbl">${esc(text)}</span><span class="ts-time">0s</span></li>`);
 }
 
 /* Status words: the thinking label shows a word like "Contemplating" (STATUS_WORDS, greetings.ts) and a new one every
@@ -842,7 +842,7 @@ function showThinking(label: string, k: AgentKey = 'assistant', tab?: AgentTabSt
     el.dataset.dots = DOT_STYLES[0];
     if (!thinkOpen()) el.classList.add('collapsed');
     el.setAttribute('role', 'status');
-    el.innerHTML = `<button type="button" class="think-head" aria-expanded="${thinkOpen()}"><span class="avatar mini"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="morph" aria-hidden="true"><span class="lbl">${esc(pickOther(STATUS_WORDS, ''))}</span></span><span class="think-time">0.0s</span><span class="think-chev" aria-hidden="true">${svgIcon('chevronDown', 12)}</span></button><ol class="think-steps"></ol>`;
+    el.innerHTML = `<button type="button" class="think-head" aria-expanded="${thinkOpen()}"><span class="avatar mini"></span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="morph" aria-hidden="true"><span class="lbl">${esc(pickOther(STATUS_WORDS, ''))}</span></span><span class="think-time">0s</span><span class="think-chev" aria-hidden="true">${svgIcon('chevronDown', 12)}</span></button><ol class="think-steps"></ol>`;
     t.panel.appendChild(el);
     const now = Date.now();
     thinkStarts.set(el, { start: now, step: now });
@@ -890,8 +890,7 @@ function hideThinking(tab?: AgentTabState): void {
   }
 }
 
-/* ----- Rotating prompts: a composer's placeholder changes when you point at it (and every 5 s while you do);
-   Breeze Space's greeting changes every 5 s ----- */
+/* ----- Rotating prompts: a composer's placeholder changes every 2 s; Breeze Space's greeting every 5 s ----- */
 // Built from parts, so each list holds about a thousand lines without writing them out one by one. Each verb only meets
 // the things it makes sense for ("Add types to" meets code, "Restyle" meets screens), so no line reads as nonsense.
 const combine = (templates: string[], parts: string[]) => templates.flatMap(t => parts.map(p => t.replace('{x}', p)));
@@ -994,23 +993,24 @@ function rotatePlaceholder(ta: HTMLTextAreaElement, home: string, list: string[]
   new ResizeObserver(place).observe(ta);
   new MutationObserver(sync).observe(ta, { attributes: true, attributeFilter: ['placeholder'] });
   place(); sync();
-  const r = { ta, list, layer };
-  let hoverTimer: TimeoutId | undefined;
-  // Hovering anywhere on the composer counts, not just the one-line textarea inside it.
-  const hoverEl = ta.closest<HTMLElement>('.composer-box') ?? ta;
-  hoverEl.addEventListener('pointerenter', () => {
-    nextPlaceholder(r);
-    clearInterval(hoverTimer);
-    hoverTimer = powerSaver() ? undefined : setInterval(() => nextPlaceholder(r), 10_000); // the saver shows one example and leaves it
-  });
-  hoverEl.addEventListener('pointerleave', () => { clearInterval(hoverTimer); hoverTimer = undefined; });
+  phRotators.set(layer, { ta, list, layer });
   // Typing mid-swap: drop the swap so the placeholder can blur away at once.
   ta.addEventListener('input', () => layer.getAnimations().forEach(a => { if (a.id === 'blurSwap') a.cancel(); }));
 }
+// Keyed by layer, so a closed box's composer drops out on its own.
+const phRotators = new WeakMap<HTMLElement, PlaceholderRotator>();
 function nextPlaceholder(r: PlaceholderRotator): void {
-  if (decorResting() || r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
+  if (r.ta.value || !r.ta.classList.contains('ph-rotating')) return;
   blurSwap(r.layer, pickOther(r.list, r.layer.textContent ?? ''));
 }
+// Every 2 s each visible composer shows another example, power saver included (one small swap); it rests only while
+// the window is unseen (power.ts).
+decorInterval(() => {
+  for (const layer of $$<HTMLElement>('.ph-rot')) {
+    const r = phRotators.get(layer);
+    if (r && layer.offsetParent) nextPlaceholder(r);
+  }
+}, 2000, 2000);
 // Each example reads as a hint, not as a prompt already sent: "Describe a change… e.g. fix the router".
 const IDE_HINTS = IDE_PLACEHOLDERS.map(p => `Describe a change… e.g. ${p[0].toLowerCase()}${p.slice(1)}`);
 rotatePlaceholder(SURFACES.ide.prompt, ' ', IDE_HINTS);
@@ -1074,14 +1074,16 @@ function inlineMd(s: string): string {
   return out;
 }
 // Only a ``` at the start of a line opens a block (splitFences, mdcore.ts): one mid-sentence is text.
-function md(text: string): string {
-  return splitFences(text).map(p => ('code' in p ? artifactHtml(p.info, p.code) : inlineMd(p.text))).join('');
+// `streaming`: the reply is redrawn every few ms, so a page or drawing shows as code until it is drawn settled;
+// a live frame would load again at every redraw.
+function md(text: string, streaming = false): string {
+  return splitFences(text).map(p => ('code' in p ? artifactHtml(p.info, p.code, streaming) : inlineMd(p.text))).join('');
 }
 const LANG_EXT: Record<string, string> = {
   javascript: 'js', js: 'js', jsx: 'jsx', typescript: 'ts', ts: 'ts', tsx: 'tsx', python: 'py', py: 'py', html: 'html', css: 'css',
   json: 'json', markdown: 'md', md: 'md', bash: 'sh', sh: 'sh', shell: 'sh', powershell: 'ps1', ps1: 'ps1', c: 'c', cpp: 'cpp', 'c++': 'cpp',
   java: 'java', go: 'go', rust: 'rs', rs: 'rs', sql: 'sql', yaml: 'yml', yml: 'yml', xml: 'xml', svg: 'svg', csharp: 'cs', cs: 'cs', php: 'php', ruby: 'rb',
-  golang: 'go', rb: 'rb', kotlin: 'kt', kt: 'kt', swift: 'swift', dart: 'dart', zig: 'zig', scala: 'scala', elixir: 'ex', ex: 'ex', haskell: 'hs', hs: 'hs', r: 'r', perl: 'pl', groovy: 'groovy',
+  golang: 'go', rb: 'rb', kotlin: 'kt', kt: 'kt', swift: 'swift', dart: 'dart', zig: 'zig', scala: 'scala', elixir: 'ex', ex: 'ex', haskell: 'hs', hs: 'hs', r: 'r', perl: 'pl', groovy: 'groovy', mermaid: 'mmd',
 };
 // "html index.html", "index.html" or "python": the file name to show and to save as.
 function artifactName(info: string): string {
@@ -1090,13 +1092,31 @@ function artifactName(info: string): string {
   if (named) return named;
   return `snippet.${LANG_EXT[first.toLowerCase()] ?? 'txt'}`;
 }
-function artifactHtml(info: string, code: string): string {
+// A whole page or an SVG (artifactKind) also runs live in a sandboxed frame (breeze-preview://artifact/, previewServer.ts),
+// with buttons to see its code and to open it large.
+function artifactHtml(info: string, code: string, streaming = false): string {
   const name = artifactName(info);
   const lines = code ? code.split('\n').length : 0;
-  return `<div class="artifact"><div class="artifact-head"><span class="ico">${fileIcon(name)}</span><span class="artifact-name">${esc(name)}</span><span class="artifact-meta">${plural(lines, 'line')}</span>`
-    + `<button class="icon-btn" data-artifact="copy" title="Copy">${svgIcon('copy')}</button><button class="icon-btn" data-artifact="download" title="Download ${escAttr(name)}">${svgIcon('download')}</button></div>`
-    + `<pre>${esc(code)}</pre></div>`;
+  const kind = streaming ? '' : artifactKind(info.split(/\s+/)[0], name, code);
+  const live = kind ? `<button class="icon-btn" data-artifact="code" title="Show the code" aria-pressed="false">${svgIcon('code')}</button><button class="icon-btn" data-artifact="open" title="Open large">${svgIcon('maximize')}</button>` : '';
+  // allow-same-origin gives it the origin breeze-preview://artifact, so localStorage works (games, to-do demos); that is
+  // still cross-origin to Breeze's page and to the project's preview.
+  const frame = kind ? `<iframe class="artifact-frame" src="breeze-preview://artifact/" sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-pointer-lock" loading="lazy" title="${escAttr(name)}"></iframe>` : '';
+  return `<div class="artifact${kind ? ' live' : ''}"${kind ? ` data-kind="${kind}"` : ''}><div class="artifact-head"><span class="ico">${fileIcon(name)}</span><span class="artifact-name">${esc(name)}</span><span class="artifact-meta">${plural(lines, 'line')}</span>`
+    + `${live}<button class="icon-btn" data-artifact="copy" title="Copy">${svgIcon('copy')}</button><button class="icon-btn" data-artifact="download" title="Download ${escAttr(name)}">${svgIcon('download')}</button></div>`
+    + `${frame}<pre>${esc(code)}</pre></div>`;
 }
+// A frame asks for its page once it has loaded, and builds it from the code and kind (previewServer.ts, the loader).
+// The code is read from the card itself, so artifacts in a chat restored from disk run again, and only frames Breeze
+// drew get one.
+window.addEventListener('message', e => {
+  if (!e.data?.artifactReady) return;
+  const frame = $$<HTMLIFrameElement>('iframe.artifact-frame').find(f => f.contentWindow === e.source);
+  const card = frame?.closest<HTMLElement>('.artifact');
+  if (!frame?.contentWindow || !card) return;
+  const code = $('pre', card).textContent ?? '';
+  frame.contentWindow.postMessage({ artifact: code, kind: card.dataset.kind }, '*');
+});
 // Works for replies restored from a saved chat too: the code is read back from the card itself.
 document.addEventListener('click', e => {
   const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-artifact]');
@@ -1104,6 +1124,23 @@ document.addEventListener('click', e => {
   if (!btn || !card) return;
   const code = $('pre', card).textContent ?? '';
   const name = $('.artifact-name', card).textContent ?? 'snippet.txt';
+  if (btn.dataset.artifact === 'code') {
+    btn.setAttribute('aria-pressed', String(card.classList.toggle('show-code')));
+    return;
+  }
+  // The same card, large, in a dialog: a fresh frame runs the page from the start. Its corner button closes it.
+  if (btn.dataset.artifact === 'open') {
+    openModal(`<div class="artifact-modal">${card.outerHTML}</div>`, m => {
+      $('.artifact', m).classList.remove('show-code');
+      $('[data-artifact="code"]', m).setAttribute('aria-pressed', 'false');
+      const close = $<HTMLButtonElement>('[data-artifact="open"]', m);
+      close.removeAttribute('data-artifact');
+      close.title = 'Close';
+      close.innerHTML = svgIcon('minimize');
+      close.onclick = closeModal;
+    });
+    return;
+  }
   if (btn.dataset.artifact === 'copy') {
     navigator.clipboard.writeText(code).then(() => {
       void setIcon(btn, 'check');

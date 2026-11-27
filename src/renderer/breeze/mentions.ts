@@ -183,7 +183,7 @@ const promptHl = $('#promptHl');
 // One prompt box built like the Agents tab's: its textarea, the layer that draws its text, the row of model chips,
 // and the agents those chips show for `text`. `mentions`: @agent words turn blue (the Agents tab only).
 // `switchAgent`: a chip's menu picked another agent's model (an Agent board box swaps its own agent).
-interface PromptKit { ta: HTMLTextAreaElement; hl: HTMLElement; models: HTMLElement; picked: (text: string) => DetectedAgent[]; mentions: boolean; anim: Animation | null; target?: (a: DetectedAgent) => ModelTarget | undefined; switchAgent?: (from: DetectedAgent, to: DetectedAgent, model: string) => void }
+interface PromptKit { ta: HTMLTextAreaElement; hl: HTMLElement; models: HTMLElement; picked: (text: string) => DetectedAgent[]; mentions: boolean; anim: Animation | null; animH?: string; target?: (a: DetectedAgent) => ModelTarget | undefined; switchAgent?: (from: DetectedAgent, to: DetectedAgent, model: string) => void }
 // The installed agents @mentioned in `text`, once each, in the order they appear.
 function mentionedAgents(text: string): DetectedAgent[] {
   const agents = (appState.detect?.agents ?? []).filter(a => a.found);
@@ -310,10 +310,14 @@ function fitPrompt(kit: PromptKit = IDE_KIT): void {
 // send button, pinned to the bottom, never moves.
 function animatePromptHeight(kit: PromptKit, fromH: number): void {
   const ta = kit.ta;
+  // The textarea's ResizeObserver fires on every frame of this animation; restarting it each time made it crawl
+  // and never land (the box stuck tall after deleting lines). Same target: let it run.
+  if (kit.anim?.playState === 'running' && kit.animH === ta.style.height) return;
   kit.anim?.cancel(); // read the end height without it (the start was read with it)
   const toH = ta.offsetHeight;
   if (Math.abs(toH - fromH) < 1) return;
-  kit.anim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 300, easing: SPRING });
+  kit.animH = ta.style.height;
+  kit.anim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 180, easing: SPRING });
 }
 /* ----- Grow: when a panel is squeezed or widened and text rewraps, blocks ease to their new height instead of
    jumping (the commit box going from one line to two, a note gaining a line). Only height animates: widths keep
@@ -432,7 +436,7 @@ function syncBoxPromptHl(grow = false): void {
     boxPromptAnim?.cancel();
     fitBoxPrompt();
     const toH = ta.offsetHeight;
-    if (Math.abs(toH - fromH) >= 1) boxPromptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 300, easing: SPRING });
+    if (Math.abs(toH - fromH) >= 1) boxPromptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 180, easing: SPRING });
   }
   boxPromptHl.innerHTML = mentionHtml(ta.value, false) + (ta.value.endsWith('\n') ? ' ' : '');
   boxPromptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`;

@@ -76,7 +76,7 @@ test('decorative loops go through the power gate', () => {
   assert.match(r('space'), /if \(powerSaver\(\)\) \{ still = /);
   assert.match(r('space'), /if \(!frame && !powerSaver\(\) && document\.documentElement\.dataset\.theme !== 'light'\)/);
   assert.match(r('agents'), /decorInterval\(\(\) => \{\n  for \(const h of \$\$<HTMLElement>\('#boxChat \.empty h4'\)\)/);
-  assert.match(r('agents'), /hoverTimer = powerSaver\(\) \? undefined : setInterval/);
+  assert.match(r('agents'), /if \(r && layer\.offsetParent\) nextPlaceholder\(r\);\n  \}\n\}, 2000, 2000\);/);
   assert.match(r('setup'), /\}, DASH_REFRESH_MS, 15_000\);/);
   assert.match(r('drop'), /if \(state\.animId != null\) return;\n[^\n]*\n  if \(powerSaver\(\)\) return;/);
   // None of them is a bare setInterval any more.

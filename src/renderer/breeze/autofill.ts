@@ -359,7 +359,26 @@ const COMMON_WORDS = (
   'these they thing things think this those though thought through time today together told tomorrow took toward ' +
   'tried true trying turn under understand until upon used useful using usually very want wanted water week well ' +
   'went were what whatever when where whether which while white whole whose why will with within without word ' +
-  'words work working world would write writing wrong year years yesterday young your yourself account action ' +
+  'words work working world would write writing wrong year years yesterday young your yourself ' +
+  'ability able absolutely accept according actual afraid afternoon agree ahead amazing amount anymore apart ' +
+  'appreciate approach area arrive article asking attention available avoid aware awesome basic basically ' +
+  'beautiful beginning best black blue body book bottom brief broken busy calm care careful carefully case ' +
+  'cause certain certainly chance character cheap choice choose city clearly clever closer color common company ' +
+  'complete completely concern condition consider continue control cool cost couple creating customer date dead ' +
+  'deal dear decide decided decision deep definitely depend describe detail details develop difference ' +
+  'difficult direction directly discuss doubt draw dream drive easy easily edge effect effort entire especially ' +
+  'evening eventually everybody everyone everywhere exact exactly except excited expect expected experience ' +
+  'explain extra fail fair fall fast favorite feeling figure final finally fine finish finished focus force ' +
+  'forget forward free friend friends front future game getting goal gone green grow guess half happy hate ' +
+  'heard hello helpful hope hour hours huge human hundred imagine immediately improve inside instance ' +
+  'interesting join kept lead level likely listen love lower major manage mark meet meeting member mention ' +
+  'middle miss mistake modern month months moving music natural nearly necessary nobody normal note notice ' +
+  'obviously offer office online original outside overall perfect perfectly picture piece please pleased plus ' +
+  'power prefer pretty price process produce provide purpose rate reach reply report require result rest rule ' +
+  'safe scene sense serious share short simple simply single slow slowly social someone somewhere special speed ' +
+  'spend stand step stuff suggest suppose surprise team terrible thousand tired total touch track typical ' +
+  'unless upset usual various wait walk watch weekend welcome wish wonder wonderful worry worse worst yeah ' +
+  'account action ' +
   'active add added adding address agent agents allow animation application apply array assets async attach audio ' +
   'await backend background branch break browser buffer bug button cache call callback cancel changes class clean ' +
   'click client clone code command comment commit component config configure connect console const content ' +
@@ -374,7 +393,29 @@ const COMMON_WORDS = (
   'screen script scroll search select selected server session setting settings setup shortcut sidebar size source ' +
   'spacing string style submit support switch sync system table task template terminal test testing text theme ' +
   'title toggle token tooltip transition type typescript update upload user value variable version view width ' +
-  'window workspace'
+  'window workspace abort access adapter admin alert algorithm alias align analytics android anchor annotation ' +
+  'argument arguments assert asset attribute auth authentication authorization automatic avatar backup badge ' +
+  'banner base batch benchmark binary bind blob block boolean border boundary breakpoint bucket bundle cached ' +
+  'canvas caption card cards carousel certificate channel chart checkbox checkout chunk cleanup clipboard ' +
+  'closure cluster collapse collection column columns compile compiler compress concurrency connection constant ' +
+  'constructor container controller cookie coordinate counter coverage credentials cursor dashboard dataset ' +
+  'debounce debugger declaration decode decorator dependency dependencies deprecated desktop destroy ' +
+  'development device diff docker docs domain draft drag drawer duplicate dynamic electron emoji encode ' +
+  'encoding encrypt entry enum environment escape exception execute expand expression extend fallback filename ' +
+  'flag flex float footer fork form frame framework gateway generate generic gesture gradient graph grid hash ' +
+  'heading helper highlight hook host hosting href http https iframe immutable increment infinite inherit ' +
+  'initialize inline insert integer integration iterate iterator label lambda latency launch layer lazy length ' +
+  'lifecycle linter linux listener load loader locale lock logger logging loop macos manifest margin markdown ' +
+  'match memory metadata middleware migrate migration mobile mock modal mount namespace native navbar ' +
+  'navigation network node nodejs offline offset onboarding opacity optimize overflow overlay pagination panel ' +
+  'parse parser patch payload pipeline placeholder platform pointer polling port preload primary production ' +
+  'profile promise props protocol provider proxy python queue radius random range ratio redirect regex register ' +
+  'regression remote renderer repo resize resolve responsive restart retry router runtime rust sandbox sanitize ' +
+  'schema scope screenshot secret secure selector serialize service shadow signal signup slider snapshot socket ' +
+  'sort spinner sqlite stack staging static status storage stream struct subscribe swift tabs tailwind thread ' +
+  'throttle timeout timer timestamp toast toolbar transform tree trigger tuple typo undo unicode uninstall unit ' +
+  'upgrade username utility validate validation vector viewport vite warning webhook websocket widget windows ' +
+  'wrapper yaml zoom'
 ).split(' ');
 function isTextbox(el: EventTarget | null): el is Textbox {
   const ok = el instanceof HTMLTextAreaElement ? !el.classList.contains('code-input')
@@ -398,6 +439,15 @@ const SEED_TEXT = [
   'it should work like the other one', 'when the user clicks the button it should open the dialog', 'add error handling for the network request',
   'the text is too small', 'the icon is not showing', 'replace the logo with the new one', 'this is a good idea', 'i would like to know',
   'we need to talk about the design', 'you can use the existing helper', 'i need to deploy the website', 'make sure the tests pass',
+  'can you explain why this happens', 'why does the test fail', 'where is this function used', 'add a loading spinner while the data loads',
+  'show a toast when the file is saved', 'split this file into smaller modules', 'add types to the function', 'run the build and fix the errors',
+  'the button should be disabled while it loads', 'scroll to the bottom when a new message comes in', 'save the settings when the window closes',
+  'look at the logs and tell me what went wrong', 'it works on my machine but not in production', 'add a keyboard shortcut for this',
+  'the dropdown closes too fast', 'can we undo the last change', 'go back to the previous version', 'try a different approach',
+  'that looks great', 'good job', 'that is not what i meant', 'start the dev server', 'install the missing package',
+  'write the docs for the new feature', 'add a search box to the list', 'sort the list by date', 'keep it simple',
+  'do the same for the other files', 'make the colors match the theme', 'center the text in the header', 'hide the scrollbar',
+  'add a confirm dialog before deleting', 'the request times out after a few seconds', 'cache the result so it loads faster',
 ].join(' . ');
 const SEED_WORDS = SEED_TEXT.split(' ');
 const seedPairs = new Map<string, number>();
