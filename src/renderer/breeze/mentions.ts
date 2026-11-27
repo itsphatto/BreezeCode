@@ -207,8 +207,24 @@ function mentionedAgents(text: string): DetectedAgent[] {
 // Chips are kept between keystrokes so only a newly tagged agent slides in.
 function promptModelHtml(a: DetectedAgent, target?: ModelTarget): string {
   const model = target?.model() || a.version || a.models?.[0] || '';
-  const eff = a.api || a.id === 'dsh' ? '' : `<small class="dd-eff"> · ${esc(target ? target.effort() : agentEffort(a))}</small>`;
+  const eff = !hasEffort(a) ? '' : `<small class="dd-eff"> · ${esc(target ? target.effort() : agentEffort(a))}</small>`;
   return `<b>${esc(agentShortName(a))}</b><span class="pm-model">${esc(versionLabel(model))}</span>${eff}${svgIcon('chevronDown', 10)}`;
+}
+// A chip whose agent, model or effort changed eases to its new width while its new text fades in (as swapText does),
+// so a switch to another agent morphs the chip in place instead of one chip leaving while another slides in.
+// Compared with what was written last, not innerHTML, whose serialization can differ and would replay it every keystroke.
+const chipHtml = new WeakMap<HTMLElement, string>();
+function morphChip(el: HTMLElement, html: string): void {
+  const last = chipHtml.get(el) ?? el.innerHTML; // a chip written as markup (Home's) isn't tracked yet
+  chipHtml.set(el, html);
+  if (last === html) return;
+  if (!el.isConnected || reducedMotion()) { el.innerHTML = html; return; }
+  const from = el.getBoundingClientRect().width; // mid-morph: where it is now
+  el.getAnimations().forEach(a => { if (a.id === 'chip-morph') a.cancel(); });
+  el.innerHTML = html;
+  const to = el.getBoundingClientRect().width;
+  for (const c of el.children) c.animate([{ opacity: 0, filter: 'blur(3px)', transform: 'translateY(2px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 360, easing: SPRING });
+  if (Math.abs(from - to) >= 1) el.animate([{ boxSizing: 'border-box', width: `${from}px` }, { boxSizing: 'border-box', width: `${to}px` }], { duration: 450, easing: SPRING, id: 'chip-morph' });
 }
 // The Agents tab's chips: the agents tagged in the prompt, or with none tagged the default agent (the one that answers).
 function idePickedAgents(text: string): DetectedAgent[] {
@@ -227,8 +243,13 @@ function renderPromptModels(kit: PromptKit = IDE_KIT): void {
   const ids = tagged.map(a => a.id);
   // An untagged agent's chip fades out where it is; the box keeps its row until then (see fitPrompt), so the chip
   // never ends up beside the one-line prompt, and only folds to one line once it's gone.
-  for (const el of $$<HTMLElement>('.prompt-model', box)) {
-    if (ids.includes(el.dataset.agent as string) || el.classList.contains('leaving')) continue;
+  const chips = $$<HTMLElement>('.prompt-model:not(.leaving)', box);
+  const arriving = tagged.filter(a => !chips.some(el => el.dataset.agent === a.id));
+  for (const el of chips) {
+    if (ids.includes(el.dataset.agent as string)) continue;
+    // Swapped for another agent (a new default, an @mention renamed): this chip becomes the new one's and morphs.
+    const next = arriving.shift();
+    if (next) { el.dataset.agent = next.id; continue; }
     el.classList.add('leaving');
     let gone = false;
     const done = () => {
@@ -260,8 +281,8 @@ function renderPromptModels(kit: PromptKit = IDE_KIT): void {
       el.setAttribute('aria-haspopup', 'menu');
     }
     const html = promptModelHtml(a, kit.target?.(a));
-    if (el.innerHTML !== html) el.innerHTML = html;
-    el.setAttribute('aria-label', `${agentShortName(a)}: change model${a.api ? '' : ' or effort'}`); // no tooltip, just for screen readers
+    morphChip(el, html);
+    el.setAttribute('aria-label', `${agentShortName(a)}: change model${hasEffort(a) ? ' or effort' : ''}`); // no tooltip, just for screen readers
     if (prev ? prev.nextElementSibling !== el : box.firstElementChild !== el) {
       if (prev) prev.after(el); else box.prepend(el);
     }

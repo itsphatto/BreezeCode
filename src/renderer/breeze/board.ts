@@ -828,7 +828,7 @@ function boxModelTarget(box: BoardBox): ModelTarget {
       box.effort = effort;
       if (box.kit) renderPromptModels(box.kit);
       saveBoard();
-      toast(`${boxName(box)} will use ${versionLabel(model) || 'its default model'}${boxAgent(box)?.api ? '' : ` (${effort} effort)`}`);
+      toast(`${boxName(box)} will use ${versionLabel(model) || 'its default model'}${boxAgent(box) && hasEffort(boxAgent(box)!) ? ` (${effort} effort)` : ''}`);
     },
   };
 }

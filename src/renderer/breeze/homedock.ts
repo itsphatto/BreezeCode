@@ -18,10 +18,18 @@ function renderHomeAsk(): void {
   // The agent that will answer, with its model and effort, as in the agents panel's composer; a click changes either.
   const box = $('#homeAskModels');
   const a = selectedAgent();
-  const html = a && (a.models?.length || a.version)
-    ? `<button type="button" class="prompt-model" data-agent="${escAttr(a.id)}" aria-haspopup="menu" aria-label="${escAttr(`${agentShortName(a)}: change model${a.api ? '' : ' or effort'}`)}">${promptModelHtml(a)}</button>`
-    : '';
-  if (box.innerHTML !== html) box.innerHTML = html;
+  const chip = box.querySelector<HTMLElement>('.prompt-model');
+  if (a && (a.models?.length || a.version)) {
+    const label = `${agentShortName(a)}: change model${hasEffort(a) ? ' or effort' : ''}`;
+    // Kept across a change of agent, model or effort, so it morphs (morphChip) instead of sliding in again.
+    if (chip) {
+      chip.dataset.agent = a.id;
+      chip.setAttribute('aria-label', label);
+      morphChip(chip, promptModelHtml(a));
+    } else {
+      box.innerHTML = `<button type="button" class="prompt-model" data-agent="${escAttr(a.id)}" aria-haspopup="menu" aria-label="${escAttr(label)}">${promptModelHtml(a)}</button>`;
+    }
+  } else if (chip) box.innerHTML = '';
   if (typeof refreshComposers === 'function') refreshComposers();
 }
 $('#homeAskModels').addEventListener('click', e => {

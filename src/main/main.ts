@@ -1832,6 +1832,11 @@ const AGENTS: AgentDef[] = [
     paths: () => isWin ? [path.join(APPDATA, 'npm', 'opencode.cmd')] : [path.join(HOME, '.opencode', 'bin', 'opencode'), '/usr/local/bin/opencode', '/opt/homebrew/bin/opencode'],
   },
   {
+    id: 'copilot', name: 'GitHub Copilot', vendor: 'GitHub', commands: ['copilot'],
+    url: 'https://github.com/features/copilot/cli',
+    paths: () => isWin ? [path.join(APPDATA, 'npm', 'copilot.cmd')] : ['/usr/local/bin/copilot', '/opt/homebrew/bin/copilot'],
+  },
+  {
     id: 'dsh', name: 'DeepSeek CLI (Harness)', vendor: 'DeepSeek · developer preview', commands: ['dsh'],
     url: 'https://github.com/deepseek-ai/deepseek-harness',
     paths: () => isWin ? [path.join(APPDATA, 'npm', 'dsh.cmd')] : ['/usr/local/bin/dsh', '/opt/homebrew/bin/dsh'],
@@ -1890,7 +1895,7 @@ function versionIn(text: string): string | null {
 }
 function versionOf(bin: string): Promise<string | null> {
   // Launching a GUI app's .exe would open its window, so only ask CLIs for a version.
-  if (bin.endsWith('.app') || (isWin && /\.exe$/i.test(bin) && !/(?:codex|claude|git|node)\.exe$/i.test(bin))) return Promise.resolve(null);
+  if (bin.endsWith('.app') || (isWin && /\.exe$/i.test(bin) && !/(?:codex|claude|copilot|git|node)\.exe$/i.test(bin))) return Promise.resolve(null);
   return new Promise<string | null>(res => {
     exec(`"${bin}" --version`, { windowsHide: true, timeout: 8000 }, (err, stdout) => res(err ? null : versionIn(stdout)));
   });
@@ -1901,6 +1906,7 @@ function agentInstallCmd(id: string, platform: string): string | null {
   if (id === 'claude') return 'npm install -g @anthropic-ai/claude-code';
   if (id === 'codex') return 'npm install -g @openai/codex';
   if (id === 'opencode') return 'npm install -g opencode-ai';
+  if (id === 'copilot') return 'npm install -g @github/copilot';
   if (id === 'dsh') return 'npm install -g @deepseek-ai/dsh';
   if (id !== 'local') return null;
   if (platform === 'win32') return 'winget install Ollama.Ollama';
@@ -1914,7 +1920,10 @@ async function locate(commands: string[], paths: string[]): Promise<string | nul
 }
 
 async function detectAgent(a: AgentDef) {
-  const bin = await locate(a.commands, a.paths());
+  let bin = await locate(a.commands, a.paths());
+  // VS Code puts a `copilot` launcher on PATH that only says the CLI isn't installed: no version means not found.
+  const copilotVersion = a.id === 'copilot' && bin ? await versionOf(bin) : null;
+  if (a.id === 'copilot' && !copilotVersion) bin = null;
   if (bin) agentBins.set(a.id, bin);
   else agentBins.delete(a.id);
 
@@ -1938,6 +1947,8 @@ async function detectAgent(a: AgentDef) {
     models = bin ? await opencodeModels(bin) : [];
     const saved = loadState().opencodeModel;
     version = models.includes(saved) ? saved : models[0] ?? null;
+  } else if (a.id === 'copilot') {
+    version = copilotVersion; // Copilot picks its model and effort from its own settings (/model)
   } else if (bin && a.id !== 'dsh') { // dsh picks its own model, and `version` is shown as the model
     version = await versionOf(bin);
   }
@@ -2022,7 +2033,7 @@ handle('sys:runCommand', async (_e, cmd) => {
   const command = cmd.trim();
   const allowed = [
     ...['git', 'node', 'c', 'py', 'cs', 'java', 'rs', 'mvn', 'lua', 'php', 'sql', 'dlv', ...LANG_KINDS].map(kind => installCmd(kind, process.platform)),
-    ...['claude', 'codex', 'opencode', 'dsh', 'local'].map(id => agentInstallCmd(id, process.platform)),
+    ...['claude', 'codex', 'opencode', 'copilot', 'dsh', 'local'].map(id => agentInstallCmd(id, process.platform)),
     ...lspInstalls(process.platform).map(i => i.cmd),
   ].filter(Boolean) as string[];
   if (!allowed.includes(command)) return false;
@@ -2284,7 +2295,7 @@ function setSecret(name: string, value: string | null | undefined): void {
 }
 
 /* ================= LLM APIs (Ollama, LM Studio or any OpenAI-compatible server; Gemini; OpenRouter; DeepSeek) ================= */
-import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, keepsReasoning, withoutThinkingBody, agentBody, type LlmProviderId, type ModelList } from './llmproviders';
+import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, keepsReasoning, withoutThinkingBody, agentBody, effortBody, type LlmProviderId, type ModelList } from './llmproviders';
 // The usual addresses of Ollama and LM Studio, tried when nothing is configured yet.
 const LLM_DEFAULTS = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1'];
 // The server address without trailing slashes.
@@ -2399,8 +2410,9 @@ handle('llm:connect', async (_e, provider, url, key) => {
   saveState({ llmUrl: url, llmModel: models[0], llmModels: models, llmOff: false });
   return { url, model: models[0], models };
 });
-handle('llm:setModel', (_e, provider, model) => {
+handle('llm:setModel', (_e, provider, model, effort) => {
   const id = llmProvider(provider);
+  if (id === 'gemini' && effort !== undefined) saveState({ geminiEffort: effortArg(effort) }); // the only API agent with an effort (effortBody)
   if (id !== 'local') {
     const saved = loadState().llmProviders?.[id];
     if (!saved || !(saved.models || []).includes(model)) throw new Error(`${LLM_PROVIDERS[id].name} doesn't offer that model`);
@@ -3170,6 +3182,7 @@ interface StreamCtx { dsh?: ReturnType<typeof dshReader>; done: boolean; lastErr
 function cliArgs(agent: string, mode: string, prompt: string, session: string | null | undefined, team: Loose, shell: boolean, pick?: { model?: string; effort?: string } | null, breezeUrl?: string | null): CliSpec {
   if (agent === 'claude') return claudeArgs(mode, prompt, session, team, shell, pick, breezeUrl);
   if (agent === 'opencode') return opencodeArgs(mode, prompt, session, team, pick);
+  if (agent === 'copilot') return copilotArgs(mode, prompt, session);
   if (agent === 'dsh') return dshSpec(mode, prompt, session);
   const build = mode === 'build';
   const sandbox = !build ? 'read-only' : fullAccess() ? 'danger-full-access' : 'workspace-write';
@@ -3244,6 +3257,17 @@ function opencodeArgs(mode: string, prompt: string, session: string | null | und
   if (effort) args.push('--variant', effort === 'xhigh' ? 'max' : effort);
   if (session) args.push('-s', session);
   if (build) return { args, prompt, env };
+  const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
+  return { args, prompt: `${ask}\n\n${prompt}` };
+}
+// GitHub Copilot CLI: the prompt is piped in, and --output-format json prints one session event per line. Build mode
+// allows every tool and path; ask and plan modes may read and search, but writing files and running commands are denied.
+const COPILOT_READ_ONLY = ['--deny-tool=write', '--deny-tool=shell'];
+function copilotArgs(mode: string, prompt: string, session: string | null | undefined): CliSpec {
+  const build = mode === 'build';
+  const args = ['--output-format', 'json', '--no-ask-user', ...(build && fullAccess() ? ['--allow-all'] : ['--allow-all-tools', ...(build ? [] : COPILOT_READ_ONLY)])];
+  if (session) args.push(`--resume=${session}`);
+  if (build) return { args, prompt };
   const ask = mode === 'plan' ? 'Make a short numbered plan for this request. Do not change any files yet.' : 'Answer without changing any files.';
   return { args, prompt: `${ask}\n\n${prompt}` };
 }
@@ -3547,6 +3571,12 @@ function streamCli(runId: number, run: Run, child: ChildProcess, parse: (runId: 
     if (ctx.retry && !run.stopped && ctx.retryModel?.(ctx.retry)) return;
     if (ctx.done) { if (ctx.final) emit(runId, ctx.final); return; }
     if (run.stopped) { emit(runId, { t: 'done', ok: false, stopped: true }); return; }
+    // Copilot's JSON has no end-of-turn event of its own: a clean exit ends its turn.
+    if (run.agent === 'copilot' && code === 0) {
+      if (mode === 'plan' && ctx.lastText) emit(runId, { t: 'plan', text: ctx.lastText });
+      emit(runId, { t: 'done', ok: true, tokens: ctx.tokens });
+      return;
+    }
     emit(runId, { t: 'error', text: ctx.lastError || (run.agent === 'dsh' && dshFailure(ctx.stderr)) || ctx.stderr.trim().split('\n').slice(-6).join('\n') || `The agent exited with code ${code}` });
     emit(runId, { t: 'done', ok: false });
   });
@@ -3640,7 +3670,34 @@ function dshEvent(runId: number, d: Loose, ctx: StreamCtx, mode: string): void {
     }
   }
 }
-const CLI_EVENTS: Record<string, (runId: number, d: Loose, ctx: StreamCtx, mode: string) => void> = { claude: claudeEvent, codex: codexEvent, opencode: opencodeEvent, dsh: dshEvent };
+// Copilot CLI's JSON lines are its session events, `{ type, data }`. A tool starts with its name and arguments and
+// completes with `success`, so an edit's file is reported once the write landed.
+const COPILOT_EDITS = /^(?:create|edit|write|str_replace)/i;
+function copilotTool(runId: number, x: Loose, ctx: StreamCtx): void {
+  let input: Loose = x.arguments ?? {};
+  if (typeof input === 'string') { try { input = JSON.parse(input); } catch { input = {}; } }
+  const name = String(x.toolName ?? 'tool');
+  if (typeof input.command === 'string') emit(runId, { t: 'tool', kind: 'run', label: `$ ${input.command}` });
+  else if (COPILOT_EDITS.test(name) && typeof input.path === 'string') {
+    const rel = relOut(input.path, runId);
+    emit(runId, { t: 'tool', kind: 'edit', label: `${name === 'create' ? 'Created' : 'Edited'} ${rel}` });
+    if (x.toolCallId) (ctx.writes ??= new Map()).set(String(x.toolCallId), rel);
+  } else if (/web|fetch|search/i.test(name)) emit(runId, { t: 'tool', kind: 'web', label: input.url || input.query || 'Searched the web' });
+  else if (x.mcpServerName !== BREEZE_MCP) emit(runId, { t: 'tool', kind: 'tool', label: x.mcpServerName ? `${x.mcpServerName}: ${x.mcpToolName ?? name}` : name });
+}
+function copilotEvent(runId: number, d: Loose, ctx: StreamCtx): void {
+  const x = d.data || {};
+  if (d.type === 'session.start' && x.sessionId && !ctx.session) { ctx.session = x.sessionId; emit(runId, { t: 'session', id: x.sessionId }); }
+  else if (d.type === 'assistant.message' && x.content) { ctx.lastText = x.content; emit(runId, { t: 'text', text: x.content }); }
+  else if (d.type === 'tool.execution_start') copilotTool(runId, x, ctx);
+  else if (d.type === 'tool.execution_complete' && ctx.writes?.has(String(x.toolCallId))) {
+    const file = ctx.writes.get(String(x.toolCallId))!;
+    ctx.writes.delete(String(x.toolCallId));
+    if (x.success) emit(runId, { t: 'file', path: file, written: true });
+  } else if (d.type === 'assistant.usage') ctx.tokens = (ctx.tokens || 0) + (x.inputTokens || 0) + (x.outputTokens || 0);
+  else if (d.type === 'session.error') ctx.lastError = x.message || 'Copilot ran into an error';
+}
+const CLI_EVENTS: Record<string, (runId: number, d: Loose, ctx: StreamCtx, mode: string) => void> = { claude: claudeEvent, codex: codexEvent, opencode: opencodeEvent, copilot: copilotEvent, dsh: dshEvent };
 
 /* ----- Local LLM agent loop (OpenAI-style function calling over the project folder) ----- */
 // Keeping token use down: the first message carries a map of the project (so the model doesn't explore it
@@ -4928,7 +4985,7 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
     const fitted = brain.compactHistory(messages, budget);
     // Replies dropped to fit go to the folder's second brain, so what they said isn't lost.
     if (fitted.length < messages.length) brainFacts(base, droppedReplies(messages, fitted), provider, chatsOf(runId));
-    const body: Loose = { model: cfg.model, messages: brain.wireMessages(brain.reasoningFor(fitted, keepsReasoning(provider)), !ctx.noImages), ...agentBody(provider), stream: false };
+    const body: Loose = { model: cfg.model, messages: brain.wireMessages(brain.reasoningFor(fitted, keepsReasoning(provider)), !ctx.noImages), ...agentBody(provider), stream: false, ...effortBody(provider, effortArg(run.pick?.effort ?? loadState().geminiEffort)) };
     // command_output joins the tools once something runs in the background.
     if (withTools) body.tools = ctx.jobs.size ? tools : tools.filter(t => t.function.name !== 'command_output');
     // The text shows as it is written. Thinking isn't shown, only how long it took.
@@ -5608,7 +5665,20 @@ function opencodeCommitMsg(base: string, prompt: string, model?: string, _effort
   };
   return runCommitCli(bin, args, base, prompt, finish);
 }
-const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { antigravity: antigravityCommitMsg, local: (...a) => localCommitMsg('local', ...a), gemini: (...a) => localCommitMsg('gemini', ...a), openrouter: (...a) => localCommitMsg('openrouter', ...a), deepseek: (...a) => localCommitMsg('deepseek', ...a), codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
+// Copilot with --silent prints only its reply, as plain text. A question (the Duel) also gets nothing that reads files or the web.
+function copilotCommitMsg(base: string, prompt: string, _model?: string, _effort?: string, ask?: boolean): Promise<string> {
+  const bin = agentBins.get('copilot');
+  if (!bin) throw new Error('GitHub Copilot was not found');
+  const args = ['--silent', '--no-ask-user', ...COPILOT_READ_ONLY, ...(ask ? ['--deny-tool=read', '--deny-tool=url'] : [])];
+  const finish = (out: string) => {
+    if (!ask) return cleanCommitText(out, 'chore: update project');
+    const reply = rawReply(out, '');
+    if (!reply) throw new Error('GitHub Copilot wrote no reply');
+    return reply;
+  };
+  return runCommitCli(bin, args, base, prompt, finish);
+}
+const COMMIT_WRITERS: Record<string, (base: string, prompt: string, model?: string, effort?: string, ask?: boolean) => Promise<string>> = { copilot: copilotCommitMsg, antigravity: antigravityCommitMsg, local: (...a) => localCommitMsg('local', ...a), gemini: (...a) => localCommitMsg('gemini', ...a), openrouter: (...a) => localCommitMsg('openrouter', ...a), deepseek: (...a) => localCommitMsg('deepseek', ...a), codex: codexCommitMsg, claude: claudeCommitMsg, opencode: opencodeCommitMsg };
 // dsh takes too long to start for a one-shot question, so DeepSeek's API answers for it. Never another company's agent:
 // the user picked DeepSeek.
 async function writerFor(agent: string | null | undefined): Promise<string | null | undefined> {

@@ -148,6 +148,14 @@ test('agent steps: gemini thinks low at its own temperature, the others run cool
   for (const id of ['local', 'openrouter', 'deepseek']) assert.deepEqual(llm.agentBody(id), { temperature: 0.2 });
 });
 
+test('only gemini takes an effort, capped at high', () => {
+  assert.deepEqual(llm.effortBody('gemini', 'low'), { reasoning_effort: 'low' });
+  assert.deepEqual(llm.effortBody('gemini', 'medium'), { reasoning_effort: 'medium' });
+  for (const e of ['high', 'xhigh', 'max']) assert.deepEqual(llm.effortBody('gemini', e), { reasoning_effort: 'high' });
+  assert.deepEqual(llm.effortBody('gemini', null), {});
+  for (const id of ['local', 'openrouter', 'deepseek']) assert.deepEqual(llm.effortBody(id, 'high'), {});
+});
+
 // setup.ts is a page script, so the function is lifted out of it.
 test('keyProvider tells a pasted key by its shape', () => {
   const { stripTypeScriptTypes } = require('node:module');

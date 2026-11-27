@@ -930,6 +930,7 @@ const BRAND_ICONS: Record<string, string> = {
   claude: 'claude_white.png', // white mark on the orange tile (breeze.css)
   antigravity: 'antigravity.png',
   opencode: 'opencode.svg',
+  copilot: 'githubcopilot_white.png', // light theme swaps in githubcopilot.png (breeze.css)
   instagram: 'instagram.png', facebook: 'facebook.png',
   local: 'ollama.svg',
   ollama: 'ollama.svg',

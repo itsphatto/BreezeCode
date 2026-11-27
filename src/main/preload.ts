@@ -140,7 +140,7 @@ contextBridge.exposeInMainWorld('breeze', {
   },
   llm: {
     connect: (provider: unknown, url: unknown, key: unknown) => invoke('llm:connect', provider, url, key),
-    setModel: (provider: unknown, model: unknown) => invoke('llm:setModel', provider, model),
+    setModel: (provider: unknown, model: unknown, effort?: unknown) => invoke('llm:setModel', provider, model, effort),
     disconnect: (provider: unknown) => invoke('llm:disconnect', provider),
   },
   web: {
