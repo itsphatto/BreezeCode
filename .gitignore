@@ -37,6 +37,7 @@ Thumbs.db
 desktop.ini
 
 # Tool-local state
+.impeccable/
 .impeccable/config.local.json
 **/.impeccable/config.local.json
 .claude/
