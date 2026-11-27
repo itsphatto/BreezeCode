@@ -1089,7 +1089,7 @@ function loadBoardLogs(): void {
   background(api.agent.chatLogs().then(list => {
     boardLogs = list.map(l => ({
       id: `log:${l.agent}:${l.session}`, title: l.title, at: l.at, html: '', agent: l.agent, session: l.session,
-      sessions: { [l.agent]: l.session }, folder: l.cwd && rootInfo && folderKey(l.cwd) === folderKey(rootInfo.root) ? rootInfo.root : l.cwd,
+      sessions: { [l.agent]: l.session }, folder: l.cwd && rootInfo && folderKey(currentFolder(l.cwd)) === folderKey(rootInfo.root) ? rootInfo.root : l.cwd && currentFolder(l.cwd),
       log: { agent: l.agent, session: l.session },
     }));
     if (boardPageShowing()) renderBoardSide();

@@ -101,7 +101,8 @@ type NbMessage = { id: string } & (
   | { type: 'done'; count?: number });
 interface Diag { line: number; col: number; len: number; msg: string; sev?: number; } // sev 2: a warning
 type SyntaxResult = { ok: true } | (Diag & { eof?: boolean }) | null;
-interface RootInfo { root: string; name: string; }
+// `movedFrom`: where the folder was before it was renamed or moved, since it was last opened (main's projectmove.ts).
+interface RootInfo { root: string; name: string; movedFrom?: string[]; }
 // A folder opened from Explorer's "Open with Breeze Code", with the file that was right-clicked (project-relative).
 interface LaunchInfo extends RootInfo { open: string | null; launched: true; }
 interface SearchHit { path: string; line: number; col: number; text: string; }

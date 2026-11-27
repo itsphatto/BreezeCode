@@ -59,6 +59,23 @@ export class MemoryStore {
     } catch { /* best effort */ }
   }
 
+  // The project folder was renamed or moved: its facts go with it (a fact the new path already has isn't doubled).
+  moveScope(from: string, to: string): number {
+    const a = scopeOf(from, this.#platform), b = scopeOf(to, this.#platform);
+    if (a === b || a === GLOBAL) return 0;
+    const have = new Set(this.#items.filter(m => m.scope === b).map(m => m.text.toLowerCase()));
+    let n = 0, dropped = 0;
+    this.#items = this.#items.filter(m => {
+      if (m.scope !== a) return true;
+      if (have.has(m.text.toLowerCase())) { dropped++; return false; }
+      m.scope = b;
+      n++;
+      return true;
+    });
+    if (n || dropped) this.#save();
+    return n;
+  }
+
   // Keeps a fact; a fact already kept in the same scope is refreshed, not doubled. The oldest least-used goes past the cap.
   add(text: string, project: string | null, now = Date.now()): Memory {
     const why = memoryRefusal(text);

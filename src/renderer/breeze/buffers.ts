@@ -51,6 +51,8 @@ function nameTreeRows(): void {
 }
 async function swapWorkspace(info: RootInfo): Promise<void> {
   if (rootInfo) { flushSession(); resetWorkspace(); }
+  // Renamed or moved since it was last open: what was saved under the old path comes along before anything is read.
+  for (const from of info.movedFrom ?? []) moveFolderStorage(from, info.root);
   rootInfo = info;
   gitLoaded = false;
   loadTreeOrder();

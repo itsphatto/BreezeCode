@@ -353,6 +353,28 @@ export class BrainStore {
     return scope;
   }
 
+  // The folder was renamed or moved (projectmove.ts). Its .breezecode went with it; what the app-data file kept under
+  // the old path (memories, links, how far Summarize read) joins the new path. Call it before open(to).
+  moveFolder(from: string, to: string): boolean {
+    const a = scopeOf(from, this.#platform), b = scopeOf(to, this.#platform);
+    if (a === b) return false;
+    const nodes = this.#folders[a], edges = this.#edges[a], read = this.#read[a];
+    if (!nodes && !edges && !read) return false;
+    const have = new Set((this.#folders[b] ?? []).map(n => n.id));
+    if (nodes) this.#folders[b] = [...(this.#folders[b] ?? []), ...nodes.filter(n => !have.has(n.id))];
+    if (edges) {
+      const list = this.#edges[b] ??= [];
+      for (const e of edges) if (!list.some(x => x[0] === e[0] && x[1] === e[1])) list.push(e);
+    }
+    if (read) this.#read[b] = { ...read, ...(this.#read[b] ?? {}) };
+    delete this.#folders[a]; delete this.#edges[a]; delete this.#read[a];
+    this.#looked.delete(a); this.#homes.delete(a);
+    // Already open at the new path this run: its project files get what came over too.
+    if (this.#homes.has(b)) this.#save(b);
+    this.#saveApp();
+    return true;
+  }
+
   // Makes the folder's .breezecode (with its brain, empty or not). Its path, or null when the brain stays in app data.
   open(folder: string): string | null {
     const scope = this.#scope(folder);

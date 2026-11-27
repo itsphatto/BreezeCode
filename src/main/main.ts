@@ -34,6 +34,7 @@ import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
 import type { ToolReply, McpTool } from './breezemcp';
 import * as core from './agentcore';
 import { MemoryStore } from './agentmemory';
+import { noteOpened, movedPath, moveRecent, copyClaudeSessions, moveLlmSessions } from './projectmove';
 import { BrainStore, claudeCompactSummary, codexCompactions, droppedReplies, summaryKey, summaryChunks, summarizePrompt, SUMMARY_MAX_CHUNKS, BRAIN_TOOL_DEFS, BRAIN_DIR, formatSearch } from './secondbrain';
 import type { ChatText } from './secondbrain';
 import { detectIntent } from './agentintent';
@@ -623,6 +624,7 @@ async function setRoot(dir: string) {
   if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
   termCwd = dir;
+  const movedFrom = followMove(dir);
   openBrainFolder(dir);
   watchAwayBoards();
   const saved = loadState();
@@ -636,7 +638,31 @@ async function setRoot(dir: string) {
   // A Resolve started right after waits for this (conflictPrunes), so the prune can't remove its fresh worktree.
   const prune = Promise.resolve().then(() => prconflict.pruneConflicts({ run: runGitIn, hooksDir: noHooksDir(), repoDir: dir, worktreesDir: conflictWorktrees() })).catch(() => {}).finally(() => { if (conflictPrunes.get(dir) === prune) conflictPrunes.delete(dir); });
   conflictPrunes.set(dir, prune);
-  return { root: dir, name: path.basename(dir) };
+  return { root: dir, name: path.basename(dir), ...(movedFrom.length ? { movedFrom } : {}) };
+}
+
+// The folder was renamed or moved since it was last opened (projectmove.ts): what Breeze kept under the old paths
+// follows it here. The page moves its own chats and settings when setRoot's answer carries `movedFrom`.
+// breeze-state.json's `projects` (project id -> path) is where this install last saw each project.
+function followMove(dir: string): string[] {
+  const st = loadState();
+  const projects: Record<string, string> = st.projects && typeof st.projects === 'object' ? st.projects : {};
+  const { id, moved } = noteOpened(dir, k => (typeof projects[k] === 'string' ? projects[k] : undefined));
+  if (id && projects[id] !== dir) saveState({ projects: { ...projects, [id]: dir } });
+  const step = (what: string, run: () => unknown) => { try { run(); } catch (e) { logError(`moving ${what}`)(e); } };
+  for (const from of moved) {
+    step('second brain', () => secondBrain.moveFolder(from, dir));
+    step('agent memory', () => agentMemory.moveScope(from, dir));
+    step('Claude Code sessions', () => copyClaudeSessions(path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects'), from, dir));
+    step('local agent sessions', () => moveLlmSessions(LLM_SESSION_DIR, from, dir));
+    step('agent tasks', () => {
+      let n = 0;
+      for (const t of agentCore.list()) { const p = movedPath(t.project, from, dir); if (p) { t.project = p; n++; } }
+      if (n) saveTasks(agentCore.list());
+    });
+    step('recent folders', () => { const s2 = loadState(); saveState(moveRecent(s2.recent || [], s2.recentAt, from, dir)); });
+  }
+  return moved;
 }
 
 /* ================= Watching ================= */

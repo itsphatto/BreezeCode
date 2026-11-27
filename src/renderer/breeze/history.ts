@@ -41,6 +41,36 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   else if (typeof renderBoardSide === 'function' && boardPageShowing()) renderBoardSide();
 }
 
+/* ----- A project folder renamed or moved (main's projectmove.ts noticed): its chats and settings follow it ----- */
+// Everything saved under the old path (chat history, the open chat, agent sessions, tabs, drafts, the board) moves to
+// the new one (movecore.ts says how). The moves are kept too, so Claude Code's and Codex's own logs, which still name
+// the old folder, are listed under the new one.
+const FOLDER_MOVES_KEY = 'breeze.folderMoves';
+function moveFolderStorage(from: string, to: string): void {
+  const items: [string, unknown][] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k == null || !k.startsWith('breeze.')) continue;
+      const raw = localStorage.getItem(k) ?? '';
+      let v: unknown = raw;
+      try { v = JSON.parse(raw); } catch { /* kept as text */ }
+      items.push([k, v]);
+    }
+  } catch { return; }
+  const plan = planFolderMove(items, from, to);
+  for (const [k, v] of plan.set) store.set(k, v);
+  for (const k of plan.del) store.del(k);
+  const moves = store.get<[string, string][]>(FOLDER_MOVES_KEY, []).filter(m => Array.isArray(m) && m[0] !== from);
+  store.set(FOLDER_MOVES_KEY, [...moves, [from, to]].slice(-50));
+}
+// Where a folder named in an agent's log is now, after any renames since.
+function currentFolder(p: string): string {
+  let out = p;
+  for (const [from, to] of store.get<[string, string][]>(FOLDER_MOVES_KEY, [])) out = movedFolderPath(out, from, to) ?? out;
+  return out;
+}
+
 // A saved chat's text, for the second brain: parsed, never run.
 function chatPlainText(html: string): string {
   const spaced = html.replace(/<\/(?:p|div|li|h\d|pre|tr|blockquote)>|<br\s*\/?>/gi, '$&\n');
