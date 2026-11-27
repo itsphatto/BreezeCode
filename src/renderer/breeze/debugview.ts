@@ -17,9 +17,6 @@ function openDebugView(): void {
   renderDebug();
   renderDbgPanels();
   placeRailIndicator();
-  // First time here with nothing running: point at Go. During a session Go means Continue (or is hidden while the
-  // program runs), so "Start your program" would be wrong; the tip waits for a later visit.
-  if (debugState === 'stopped') offerTip('debug', () => run('run.start'));
 }
 function leaveDebugView(): void {
   hideDbgHover();

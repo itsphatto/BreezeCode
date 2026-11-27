@@ -741,7 +741,6 @@ function openAgentPicker(): void {
     };
     pickerRefresh = render;
     render();
-    offerTip('agents'); // first time here: point at the agent list
     lastAutoScan = Date.now();
     // The first scan of the session fills the list; later ones redraw it only on a change (announceAgentChanges).
     const first = !appState.detect;
@@ -1559,7 +1558,6 @@ function showIde(): void {
   applyLayout();
   renderEditor();
   updateActIndicator(true);
-  offerTip('editor', () => $('#prompt').focus()); // first time in the editor: point at the agent prompt
 }
 
 /* ================= Agents (data) ================= */

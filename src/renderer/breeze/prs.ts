@@ -23,7 +23,6 @@ function openScmPage(): void {
   scmEmptyDetail();
   setTimeout(placeSashes); // the page's own sash and the side bar's now change places
   void refreshPrs();
-  offerTip('scm', () => run('git.genCommitMsg')); // first time here: point at Generate commit message
 }
 
 // `restore` false: showView is already switching to another view, so there is nothing to go back to.

@@ -80,7 +80,6 @@ function openBoard(): void {
   for (const b of boardBoxes.values()) b.scrollPending = true;
   requestAnimationFrame(scrollRestoredChats);
   background(api.board.open().then(refreshOwners));
-  offerTip('board', () => $('#boardSideNew').click()); // first time here: point at New chat
 }
 function leaveBoard(): void {
   showIde();
