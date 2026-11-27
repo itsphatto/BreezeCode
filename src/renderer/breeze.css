@@ -766,6 +766,15 @@ body.menu-up :focus-visible:not(#menuRoot *) {
   border-radius: 4px;
 }
 
+/* Claude's artwork is a bare white mark, so its tile keeps the orange behind it. */
+.tint-claude.has-img {
+  background: var(--tint) !important;
+}
+
+.tint-claude.has-img .brand-img {
+  transform: scale(.68);
+}
+
 .brand-img {
   display: block;
   width: 100%;
@@ -3059,8 +3068,32 @@ body.resizing-h iframe {
   height: 16px;
 }
 
+/* Claude's orange mark crossfades to the white one on the blue hover row, like Gemini's below. */
 .model-mark.mm-claude {
+  display: inline-grid;
+}
+
+.model-mark.mm-claude::before,
+.model-mark.mm-claude::after {
+  content: "";
+  grid-area: 1 / 1;
   background: url(../../assets/icons/claude-mark.svg) center / contain no-repeat;
+  transition: opacity .15s ease;
+}
+
+.model-mark.mm-claude::after {
+  background-image: url(../../assets/icons/claude_white.png);
+  opacity: 0;
+}
+
+.menu-item:hover:not(:disabled) .model-mark.mm-claude::before,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .model-mark.mm-claude::before {
+  opacity: 0;
+}
+
+.menu-item:hover:not(:disabled) .model-mark.mm-claude::after,
+.menu:not(:has(.menu-item:hover:not(:disabled))) .menu-item.kb .model-mark.mm-claude::after {
+  opacity: 1;
 }
 
 .model-mark.mm-openai {
@@ -13646,6 +13679,58 @@ body.term-popout .term-win-controls .win-btn::before {
   font: 12px/1.55 var(--font-code);
 }
 
+/* A live artifact: the page or drawing runs in its frame, on white as in a browser; Code swaps in its source. The
+   frame keeps about the shape it has opened large (16:10), so one design fits both: 760×475 in Breeze Space. */
+.artifact-frame {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  min-height: 300px;
+  max-height: 480px;
+  border: 0;
+  background: #fff;
+}
+
+/* A reply hugs its text (.msg .body is fit-content); a live card asks for more than any chat is wide and is held to
+   100%, so the reply and its frame take the chat's width. (No :has() here: see power.wiring.test.js.) */
+.artifact.live {
+  width: 100vw;
+  max-width: 100%;
+}
+
+.artifact.live pre,
+.artifact.live.show-code .artifact-frame {
+  display: none;
+}
+
+.artifact.live.show-code pre {
+  display: block;
+}
+
+.artifact [aria-pressed="true"] {
+  color: var(--blue-text);
+}
+
+/* Open large: the card fills a wide dialog. */
+.modal:has(> .artifact-modal) {
+  width: min(1200px, calc(100vw - 48px));
+  padding: 0;
+  overflow: hidden;
+}
+
+.artifact-modal .artifact {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.artifact-modal .artifact-frame,
+.artifact-modal .artifact pre {
+  height: min(78vh, 900px);
+  max-height: none;
+}
+
 /* Vibe Mode: the ready card pops when the agent finishes. */
 .vibe-ready.ping {
   animation: readyPing .6s var(--spring-bounce);
@@ -20837,7 +20922,8 @@ input.dbg-edit.bad:focus-visible {
   border-top-color: transparent;
 }
 
-:is(.board-box-logo, .board-empty-logo, .board-hello-logo) .brand-img {
+/* img.brand-img: outranks `.chat .empty img` (40px), which would overflow the hello tile and clip the logo. */
+:is(.board-chip-logo, .board-box-logo, .board-empty-logo, .board-hello-logo) img.brand-img {
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -22297,8 +22383,12 @@ body > .board-preview.full {
   animation-iteration-count: 1 !important;
   scroll-behavior: auto !important;
 }
-/* Kept turning: they say "working" or "type here", and cost a few pixels each. */
-:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, .team-chip.working .team-chip-state::before, #scmRefresh.busy svg, .thinking .dots, .thinking .dots i, .thinking .dots::before, .thinking .lbl, .sub-live .lbl, .sub-busy, .sub-mark.in_progress, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy) {
+/* Kept turning: they say "working" or "type here", and cost a few pixels each. Pseudo-elements can't sit inside :is()
+   (the browser drops them without a word, so they stopped after one pass), so those are listed on their own lines. */
+:root[data-power="saver"] :is(.spinner, .code-caret, .box-live-at .type-caret, #scmRefresh.busy svg, .thinking .dots, .thinking .dots i, .thinking .lbl, .sub-live .lbl, .sub-busy, .sub-mark.in_progress, .agent-tab.running .tab-status, .agent-tab.needs-you .tab-status, .needs-you-dot, .box-side-busy),
+:root[data-power="saver"] .team-chip.working .team-chip-state::before,
+:root[data-power="saver"] .composer-box.busy::after,
+:root[data-power="saver"] .thinking .dots::before {
   animation-iteration-count: infinite !important;
 }
 /* The welcome and launch sky's drifting light repaints the whole window behind everything. */

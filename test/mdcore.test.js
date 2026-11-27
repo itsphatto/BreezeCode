@@ -83,3 +83,16 @@ test('Show in Source finds the line an element\'s text starts on', () => {
   assert.equal(mdSourceLine('# Title\n\nSome **bold** text here.\n', 'Some bold text here.'), 2);
   assert.equal(mdSourceLine('# Title\n', 'Nowhere'), null);
 });
+
+test('artifactKind: a whole page or an SVG shows live, a snippet stays code', () => {
+  const { artifactKind } = vm.runInContext('({ artifactKind })', ctx);
+  assert.equal(artifactKind('html', 'chart.html', '<!DOCTYPE html>\n<html><body>hi</body></html>'), 'html');
+  assert.equal(artifactKind('', 'page.html', '<body><p>x</p></body>'), 'html');
+  assert.equal(artifactKind('html', 'snippet.html', '<button class="x">Go</button>'), '');
+  assert.equal(artifactKind('js', 'snippet.js', 'document.write("<html>")'), '');
+  assert.equal(artifactKind('svg', 'logo.svg', '<svg viewBox="0 0 10 10"></svg>'), 'svg');
+  assert.equal(artifactKind('xml', 'snippet.xml', '<?xml version="1.0"?>\n<!-- logo -->\n<svg></svg>'), 'svg');
+  assert.equal(artifactKind('xml', 'snippet.xml', '<note></note>'), '');
+  assert.equal(artifactKind('mermaid', 'snippet.mmd', 'flowchart TD\n  A --> B'), 'mermaid');
+  assert.equal(artifactKind('mermaid', 'snippet.mmd', '  '), '');
+});

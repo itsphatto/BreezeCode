@@ -2,7 +2,7 @@
 let gitState: GitStatus = { repo: false };
 // False from opening a folder until its first git status arrives; the panel shows placeholders meanwhile.
 let gitLoaded = false;
-let gitLog: { head: string | null; commits: GitCommit[]; details?: GitCommitDetail[] } = { head: null, commits: [] };
+let gitLog: { head: string | null; commits: GitCommit[] } = { head: null, commits: [] };
 let gitBusy = false;
 let openCommit: string | null = null;
 const commitDetails = new Map<string, GitCommitDetail>();
@@ -18,31 +18,16 @@ async function refreshGit(): Promise<void> {
     // Both at once: the log is thrown away when there's no repository or no commit yet.
     const log = api.git.log().catch(() => null);
     gitState = await api.git.status();
-    gitLog = (gitState.repo && gitState.hasCommits ? await log : null) ?? { head: null, commits: [], details: [] };
+    gitLog = (gitState.repo && gitState.hasCommits ? await log : null) ?? { head: null, commits: [] };
   } catch {
     gitState = { repo: false }; // git missing or not a repository: show the "initialize" panel
   }
   gitLoaded = true;
-  if (gitLog.details?.length) {
-    for (const d of gitLog.details) {
-      commitDetails.set(d.hash, d);
-    }
-  }
   renderScm(); renderBranch(); renderTree(); renderTabs();
   refreshHeadTexts();
   // A switched branch has other pull requests; the window focus and every git change come through here too. Only while
   // Source Control is open, so background git activity doesn't use up GitHub's rate limit; opening it asks afresh.
   if (scmPageOpen) void refreshPrs();
-  if (gitLog.commits.length) {
-    for (const c of gitLog.commits) {
-      if (!commitDetails.has(c.hash)) {
-        api.git.show(c.hash).then(d => {
-          commitDetails.set(c.hash, d);
-          if (openCommit === c.hash) placeCommitDetail(c.hash);
-        }).catch(() => {});
-      }
-    }
-  }
 }
 // Incoming files already announced, so a toast only fires when the remote brings something new.
 let knownIncoming = new Set<string>();
@@ -458,6 +443,7 @@ function renderScm(): void {
       <div class="scm-head"><span class="chev"><svg width="10" height="10"><use href="#i-chev"/></svg></span><span class="title">Checkpoints</span><span class="count">${gitLog.commits.length}</span></div>
       <div class="scm-list">${renderGraphRows()}</div>
     </div>`;
+  watchMoreCommits();
   seenScm.clear();
   for (const f of staged) seenScm.add(f.path + true);
   for (const f of changes) seenScm.add(f.path + false);
@@ -739,15 +725,51 @@ function commitDetailWrapHtml(r: GraphRow, width: number, X: (i: number) => numb
 }
 // The graph is at most six lanes (80px) wide; past six the lanes squeeze closer so every one stays in view.
 function graphGeometry(rows: GraphRow[]): { width: number; X: (i: number) => number } {
-  const lanes = Math.max(...rows.map(r => Math.max(r.before.length, r.after.length, r.lane + 1)));
+  // A loop, not Math.max(...rows): spreading a history of 100k+ commits overflows the call stack.
+  const lanes = rows.reduce((n, r) => Math.max(n, r.before.length, r.after.length, r.lane + 1), 1);
   const step = lanes > 6 ? 60 / (lanes - 1) : 12;
   return { width: Math.min(6, lanes) * 12 + 8, X: i => 10 + i * step };
 }
+// The whole history is laid out once per log, but its rows are drawn a page at a time as the list scrolls toward the
+// end, so a long history opens as fast as a short one.
+const COMMIT_PAGE = 200;
+let shownCommits = COMMIT_PAGE;
+let graphCache: { commits: GitCommit[]; rows: GraphRow[]; width: number; X: (i: number) => number } | null = null;
+function commitGraph(): NonNullable<typeof graphCache> {
+  if (graphCache?.commits !== gitLog.commits) {
+    const rows = layoutGraph(gitLog.commits);
+    graphCache = { commits: gitLog.commits, rows, ...graphGeometry(rows) };
+  }
+  return graphCache;
+}
+// Watches the last drawn row, with a margin so the next page is in place before the list runs out (and a jump to the
+// bottom still lands on it).
+const moreCommits = new IntersectionObserver(entries => {
+  if (!entries.some(e => e.isIntersecting)) return;
+  const { rows } = commitGraph();
+  const from = Math.min(shownCommits, rows.length);
+  const last = commitRow(rows[from - 1]?.c.hash ?? '');
+  if (!last) return;
+  shownCommits = from + COMMIT_PAGE;
+  const after = isDetailEl(last.nextElementSibling) ? last.nextElementSibling : last;
+  after.insertAdjacentHTML('afterend', commitRowsHtml(from, shownCommits));
+  watchMoreCommits();
+}, { root: $('#scm'), rootMargin: '0px 0px 1200px 0px' });
+function watchMoreCommits(): void {
+  moreCommits.disconnect();
+  const { rows } = commitGraph();
+  if (shownCommits >= rows.length) return;
+  const last = commitRow(rows[shownCommits - 1].c.hash);
+  if (last) moreCommits.observe(last);
+}
 function renderGraphRows(): string {
   if (!gitLog.commits.length) return '<p class="side-note">No checkpoints yet. Commit your changes to save the first one.</p>';
-  const rows = layoutGraph(gitLog.commits);
-  const H = 36, { width, X } = graphGeometry(rows);
-  return rows.map((r, idx) => {
+  return commitRowsHtml(0, shownCommits);
+}
+function commitRowsHtml(from: number, to: number): string {
+  const H = 36, { rows, width, X } = commitGraph();
+  return rows.slice(from, to).map((r, k) => {
+    const idx = from + k;
     const refs = r.c.refs.map(ref => `<span class="ref ${refClass(ref)}">${esc(ref.replace(/^HEAD -> /, '').replace(/^tag: /, ''))}</span>`).join('');
     const open = openCommit === r.c.hash;
     const detail = open ? commitDetailWrapHtml(r, width, X, commitDetails.get(r.c.hash)) : '';
@@ -811,10 +833,9 @@ function closeCommitDetail(hash: string, instant = false): void {
 function placeCommitDetail(hash: string): void {
   const row = commitRow(hash);
   if (!row) return;
-  const rows = layoutGraph(gitLog.commits);
+  const { rows, width, X } = commitGraph();
   const r = rows.find(x => x.c.hash === hash);
   if (!r) return;
-  const { width, X } = graphGeometry(rows);
   const holder = document.createElement('div');
   holder.innerHTML = commitDetailWrapHtml(r, width, X, commitDetails.get(hash));
   const fresh = holder.firstElementChild as HTMLElement;

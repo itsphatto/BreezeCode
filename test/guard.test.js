@@ -59,9 +59,9 @@ test('resolveUnder refuses a broken link, since a write would follow it', () => 
 });
 
 test('blockedRel keeps agents away from secrets and the .git folder', () => {
-  for (const p of ['.env', 'config/.env.local', '.envrc', '.ENV']) assert.match(blockedRel(p), /holds secrets/, p);
+  for (const p of ['.env', 'config/.env.local', '.envrc', '.ENV', '.env.production', '.env.example.local']) assert.match(blockedRel(p), /holds secrets/, p);
   for (const p of ['.git', '.git/config', '.GIT/hooks/pre-commit', 'sub\\.git\\config']) assert.match(blockedRel(p), /\.git folder/, p);
-  for (const p of ['src/app.js', 'docs/environment.md', '.gitignore', '.github/workflows/ci.yml', '.']) assert.equal(blockedRel(p), null, p);
+  for (const p of ['src/app.js', 'docs/environment.md', '.gitignore', '.github/workflows/ci.yml', '.', '.env.example', 'api/.env.sample', '.ENV.Template']) assert.equal(blockedRel(p), null, p);
 });
 
 test('agentBlocked also catches .git reached through another name', () => {

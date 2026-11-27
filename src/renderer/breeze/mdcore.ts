@@ -76,6 +76,15 @@ function applyMdEdit(src: string, changes: MdChange[]): string | null {
   }
   return out;
 }
+// A fenced block that shows live in the chat (an artifact): a whole HTML page, an SVG drawing or a Mermaid diagram.
+// `lang` is the fence's first word, `name` the file it saves as. A snippet of HTML stays plain code.
+function artifactKind(lang: string, name: string, code: string): 'html' | 'svg' | 'mermaid' | '' {
+  const l = lang.toLowerCase(), n = name.toLowerCase();
+  if ((l === 'mermaid' || /\.mmd$/.test(n)) && code.trim()) return 'mermaid';
+  if ((l === 'html' || /\.html?$/.test(n)) && /<(?:!doctype|html|body)\b/i.test(code)) return 'html';
+  if ((l === 'svg' || l === 'xml' || n.endsWith('.svg')) && /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg\b/i.test(code)) return 'svg';
+  return '';
+}
 // The line (from 0) an element's text starts on in the Markdown, by as many of its first words as the file has
 // together (formatting splits them), or null.
 function mdSourceLine(src: string, text: string): number | null {

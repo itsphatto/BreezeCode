@@ -928,7 +928,7 @@ const SOCIAL_SITES: SocialSite[] = [
 // Brand artwork for agents and feeds, keyed by the same id as the tint class. Anything without a file falls back to its letter or symbol.
 const BRAND_ICONS: Record<string, string> = {
   codex: 'codex.png',
-  claude: 'claude.svg',
+  claude: 'claude_white.png', // white mark on the orange tile (breeze.css)
   antigravity: 'antigravity.png',
   opencode: 'opencode.svg',
   instagram: 'instagram.png', facebook: 'facebook.png',

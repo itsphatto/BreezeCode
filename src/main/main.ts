@@ -3663,6 +3663,7 @@ const LLM_TOOLS = [
   { name: 'ask_user', description: 'Ask the user one question and wait for the answer.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', description: '2 to 4 choices; the user can also type one', items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } }, multi_select: { type: 'boolean' } }, required: ['question'] } },
   { name: 'propose_plan', description: 'Show the user your plan and wait for their OK before changing files.', parameters: { type: 'object', properties: { plan: { type: 'string', description: 'Short numbered list of changes, file by file' } }, required: ['plan'] } },
   { name: 'capture_preview', description: 'Screenshot a page of the project as the Preview pane shows it, and show it to the user. Use it to check a page you built or changed.', parameters: { type: 'object', properties: { page: { type: 'string', description: 'An .html or .md file; index.html by default' }, width: { type: 'integer', description: 'Pixels; 1280 by default' }, height: { type: 'integer' } } } },
+  { name: 'check_artifact', description: 'Run an artifact the way the chat will show it, in its frame (760×475) and opened large (1000×700), and get both screenshots and its console. The user doesn\'t see them.', parameters: { type: 'object', properties: { language: { type: 'string', enum: ['html', 'svg', 'mermaid'] }, code: { type: 'string', description: 'The whole artifact, as it will go in your reply' } }, required: ['language', 'code'] } },
   { name: 'show_image', description: 'Show the user a picture from the project (png, jpg, gif, webp, svg) in the chat.', parameters: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string', description: 'One short line' } }, required: ['path'] } },
   ...BRAIN_TOOL_DEFS.map(t => ({ name: t.name, description: t.description, parameters: t.schema })),
 ].map(fn => ({ type: 'function', function: fn }));
@@ -3752,7 +3753,11 @@ const BREEZE_TOOL_FNS: Record<string, (runId: number, args: Loose, signal: Abort
   // The agent sees the screenshot too, so it can check its own work.
   capture_preview: async (runId, args, signal) => {
     const shot = await capturePreview(runId, args, signal);
-    return { text: shot.text, image: { data: shot.png.toString('base64'), mimeType: 'image/png' } };
+    return { text: shot.text, images: [{ data: shot.png.toString('base64'), mimeType: 'image/png' }] };
+  },
+  check_artifact: async (runId, args, signal) => {
+    const r = await checkArtifact(runId, args, signal);
+    return { text: r.text, images: r.shots.map(x => ({ data: x.png.toString('base64'), mimeType: 'image/png' })) };
   },
 };
 
@@ -3878,6 +3883,64 @@ async function capturePreview(runId: number, args: Loose, signal?: AbortSignal):
     signal?.removeEventListener('abort', stop);
     stop();
   }
+}
+
+/* ----- Checking an artifact ----- */
+// check_artifact runs an artifact the way the chat will (the breeze-preview://artifact/ loader and its policy) in
+// hidden windows, in the chat's frame and opened large, and gives the agent both pictures, the console, and whether
+// the page outgrows its frame, so a model that can't see pictures still learns something. The user sees only that it
+// was checked: the artifact itself shows once it is in the reply.
+const ARTIFACT_VIEWS = [{ label: 'In the chat', width: 760, height: 475 }, { label: 'Opened large', width: 1000, height: 700 }]; // breeze.css .artifact-frame, .artifact-modal
+const ARTIFACT_SETTLE_MS = 2000; // CDN scripts, fonts and an animation's first frames
+const ARTIFACT_VIEW_MS = 20000; // a page that never lets go (an endless loop) gets this long
+interface ArtifactShot { label: string; png: Buffer; width: number; height: number; page: number[]; blank: boolean }
+async function artifactShot(view: typeof ARTIFACT_VIEWS[number], code: string, kind: string, logs: Set<string>, signal?: AbortSignal): Promise<ArtifactShot> {
+  const w = new BrowserWindow({ show: false, width: view.width, height: view.height, useContentSize: true, paintWhenInitiallyHidden: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  const stop = () => { if (!w.isDestroyed()) w.destroy(); };
+  signal?.addEventListener('abort', stop, { once: true });
+  const timer = setTimeout(stop, ARTIFACT_VIEW_MS);
+  try {
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    w.webContents.on('will-navigate', e => e.preventDefault());
+    w.webContents.setAudioMuted(true);
+    w.webContents.on('console-message', e => { if (!/Electron Security Warning/.test(e.message)) logs.add(`${e.level}: ${e.message.slice(0, 300)}`); });
+    await Promise.race([w.loadURL(`${PREVIEW_SCHEME}://artifact/`), new Promise(r => setTimeout(r, CAPTURE_LOAD_MS))]);
+    // The chat's frame posts the same message (agents.ts). A dialog would stall the hidden window, so they answer at once.
+    await w.webContents.executeJavaScript(`alert = confirm = prompt = () => undefined; postMessage(${JSON.stringify({ artifact: code, kind })}, '*');`);
+    await new Promise(r => setTimeout(r, ARTIFACT_SETTLE_MS));
+    const page = await w.webContents.executeJavaScript('[document.documentElement.scrollWidth, document.documentElement.scrollHeight]') as number[];
+    const img = await w.webContents.capturePage();
+    const bmp = img.resize({ width: 48 }).toBitmap();
+    return { label: view.label, png: img.toPNG(), width: view.width, height: view.height, page, blank: bmp.every((v, i) => v === bmp[i % 4]) };
+  } catch (err) {
+    if (signal?.aborted) throw new Error('The run was stopped.');
+    if (w.isDestroyed()) throw new Error(`${view.label}, the page didn't finish drawing within ${ARTIFACT_VIEW_MS / 1000} seconds: a script may never stop (an endless loop?).`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', stop);
+    stop();
+  }
+}
+async function checkArtifact(runId: number, args: Loose, signal?: AbortSignal): Promise<{ text: string; shots: ArtifactShot[] }> {
+  const code = String(args?.code ?? '');
+  if (!code.trim()) throw new Error('code is empty. Give the whole artifact, as it will go in your reply.');
+  const lang = String(args?.language ?? '').toLowerCase();
+  const kind = ['html', 'svg', 'mermaid'].includes(lang) ? lang : /^\s*<svg\b/i.test(code) ? 'svg' : 'html';
+  // The chat runs only these (mdcore.ts artifactKind); anything else shows as code.
+  if (kind === 'html' && !/<(?:!doctype|html|body)\b/i.test(code)) throw new Error('This isn\'t a whole page, so the chat would show it as code instead of running it. Start it with <!doctype html>.');
+  if (kind === 'svg' && !/^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg\b/i.test(code)) throw new Error('An SVG artifact has to start with <svg.');
+  emit(runId, { t: 'tool', kind: 'read', label: 'Checked how the artifact looks in the chat' });
+  const logs = new Set<string>();
+  const shots = await Promise.all(ARTIFACT_VIEWS.map(v => artifactShot(v, code, kind, logs, signal)));
+  const notes = shots.flatMap(s => [
+    ...(s.blank ? [`${s.label}, nothing visible drew: the whole frame is one colour.`] : []),
+    ...(s.page[1] > s.height + 1 ? [`${s.label}, the page is ${s.page[1]}px tall in a ${s.height}px frame, so the rest is cut off or has to scroll.`] : []),
+    ...(s.page[0] > s.width + 1 ? [`${s.label}, the page is ${s.page[0]}px wide in a ${s.width}px frame, so it scrolls sideways.`] : []),
+  ]);
+  const text = `Ran it the way the chat does. Attached: ${shots.map(s => `${s.label.toLowerCase()} (${s.width}×${s.height})`).join(', then ')}.\n`
+    + `Console: ${logs.size ? [...logs].join('\n') : 'nothing logged'}${notes.length ? `\n${notes.join('\n')}` : ''}`;
+  return { text, shots };
 }
 
 // The text of a Claude Code tool result, which is a string or a list of parts.
@@ -4395,7 +4458,7 @@ function jobOutput(ctx: LlmCtx, job: AgentJob): string {
   return text;
 }
 // What a tool hands back: text, or text and a picture for the model to look at (wireMessages sends it).
-type ToolOut = string | { text: string; image: brain.Picture };
+type ToolOut = string | { text: string; images: brain.Picture[] };
 const PICTURE_MAX = 5 * 1024 * 1024; // the largest picture most providers take
 // A png, jpg, gif or webp file as a picture for the model, or why it can't be one. svg is text: read_file reads it.
 async function pictureOf(abs: string, label: string): Promise<brain.Picture | string> {
@@ -4438,7 +4501,8 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<ToolOut>> 
   propose_plan: (ctx, a) => askUser(ctx.runId, a, ctx.signal, true),
   // agentPath keeps the file tools' rules (inside the project, no .env or .git) before showImage checks it again.
   // The model sees the screenshot too, when it can take pictures (wireMessages), so it can check its own work.
-  capture_preview: (ctx, a) => capturePreview(ctx.runId, a, ctx.signal).then(shot => ({ text: `${shot.text} It is attached below, so you can check it.`, image: { data: shot.png.toString('base64'), mime: 'image/png', label: `The screenshot of ${a.page || 'index.html'}:` } })),
+  capture_preview: (ctx, a) => capturePreview(ctx.runId, a, ctx.signal).then(shot => ({ text: `${shot.text} It is attached below, so you can check it.`, images: [{ data: shot.png.toString('base64'), mime: 'image/png', label: `The screenshot of ${a.page || 'index.html'}:` }] })),
+  check_artifact: (ctx, a) => checkArtifact(ctx.runId, a, ctx.signal).then(r => ({ text: r.text, images: r.shots.map(x => ({ data: x.png.toString('base64'), mime: 'image/png', label: `${x.label}:` })) })),
   async web_fetch(ctx, a) {
     let url: URL;
     try { url = new URL(String(a.url ?? '').trim()); } catch { throw new Error('url is not a web address. Give the whole address, starting with https://'); }
@@ -4503,7 +4567,7 @@ const LLM_TOOL_FNS: Record<string, (ctx: LlmCtx, a: Loose) => Promise<ToolOut>> 
     emit(ctx.runId, { t: 'tool', kind: 'read', label: `Read ${rel}${range}` });
     if (IMAGE_EXT.test(abs) && !/\.svg$/i.test(abs)) {
       const pic = await pictureOf(abs, `The picture ${rel}:`);
-      return typeof pic === 'string' ? `${rel}: ${pic}` : { text: `${rel} is a picture (${Math.ceil(Buffer.byteLength(pic.data, 'base64') / 1024)} KB). It is attached below.`, image: pic };
+      return typeof pic === 'string' ? `${rel}: ${pic}` : { text: `${rel} is a picture (${Math.ceil(Buffer.byteLength(pic.data, 'base64') / 1024)} KB). It is attached below.`, images: [pic] };
     }
     const text = await readSearchable(abs);
     if (text == null) return 'Not a readable text file (binary, or larger than 1 MB).';
@@ -4657,7 +4721,7 @@ async function runToolCalls(ctx: LlmCtx, calls: brain.ToolCall[]): Promise<brain
   const reply = async (call: brain.ToolCall): Promise<brain.ChatMessage> => {
     let out: ToolOut;
     try { out = await llmTool(ctx, call); } catch (err) { out = `Error: ${(err as Error).message}`; }
-    return typeof out === 'string' ? { role: 'tool', tool_call_id: call.id, content: out } : { role: 'tool', tool_call_id: call.id, content: out.text, images: [out.image] };
+    return typeof out === 'string' ? { role: 'tool', tool_call_id: call.id, content: out } : { role: 'tool', tool_call_id: call.id, content: out.text, images: out.images };
   };
   const out: brain.ChatMessage[] = [];
   for (let i = 0; i < calls.length;) {
@@ -4670,7 +4734,8 @@ async function runToolCalls(ctx: LlmCtx, calls: brain.ToolCall[]): Promise<brain
   return out;
 }
 const LLM_MODE_NOTE: Record<string, string> = {
-  build: 'Build mode: make the change with edit_file (write_file only for new files), run_command to build or test it, then say what you changed.',
+  // Every chat runs in build mode now, so this doesn't presume a change: a question or an artifact needs none.
+  build: 'Build mode: you can change files and run commands. For a change, use edit_file (write_file only for new files) and run_command to build or test it, then say what you changed.',
   plan: 'Plan mode: files can’t change; run_command runs git commands that only read, anything else waits for the user’s OK. Look at the code you need, then reply with a short numbered plan of the changes.',
   ask: 'Ask mode: files can’t change; run_command runs git commands that only read, anything else waits for the user’s OK. Answer the question directly.',
 };
@@ -4989,41 +5054,29 @@ handle('git:log', async () => {
   gitLogCache = { key, at: Date.now(), value };
   return value;
 });
+// The whole history, but only what the graph rows show: a commit's files and full message come from git:show when
+// it is hovered or opened, as --numstat over every commit is what made a long history slow.
 async function readGitLog(head: string) {
   let out: string;
   try {
-    out = await git(['log', '--all', '--topo-order', '-n', '150', '--numstat', '--format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%ar%x1f%D%x1f%s%x1f%B%x1f']);
+    out = await git(['log', '--all', '--topo-order', '--format=%x1e%H%x1f%P%x1f%an%x1f%ar%x1f%D%x1f%s']);
   } catch {
-    return { head: null, commits: [], details: [] };
+    return { head: null, commits: [] };
   }
   const commits = [];
-  const details = [];
-  const records = out.split('\x1e').filter(Boolean);
-  for (const r of records) {
-    const [hash, parents, author, email, when, refs, subject, body, stats = ''] = r.split('\x1f');
+  for (const r of out.split('\x1e')) {
+    const [hash, parents, author, when, refs, subject] = r.trim().split('\x1f');
     if (!hash) continue;
-    const files = stats.trim().split('\n').filter(Boolean).map(l => {
-      const [a, d, ...p] = l.split('\t');
-      return { path: p.join('\t'), added: a === '-' ? 0 : Number(a), removed: d === '-' ? 0 : Number(d) };
-    });
     commits.push({
       hash,
-      parents: parents ? parents.trim().split(' ').filter(Boolean) : [],
+      parents: parents ? parents.split(' ').filter(Boolean) : [],
       author,
       when,
-      refs: refs ? refs.trim().split(', ').filter(Boolean) : [],
+      refs: refs ? refs.split(', ').filter(Boolean) : [],
       subject: subject || ''
     });
-    details.push({
-      hash,
-      author,
-      email: email || '',
-      when,
-      message: (body || subject || '').trim(),
-      files
-    });
   }
-  return { head, commits, details };
+  return { head, commits };
 }
 
 handle('git:show', async (_e, hash) => {

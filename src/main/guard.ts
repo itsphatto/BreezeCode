@@ -45,13 +45,14 @@ function resolveUnder(base: string, rel = ''): string {
 }
 
 /* ----- What agents may touch ----- */
-// Secrets (.env, .env.local…) and git's own folder, whose config and hooks run commands.
+// Secrets (.env, .env.local…) and git's own folder, whose config and hooks run commands. A template (.env.example…)
+// is committed with placeholders, as sync.ts assumes too, and it is where an agent learns which keys a project reads.
 // `rel` is relative to the project; returns why the path is off limits, or null.
 function blockedRel(rel: unknown): string | null {
   const parts = String(rel).split(/[\\/]/).filter(p => p && p !== '.');
   if (parts.some(p => p.toLowerCase() === '.git')) return 'The .git folder is off limits to agents: its config and hooks can run commands.';
   const name = parts.at(-1) ?? '';
-  if (/^\.env/i.test(name)) return `${name} holds secrets, so agents can't read or change it.`;
+  if (/^\.env/i.test(name) && !/^\.env\.(?:example|sample|template)$/i.test(name)) return `${name} holds secrets, so agents can't read or change it.`;
   return null;
 }
 // The same check on the path as written and on where it really leads (Windows also reaches .git as "GIT~1" or ".git.").

@@ -368,7 +368,7 @@ interface BreezeApi {
   };
   git: {
     status(): Promise<GitStatus>;
-    log(): Promise<{ head: string | null; commits: GitCommit[]; details?: GitCommitDetail[] }>;
+    log(): Promise<{ head: string | null; commits: GitCommit[] }>;
     show(hash: string): Promise<GitCommitDetail>;
     diff(rel: string | string[], staged: boolean): Promise<string>;
     fileLog(rel: string): Promise<{ hash: string; author: string; when: string; subject: string }[]>;
