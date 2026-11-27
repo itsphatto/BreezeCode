@@ -24,7 +24,7 @@ function applyDevMode(): void {
   queueDiscord();
 }
 // Agents the user has come first, then this order; anything else keeps its place after.
-const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'gemini', 'opencode', 'local', 'openrouter', 'deepseek', 'dsh'];
+const AGENT_ORDER = ['claude', 'codex', 'antigravity', 'gemini', 'opencode', 'copilot', 'local', 'openrouter', 'deepseek', 'dsh'];
 const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.indexOf(a.id) + 1 || AGENT_ORDER.length + 1);
 // Settings -> Agents -> API keys: each connected API agent with Remove; keys are added in the agent picker.
 function apiKeyRowsHtml(agents: DetectedAgent[]): string {
@@ -148,10 +148,11 @@ const segHtml = (id: string, opts: [string, string][], cur: string) =>
 // A font picker: every bundled font (all the code fonts), the generic system one, the current pick, and the
 // system fonts installed here.
 const fontSeen = new Map<string, boolean>();
-const fontOffered = ([id, label]: FontChoice, i: number, cur: string) => {
+const fontOffered = ([id, , stack]: FontChoice, i: number, cur: string) => {
   if (CODE_FONTS.some(f => f[0] === id) || i < 3 || id === cur || id.startsWith('system-')) return true;
-  if (!fontSeen.has(label)) fontSeen.set(label, fontInstalled(label));
-  return fontSeen.get(label);
+  const first = stack.split(',')[0].replace(/"/g, '').trim(); // probe the family the stack asks for first, not the label
+  if (!fontSeen.has(first)) fontSeen.set(first, fontInstalled(first));
+  return fontSeen.get(first);
 };
 const fontSelectHtml = (id: string, list: FontChoice[], cur: string, aria: string) =>
   `<select class="select" id="${id}" aria-label="${aria}">${list.filter((f, i) => fontOffered(f, i, cur))
@@ -348,7 +349,38 @@ const BG_BLUR_MAX = 40;
 let bgBlur = clamp(Math.round(Number(store.get<number>('breeze.bgBlur', 0)) || 0), 0, BG_BLUR_MAX);
 let bgSize = ''; // "1920 × 1080" once the picture has loaded
 const bdShown = new Map<string, number>(); // each backdrop knob's value as last drawn, so a redraw can glide from it
-const bdMorph = new Map<string, number>(); // each knob's glide frame
+// Settings sliders: the knob and its fill at `v`, or gliding there (mute, a click far along the track, a redraw with
+// another value). The setting itself takes the new value at once; only the drawing glides. A drag cancels the glide.
+const knobGlide = new WeakMap<HTMLInputElement, number>();
+function setKnob(slider: HTMLInputElement, v: number, min: number, max: number): void {
+  cancelAnimationFrame(knobGlide.get(slider) ?? 0);
+  slider.step = '1';
+  slider.value = String(v);
+  slider.style.setProperty('--fill', `${(v - min) / (max - min) * 100}%`);
+}
+function glideKnob(slider: HTMLInputElement, from: number, to: number, min: number, max: number): void {
+  setKnob(slider, from, min, max);
+  if (from === to || motionOff()) { setKnob(slider, to, min, max); return; }
+  slider.step = 'any'; // so the knob moves smoothly between whole steps
+  const t0 = performance.now();
+  const frame = (now: number) => {
+    const p = clamp((now - t0) / 380, 0, 1), v = from + (to - from) * (1 - (1 - p) ** 3);
+    slider.value = String(v);
+    slider.style.setProperty('--fill', `${(v - min) / (max - min) * 100}%`);
+    if (p < 1) knobGlide.set(slider, requestAnimationFrame(frame));
+    else setKnob(slider, to, min, max);
+  };
+  knobGlide.set(slider, requestAnimationFrame(frame));
+}
+// A jump worth gliding: more than an eighth of the track at once (a drag or the wheel moves in small steps).
+const knobJump = (from: number, to: number, min: number, max: number) => Math.abs(to - from) > (max - min) / 8;
+// A slider's number rolls its changed digits like the usage dashboard's (rollText).
+function rollLabel(label: HTMLElement, text: string): void {
+  const from = label.dataset.to ?? label.textContent ?? '';
+  if (from === text) return;
+  label.textContent = text;
+  rollText(label, from);
+}
 let swLook = ''; // the Custom background card's picture as last drawn, to cross-fade from
 // Glass's opacity knob (percent): the least share of each surface that stays solid. null: the theme's own (GLASS_RANGE).
 let glassFloor: number | null = store.get<number | null>('breeze.glassOpacity', null);
@@ -816,23 +848,12 @@ function bindBackdropSettings(pane: HTMLElement): void {
     const slider = $<HTMLInputElement>(`#${id}`, pane);
     if (!slider) return;
     const label = $(`#${id}Val`, pane);
-    // The knob and its fill at `v`; the number rolls its changed digits like the usage dashboard's (rollText).
-    const knob = (v: number) => {
-      v = clamp(v, min, max);
-      slider.value = String(v);
-      slider.style.setProperty('--fill', `${(v - min) / (max - min) * 100}%`);
-    };
-    const roll = (text: string) => {
-      const from = label.dataset.to ?? label.textContent ?? '';
-      if (from === text) return;
-      label.textContent = text;
-      rollText(label, from);
-    };
     const show = (v: number) => {
-      cancelAnimationFrame(bdMorph.get(id) ?? 0);
+      const prev = get();
       set(clamp(Math.round(v), min, max));
-      knob(get());
-      roll(`${get()}${unit}`);
+      if (knobJump(prev, get(), min, max)) glideKnob(slider, prev, get(), min, max);
+      else setKnob(slider, get(), min, max);
+      rollLabel(label, `${get()}${unit}`);
       bdShown.set(id, get());
       applyBackdropLook();
     };
@@ -843,15 +864,8 @@ function bindBackdropSettings(pane: HTMLElement): void {
       bdShown.set(id, to);
       applyBackdropLook();
       label.textContent = `${was}${unit}`;
-      roll(`${to}${unit}`);
-      knob(was);
-      const t0 = performance.now();
-      const step = (now: number) => {
-        const p = clamp((now - t0) / 380, 0, 1);
-        knob(was + (to - was) * (1 - (1 - p) ** 3));
-        if (p < 1) bdMorph.set(id, requestAnimationFrame(step));
-      };
-      bdMorph.set(id, requestAnimationFrame(step));
+      rollLabel(label, `${to}${unit}`);
+      glideKnob(slider, clamp(was, min, max), to, min, max);
     }
     slider.oninput = () => show(+slider.value);
     slider.addEventListener('wheel', e => { e.preventDefault(); show(get() + (e.deltaY < 0 || e.deltaX > 0 ? 2 : -2)); }, { passive: false });
@@ -905,7 +919,7 @@ const resetText = (sec: number) => {
   return at.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 // Agents that report no usage at all: a greyed row with no token count, so they don't just go missing.
-const NO_USAGE = new Set(['antigravity', 'opencode']);
+const NO_USAGE = new Set(['antigravity', 'opencode', 'copilot']);
 function usageHtml(agents: DetectedAgent[]): string {
   if (!agentUsage) return '<p class="set-sub shimmer-text">Loading usage</p>';
   const u = agentUsage;
@@ -990,7 +1004,7 @@ function patchUsage(el: HTMLElement, html: string): void {
 // Fetches fresh numbers (agents used outside Breeze count too) and updates only if something changed.
 let usageShown = '';
 let usageTick = 0;
-// Antigravity and OpenCode report neither limits nor tokens: they show as a greyed row that says so (NO_USAGE).
+// Antigravity, OpenCode and Copilot report neither limits nor tokens: they show as a greyed row that says so (NO_USAGE).
 const usageAgents = () => (appState.detect?.agents ?? []).filter(a => a.found).sort((a, b) => agentRank(a) - agentRank(b));
 function updateUsage(el: HTMLElement): void {
   background(api.agent.usage().then(u => {
@@ -1528,13 +1542,14 @@ function bindSettings(m: HTMLElement): void {
   const sizeEl = $<HTMLInputElement>('#sCodeSize', pane);
   if (sizeEl) {
     const showSize = (v: number) => {
+      const prev = codeSize;
       setCodeSize(v);
-      sizeEl.value = String(codeSize);
-      sizeEl.style.setProperty('--fill', `${(codeSize - CODE_SIZE_MIN) / (CODE_SIZE_MAX - CODE_SIZE_MIN) * 100}%`);
-      swapText($('#sCodeSizeVal', pane), `${codeSize}px`);
+      if (knobJump(prev, codeSize, CODE_SIZE_MIN, CODE_SIZE_MAX)) glideKnob(sizeEl, prev, codeSize, CODE_SIZE_MIN, CODE_SIZE_MAX);
+      else setKnob(sizeEl, codeSize, CODE_SIZE_MIN, CODE_SIZE_MAX);
+      rollLabel($('#sCodeSizeVal', pane), `${codeSize}px`);
     };
     showSize(codeSize);
-    sizeEl.oninput = () => showSize(+sizeEl.value);
+    sizeEl.oninput = () => showSize(Math.round(+sizeEl.value));
     sizeEl.addEventListener('wheel', e => {
       e.preventDefault();
       const was = codeSize;
@@ -1707,15 +1722,18 @@ function bindSettings(m: HTMLElement): void {
   // Near 25 (the default) the knob snaps to 25; pushing on out of the snap zone turns the snap off until the drag (or scroll) ends.
   const vol = $<HTMLInputElement>('#sVolume', pane);
   if (vol) {
-    vol.style.setProperty('--fill', `${vol.value}%`);
+    let shown = +vol.value;
+    setKnob(vol, shown, 0, 100);
     const SNAP = 3;
     let snapArmed = true, snapped = false, wheelIdle = 0;
+    // Muting, unmuting or a click far along the track glides the knob and rolls the number.
     const show = (v: number) => {
-      vol.value = String(v);
       sfx.setVolume(v);
-      vol.style.setProperty('--fill', `${v}%`);
-      $('#sVolumeVal', pane).textContent = `${v}%`;
+      if (knobJump(shown, v, 0, 100)) glideKnob(vol, shown, v, 0, 100);
+      else setKnob(vol, v, 0, 100);
+      rollLabel($('#sVolumeVal', pane), `${v}%`);
       void setIcon($('#sVolumeIco', pane), volumeIcon(v));
+      shown = v;
     };
     const SNAP_AT = 25;
     const near = (v: number) => Math.abs(v - SNAP_AT) <= SNAP;
@@ -1725,25 +1743,25 @@ function bindSettings(m: HTMLElement): void {
       show(raw);
     };
     const rearm = () => { snapArmed = true; snapped = false; };
-    vol.oninput = () => settle(+vol.value);
+    vol.oninput = () => settle(Math.round(+vol.value));
     vol.onchange = () => { sfx.play('tick'); rearm(); };
     // The speaker mutes, and a second press brings back the level it had.
     let unmuteTo = SNAP_AT;
     on('sVolumeIco', () => {
-      const cur = +vol.value;
+      const cur = shown;
       if (cur) unmuteTo = cur;
       show(cur ? 0 : unmuteTo);
       sfx.play(cur ? 'close' : 'tick');
     });
     vol.addEventListener('wheel', e => {
       e.preventDefault();
-      const cur = +vol.value;
+      const cur = shown;
       const next = clamp(cur + (e.deltaY < 0 || e.deltaX > 0 ? 1 : -1), 0, 100);
       // A tick away from a snapped 25 is a push out of the snap: let it through.
       if (snapped && cur === SNAP_AT) { snapped = false; snapArmed = false; show(next); }
       else settle(next);
       // The same slide sound a drag makes (setting the value from script fires no input event to play it).
-      if (+vol.value !== cur) sfx.play('slide');
+      if (shown !== cur) sfx.play('slide');
       clearTimeout(wheelIdle);
       wheelIdle = window.setTimeout(() => { sfx.play('tick'); rearm(); }, 450);
     }, { passive: false });

@@ -28,6 +28,10 @@ function fileNameHtml(filename: string): string {
   return `<span class="nm-base">${esc(base)}</span><span class="nm-ext">${esc(ext)}</span>`;
 }
 
+// What Cut or Copy picked, waiting for Paste. Only inside this project, so it lives here rather than on the OS clipboard.
+let treeClip: { path: string; cut: boolean } | null = null;
+const isCutPath = (p: string): boolean => !!treeClip?.cut && (p === treeClip.path || p.startsWith(treeClip.path + '/'));
+
 function treeRow(e: DirEntry, p: string, depth: number, decor: ReturnType<typeof gitDecor>, enter: boolean): string {
   const open = e.dir && expanded.has(p);
   const lock = locks[p];
@@ -37,7 +41,7 @@ function treeRow(e: DirEntry, p: string, depth: number, decor: ReturnType<typeof
   const gitTag = !e.dir && g && !lock ? `<span class="gst">${GIT_LETTER[g] ?? ''}</span>` : '';
   // Changed on the remote and not pulled yet; shows beside the local letter when both apply.
   const inTag = !e.dir && decor.incoming.has(p) && !lock ? INCOMING_TAG : '';
-  const cls = ['tree-item', p === active || (e.dir && p === treeSel) ? 'on' : '', isDirty(buffers.get(p)) ? 'dirty' : '', p === ctxPath ? 'ctx' : '', g, e.dir && decor.incomingDirs.has(p) ? 'has-incoming' : '', isIgnored ? 'git-ignored' : '', enter ? 'enter' : ''].filter(Boolean).join(' ');
+  const cls = ['tree-item', p === active || (e.dir && p === treeSel) ? 'on' : '', isDirty(buffers.get(p)) ? 'dirty' : '', p === ctxPath ? 'ctx' : '', g, e.dir && decor.incomingDirs.has(p) ? 'has-incoming' : '', isIgnored ? 'git-ignored' : '', isCutPath(p) ? 'cut' : '', enter ? 'enter' : ''].filter(Boolean).join(' ');
   const icon = e.dir ? folderIcon(e.name, open) : fileIcon(p);
   const nameHtml = e.dir ? `<span class="nm-base">${esc(e.name)}</span>` : fileNameHtml(e.name);
   const renaming = treeEdit?.rename === p;
@@ -232,6 +236,19 @@ $('#tree').addEventListener('click', e => {
 // The row last clicked in the explorer (a file or a folder); Delete removes it while the explorer has focus.
 let treeSel: string | null = null;
 $('#tree').addEventListener('keydown', e => {
+  // Ctrl+X / Ctrl+C / Ctrl+V on the selected row, like the right-click menu. Not while renaming (an input has focus).
+  if (e.ctrlKey && !e.altKey && !e.shiftKey && rootInfo && !(e.target as HTMLElement).closest('input')) {
+    const k = e.key.toLowerCase();
+    if (k === 'x' || k === 'c' || k === 'v') {
+      const p = treeSel ?? active;
+      const row = p ? $(`#tree .tree-item[data-path="${escAttr(p)}"]`) : null;
+      if (k !== 'v' && (!p || !row)) return;
+      e.preventDefault();
+      if (k === 'v') background(pasteEntry(p && row ? (row.dataset.dir ? p : dirName(p)) : ''));
+      else setTreeClip(p as string, k === 'x');
+      return;
+    }
+  }
   if (e.key !== 'Delete' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || !rootInfo) return;
   const p = treeSel ?? active;
   const row = p ? $(`#tree .tree-item[data-path="${escAttr(p)}"]`) : null;
@@ -328,8 +345,8 @@ $('#tree').addEventListener('contextmenu', e => {
     ...(isDir ? [] : [{ label: 'Open in Split View', run: () => background(openFileInSplit(p)) }]),
     { label: 'Reveal in File Explorer', run: () => background(api.fs.reveal(p)) },
     { sep: true },
-    { label: 'Cut', run: () => { treeClip = { path: p, cut: true }; toast(`Cut ${baseName(p)}`); } },
-    { label: 'Copy', run: () => { treeClip = { path: p, cut: false }; toast(`Copied ${baseName(p)}`); } },
+    { label: 'Cut', run: () => setTreeClip(p, true) },
+    { label: 'Copy', run: () => setTreeClip(p, false) },
   ] : [];
   const pasteItem: MenuItem[] = [{ label: treeClip ? `Paste ${baseName(treeClip.path)}` : 'Paste', enabled: () => !!treeClip, run: () => background(pasteEntry(dir)) }];
   const restItems: MenuItem[] = p ? [
@@ -505,7 +522,11 @@ async function trashEntry(p: string): Promise<string | null> {
 
 /* ----- Explorer menu: clipboard, git, agent ----- */
 // What Cut or Copy picked, waiting for Paste. Only inside this project, so it lives here rather than on the OS clipboard.
-let treeClip: { path: string; cut: boolean } | null = null;
+function setTreeClip(p: string, cut: boolean): void {
+  treeClip = { path: p, cut };
+  renderTree(); // dims the cut row (treeRow)
+  toast(`${cut ? 'Cut' : 'Copied'} ${baseName(p)}`);
+}
 
 // "a.js" → "a copy.js", then "a copy 2.js", … until it's a name `taken` (lowercased) doesn't have.
 function freeName(name: string, taken: Set<string>): string {
@@ -522,7 +543,7 @@ async function pasteEntry(dir: string): Promise<void> {
   if (!clip) return;
   const src = clip.path;
   if (dir === src || dir.startsWith(src + '/')) { toast("A folder can't be pasted inside itself"); return; }
-  if (clip.cut && dirName(src) === dir) { treeClip = null; return; } // cut and pasted back where it was
+  if (clip.cut && dirName(src) === dir) { treeClip = null; renderTree(); return; } // cut and pasted back where it was
   let taken: Set<string>;
   try { taken = new Set((await api.fs.readDir(dir)).map(x => x.name.toLowerCase())); } catch (e) { toast(errMsg(e)); return; }
   const to = joinPath(dir, freeName(baseName(src), taken));

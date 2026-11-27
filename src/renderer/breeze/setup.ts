@@ -100,6 +100,7 @@ const AGENT_STYLE: Record<string, { letter: string; tint: string }> = {
   claude: { letter: 'Cc', tint: 'claude' },
   antigravity: { letter: 'Ag', tint: 'antigravity' },
   opencode: { letter: 'Oc', tint: 'opencode' },
+  copilot: { letter: 'Gc', tint: 'copilot' },
   local: { letter: 'Ol', tint: 'local' },
   ollama: { letter: 'Ol', tint: 'local' },
   gemini: { letter: 'Ge', tint: 'gemini' },
@@ -126,6 +127,8 @@ function detectTools(force = false): Promise<Detection> {
     if (prev) announceAgentChanges(prev, d);
     fixSelectedAgent(); // no agent step any more: the first agent found is the one Breeze starts with (Settings → Agents changes it)
     renderDetection();
+    // Settings opened before this scan finished shows the list saved from last time: redraw it with this one.
+    if (JSON.stringify(prev) !== JSON.stringify(d) && (settingsTab === 'agents' || settingsTab === 'help') && settingsRoot()) refreshSettings();
     if (moving) {
       // The card grows to the list rather than jumping to it (the step is centred, so a jump moved everything at once),
       // and the rows rise in, all within the step's own motion.
@@ -148,10 +151,7 @@ let lastAutoScan = 0;
 function autoRescan(): void {
   if (launching || detecting || (!appState.onboarded && !installStarted) || Date.now() - lastAutoScan < 30_000) return;
   lastAutoScan = Date.now();
-  const before = JSON.stringify(appState.detect);
-  detectTools(true).then(d => {
-    if (JSON.stringify(d) !== before && (settingsTab === 'agents' || settingsTab === 'help') && settingsRoot()) refreshSettings();
-  }, () => { /* the agent card shows the error */ });
+  detectTools(true).catch(() => { /* the agent card shows the error */ }); // redraws Settings itself when the list changes
 }
 window.addEventListener('focus', () => {
   if (Date.now() - installStarted < 10 * 60_000) lastAutoScan = 0;
@@ -491,6 +491,12 @@ function setEffort(eff: EffortLevel): void {
   store.set('breeze.effort', eff);
 }
 
+// Whether an agent has an effort to pick: API agents don't, except Gemini (main.ts effortBody); nor do DeepSeek CLI and
+// GitHub Copilot (it keeps its own, set with /model).
+function hasEffort(a: DetectedAgent): boolean {
+  return a.id === 'gemini' || (!a.api && a.id !== 'dsh' && a.id !== 'copilot');
+}
+
 // Each agent keeps its own effort; one never picked follows the global setting.
 function agentEffort(a: DetectedAgent): EffortLevel {
   const stored = store.get<string>(`breeze.effort.${a.id}`, '');
@@ -498,7 +504,7 @@ function agentEffort(a: DetectedAgent): EffortLevel {
 }
 
 async function applyModelAndEffort(a: DetectedAgent, model: string, effort: EffortLevel): Promise<void> {
-  if (!a.api) store.set(`breeze.effort.${a.id}`, effort);
+  if (hasEffort(a)) store.set(`breeze.effort.${a.id}`, effort);
   if (a.id === 'codex') {
     await api.agent.setModel('codex', model, effort.toLowerCase());
     a.version = model;
@@ -512,11 +518,11 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
     renderAgentBar();
     toast(`${a.name} model set to ${versionLabel(model)} (${effort} effort)`);
   } else if (a.api) {
-    await api.llm.setModel(a.id, model);
+    await api.llm.setModel(a.id, model, hasEffort(a) ? effort.toLowerCase() : undefined);
     a.version = model;
     saveApp();
     renderAgentBar();
-    toast(`${a.name} model set to ${model}`); // an API model has no effort setting
+    toast(`${a.name} model set to ${model}${hasEffort(a) ? ` (${effort} effort)` : ''}`);
   }
 }
 
@@ -631,7 +637,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
     }));
   };
   const models = [...agentModelRows(a, m => current() === m, m => apply(m, effortNow())), ...(others ? otherAgentRows(a, others) : [])];
-  const effort: MenuItem[] = a.api || a.id === 'dsh' ? [] : [...(others ? [{ sep: true }] : []), { slider: {
+  const effort: MenuItem[] = !hasEffort(a) ? [] : [...(others ? [{ sep: true }] : []), { slider: {
     label: `${agentShortName(a)} effort`,
     steps: EFFORTS,
     value: () => EFFORTS.indexOf(effortNow()),
@@ -658,7 +664,7 @@ function modelPickerItems(a: DetectedAgent, makeDefault = false, target?: ModelT
 
 /* ----- Agents: names, mentions and the default agent ----- */
 // Mention names must match src/main/mentions.js: the short name, the full name and the id, lowercased.
-const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter'], ['deepseek', 'DeepSeek API'], ['dsh', 'DeepSeek CLI']]);
+const AGENT_SHORT_NAMES = new Map([['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['opencode', 'OpenCode'], ['copilot', 'Copilot'], ['local', 'Local'], ['gemini', 'Gemini'], ['openrouter', 'OpenRouter'], ['deepseek', 'DeepSeek API'], ['dsh', 'DeepSeek CLI']]);
 function agentShortName(a: DetectedAgent): string {
   return AGENT_SHORT_NAMES.get(a.id) || a.name;
 }
@@ -829,8 +835,8 @@ const dayTotal = (d?: TokenDay) => (d ? d.input + d.output + d.cacheWrite + d.ca
 function dashAgents(): DetectedAgent[] {
   const all = appState.detect?.agents ?? [];
   const used = new Set(Object.keys(dashHistory?.agents ?? {}));
-  // Antigravity and OpenCode are left off this page, even as the default agent (as on Settings → Usage).
-  const list = all.filter(a => a.id !== 'antigravity' && a.id !== 'opencode' && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
+  // Agents that report no usage (Antigravity, OpenCode, Copilot) are left off this page, even as the default agent (as on Settings → Usage).
+  const list = all.filter(a => !['antigravity', 'opencode', 'copilot'].includes(a.id) && (a.found || used.has(a.id))).sort((a, b) => agentRank(a) - agentRank(b));
   const def = list.findIndex(a => a.id === appState.agent);
   if (def > 0) list.unshift(...list.splice(def, 1));
   return list;

@@ -148,6 +148,13 @@ export function keepsReasoning(provider: LlmProviderId): boolean {
   return provider === 'deepseek';
 }
 
+// Body fields for the effort picked (low, medium, high, xhigh or max). Gemini's OpenAI-style endpoint takes
+// reasoning_effort up to high, so Extra and Max run as high; the other providers have no effort setting.
+export function effortBody(provider: LlmProviderId, effort: string | null | undefined): Record<string, unknown> {
+  if (provider !== 'gemini' || !effort) return {};
+  return { reasoning_effort: effort === 'low' || effort === 'medium' ? effort : 'high' };
+}
+
 // Body fields that turn thinking off, for a short job such as a commit message.
 export function withoutThinkingBody(provider: LlmProviderId): Record<string, unknown> {
   return provider === 'deepseek' ? { thinking: { type: 'disabled' } } : {};

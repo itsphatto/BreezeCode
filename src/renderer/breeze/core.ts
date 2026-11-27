@@ -312,7 +312,7 @@ interface BreezeApi {
   live: { status(): Promise<LiveStatus>; start(): Promise<LiveStatus>; stop(): Promise<LiveStatus>; };
   // A local LLM server (Ollama, LM Studio or anything OpenAI-compatible).
   // An empty url makes the desktop app look for Ollama or LM Studio at their usual addresses.
-  llm: { connect(provider: string, url: string, key: string): Promise<{ url?: string; model: string; models: string[] }>; setModel(provider: string, model: string): Promise<void>; disconnect(provider: string): Promise<void>; };
+  llm: { connect(provider: string, url: string, key: string): Promise<{ url?: string; model: string; models: string[] }>; setModel(provider: string, model: string, effort?: string): Promise<void>; disconnect(provider: string): Promise<void>; };
   // The local agent's web search: whether a Brave Search key is saved; saving one checks it first, empty forgets it.
   web: { searchKey(): Promise<boolean>; setSearchKey(key: string | null): Promise<boolean>; };
   // Emmet abbreviation expansion; the snippet uses ${N} / ${N:placeholder} fields, or null when nothing expands.
@@ -619,7 +619,7 @@ const UI_FONTS: FontChoice[] = [
   ['google-sans', 'Google Sans', '"Google Sans", "Instrument Sans", "Segoe UI", sans-serif'],
   ['inter', 'Inter', 'Inter, "Instrument Sans", "Segoe UI", sans-serif'],
   ['system-ui', 'System default', 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'],
-  ['segoe-ui', 'Segoe UI', '"Segoe UI Variable Text", "Segoe UI", sans-serif'],
+  ['segoe-ui', 'Segoe UI Variable', '"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", sans-serif'],
   ['roboto', 'Roboto', 'Roboto, "Segoe UI", sans-serif'],
 ];
 const pickFont = (list: FontChoice[], id: unknown): FontChoice => list.find(f => f[0] === id) ?? list[0];
