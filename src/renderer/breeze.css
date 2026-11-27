@@ -22335,6 +22335,291 @@ body > .board-preview.full {
 }
 @media (prefers-reduced-motion: reduce) { .brain, .board-main > .board-grid, .board.brain-open .board-grid, .brain-panel, .brain-stage, .brain.panel-open .brain-panel { transition: none; } }
 
+/* ---------- Title-bar search (palette.ts): the project pill grows into a dropdown of files and commands ----------
+   One surface: the pill widens on the spring, its label gives way to the field, and the results unfold under it,
+   their height following what matches as you type. */
+.titlebar:has(.cmd-center.open) {
+  position: relative;
+  z-index: 60;
+}
+
+.cmd-center {
+  position: relative;
+  flex: 0 1 380px;
+  min-width: 160px;
+  height: 28px;
+  -webkit-app-region: no-drag;
+}
+
+.cmd-box {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 100%;
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: width .5s var(--spring), border-radius .45s var(--spring), background-color .25s ease,
+    border-color .25s ease, box-shadow .4s cubic-bezier(.2, .8, .2, 1);
+}
+
+.cmd-center:not(.open) .cmd-box:hover {
+  background: var(--bg-3);
+  border-color: var(--line-hi);
+}
+
+.cmd-center.open .cmd-box {
+  width: min(640px, calc(100vw - 40px));
+  border-radius: 12px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-line);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .45), 0 2px 10px rgba(0, 0, 0, .22);
+}
+
+.cmd-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 10px;
+  flex: none;
+  transition: height .45s var(--spring);
+}
+
+.cmd-center.open .cmd-head {
+  height: 40px;
+}
+
+.cmd-glass {
+  flex: none;
+  color: var(--text-3);
+  transition: color .2s ease, transform .45s var(--spring);
+}
+
+.cmd-center.open .cmd-glass {
+  color: var(--text-2);
+  transform: scale(1.1);
+}
+
+/* Closed: the project name, centred. It steps aside (up and out) as the field takes over, and comes back once the
+   pill has nearly shrunk home. */
+.cmd-label {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 22px; /* balances the glass on the left, so the name sits in the true centre */
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: opacity .22s ease .14s, transform .45s var(--spring) .08s;
+}
+
+.cmd-label .project {
+  padding: 0;
+}
+
+.cmd-label:focus-visible {
+  outline: none;
+}
+
+.cmd-center:has(.cmd-label:focus-visible) .cmd-box {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
+.cmd-center.open .cmd-label {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  transition-delay: 0s;
+}
+
+.cmd-in {
+  position: absolute;
+  inset: 0 56px 0 34px;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font: 400 14px/1 var(--font-ui);
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity .18s ease, transform .45s var(--spring);
+}
+
+.cmd-in::placeholder {
+  color: var(--text-3);
+}
+
+.cmd-center.open .cmd-in {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition-delay: .06s;
+}
+
+.cmd-box kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: rgba(var(--ink), .07);
+  border: 1px solid rgba(var(--ink), .1);
+  color: var(--text-2);
+  font: 500 11px/1 var(--font-ui);
+}
+
+.cmd-esc {
+  position: absolute;
+  right: 12px;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+
+.cmd-center.open .cmd-esc {
+  opacity: 1;
+  transition-delay: .12s;
+}
+
+/* The results: height set from palette.ts (fitCmdBody), 0 while closed. */
+.cmd-body {
+  height: 0;
+  overflow: hidden;
+  transition: height .45s var(--spring);
+}
+
+.cmd-inner {
+  border-top: 1px solid var(--glass-line);
+  padding: 4px 6px 0;
+}
+
+.cmd-list {
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 4px;
+}
+
+.cmd-sec {
+  padding: 10px 10px 4px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.cmd-row {
+  min-height: 32px;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* Hover moves the selection itself (palette.ts), so there is only ever one lit row. */
+.cmd-row:hover:not(.on) {
+  background: none;
+  color: var(--text-2);
+}
+
+.cmd-ico {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  flex: none;
+}
+
+.cmd-chev {
+  color: var(--text-3);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.cmd-row.on .cmd-chev {
+  color: inherit;
+}
+
+.cmd-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmd-row small,
+.cmd-row kbd {
+  margin-left: auto;
+  flex: none;
+}
+
+.cmd-row small {
+  max-width: 45%;
+  flex: 0 1 auto;
+  direction: rtl; /* a long folder keeps its nearest parts and trims from the left */
+  text-align: right;
+}
+
+.cmd-empty {
+  padding: 14px 10px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.cmd-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--glass-line);
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.cmd-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmd-box,
+  .cmd-head,
+  .cmd-body,
+  .cmd-glass,
+  .cmd-label,
+  .cmd-in {
+    transition-property: opacity, background-color, border-color, box-shadow;
+    transition-duration: .15s;
+    transition-delay: 0s;
+  }
+  .cmd-label,
+  .cmd-in,
+  .cmd-center.open .cmd-label {
+    transform: none;
+  }
+}
+
 /* ================= Power saver =================
    <html data-power="saver"> (power.ts): on battery, on low-end hardware, or as Settings → General → Performance says.
    Everything here is scoped to that attribute, so a plugged-in machine draws exactly as before.
@@ -22369,4 +22654,8 @@ body > .board-preview.full {
   .work, .term-body, .box, .box-live, .box > .terminal, .skill-group-body, .plugin-skills, .editor-blur-out, .set-pane .social-grid, .composer-attachments.collapsing) {
   transition-duration: 1ms !important;
   transition-delay: 0s !important;
+}
+
+:root[data-power="saver"] :is(.cmd-box, .cmd-head, .cmd-body) {
+  transition-duration: 1ms !important;
 }

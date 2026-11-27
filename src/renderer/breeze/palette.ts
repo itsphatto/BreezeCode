@@ -29,7 +29,7 @@ function paletteLabelHtml(label: string, hits: number[]): string {
   }
   return open ? html + '</mark>' : html;
 }
-function openPalette(query = ''): void {
+function openPaletteModal(query = ''): void {
   const entries = paletteEntries();
   const recent = store.get<string[]>(PALETTE_RECENT_KEY, []);
   let sel = 0;
@@ -69,4 +69,186 @@ function openPalette(query = ''): void {
     };
     render();
   }, undefined, 'top');
+}
+
+/* ================= Search field in the title bar (F1, Ctrl+P, Ctrl+Shift+P) =================
+   The project-name pill in the middle of the title bar is the search field. Opening it widens the pill and unfolds
+   the results under it as one surface, so nothing pops up over the window. Files by default; a leading ">" searches
+   commands. When the title bar isn't showing (the debug page, the board), the old dialogs open instead. */
+type CmdRow =
+  | { kind: 'file'; path: string; hits: number[] }
+  | { kind: 'cmd'; label: string; key: string; item: MenuItem; hits: number[] };
+const CMD_FILES_MAX = 8, CMD_CMDS_MAX = 5;
+let cmdOpen = false, cmdSel = 0, cmdRows: CmdRow[] = [];
+let cmdFiles: string[] | null = null;
+let cmdReturnFocus: HTMLElement | null = null;
+let cmdEntries: ReturnType<typeof paletteEntries> = [];
+
+function openPalette(query = ''): void { openCmdCenter('>' + query); }
+function quickOpen(): void { openCmdCenter(''); }
+
+function openCmdCenter(query = ''): void {
+  const center = document.getElementById('cmdCenter');
+  if (!center?.checkVisibility()) { if (query.startsWith('>')) openPaletteModal(query.slice(1)); else quickOpenModal(); return; }
+  const input = $<HTMLInputElement>('#cmdIn');
+  if (modalOpen()) closeModal();
+  closeMenu();
+  if (!cmdOpen) {
+    const active = document.activeElement;
+    cmdReturnFocus = active instanceof HTMLElement && active !== document.body ? active : null;
+    cmdOpen = true;
+    cmdEntries = paletteEntries();
+    cmdFiles = null;
+    center.classList.add('open');
+    input.tabIndex = 0;
+    input.setAttribute('aria-expanded', 'true');
+    input.placeholder = rootInfo ? `Search ${rootInfo.name}  ·  type > for commands` : 'Search commands';
+    if (rootInfo) {
+      api.fs.listFiles().then(list => { if (cmdOpen) { cmdFiles = list; renderCmd(); } }, () => { cmdFiles = []; if (cmdOpen) renderCmd(); });
+    }
+  }
+  input.value = query;
+  input.focus();
+  input.setSelectionRange(query.length, query.length);
+  cmdSel = 0;
+  renderCmd(true);
+}
+
+function closeCmdCenter(refocus = true): void {
+  if (!cmdOpen) return;
+  cmdOpen = false;
+  const input = $<HTMLInputElement>('#cmdIn');
+  $('#cmdCenter').classList.remove('open');
+  input.tabIndex = -1;
+  input.setAttribute('aria-expanded', 'false');
+  input.removeAttribute('aria-activedescendant');
+  $('#cmdBody').style.height = '0px';
+  input.blur();
+  if (refocus && cmdReturnFocus?.isConnected) cmdReturnFocus.focus();
+  cmdReturnFocus = null;
+}
+
+function cmdRowHtml(r: CmdRow, i: number): string {
+  const on = i === cmdSel ? 'on' : '';
+  const open = `<div class="qo-item cmd-row ${on}" id="cmdRow${i}" role="option" aria-selected="${!!on}" data-i="${i}">`;
+  if (r.kind === 'file') {
+    const dir = dirName(r.path);
+    return open + `<span class="cmd-ico">${fileIcon(r.path)}</span><span class="cmd-main">${paletteLabelHtml(baseName(r.path), r.hits)}</span>`
+      + `${dir ? `<small><bdo dir="ltr">${esc(dir)}</bdo></small>` : ''}</div>`;
+  }
+  const tick = r.item.checked?.() ? '✓&nbsp; ' : '';
+  return open + `<span class="cmd-ico cmd-chev" aria-hidden="true">›</span><span class="cmd-main">${tick}${paletteLabelHtml(r.label, r.hits)}</span>`
+    + `${r.key ? `<kbd>${esc(r.key)}</kbd>` : ''}</div>`;
+}
+
+function renderCmd(fresh = false): void {
+  if (!cmdOpen) return;
+  const raw = $<HTMLInputElement>('#cmdIn').value;
+  const cmdMode = raw.startsWith('>') || !rootInfo;
+  const q = (raw.startsWith('>') ? raw.slice(1) : raw).trim();
+  const recent = store.get<string[]>(PALETTE_RECENT_KEY, []);
+  const toRow = (e: (typeof cmdEntries)[number], hits: number[]): CmdRow => ({ kind: 'cmd', label: e.label, key: e.key, item: e.item, hits });
+
+  // Commands: fuzzy-matched, or most recent first while the query is empty (only the recent ones beside files).
+  let cmds: CmdRow[];
+  if (q) {
+    cmds = cmdEntries.flatMap(e => { const f = fuzzyScore(e.label, q); return f ? [{ e, f }] : []; })
+      .sort((a, b) => b.f.score - a.f.score || a.e.label.localeCompare(b.e.label))
+      .map(({ e, f }) => toRow(e, f.hits));
+  } else {
+    const rank = (a: string | undefined) => { const r = recent.indexOf(a ?? ''); return r < 0 ? recent.length : r; };
+    const sorted = [...cmdEntries].sort((a, b) => rank(a.item.act) - rank(b.item.act) || a.label.localeCompare(b.label));
+    cmds = (cmdMode ? sorted : sorted.filter(e => recent.includes(e.item.act ?? ''))).map(e => toRow(e, []));
+  }
+
+  // Files: the same ranking as Go to File, with the matched letters of the name lit.
+  let files: CmdRow[] = [];
+  if (!cmdMode && cmdFiles) {
+    const lq = q.toLowerCase();
+    files = cmdFiles.map(p => [p, fileScore(p, lq)] as [string, number]).filter(x => x[1] > 0)
+      .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length).slice(0, CMD_FILES_MAX)
+      .map(([p]) => ({ kind: 'file' as const, path: p, hits: q ? fuzzyScore(baseName(p), q)?.hits ?? [] : [] }));
+  }
+
+  const sections: string[] = [];
+  cmdRows = [];
+  const add = (title: string, rows: CmdRow[]) => {
+    if (!rows.length) return;
+    const start = cmdRows.length;
+    cmdRows.push(...rows);
+    sections.push(`<div class="cmd-sec" role="presentation">${title}</div>` + rows.map((r, j) => cmdRowHtml(r, start + j)).join(''));
+  };
+  if (cmdMode) add('Commands', cmds.slice(0, 80));
+  else { add('Files', files); add(q ? 'Commands' : 'Recent commands', cmds.slice(0, CMD_CMDS_MAX)); }
+  cmdSel = clamp(cmdSel, 0, Math.max(0, cmdRows.length - 1));
+
+  const list = $('#cmdList');
+  let empty = '';
+  if (!cmdRows.length) {
+    empty = !cmdMode && !cmdFiles ? '<div class="cmd-empty shimmer-text">Loading files</div>'
+      : `<div class="cmd-empty">No ${cmdMode ? 'commands' : 'files or commands'} match “${esc(q)}”.</div>`;
+  }
+  list.innerHTML = sections.join('') || empty;
+  // Rows are drawn selected-or-not after the fact, so re-render marks the right one.
+  $$<HTMLElement>('[data-i]', list).forEach(el => {
+    el.onmousedown = e => e.preventDefault(); // keep the caret in the field
+    el.onclick = () => runCmdRow(Number(el.dataset.i));
+    el.onmousemove = () => { const i = Number(el.dataset.i); if (i !== cmdSel) { cmdSel = i; markCmdSel(); } };
+  });
+  const keys = `<span class="cmd-keys"><kbd>↑</kbd><kbd>↓</kbd> move <kbd>↵</kbd> ${cmdMode ? 'run' : 'open'}</span>`;
+  $('#cmdFoot').innerHTML = (!rootInfo ? '<span>Open a folder to search its files</span>'
+    : cmdMode ? '<span>Delete the <kbd>&gt;</kbd> to search files</span>' : '<span>Type <kbd>&gt;</kbd> for commands</span>') + keys;
+  markCmdSel();
+  if (fresh) staggerIn($$('.cmd-sec, .cmd-row', list));
+  fitCmdBody();
+}
+
+// The open panel's height follows its content, so the list grows and shrinks on the spring as you type.
+function fitCmdBody(): void {
+  const body = $('#cmdBody'), inner = $('.cmd-inner', body);
+  body.style.height = `${Math.min(inner.scrollHeight, Math.round(window.innerHeight * 0.6))}px`;
+}
+
+function markCmdSel(): void {
+  const input = $<HTMLInputElement>('#cmdIn');
+  $$<HTMLElement>('.cmd-row', $('#cmdList')).forEach(el => {
+    const on = Number(el.dataset.i) === cmdSel;
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-selected', String(on));
+  });
+  if (cmdRows.length) input.setAttribute('aria-activedescendant', `cmdRow${cmdSel}`);
+  else input.removeAttribute('aria-activedescendant');
+}
+
+function runCmdRow(i: number): void {
+  const r = cmdRows[i];
+  if (!r) return;
+  closeCmdCenter(false);
+  if (r.kind === 'file') { openFile(r.path); return; }
+  const act = r.item.act;
+  if (!act) return;
+  store.set(PALETTE_RECENT_KEY, [act, ...store.get<string[]>(PALETTE_RECENT_KEY, []).filter(a => a !== act)].slice(0, PALETTE_RECENT_MAX));
+  // A command the debug page doesn't answer would act on the hidden editor: go back to it first, so it shows.
+  if (debugPageShowing() && !DEBUG_PAGE_ACTS.has(act)) leaveDebugView();
+  activateMenuItem(r.item);
+}
+
+{
+  const center = $('#cmdCenter'), input = $<HTMLInputElement>('#cmdIn');
+  $('#cmdLabel').onclick = () => openCmdCenter('');
+  input.oninput = () => { cmdSel = 0; renderCmd(); };
+  input.onkeydown = e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!cmdRows.length) return;
+      cmdSel = (cmdSel + (e.key === 'ArrowDown' ? 1 : -1) + cmdRows.length) % cmdRows.length;
+      markCmdSel();
+      document.getElementById(`cmdRow${cmdSel}`)?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') { e.preventDefault(); runCmdRow(cmdSel); }
+    else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); closeCmdCenter(); }
+  };
+  // A click anywhere else folds it back up.
+  document.addEventListener('mousedown', e => { if (cmdOpen && !center.contains(e.target as Node)) closeCmdCenter(false); }, true);
+  window.addEventListener('blur', () => closeCmdCenter(false));
+  window.addEventListener('resize', () => { if (cmdOpen) fitCmdBody(); });
 }
