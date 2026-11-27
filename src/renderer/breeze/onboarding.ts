@@ -736,7 +736,7 @@ function morphContribYear(change: () => void): void {
   const from = document.querySelector('.contrib-year-pill')?.getBoundingClientRect();
   const total = document.querySelector('#homeContribTitle .cg-total')?.textContent;
   root.classList.add('contrib-morph');
-  const t = document.startViewTransition(change);
+  const t = startMorph(change);
   const done = () => root.classList.remove('contrib-morph');
   t.finished.then(done, done);
   t.updateCallbackDone.then(() => {

@@ -138,7 +138,11 @@ test('the board lays its boxes out for how many there are, and morphs between la
   const html = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze.html'), 'utf8');
   assert.ok(html.indexOf('breeze/boardlayout.js') > 0 && html.indexOf('breeze/boardlayout.js') < html.indexOf('breeze/board.js'));
   assert.match(board, /const lay = boardLayout\(els\.length, boardGrid\.clientWidth\)/);
-  assert.match(board, /document\.startViewTransition\(\(\) => \{ change\(\); name\(\); \}\)/);
+  assert.match(board, /startMorph\(\(\) => \{ change\(\); name\(\); \}\)/);
+  // startMorph (core.ts) is document.startViewTransition with `ready` handled, so a skipped morph isn't an unhandled error.
+  const core = fs.readFileSync(path.join(__dirname, '../src/renderer/breeze/core.ts'), 'utf8');
+  assert.match(core, /function startMorph\(update: [^\n]*\): ViewTransition \{\s*const t = document\.startViewTransition\(update[^\n]*;\s*t\.ready\.catch\(/);
+  assert.ok(html.indexOf('breeze/core.js') < html.indexOf('breeze/board.js'));
   for (const fn of ['function dropAgent', 'async function emptyBox', 'function toggleMaxBox']) {
     const body = board.slice(board.indexOf(fn), board.indexOf('\n}', board.indexOf(fn)));
     assert.match(body, /morphBoard\(/, fn);

@@ -1500,13 +1500,13 @@ function swapScreen(to: string): void {
   // The new page is laid out unseen first (screen-prep) for the caller to fill in, and swapped in once the old look is
   // captured. Each page names its bars only while it is the one showing, or the names would clash.
   const root = document.documentElement;
-  if (debugSwap && prev && document.startViewTransition && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (debugSwap && prev && 'startViewTransition' in document && !motionOff() && !matchMedia('(prefers-reduced-motion: reduce)').matches
     && ![...root.classList].some(c => c.endsWith('-morph') || c === 'scm-fade')) {
     next.classList.add('screen-prep');
     prev.classList.add('page-vt');
     root.classList.add('page-morph');
     const done = () => { root.classList.remove('page-morph'); for (const el of screens) el.classList.remove('page-vt'); };
-    document.startViewTransition(() => {
+    startMorph(() => {
       if (seq !== swapSeq) return; // switched again before it played
       prev.classList.remove('page-vt', 'screen-out', 'screen-soft');
       prev.classList.add('hidden');

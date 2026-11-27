@@ -200,7 +200,7 @@ function setTheme(t: Theme): void {
   // (easing every element's colours made big files lag behind the click).
   // A preset has a light and a dark version; a picture's text contrast starts over from the new theme's colours.
   const apply = () => { document.documentElement.dataset.theme = t; applySyntax(); void tunePicture(); };
-  if (document.startViewTransition) document.startViewTransition(apply);
+  if ('startViewTransition' in document) startMorph(apply);
   else apply();
   background(api.win.theme(t));
 }

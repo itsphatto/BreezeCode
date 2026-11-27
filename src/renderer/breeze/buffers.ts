@@ -28,7 +28,7 @@ async function morphFolder(swap: () => Promise<void>): Promise<void> {
   const root = document.documentElement;
   root.classList.add('folder-morph');
   nameTreeRows();
-  const morph = document.startViewTransition(async () => {
+  const morph = startMorph(async () => {
     // The window can't paint until the new folder has loaded, so a slow one drops the morph rather than looking stuck.
     const slow = setTimeout(() => morph.skipTransition(), 600);
     try { await swap(); } finally { clearTimeout(slow); }

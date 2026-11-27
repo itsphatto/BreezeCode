@@ -90,16 +90,25 @@ function fileUrl(absPath: string): string { return pathToFileURL(absPath).href; 
 
 // The `urlRegex` for Debugger.setBreakpointByUrl. V8 compiles it case-sensitively, and Windows paths are
 // case-insensitive (a lower-case drive letter is common), so every letter becomes a [xX] class. Matches the URL
-// Node reports for the script (file:///C:/… with %20 for spaces), the same with a literal space, and the raw path.
+// Node reports for the script (file:///C:/… with %20 for spaces) and the raw path. In the URL each character may come
+// as itself or percent-encoded, independently: pathToFileURL writes `~` as %7E, but V8 reports a script loaded from an
+// 8.3 short path (C:\Users\DELLNB~1\…) with the `~` as is and the spaces as %20.
 function urlRegexFor(absPath: string): string {
   const href = fileUrl(absPath);
   let decoded = href;
   try { decoded = 'file:///' + decodeURIComponent(href.slice('file:///'.length)); } catch { /* keep the encoded form */ }
-  const fold = (s: string) => Array.from(s, c => {
+  const one = (c: string) => {
     if (c.toLowerCase() !== c.toUpperCase()) return `[${c.toLowerCase()}${c.toUpperCase()}]`;
     return /[.*+?^${}()|[\]\\/-]/.test(c) ? `\\${c}` : c;
-  }).join('');
-  return `^(?:${[...new Set([href, decoded, absPath])].map(fold).join('|')})$`;
+  };
+  const fold = (s: string) => Array.from(s, one).join('');
+  // A character, or its %XX form (hex digits in either case). `/` and `:` separate the URL's parts: never encoded.
+  const either = (c: string) => {
+    const enc = /^[A-Za-z0-9/:]$/.test(c) ? c : Array.from(Buffer.from(c, 'utf8'), b => '%' + b.toString(16).toUpperCase().padStart(2, '0')).join('');
+    return enc === c ? one(c) : `(?:${one(c)}|${enc.replace(/%([0-9A-F])([0-9A-F])/g, (_m, a: string, b: string) => `%${one(a)}${one(b)}`)})`;
+  };
+  const url = 'file:///' + Array.from(decoded.slice('file:///'.length), either).join('');
+  return `^(?:${fold('file:///')}${url.slice('file:///'.length)}|${fold(absPath)})$`;
 }
 
 const HIT_RE = /^\s*(>=|<=|==|=|>|<|%)?\s*(\d+)\s*$/;

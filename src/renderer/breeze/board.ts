@@ -418,7 +418,7 @@ function morphBoard(change: () => void): void {
     root.classList.remove('board-morph');
     for (const el of Array.from(boardGrid.children) as HTMLElement[]) el.style.viewTransitionName = '';
   };
-  document.startViewTransition(() => { change(); name(); }).finished.then(done, done);
+  startMorph(() => { change(); name(); }).finished.then(done, done);
 }
 
 // New chat and a chat picked in the side bar each take the whole board: the boxes there

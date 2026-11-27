@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { ChildProcess } from 'node:child_process';
 
-export interface Tool { path: string; name: string; version: string }
+export interface Tool { path: string; name: string; version: string; env?: Record<string, string> } // env: what its runs need set (see gccEnv)
 const TOOL_KEYS = ['cc', 'cxx', 'gdb', 'python', 'dotnet', 'java', 'rustc', 'cargo', 'node', 'lua', 'php', 'sqlite', 'go', 'ruby', 'kotlinc', 'swiftc', 'dart', 'zig', 'scala', 'elixir', 'runghc', 'rscript', 'perl', 'groovy', 'mvn', 'bash', 'zsh', 'pwsh'] as const;
 export type ToolKey = typeof TOOL_KEYS[number];
 export type Tools = Record<ToolKey, Tool | null> & { binDirs: string[]; dlv?: Tool | null }; // dlv: Delve, Go's debugger
@@ -102,6 +102,20 @@ const COMPILERS = (platform: string): string[][] => [
   ...(platform === 'win32' ? [] : [['cc', 'c++']]),
 ];
 
+// WinLibs GCC 16's collect2 hands ld its own install paths (crt2.o, the lib folders) unquoted, so a gcc installed under
+// a folder with a space, as winget does for a user named "Dell NB", fails every link with "C:/Users/Dell: file not
+// recognized". GCC_EXEC_PREFIX set to the 8.3 short name of <root>\lib\gcc makes it derive those paths without spaces.
+// Returns null when there's no short name to use (8.3 names can be turned off per drive).
+async function gccEnv(root: string, { exists, run, P }: { exists: (p: string) => boolean; run: RunFn; P: typeof path.win32 }): Promise<Record<string, string> | null> {
+  const lib = P.join(root, 'lib', 'gcc');
+  if (!exists(lib)) return null;
+  const r = await run('powershell.exe', ['-NoProfile', '-Command',
+    `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${lib.replaceAll("'", "''")}').ShortPath`]).catch(() => null);
+  const short = r && r.code === 0 ? String(r.stdout || '').trim() : '';
+  if (!short || /\s/.test(short)) return null;
+  return { GCC_EXEC_PREFIX: short.replaceAll('\\', '/') + '/' };
+}
+
 async function findTools(o: FindOptions): Promise<Tools> {
   const { platform, pathValue, env, exists, glob, run } = o;
   const win = platform === 'win32';
@@ -135,9 +149,11 @@ async function findTools(o: FindOptions): Promise<Tools> {
   for (const [c, cpp] of COMPILERS(platform)) {
     const f = await probe(dirs, c);
     if (!f) continue;
-    cc = tool(f);
     ccDir = f.dir;
     cxx = tool(await probe([f.dir], cpp));
+    const env = win && c === 'gcc' && /\s/.test(f.dir) ? await gccEnv(P.dirname(f.dir), { exists, run, P }) : null;
+    cc = { ...tool(f)!, ...(env ? { env } : {}) };
+    if (env && cxx) cxx.env = env;
     break;
   }
   // GDB debugs C, C++ and Rust (debugGdb.js); MinGW-w64 builds put it beside gcc.
@@ -672,6 +688,7 @@ function runPlan(absFile: string, tools: Tools, platform: string, stdioHeader: s
         file: compiler.path,
         args: [absFile, '-o', out, ...flags, '-include', stdioHeader],
         cwd,
+        ...(compiler.env ? { env: compiler.env } : {}),
       },
       runOut,
     ],
@@ -692,18 +709,21 @@ function debugPlan(absFile: string, tools: Tools, platform: string, { stdioHeade
     // Rust can't take a header: the wait is a small C object linked into the program, which needs GCC.
     if (!tools.cc) return { error: 'Debugging Rust needs GCC and GDB (MinGW-w64, from MSYS2 or WinLibs) next to Rust' };
     const waitObj = P.join(opts.cargoToml ? P.dirname(opts.cargoToml) : cwd, opts.cargoToml ? 'target' : 'build', 'breeze_debug.o');
-    const wait = { display: `${tools.cc.name} -c breeze_debug.h`, file: tools.cc.path, args: ['-c', '-x', 'c', debugHeader, '-o', waitObj], cwd };
+    const wait = { display: `${tools.cc.name} -c breeze_debug.h`, file: tools.cc.path, args: ['-c', '-x', 'c', debugHeader, '-o', waitObj], cwd, ...(tools.cc.env ? { env: tools.cc.env } : {}) };
     // kernel32 again after the object: the linker reads libraries once, in order, and rustc lists them before it.
     const link = ['-C', `link-arg=${waitObj}`, '-C', 'link-arg=-lkernel32'];
+    // GDB can't read the PDB debug info the default MSVC Rust writes (no breakpoint would ever bind), and the wait
+    // object is a GCC one, so on Windows the debug build is for the GNU ABI, linked by gcc (hence the gcc env).
+    const target = platform === 'win32' ? ['--target', 'x86_64-pc-windows-gnu'] : [];
     if (opts.cargoToml) {
       if (!tools.cargo) return { error: missing('rs', platform) };
       const dir = P.dirname(opts.cargoToml);
       // The encoded form keeps a path with spaces whole (RUSTFLAGS splits on them).
-      const env = { CARGO_ENCODED_RUSTFLAGS: link.join('\x1f') };
+      const env = { ...tools.cc.env, CARGO_ENCODED_RUSTFLAGS: link.join('\x1f') };
       return {
         steps: [
           { ...wait, mkdir: P.dirname(waitObj) },
-          { display: 'cargo build', file: tools.cargo.path, args: ['build', '--message-format=json-render-diagnostics'], cwd: dir, env, cargo: true },
+          { display: 'cargo build', file: tools.cargo.path, args: ['build', '--message-format=json-render-diagnostics', ...target], cwd: dir, env, cargo: true },
         ],
         exe: null, entry: null, cpp: false,
       };
@@ -714,7 +734,7 @@ function debugPlan(absFile: string, tools: Tools, platform: string, { stdioHeade
     return {
       steps: [
         { ...wait, mkdir: P.dirname(waitObj) },
-        { display: `rustc "${base}" -o "${P.join('build', P.basename(exe))}" -g`, file: tools.rustc.path, args: [absFile, '-o', exe, ...flags], cwd },
+        { display: `rustc "${base}" -o "${P.join('build', P.basename(exe))}" -g`, file: tools.rustc.path, args: [absFile, '-o', exe, ...flags, ...target], cwd, ...(tools.cc.env ? { env: tools.cc.env } : {}) },
       ],
       exe, entry: `${crate}::main`, cpp: false,
     };
@@ -729,6 +749,7 @@ function debugPlan(absFile: string, tools: Tools, platform: string, { stdioHeade
     steps: [{
       display: `${compiler.name} "${base}" -o "${P.join('build', P.basename(exe))}" ${flags.join(' ')}`,
       file: compiler.path, args: [absFile, '-o', exe, ...flags, '-include', stdioHeader, '-include', debugHeader], cwd, mkdir: P.dirname(exe),
+      ...(compiler.env ? { env: compiler.env } : {}),
     }],
     exe, entry: 'main', cpp,
   };
@@ -806,4 +827,4 @@ function ensureBuildIgnored(rootDir: string): void {
   fs.appendFileSync(file, (text === '' || text.endsWith('\n') ? '' : '\n') + 'build/\n');
 }
 
-export { LANG_KINDS, nodeSupportsTs, jsxBuild, JSX_PKG_SCRIPT, JSX_HOOK, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };
+export { LANG_KINDS, nodeSupportsTs, jsxBuild, JSX_PKG_SCRIPT, JSX_HOOK, findTools, gccEnv, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked };

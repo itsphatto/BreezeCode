@@ -312,7 +312,7 @@ function morphTerminal(change: () => void): void {
   const root = document.documentElement;
   root.classList.add('term-morph');
   const done = () => root.classList.remove('term-morph');
-  document.startViewTransition(() => { change(); applyLayout(); }).finished.then(done, done);
+  startMorph(() => { change(); applyLayout(); }).finished.then(done, done);
 }
 function dockTerminalBack(): void {
   const w = termPopup;

@@ -75,7 +75,7 @@ function scmFade(change: () => void): void {
   if (!document.startViewTransition || root.classList.contains('term-morph')) { change(); return; }
   root.classList.add('scm-fade');
   const done = () => root.classList.remove('scm-fade');
-  document.startViewTransition(change).finished.then(done, done);
+  startMorph(change).finished.then(done, done);
 }
 
 /* ----- Pull requests: the list in the left column ----- */

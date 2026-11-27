@@ -27,6 +27,27 @@ const gdbPath = (p: unknown) => String(p).replace(/\\/g, '/');
 // GDB counts a hit condition as "stop from this hit on", the same as Breeze's bare number.
 const gdbHit = (text: unknown): string | null => (/^\s*(\d+)\s*$/.exec((text as string) || '') || [])[1] ?? null;
 
+// The environment GDB itself runs in. GDB's DAP mode is written in Python, and the WinLibs build embeds a Python whose
+// library sits in <root>\lib\python3.x but which doesn't find it on its own ("Could not find platform independent
+// libraries", then "No module named '_struct'"), so `gdb -i=dap` quits at once. A PYTHONHOME set for some other
+// Python breaks it the same way. So when GDB ships its own Python library, PYTHONHOME points there.
+interface GdbEnvIo { exists: (p: string) => boolean; readdir: (d: string) => string[] }
+const realIo: GdbEnvIo = { exists: fs.existsSync, readdir: (d) => { try { return fs.readdirSync(d); } catch { return []; } } };
+function gdbEnv(gdb: string, env: NodeJS.ProcessEnv, platform: string = process.platform, io: GdbEnvIo = realIo): NodeJS.ProcessEnv {
+  if (platform !== 'win32') return env;
+  const P = path.win32;
+  const root = P.dirname(P.dirname(gdb));
+  const lib = P.join(root, 'lib');
+  const own = io.readdir(lib).some((n) => /^python3\.\d+$/i.test(n) && io.exists(P.join(lib, n, 'os.py')));
+  return own ? { ...env, PYTHONHOME: root } : env;
+}
+
+// A Rust debug build is for the GNU target (see toolchains.debugPlan); rustup installs only the MSVC one by default.
+const rustTargetHint = (text: string): string | null => {
+  const t = /the `(\S+-windows-gnu)` target may not be installed/.exec(text)?.[1];
+  return t ? `Debugging Rust needs its GNU target, which GDB can read. Add it with: rustup target add ${t}` : null;
+};
+
 class GdbBackend implements Backend {
   host: Host;
   gdb: string;
@@ -83,7 +104,7 @@ class GdbBackend implements Backend {
         }
         const text = [out, err].filter(Boolean).join('');
         if (text) this.host.output('stderr', text);
-        if (e) reject(Object.assign(new Error(e.code === 'ENOENT' ? `${step.file} wasn't found` : 'The build failed: the Output shows why'), { hint: 'build-failed' }));
+        if (e) reject(Object.assign(new Error(e.code === 'ENOENT' ? `${step.file} wasn't found` : rustTargetHint(text) ?? 'The build failed: the Output shows why'), { hint: 'build-failed' }));
         else resolve();
       }));
     }
@@ -98,7 +119,7 @@ class GdbBackend implements Backend {
     const { host } = this;
     const pid = host.pid();
     if (!pid) throw new Error("The program didn't start");
-    const proc = this.proc = spawn(this.gdb, ['-q', '-iex', 'set pagination off', '-i=dap'], { cwd: host.root, env: this.env(), windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+    const proc = this.proc = spawn(this.gdb, ['-q', '-iex', 'set pagination off', '-i=dap'], { cwd: host.root, env: gdbEnv(this.gdb, this.env()), windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
     proc.on('error', () => { /* the client closes with its streams */ });
     const c = this.client = new DapClient(Duplex.from({ readable: proc.stdout!, writable: proc.stdin! }));
     c.on('warn', (e: unknown) => host.warn(e));
@@ -113,8 +134,11 @@ class GdbBackend implements Backend {
       clientID: 'breeze', clientName: 'Breeze Code', adapterID: 'gdb', locale: 'en',
       pathFormat: 'path', linesStartAt1: true, columnsStartAt1: true, supportsVariableType: true, supportsRunInTerminalRequest: false,
     });
-    await req('attach', { pid, program: gdbPath(this.cmd) });
-    const thread = await host.within(attachStop, CONNECT_MS, 'attach');
+    // GDB 15 and newer answer 'attach' (and stop on attaching) only after 'configurationDone', as DAP allows, so the
+    // breakpoints go in while the attach is pending; GDB 14 answers at once. GDB takes requests in order, so the
+    // program is loaded before the breakpoints are set either way. The program itself still waits in breeze_debug.h.
+    const attached = req('attach', { pid, program: gdbPath(this.cmd) });
+    attached.catch(() => { /* awaited below */ });
     for (const [file, bps] of host.bps()) await this.setBreakpoints(file, bps);
     if (host.stopOnEntry && this.build.entry) {
       const { breakpoints = [] }: { breakpoints?: DapBreakpoint[] } = await req('setFunctionBreakpoints', { breakpoints: [{ name: this.build.entry }] });
@@ -122,6 +146,8 @@ class GdbBackend implements Backend {
     }
     await this.setExceptions(host.exceptions());
     await req('configurationDone');
+    await attached;
+    const thread = await host.within(attachStop, CONNECT_MS, 'attach');
     fs.writeFileSync(this.goFile, ''); // the program may go on past its wait now
     await req('continue', { threadId: thread });
     // GDB answers 'threads' only while stopped, and Pause interrupts the whole program whichever thread it names.
@@ -304,4 +330,4 @@ class GdbBackend implements Backend {
   }
 }
 
-export { GdbBackend, gdbPath, gdbHit };
+export { GdbBackend, gdbPath, gdbHit, gdbEnv, rustTargetHint };

@@ -40,6 +40,18 @@ onWin('urlRegexFor matches the URL Node reports, case-insensitively, as V8 compi
   assert.ok(!re.test('file:///C:/Users/me/Breeze%20Code/b.js'));
 });
 
+// pathToFileURL writes `~` as %7E, but V8 reports a script loaded from an 8.3 short path (C:\Users\DELLNB~1\…, how TEMP
+// is often set) with the `~` as is and the spaces as %20: each character may come either way.
+onWin('urlRegexFor matches a URL that encodes some characters and not others', () => {
+  const p = 'C:\\Users\\DELLNB~1\\Temp\\breeze jsx\\main.js';
+  const re = new RegExp(urlRegexFor(p));
+  assert.ok(re.test('file:///C:/Users/DELLNB~1/Temp/breeze%20jsx/main.js'));
+  assert.ok(re.test(pathToFileURL(p).href));
+  assert.ok(re.test('file:///C:/Users/DELLNB%7e1/Temp/breeze jsx/main.js'));
+  assert.ok(!re.test('file:///C:/Users/DELLNB~1/Temp/breeze%21jsx/main.js'));
+  assert.ok(!re.test('file:///C:/Users/DELLNB~1/Temp/breezeXjsx/main.js'));
+});
+
 onWin('urlRegexFor escapes regex metacharacters in the path', () => {
   const p = 'C:\\proj\\a+b (copy)\\x.test.js';
   const re = new RegExp(urlRegexFor(p));

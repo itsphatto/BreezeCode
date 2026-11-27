@@ -806,3 +806,47 @@ test('runSteps runs a real .sh, .ps1 and .bat plan, streams the output and repor
     assert.equal(code, 5);
   }
 });
+
+// WinLibs GCC 16's collect2 passes its own install paths to ld unquoted, so a gcc under a folder with a space
+// ("C:\Users\Dell NB\...") can't link anything. Pointing GCC_EXEC_PREFIX at the 8.3 short path of lib\gcc fixes it.
+const shortPathRun = (m, answer) => {
+  const run = m.run;
+  m.run = async (file, args) => file === 'powershell.exe' && args.join(' ').includes('ShortPath')
+    ? (m.calls.push([file, ...args]), { code: 0, stdout: answer })
+    : run(file, args);
+  return m;
+};
+
+test('findTools gives gcc in a folder with a space a short GCC_EXEC_PREFIX', async () => {
+  const d = 'C:\\Users\\Dell NB\\mingw64\\bin';
+  const m = shortPathRun(machine('win32', { [d + '\\gcc.exe']: 'gcc 16', [d + '\\g++.exe']: 'g++ 16', 'C:\\Users\\Dell NB\\mingw64\\lib\\gcc': '' }),
+    'C:\\Users\\DELLNB~1\\mingw64\\lib\\gcc\r\n');
+  m.pathValue = d;
+  const r = await findTools(m);
+  assert.deepEqual(r.cc.env, { GCC_EXEC_PREFIX: 'C:/Users/DELLNB~1/mingw64/lib/gcc/' });
+  assert.deepEqual(r.cxx.env, r.cc.env);
+  assert.ok(m.calls.some(c => c[0] === 'powershell.exe' && c.join(' ').includes("GetFolder('C:\\Users\\Dell NB\\mingw64\\lib\\gcc')")));
+});
+
+test('findTools leaves gcc alone without a space, or when no short name exists', async () => {
+  const plain = shortPathRun(machine('win32', { 'C:\\bin\\gcc.exe': 'gcc 1', 'C:\\bin\\g++.exe': 'g++ 1', 'C:\\lib\\gcc': '' }), 'C:\\lib\\gcc');
+  assert.equal((await findTools(plain)).cc.env, undefined);
+  assert.ok(!plain.calls.some(c => c[0] === 'powershell.exe'));
+  const d = 'C:\\a b\\bin';
+  const m = shortPathRun(machine('win32', { [d + '\\gcc.exe']: 'gcc 1', 'C:\\a b\\lib\\gcc': '' }), 'C:\\a b\\lib\\gcc\n');
+  m.pathValue = d;
+  assert.equal((await findTools(m)).cc.env, undefined); // 8.3 names turned off on that drive: nothing to gain
+});
+
+test('runPlan and debugPlan build C with the compiler env', () => {
+  const env = { GCC_EXEC_PREFIX: 'C:/S~1/lib/gcc/' };
+  const t = { ...tools, cc: { ...tools.cc, env }, cxx: { ...tools.cxx, env } };
+  assert.deepEqual(runPlan('C:\\p\\a.c', t, 'win32', H).steps[0].env, env);
+  assert.deepEqual(runPlan('C:\\p\\a.cpp', t, 'win32', H).steps[0].env, env);
+  assert.equal(runPlan('C:\\p\\a.c', tools, 'win32', H).steps[0].env, undefined);
+  const { debugPlan } = require('../src/main/toolchains');
+  const hd = { stdioHeader: H, debugHeader: 'C:\\app\\runtime\\breeze_debug.h' };
+  assert.deepEqual(debugPlan('C:\\p\\a.c', t, 'win32', hd).steps[0].env, env);
+  assert.deepEqual(debugPlan('C:\\p\\a.rs', { ...t, rustc: T('C:\\r\\rustc.exe', 'rustc') }, 'win32', hd).steps[0].env, env);
+});
+

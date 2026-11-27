@@ -542,6 +542,15 @@ function swapText(el: HTMLElement, text: string): void {
 function background(work: Promise<unknown>): void {
   work.catch(e => toast(errMsg(e)));
 }
+// document.startViewTransition for the page's morphs. Its `ready` rejects whenever the transition is skipped, which is
+// expected: another one started, the page was hidden, or two pages carried the same view-transition-name for a moment
+// during back-to-back screen swaps ("Transition was aborted because of invalid state"). The change still happens, just
+// without the animation, so that rejection is caught here rather than surfacing as an unhandled error.
+function startMorph(update: () => unknown): ViewTransition {
+  const t = document.startViewTransition(update as () => Promise<void>);
+  t.ready.catch(() => { /* skipped: the change is made without the animation */ });
+  return t;
+}
 
 const store = {
   get<T>(key: string, fallback: T): T {
