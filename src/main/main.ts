@@ -2284,7 +2284,7 @@ function setSecret(name: string, value: string | null | undefined): void {
 }
 
 /* ================= LLM APIs (Ollama, LM Studio or any OpenAI-compatible server; Gemini; OpenRouter; DeepSeek) ================= */
-import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, keepsReasoning, withoutThinkingBody, type LlmProviderId, type ModelList } from './llmproviders';
+import { LLM_PROVIDERS, LLM_PROVIDER_IDS, isLlmAgent, filterModels, defaultModel, contextWindow, friendlyError, extraHeaders, keyCheckPath, refreshedEntry, keepsReasoning, withoutThinkingBody, agentBody, type LlmProviderId, type ModelList } from './llmproviders';
 // The usual addresses of Ollama and LM Studio, tried when nothing is configured yet.
 const LLM_DEFAULTS = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1'];
 // The server address without trailing slashes.
@@ -4926,7 +4926,7 @@ async function runLocal(runId: number, run: Run, { mode, prompt, session, base }
     const fitted = brain.compactHistory(messages, budget);
     // Replies dropped to fit go to the folder's second brain, so what they said isn't lost.
     if (fitted.length < messages.length) brainFacts(base, droppedReplies(messages, fitted), provider, chatsOf(runId));
-    const body: Loose = { model: cfg.model, messages: brain.wireMessages(brain.reasoningFor(fitted, keepsReasoning(provider)), !ctx.noImages), temperature: 0.2, stream: false };
+    const body: Loose = { model: cfg.model, messages: brain.wireMessages(brain.reasoningFor(fitted, keepsReasoning(provider)), !ctx.noImages), ...agentBody(provider), stream: false };
     // command_output joins the tools once something runs in the background.
     if (withTools) body.tools = ctx.jobs.size ? tools : tools.filter(t => t.function.name !== 'command_output');
     // The text shows as it is written. Thinking isn't shown, only how long it took.

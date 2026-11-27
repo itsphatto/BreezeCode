@@ -29,9 +29,21 @@ const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.index
 // Settings -> Agents -> API keys: each connected API agent with Remove; keys are added in the agent picker.
 function apiKeyRowsHtml(agents: DetectedAgent[]): string {
   const apis = agents.filter(a => a.api && a.found);
-  if (!apis.length) return '<p class="set-sub">No API keys yet. Add one in Manage agents.</p>';
+  if (!apis.length) return '<p class="set-sub">No API keys yet. Add one with Add an API key above.</p>';
   return apis.map(a => settingRow(a.name, [a.keyUrl ? 'Key saved' : a.path ?? 'Local server', a.version].filter(Boolean).join(' · '),
     `<button class="btn btn-sm" data-llm-remove="${escAttr(a.id)}">Remove</button>`)).join('');
+}
+// Settings -> Agents -> Instructions: text added to every agent run's prompt (teams.ts startAgentRun).
+const AGENT_INSTRUCTIONS_MAX = 8000;
+let agentInstructions = String(store.get<string>('breeze.agentInstructions', '') ?? '');
+function setAgentInstructions(text: string): void {
+  agentInstructions = String(text ?? '').slice(0, AGENT_INSTRUCTIONS_MAX);
+  store.set('breeze.agentInstructions', agentInstructions);
+}
+// The prompt an agent gets: the user's instructions first, when there are any, then the message.
+function withAgentInstructions(prompt: string): string {
+  const text = agentInstructions.trim();
+  return text ? `<user-instructions>\nFollow these standing instructions from the user:\n${text}\n</user-instructions>\n\n${prompt}` : prompt;
 }
 // The local agent's web search runs on the user's own Brave Search API key, kept in main's secrets.
 let braveKeySaved = false; // read each time Settings opens
@@ -1058,7 +1070,10 @@ function settingsBody(tab: SettingsTab): string {
         : '<p class="set-sub">No agents found yet. Install one and it shows up here.</p>';
       return `<h4>Agents</h4>
         <div class="set-agents">${list}</div>
-        ${settingRow('Manage agents', 'Install, sign in and pick models.', '<button class="btn btn-sm" id="sAgentPicker">Open</button>')}
+        ${settingRow('Add an API key', 'Gemini, OpenRouter, DeepSeek or a local LLM.', '<button class="btn btn-sm" id="sAgentPicker">Add</button>')}
+        <h5>Instructions</h5>
+        <p class="set-sub">Sent to every agent with each message: Claude, Codex and the rest, in chats, teams and the Agent Board.</p>
+        <textarea class="input set-instructions" id="sAgentInstructions" aria-label="Instructions for all agents" placeholder="e.g. Answer in English. Use TypeScript. Never commit without asking." spellcheck="false" rows="5" maxlength="${AGENT_INSTRUCTIONS_MAX}">${esc(agentInstructions)}</textarea>
         <h5>API keys</h5>
         ${apiKeyRowsHtml(agents)}
         ${webSearchRowHtml()}
@@ -1587,7 +1602,9 @@ function bindSettings(m: HTMLElement): void {
     } catch (err) { toast(`Couldn't start the install: ${errMsg(err)}`); }
     finally { setTimeout(refreshSettings, 2500); }
   });
-  on('sAgentPicker', () => openAgentPicker());
+  on('sAgentPicker', () => openAgentPicker(true));
+  const instrEl = $<HTMLTextAreaElement>('#sAgentInstructions', pane);
+  if (instrEl) instrEl.oninput = () => setAgentInstructions(instrEl.value);
   $$<HTMLButtonElement>('[data-llm-remove]', pane).forEach(b => b.onclick = () => {
     b.disabled = true;
     background(removeApiAgent(b.dataset.llmRemove ?? '').finally(refreshSettings));

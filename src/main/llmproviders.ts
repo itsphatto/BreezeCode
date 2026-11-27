@@ -148,7 +148,17 @@ export function keepsReasoning(provider: LlmProviderId): boolean {
   return provider === 'deepseek';
 }
 
-// Body fields that turn thinking off, for a short job such as a commit message.
+// Body fields that turn thinking off (or as far down as it goes), for a short job such as a commit message.
+// Gemini 3 can't turn thinking off; low is its least.
 export function withoutThinkingBody(provider: LlmProviderId): Record<string, unknown> {
-  return provider === 'deepseek' ? { thinking: { type: 'disabled' } } : {};
+  if (provider === 'deepseek') return { thinking: { type: 'disabled' } };
+  if (provider === 'gemini') return { reasoning_effort: 'low' };
+  return {};
+}
+
+// Body fields for each step of the agent loop. Gemini 3 thinks at high by default, which makes every tool step
+// take minutes; low is plenty for reading and editing files. Google also says a temperature under 1.0 makes
+// Gemini 3 loop, so it keeps its own default. The others run cool, for steady tool calls.
+export function agentBody(provider: LlmProviderId): Record<string, unknown> {
+  return provider === 'gemini' ? { reasoning_effort: 'low' } : { temperature: 0.2 };
 }

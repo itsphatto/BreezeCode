@@ -117,10 +117,16 @@ test('deepseek: key, balance and rate errors say what to do', () => {
   assert.match(llm.friendlyError('deepseek', 429, {}).message, /wait/i);
 });
 
-test('only deepseek keeps its thinking and can turn it off', () => {
+test('only deepseek keeps its thinking; deepseek and gemini can turn it down', () => {
   assert.deepEqual(llm.LLM_PROVIDER_IDS.filter(llm.keepsReasoning), ['deepseek']);
   assert.deepEqual(llm.withoutThinkingBody('deepseek'), { thinking: { type: 'disabled' } });
-  for (const id of ['local', 'gemini', 'openrouter']) assert.deepEqual(llm.withoutThinkingBody(id), {});
+  assert.deepEqual(llm.withoutThinkingBody('gemini'), { reasoning_effort: 'low' });
+  for (const id of ['local', 'openrouter']) assert.deepEqual(llm.withoutThinkingBody(id), {});
+});
+
+test('agent steps: gemini thinks low at its own temperature, the others run cool', () => {
+  assert.deepEqual(llm.agentBody('gemini'), { reasoning_effort: 'low' });
+  for (const id of ['local', 'openrouter', 'deepseek']) assert.deepEqual(llm.agentBody(id), { temperature: 0.2 });
 });
 
 // setup.ts is a page script, so the function is lifted out of it.
@@ -131,5 +137,7 @@ test('keyProvider tells a pasted key by its shape', () => {
   assert.equal(keyProvider('sk-' + '0123456789abcdef'.repeat(2)), 'deepseek');
   assert.equal(keyProvider('sk-or-v1-' + 'a'.repeat(64)), 'openrouter');
   assert.equal(keyProvider('AIzaSyX'), 'gemini');
+  assert.equal(keyProvider('AQ.Ab8RN6' + 'x_y-Z'.repeat(9)), 'gemini'); // Google's newer key format
+  assert.equal(keyProvider('AQ.short'), 'local');
   for (const k of ['', 'sk-1234', 'sk-lm-abc', 'sk-' + 'a'.repeat(33), 'sk-proj-' + 'a'.repeat(32)]) assert.equal(keyProvider(k), 'local', k);
 });

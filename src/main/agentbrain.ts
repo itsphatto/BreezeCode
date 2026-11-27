@@ -4,7 +4,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { IMAGE_EXT } from './agentimages';
 
-export interface ToolCall { id: string; type?: string; function?: { name?: string; arguments?: string } }
+// extra_content is the provider's own data on a call (Gemini puts its thought_signature there). It has to go back
+// unchanged with the call on the next request, or Gemini refuses the request.
+export interface ToolCall { id: string; type?: string; function?: { name?: string; arguments?: string }; extra_content?: Record<string, unknown> }
 // A picture for the model (a screenshot, an image file, one the user attached) and the line that says what it is.
 // It rides on the message it came with; wireMessages decides whether a request carries it.
 export interface Picture { data: string; mime: string; label: string }
@@ -154,6 +156,16 @@ function lineMatcher(query: unknown, { regex = false, caseSensitive = false }: {
 // separate field (Ollama, LM Studio and llama.cpp send it as reasoning or reasoning_content), and the tool
 // calls so far, their arguments maybe cut off mid-way. end() has the thinking too (reasoning_content), for the
 // provider that wants it back.
+// A call's extra_content as its pieces arrive: objects merge key by key, anything else is replaced by the newer piece.
+function mergeExtra(old: Record<string, unknown> | undefined, more: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...old };
+  for (const [k, v] of Object.entries(more)) {
+    const was = out[k];
+    out[k] = v && typeof v === 'object' && !Array.isArray(v) && was && typeof was === 'object' && !Array.isArray(was)
+      ? mergeExtra(was as Record<string, unknown>, v as Record<string, unknown>) : v;
+  }
+  return out;
+}
 function replyReader(onDelta: (text: string, thinking: boolean, calls: ToolCall[]) => void = () => {}, newId: () => string = () => 'call_0') {
   const calls: ToolCall[] = [];
   let buf = '', text = '', reasoning = '', thinking = false, usage: unknown;
@@ -173,6 +185,7 @@ function replyReader(onDelta: (text: string, thinking: boolean, calls: ToolCall[
       if (c.id) call.id = c.id;
       call.function.name ||= c.function?.name ?? '';
       call.function.arguments += c.function?.arguments ?? '';
+      if (c.extra_content) call.extra_content = mergeExtra(call.extra_content, c.extra_content);
     }
     if (d.content) text += d.content;
     onDelta(text, thinking, calls);

@@ -221,6 +221,18 @@ test('replyReader rebuilds a streamed reply from pieces of any size', () => {
   assert.ok(seen.some(([t]) => t === 'Hel'));
 });
 
+test('replyReader keeps a call\'s extra_content (Gemini\'s thought_signature) so it can go back', () => {
+  const r = brain.replyReader();
+  const events = [
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"a.js"}' }, extra_content: { google: { thought_signature: 'SIG' } } }] } }] },
+  ];
+  r.push(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
+  const [call] = r.end().choices[0].message.tool_calls;
+  assert.equal(call.function.arguments, '{"path":"a.js"}');
+  assert.deepEqual(call.extra_content, { google: { thought_signature: 'SIG' } });
+});
+
 test('replyReader with no tool calls leaves tool_calls out, and throws a streamed error', () => {
   const r = brain.replyReader();
   r.push('data: {"choices":[{"delta":{"content":"hi"}}]}');

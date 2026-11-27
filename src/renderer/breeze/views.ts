@@ -124,7 +124,7 @@ function boxAgentItems(): MenuItem[] {
       },
     });
   }
-  items.push({ label: 'Manage agents', run: openAgentPicker });
+  items.push({ label: 'Manage agents', run: () => openAgentPicker() });
   if (a?.found && a.models?.length) items.push({ sep: true }, ...modelPickerItems(a));
   return items;
 }

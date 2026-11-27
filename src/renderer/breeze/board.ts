@@ -542,6 +542,12 @@ boardGrid.addEventListener('drop', e => {
   el?.classList.remove('drop-on');
   boardDragGlow(null);
   const side = el && e.dataTransfer ? dropSideOf(e, el) : null;
+  if (chat === NEW_CHAT_DRAG) {
+    if (!el) { morphBoard(renderBoard); return; }
+    e.preventDefault();
+    dropNewChat(el.dataset.box!, side);
+    return;
+  }
   const entry = chat ? boardSideEntries().find(x => x.id === chat) : undefined;
   if (!el || !entry) { morphBoard(renderBoard); return; }
   e.preventDefault();
@@ -1223,6 +1229,26 @@ function paintBoardTabRow(tab: AgentTabState): void {
   const box = allBoardBoxes().find(b => b.tab === tab);
   if (box) paintBoardSideRow(box);
 }
+// What New chat carries when dragged (in place of a chat's id), so the board's drop code knows it is a fresh chat.
+const NEW_CHAT_DRAG = '__breeze-new-chat__';
+// New chat dropped on the board: beside the chat it was dropped on (`side`), or into that spot/blank box.
+function dropNewChat(target: string, side: DropSide | null): void {
+  closeBrainPage();
+  const agent = selectedAgent()?.id ?? foundAgents()[0]?.id;
+  if (!agent) { toast('No agents found. Install one from Settings.'); morphBoard(renderBoard); return; }
+  if (!side) { dropAgent(target, agent); return; }
+  const key = firstFreeKey();
+  if (!key) { toast(`The board is full: empty a box first (${BOARD_MAX} at most)`); morphBoard(renderBoard); return; }
+  morphBoard(() => {
+    placeBox(key, target, side);
+    const box = fillBox(key, agent);
+    saveBoard();
+    renderBoardStatus();
+    renderBoardSide();
+    box.surface.prompt.focus();
+  });
+  sfx.play('send');
+}
 function newBoardChat(): void {
   const agent = selectedAgent()?.id ?? foundAgents()[0]?.id;
   if (!agent) { toast('No agents found. Install one from Settings.'); return; }
@@ -1328,6 +1354,18 @@ $('#boardSideList').addEventListener('dragstart', e => {
   setTimeout(() => { closeBrainPage(); if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
 });
 $('#boardSideList').addEventListener('dragend', () => endBoardDrag());
+// New chat can be dragged too: dropped on a chat it opens a fresh one beside it (split view), on the open spot or a
+// blank box it fills that one. A click still starts a new chat alone on the board.
+$('#boardSideNew').addEventListener('dragstart', e => {
+  if (!e.dataTransfer) return;
+  if (!(selectedAgent()?.id ?? foundAgents()[0]?.id)) { e.preventDefault(); toast('No agents found. Install one from Settings.'); return; }
+  e.dataTransfer.setData('text/breeze-chat', NEW_CHAT_DRAG);
+  e.dataTransfer.effectAllowed = 'copy';
+  showDragGhost(e, '<span class="nm">New chat</span>');
+  boardGrid.classList.add('dragging');
+  setTimeout(() => { closeBrainPage(); if (!boardDragging && boardBoxes.size < BOARD_MAX) { boardDragging = true; morphBoard(renderBoard); } }, 0);
+});
+$('#boardSideNew').addEventListener('dragend', () => endBoardDrag());
 
 /* ----- Ownership: "owns N files", from main ----- */
 let boardOwners: Record<string, string> = {};

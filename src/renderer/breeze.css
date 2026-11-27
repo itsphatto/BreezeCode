@@ -15732,6 +15732,17 @@ body.layout-animating #previewPane {
   font-size: 13px;
 }
 
+/* Settings → Agents → Instructions: one box for every agent. */
+.set-instructions {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 96px;
+  margin: 8px 0 4px;
+  resize: vertical;
+  font: 13px/1.5 var(--font-code);
+}
+
 .set-pane .btn-sm,
 .tool-row .btn-sm {
   padding: 6px 13px;
