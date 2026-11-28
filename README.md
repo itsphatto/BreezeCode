@@ -13,7 +13,7 @@ and you see every file it reads, every edit and every command while it works.
 
 <br>
 
-![Version](https://img.shields.io/badge/version-0.8.4-007AFF?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.8.5-007AFF?style=for-the-badge)
 ![Windows](https://img.shields.io/badge/Windows_10_%26_11-x64-1d1d1f?style=for-the-badge&logo=windows&logoColor=f5f5f7)
 ![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1d1d1f?style=for-the-badge&logo=apple&logoColor=f5f5f7)
 ![Linux](https://img.shields.io/badge/Linux-x64-1d1d1f?style=for-the-badge&logo=linux&logoColor=f5f5f7)
@@ -67,7 +67,7 @@ Each prompt runs in one of three modes:
 
 While an agent works:
 
-- **Thinking steps.** A **Thinking** header with the agent's logo and a live timer opens into each step it took and how long it took. Tool calls are listed too.
+- **Thinking steps.** A **Thinking** header with the agent's logo and a live timer opens into each step it took and how long it took. Tool calls are listed too, folded into one **N steps** dropdown per reply.
 - **Every read, edit and command** shows up in the agents panel as it happens.
 - **Steer mid-task.** Send a new message to a running Claude Code agent to change its course without stopping it.
 - **Questions you can click.** An agent can ask you a question as a card with buttons instead of guessing. A question at the end of a reply ("A, or B?", "Should I go ahead?") gets answer buttons too.
@@ -192,6 +192,7 @@ Run agents side by side. Open the board with `Ctrl+Shift+B`, the board button in
 | **First launch** | Looks for coding agents, Git, Node.js and your compilers, and lets you pick a theme and an agent |
 | **Terminal** | A built-in terminal. Pop it out into its own window (with a system info banner) and the same sessions keep running. Glass and your background picture reach it too |
 | **Skills, Plugins and MCP** | A pop-up from the chats side bars: browse the skills and plugins your agents load, share skills between agents, and connect MCP servers for Claude Code without editing its config |
+| **Voice typing** | The composer mic transcribes your voice offline with whisper.cpp. Click to talk, click or Enter to type it, Escape to cancel. The speech model downloads once |
 | **Image attachments** | Drop or paste images into a prompt. Pasted images go to a temp folder, so nothing is added to your project |
 | **Local models** | Requests stay small (a project map, ranged file reads and snippet edits) so they fit a small context window |
 | **Accounts** | Sign in with GitHub or Google, with more than one account |
