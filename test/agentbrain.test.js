@@ -275,6 +275,7 @@ test('readInstructions imports Claude and Codex instruction files, project last,
 
 test('systemPrompt adds the environment, and the user instructions only when there are some', () => {
   const env = { project: 'app', base: '/w/app', platform: 'linux', shell: '/bin/sh', date: '2026-11-22', instructions: [] };
+
   const plain = brain.systemPrompt(env);
   assert.match(plain, /^You are Breeze/);
   assert.match(plain, /# Environment[\s\S]*Today's date: 2026-11-22/);

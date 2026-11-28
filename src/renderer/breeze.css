@@ -2526,6 +2526,13 @@ textarea:focus-visible {
   min-height: 0;
 }
 
+.menu-slider.pinned {
+  flex-shrink: 0;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
 .menu-scroll {
   min-height: 0;
   overflow-y: auto;
@@ -7043,10 +7050,9 @@ textarea:not(:placeholder-shown) + .ph-rot {
   color: var(--text-2);
 }
 
-/* The + is the one boxed button, as the box's way in to everything else. */
 .cmp-row .cmp-plus {
   margin-right: 2px;
-  border: 1px solid var(--line);
+  border: none;
 }
 
 .cmp-row :is(.cmp-plus):hover,
@@ -9627,6 +9633,45 @@ body.vibing .ide {
 .tool-line.note .tl {
   white-space: normal;
   color: var(--warn);
+}
+
+/* A run of the agent's steps, folded into one closed line ("18 steps ⌄") that opens into the list. */
+.tool-group > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 0;
+  color: var(--text-3);
+  font-size: 12px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition: color .15s ease;
+}
+
+.tool-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-group > summary:hover {
+  color: var(--text);
+}
+
+.tool-group > summary .ico-svg {
+  transition: transform .2s var(--spring);
+}
+
+.tool-group[open] > summary .ico-svg {
+  transform: rotate(180deg);
+}
+
+.tool-group .tg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 2px 5px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
 }
 
 .card.error {
@@ -13930,6 +13975,14 @@ button.pill:active, .pill-btn:active {
 .attachment-del:hover { box-shadow: none !important; transform: scale(1.22); }
 .attachment-del:focus, .attachment-del:active { background: transparent !important; box-shadow: none !important; }
 .attachment-del:focus:not(:focus-visible) { outline: none !important; }
+/* Agent board: an attached picture shows as a large rounded tile, no name and no rule under the row; ✕ on hover. */
+.board-composer .composer-attachments { border-bottom: none; padding: 6px 0 4px; }
+.board-composer .attachment-chip.image-chip { padding: 0; border-radius: 12px; max-width: none; background: none; }
+.board-composer .image-chip .attachment-thumb { width: 120px; height: 120px; border-radius: 12px; }
+.board-composer .image-chip .attachment-thumb:hover { transform: none; }
+.board-composer .image-chip .attachment-name { display: none; }
+.board-composer .image-chip .attachment-del { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0, 0, 0, .6) !important; color: #fff; opacity: 0; transition: opacity .15s ease, transform .15s ease; }
+.board-composer .image-chip:hover .attachment-del, .board-composer .image-chip .attachment-del:focus-visible { opacity: 1; }
 .composer-box.drag-over { border-color: var(--line) !important; box-shadow: none !important; outline: none !important; transform: translateY(-1px); }
 
 /* Drag and drop fluid glow following pointer */

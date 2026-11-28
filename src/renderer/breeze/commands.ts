@@ -902,7 +902,14 @@ function fitMenuHeight(m: HTMLElement): void {
   const wrap = document.createElement('div');
   wrap.className = 'menu-scroll-wrap';
   wrap.append(box);
-  m.append(wrap);
+  // The effort slider stays pinned under the list, so a long model list never scrolls it out of sight.
+  const pinned = $$<HTMLElement>(':scope > .menu-slider', box);
+  for (const row of pinned) {
+    const sep = row.previousElementSibling;
+    if (sep?.classList.contains('menu-sep') && !row.nextElementSibling) sep.remove();
+    row.classList.add('pinned');
+  }
+  m.append(wrap, ...pinned);
   m.classList.add('scrolls');
   const update = scrollSlider(wrap, () => box as unknown as CodeSurface, 'v');
   // Scrolling only moves the highlight with its row: pulling the row back into view would fight the wheel.

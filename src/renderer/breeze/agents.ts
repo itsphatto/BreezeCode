@@ -1188,7 +1188,21 @@ function toolLine(kind: string, label: string, tab?: AgentTabState): void {
   sfx.play('tool');
   const thinking = (tab || getActiveTab(msgSurface)).panel.querySelector<HTMLElement>('.thinking');
   if (thinking) thinkStep(thinking, TOOL_ICON[kind] ?? 'dot', label);
-  addMsg(`<div class="tool-line ${kind}"><span class="ti">${svgIcon(TOOL_ICON[kind] ?? 'dot', 14)}</span><span class="tl">${esc(label)}</span></div>`, tab);
+  const html = `<div class="tool-line ${kind}"><span class="ti">${svgIcon(TOOL_ICON[kind] ?? 'dot', 14)}</span><span class="tl">${esc(label)}</span></div>`;
+  // Notes stay in the open; the agent's steps fold into one closed "N steps" dropdown per run of them.
+  if (kind === 'note') { addMsg(html, tab); return; }
+  const t = tab || getActiveTab(msgSurface);
+  const live = t.panel.querySelector('.thinking');
+  const last = (live ? live.previousElementSibling : t.panel.lastElementChild) as HTMLElement | null;
+  let group = last?.matches('details.tool-group') && (last.dataset.agent ?? '') === (labelAgent ?? '') ? last : null;
+  group ??= addMsg(`<details class="tool-group"><summary><span class="tg-lbl"></span>${svgIcon('chevronDown', 12)}</summary><div class="tg-body"></div></details>`, t);
+  const holder = document.createElement('div');
+  holder.innerHTML = html;
+  $('.tg-body', group).append(holder.firstElementChild as HTMLElement);
+  const n = $$('.tg-body > .tool-line', group).length;
+  $('.tg-lbl', group).textContent = `${n} step${n === 1 ? '' : 's'}`;
+  if (t.id === activeTabId[t.surfaceName]) scrollChat(SURFACES[t.surfaceName]);
+  saveChat(t);
 }
 
 // The open chat is kept per project folder so a reload brings it back. `SPACE_CHATS` (history.ts): the chats Breeze
