@@ -29,7 +29,7 @@ const agentRank = (a: DetectedAgent) => (a.found ? 0 : 100) + (AGENT_ORDER.index
 // Settings -> Agents -> API keys: each connected API agent with Remove; keys are added in the agent picker.
 function apiKeyRowsHtml(agents: DetectedAgent[]): string {
   const apis = agents.filter(a => a.api && a.found);
-  if (!apis.length) return '<p class="set-sub">No API keys yet. Add one with Add an API key above.</p>';
+  if (!apis.length) return '<p class="set-sub">No API keys yet. Paste one into Add an API key above.</p>';
   return apis.map(a => settingRow(a.name, [a.keyUrl ? 'Key saved' : a.path ?? 'Local server', a.version].filter(Boolean).join(' · '),
     `<button class="btn btn-sm" data-llm-remove="${escAttr(a.id)}">Remove</button>`)).join('');
 }
@@ -1057,7 +1057,8 @@ function settingsBody(tab: SettingsTab): string {
         : '<p class="set-sub">No agents found yet. Install one and it shows up here.</p>';
       return `<h4>Agents</h4>
         <div class="set-agents">${list}</div>
-        ${settingRow('Add an API key', 'Gemini, OpenRouter, DeepSeek or a local LLM.', '<button class="btn btn-sm" id="sAgentPicker">Add</button>')}
+        ${settingRow('Add an API key', 'Gemini, OpenRouter, DeepSeek or a local LLM. Leave it empty to find Ollama or LM Studio.',
+          '<div class="set-code"><input class="input" id="sLlmKey" type="password" aria-label="API key" placeholder="API key" autocomplete="off" spellcheck="false"><button class="btn btn-sm" id="sLlmConnect">Add</button></div>')}
         <h5>Instructions</h5>
         <p class="set-sub">Sent to every agent with each message: Claude, Codex and the rest, in chats, teams and the Agent Board.</p>
         <div class="set-instructions-wrap"><textarea class="input set-instructions" id="sAgentInstructions" aria-label="Instructions for all agents" placeholder="e.g. Answer in English. Use TypeScript. Never commit without asking." spellcheck="false" rows="5" maxlength="${AGENT_INSTRUCTIONS_MAX}">${esc(agentInstructions)}</textarea></div>
@@ -1593,7 +1594,31 @@ function bindSettings(m: HTMLElement, slide = false): void {
     } catch (err) { toast(`Couldn't start the install: ${errMsg(err)}`); }
     finally { setTimeout(refreshSettings, 2500); }
   });
-  on('sAgentPicker', () => openAgentPicker(true));
+  // The key field lives here, not in a pop-up: keyProvider (setup.ts) picks the agent from the key, and it joins the API keys list below.
+  const llmKey = $<HTMLInputElement>('#sLlmKey', pane), llmConnect = $<HTMLButtonElement>('#sLlmConnect', pane);
+  if (llmKey && llmConnect) {
+    const save = async () => {
+      const value = llmKey.value.trim();
+      const target = appState.detect?.agents.find(a => a.api && a.id === keyProvider(value));
+      if (!target) { toast(appState.detect ? "Breeze doesn't recognise that key." : 'Still scanning for agents. Try again in a moment.'); return; }
+      llmKey.disabled = llmConnect.disabled = true;
+      swapText(llmConnect, 'Connecting');
+      try {
+        const r = await api.llm.connect(target.id, '', value);
+        Object.assign(target, { found: true, path: r.url ?? null, version: r.model, models: r.models });
+        if (!selectedAgent()) appState.agent = target.id;
+        saveApp(); renderAgentBar();
+        toast(`${target.name} added · ${r.model}`);
+        refreshSettings();
+      } catch (err) {
+        llmKey.disabled = llmConnect.disabled = false;
+        swapText(llmConnect, 'Add');
+        toast(`Couldn't add the key: ${errMsg(err)}`);
+      }
+    };
+    llmConnect.onclick = () => background(save());
+    llmKey.onkeydown = e => { if (e.key === 'Enter') background(save()); };
+  }
   const instrEl = $<HTMLTextAreaElement>('#sAgentInstructions', pane);
   if (instrEl) {
     instrEl.oninput = () => setAgentInstructions(instrEl.value);

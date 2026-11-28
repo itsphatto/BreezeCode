@@ -3456,7 +3456,8 @@ async function startRun(runId: number, { agent, mode, prompt, session, box, team
     // The prompt goes through stdin, so it never reaches a shell command line. Only fixed flags,
     // a validated model name and a validated session id do (npm .cmd shims need a shell on Windows).
     // Claude Code's MCP time limit is raised to a day: a question waits for the user.
-    const opts = { cwd: base, windowsHide: true, env: { MCP_TOOL_TIMEOUT: '86400000', ...process.env, ...(cli.env || {}) } };
+    // PWD too: OpenCode takes its folder from PWD before the real one, so the one Breeze was started from would win.
+    const opts = { cwd: base, windowsHide: true, env: { MCP_TOOL_TIMEOUT: '86400000', ...process.env, PWD: base, ...(cli.env || {}) } };
     let child: ChildProcess;
     try {
       if (direct) child = spawn(direct.command, [...direct.first, ...cli.args], opts);
@@ -5567,8 +5568,8 @@ const rawReply = (text: unknown, fallback: string) => String(text || '').trim() 
 function runCommitCli(bin: string, args: string[], base: string, prompt: string, finish: (out: string) => string, onLine?: (line: string) => void): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const child = /\.(?:cmd|bat)$/i.test(bin)
-      ? spawn(shellCommand(bin, args), { cwd: base, windowsHide: true, env: process.env, shell: true })
-      : spawn(bin, args, { cwd: base, windowsHide: true, env: process.env });
+      ? spawn(shellCommand(bin, args), { cwd: base, windowsHide: true, env: { ...process.env, PWD: base }, shell: true })
+      : spawn(bin, args, { cwd: base, windowsHide: true, env: { ...process.env, PWD: base } }); // PWD: see startRun
     let out = '';
     let buf = '';
     child.stdout.setEncoding('utf8');
