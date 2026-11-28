@@ -62,6 +62,9 @@ Each prompt runs in one of three modes:
 - **Build** makes the changes.
 - **Plan** writes a numbered plan first. You approve it in the chat or ask for changes, then it gets built.
 
+> [!WARNING]
+> **Build runs with full access and doesn't ask for permission.** An agent can run any command on your computer and read or change any file your account can, including files outside the project, `.env` and `.git`. Text an agent reads, such as a README, an issue or a web page, can try to steer it. Use Build only on projects and sources you trust.
+
 While an agent works:
 
 - **Thinking steps.** A **Thinking** header with the agent's logo and a live timer opens into each step it took and how long it took. Tool calls are listed too.
@@ -71,7 +74,7 @@ While an agent works:
 - **Pictures and test results.** Agents can show you an image or a preview screenshot. Test runs (node:test, Jest, Vitest, pytest, cargo test) appear as a card with the pass and fail counts and each failure.
 - **Image attachments.** Drop or paste images into a prompt. Pasted images go to a temp folder, so nothing is added to your project.
 
-Pick each agent's model and effort from its chip. Effort goes up to **Max** for Claude Code, OpenCode and Antigravity; Codex uses its highest level, `xhigh`, and Gemini has levels of its own. GitHub Copilot and DeepSeek CLI keep the model and effort set in their own settings, and the other API agents have no effort to pick. By default agents stay inside the project and keep out of `.env` and `.git`; the **Full access** switch in the agent menu lifts that. **Settings → Agents → Instructions** is a note every agent gets before your message, such as "Use TypeScript".
+Pick each agent's model and effort from its chip. Effort goes up to **Max** for Claude Code, OpenCode and Antigravity; Codex uses its highest level, `xhigh`, and Gemini has levels of its own. GitHub Copilot and DeepSeek CLI keep the model and effort set in their own settings, and the other API agents have no effort to pick. **Settings → Agents → Instructions** is a note every agent gets before your message, such as "Use TypeScript".
 
 The **plan usage meter** in the prompt box opens every plan window (5-hour, weekly) with a bar and a percentage, and turns to a warning colour when usage runs high.
 

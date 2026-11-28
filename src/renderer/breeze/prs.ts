@@ -314,7 +314,8 @@ async function mergePr(pr: GhPull, method: PrMergeMethod): Promise<void> {
   void refreshPrs(true);
   // The branch the pull request went into now has new commits on GitHub: bring them in when that's the branch checked out.
   if (rootInfo?.root === root && gitState.branch === pr.base) {
-    try { await api.git.sync('pull'); } catch (e) { toast(`Merged #${n}, but pulling ${pr.base} failed: ${errMsg(e)}`); }
+    // Only with the repository trusted: a pull runs its hooks and filters (ensureGitTrust, git.ts).
+    if (await ensureGitTrust()) try { await api.git.sync('pull'); } catch (e) { toast(`Merged #${n}, but pulling ${pr.base} failed: ${errMsg(e)}`); }
     await refreshGit();
   }
 }

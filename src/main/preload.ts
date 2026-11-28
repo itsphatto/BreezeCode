@@ -237,6 +237,8 @@ contextBridge.exposeInMainWorld('breeze', {
     prConflictStart: (n: unknown) => invoke('git:prConflictStart', n),
     prConflictFinish: (id: unknown, results: unknown) => invoke('git:prConflictFinish', id, results),
     prConflictAbort: (id: unknown) => invoke('git:prConflictAbort', id),
+    trustInfo: () => invoke('git:trustInfo'),
+    trust: (fingerprint: unknown) => invoke('git:trust', fingerprint),
   },
   gh: {
     prs: (base: unknown, force: unknown) => invoke('gh:prs', base, force),

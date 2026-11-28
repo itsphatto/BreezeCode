@@ -480,15 +480,17 @@ function demoApi(): BreezeApi {
     },
     live: (() => {
       let mockLiveRunning = false;
+      // The app serves each Live Share session under a random path (liveserver.ts); the demo shows the same shape.
+      const demoToken = 'demo-session-token';
       return {
         async status() {
           const index = [...files.keys()].find(path => path === 'index.html' || path.endsWith('/index.html'));
-          return { available: !!index, running: mockLiveRunning, url: `http://127.0.0.1:2026/${index?.replace(/index\.html$/, '') ?? ''}` };
+          return { available: !!index, running: mockLiveRunning, url: `http://127.0.0.1:2026/${mockLiveRunning ? `${demoToken}/` : ''}${index?.replace(/index\.html$/, '') ?? ''}` };
         },
         async start() {
           const index = [...files.keys()].find(path => path === 'index.html' || path.endsWith('/index.html'));
           if (!index) throw new Error('Live Share needs an index.html file in the project');
-          const url = `http://127.0.0.1:2026/${index.replace(/index\.html$/, '')}`;
+          const url = `http://127.0.0.1:2026/${demoToken}/${index.replace(/index\.html$/, '')}`;
           window.open(url, '_blank', 'noopener');
           mockLiveRunning = true;
           return { available: true, running: true, url };
@@ -764,6 +766,8 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       },
       async prConflictFinish() { return { ok: true }; }, // nothing to push in the demo
       async prConflictAbort() { /* nothing to remove in the demo */ },
+      async trustInfo() { return { needed: false }; }, // the demo repository has no settings or hooks of its own
+      async trust() { return true; },
     },
     gh: {
       async prs(base) {

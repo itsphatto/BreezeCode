@@ -48,8 +48,11 @@ function resolveUnder(base: string, rel = ''): string {
 // Secrets (.env, .env.local…) and git's own folder, whose config and hooks run commands. A template (.env.example…)
 // is committed with placeholders, and it is where an agent learns which keys a project reads.
 // `rel` is relative to the project; returns why the path is off limits, or null.
+// Each name is read as Windows opens it: trailing dots and spaces dropped, and an NTFS stream (":$DATA") cut off,
+// so ".git.", ".env " and ".env::$DATA" count as .git and .env. The names are then compared without case.
+const winName = (p: string) => p.replace(/:.*$/s, '').replace(/[. ]+$/, '');
 function blockedRel(rel: unknown): string | null {
-  const parts = String(rel).split(/[\\/]/).filter(p => p && p !== '.');
+  const parts = String(rel).split(/[\\/]/).filter(p => p && p !== '.' && p !== '..').map(winName);
   if (parts.some(p => p.toLowerCase() === '.git')) return 'The .git folder is off limits to agents: its config and hooks can run commands.';
   const name = parts.at(-1) ?? '';
   if (/^\.env/i.test(name) && !/^\.env\.(?:example|sample|template)$/i.test(name)) return `${name} holds secrets, so agents can't read or change it.`;
@@ -70,13 +73,23 @@ function isLocalHost(host: unknown, port: number | string): boolean {
 // A repository's own config can name commands git runs by itself (core.fsmonitor on status, diff.external and
 // textconv drivers on diff and show). Breeze runs git whenever files change, so those are off for every call it makes.
 // Leading `-c name=value` pairs the caller put first (prconflict.js turns hooks off that way) stay ahead of the command.
+// Git also goes into other repositories: status, diff, add and commit run `git status` inside every submodule (a gitlink
+// whose folder has its own .git, however it got there), and fetch, pull, push and checkout can recurse. Those run with
+// that repository's own config, which Breeze hasn't looked at. So no call recurses, and status and diff skip what changed
+// inside a submodule's files (a moved submodule commit still shows). add and commit can't be told that: gittrust.ts
+// looks into every nested repository before them.
+const NO_RECURSION = ['submodule.recurse=false', 'fetch.recurseSubmodules=false', 'push.recurseSubmodules=no', 'diff.submodule=short', 'status.submoduleSummary=false'];
 function safeGitArgs(args: string[]): string[] {
   let i = 0;
   while (args[i] === '-c' && i + 1 < args.length) i += 2;
   const pre = args.slice(0, i);
   const [cmd, ...rest] = args.slice(i);
   const noDrivers = cmd === 'diff' || cmd === 'show' ? ['--no-ext-diff', '--no-textconv'] : [];
-  return ['-c', 'core.fsmonitor=false', ...pre, cmd, ...noDrivers, ...rest];
+  // The command-line forms also beat a submodule's own setting (submodule.<name>.fetchRecurseSubmodules in .gitmodules).
+  const notInside = cmd === 'status' || cmd === 'diff' ? ['--ignore-submodules=dirty']
+    : ['fetch', 'pull', 'switch', 'checkout'].includes(cmd) ? ['--no-recurse-submodules']
+      : cmd === 'push' ? ['--recurse-submodules=no'] : [];
+  return ['-c', 'core.fsmonitor=false', ...NO_RECURSION.flatMap(p => ['-c', p]), ...pre, cmd, ...noDrivers, ...notInside, ...rest];
 }
 
 /* ----- Programs that need cmd.exe ----- */

@@ -9531,6 +9531,38 @@ body.vibing .ide {
   color: var(--text-2);
 }
 
+/* "Trust this repository?" (git.ts askGitTrust): each setting or hook that can run a program, on the git-err well. */
+.git-trust-list {
+  list-style: none;
+  max-height: 40vh;
+  overflow: auto;
+  margin: 0 0 12px;
+  padding: 4px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.git-trust-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  padding: 8px 0;
+  font-size: 12px;
+}
+.git-trust-list li + li { border-top: 1px solid var(--line); }
+.git-trust-list code { font: 12px var(--font-code); color: var(--text); }
+.git-trust-list small { color: var(--text-3); font-size: 11px; justify-self: end; }
+.git-trust-list span {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  color: var(--text-2);
+  font: 12px var(--font-code);
+  overflow-wrap: anywhere;
+}
+.git-trust-list span.plain { font-family: inherit; }
+.git-trust-more, .git-trust-note { margin: 0 0 12px; font-size: 12px; color: var(--text-3); }
+
 /* ================= Agent chat ================= */
 .pill-btn {
   cursor: pointer;

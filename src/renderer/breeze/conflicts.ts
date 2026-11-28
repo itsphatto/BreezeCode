@@ -102,6 +102,8 @@ async function openConflictPage(pr: GhPull): Promise<void> {
   if (pr.head.repo === null) { fail('The source repository no longer exists'); return; }
   showScmDetail(shell(`<div class="pr-loading"><div class="spinner sm"></div>Preparing the merge of ${esc(pr.base)} into #${n}</div>`));
   let session: ConflictSession;
+  // The merge fetches and checks out with the repository's own settings: only once it is trusted (ensureGitTrust, git.ts).
+  if (!(await ensureGitTrust())) { if (mine()) fail("This repository isn't trusted yet, so Breeze won't run git here"); return; }
   try {
     session = await api.git.prConflictStart(n); // main asks GitHub for the branches and where to push
   } catch (e) {

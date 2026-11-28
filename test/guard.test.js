@@ -64,6 +64,12 @@ test('blockedRel keeps agents away from secrets and the .git folder', () => {
   for (const p of ['src/app.js', 'docs/environment.md', '.gitignore', '.github/workflows/ci.yml', '.', '.env.example', 'api/.env.sample', '.ENV.Template']) assert.equal(blockedRel(p), null, p);
 });
 
+test('blockedRel reads names as Windows opens them: trailing dots, spaces and streams', () => {
+  for (const p of ['.env.', '.env ', '.env::$DATA', 'a/.env.local. .']) assert.match(blockedRel(p), /holds secrets/, p);
+  for (const p of ['.git./config', '.git /config', '.git::$INDEX_ALLOCATION/config', '.GIT.']) assert.match(blockedRel(p), /\.git folder/, p);
+  for (const p of ['.env.example.', 'notes.txt.', 'a:b.txt']) assert.equal(blockedRel(p), null, p);
+});
+
 test('agentBlocked also catches .git reached through another name', () => {
   const base = tmp();
   fs.mkdirSync(path.join(base, '.git'));
@@ -73,12 +79,20 @@ test('agentBlocked also catches .git reached through another name', () => {
 });
 
 test('safeGitArgs turns off config-driven commands', () => {
-  assert.deepEqual(safeGitArgs(['status', '--porcelain']), ['-c', 'core.fsmonitor=false', 'status', '--porcelain']);
-  assert.deepEqual(safeGitArgs(['diff', '--', 'a']), ['-c', 'core.fsmonitor=false', 'diff', '--no-ext-diff', '--no-textconv', '--', 'a']);
-  assert.deepEqual(safeGitArgs(['show', 'abc']).slice(2, 5), ['show', '--no-ext-diff', '--no-textconv']);
+  // Every call: no fsmonitor, and never into another repository (submodules and nested repositories run their own config).
+  const always = ['-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false',
+    '-c', 'push.recurseSubmodules=no', '-c', 'diff.submodule=short', '-c', 'status.submoduleSummary=false'];
+  assert.deepEqual(safeGitArgs(['status', '--porcelain']), [...always, 'status', '--ignore-submodules=dirty', '--porcelain']);
+  assert.deepEqual(safeGitArgs(['diff', '--', 'a']), [...always, 'diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=dirty', '--', 'a']);
+  assert.deepEqual(safeGitArgs(['show', 'abc']).slice(always.length, always.length + 3), ['show', '--no-ext-diff', '--no-textconv']);
+  assert.deepEqual(safeGitArgs(['add', '-A']), [...always, 'add', '-A']);
+  assert.deepEqual(safeGitArgs(['fetch', '--all']).slice(always.length), ['fetch', '--no-recurse-submodules', '--all']);
+  assert.deepEqual(safeGitArgs(['pull', '--ff-only']).slice(always.length), ['pull', '--no-recurse-submodules', '--ff-only']);
+  assert.deepEqual(safeGitArgs(['switch', 'x']).slice(always.length), ['switch', '--no-recurse-submodules', 'x']);
+  assert.deepEqual(safeGitArgs(['push']).slice(always.length), ['push', '--recurse-submodules=no']);
   // Config pairs put ahead of the command stay ahead of it, and the command still gets its guards.
   assert.deepEqual(safeGitArgs(['-c', 'core.hooksPath=/x', 'show', ':2:a']),
-    ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/x', 'show', '--no-ext-diff', '--no-textconv', ':2:a']);
+    [...always, '-c', 'core.hooksPath=/x', 'show', '--no-ext-diff', '--no-textconv', ':2:a']);
 });
 
 // A repository whose config runs a command on `git status` (core.fsmonitor) and on `git diff` (diff.external).

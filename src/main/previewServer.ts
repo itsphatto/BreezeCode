@@ -10,6 +10,7 @@ import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { PREVIEW_INSPECTOR } from './previewInspector';
 import { markdownPage } from './markdown';
+import { agentBlocked } from './guard';
 
 const PREVIEW_SCHEME = 'breeze-preview';
 const PREVIEW_PRIVILEGES = { standard: true, secure: true, supportFetchAPI: true, stream: true };
@@ -67,13 +68,20 @@ parent.postMessage({ artifactReady: true }, '*');
 const artifactLoader = () => new Response(ARTIFACT_LOADER, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': ARTIFACT_CSP, 'Cache-Control': 'no-store' } });
 
 // `resolveIn(rel)` maps a project-relative path to an absolute one, throwing when it leaves the project.
+// .env files and .git are answered as Not found, like Live Share (agentBlocked, guard.ts): checked on the path as asked
+// and again on the file finally served (a folder's index.html, a link, a short name or a trailing dot that Windows drops).
 function createPreviewHandler(resolveIn: (rel: string) => string) {
+  const refuse = (abs: string) => { if (agentBlocked(resolveIn(''), abs)) throw new Error('Not served'); };
   return async function servePreview(req: Request): Promise<Response> {
     if (new URL(req.url).host === 'artifact') return artifactLoader();
     try {
       const rel = decodeURIComponent(new URL(req.url).pathname).replace(/^\/+/, '');
       let abs = resolveIn(rel);
-      if ((await fsp.stat(abs)).isDirectory()) abs = resolveIn(path.join(rel, 'index.html')); // it may be a link too
+      refuse(abs);
+      let st = await fsp.stat(abs);
+      if (st.isDirectory()) { abs = resolveIn(path.join(rel, 'index.html')); st = await fsp.stat(abs); } // it may be a link too
+      if (!st.isFile()) throw new Error('Not a file');
+      refuse(abs);
       // A Markdown file shows rendered, as a page; its images and links resolve from where it is, like on GitHub.
       if (/\.(md|markdown)$/i.test(abs)) {
         const page = markdownPage(await fsp.readFile(abs, 'utf8'), path.basename(abs));

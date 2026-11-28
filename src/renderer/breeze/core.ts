@@ -86,6 +86,9 @@ interface ConflictFile {
   hasOurs: boolean; hasTheirs: boolean;
 }
 interface ConflictSession { id: string; number: number; base: string; headRef: string; clean: boolean; files: ConflictFile[]; }
+// Main's gittrust.ts: what in a repository's own config and hooks can run programs. needed false: nothing to ask.
+interface GitTrustItem { kind: 'config' | 'hook'; where: string; name: string; detail: string }
+interface GitTrustInfo { needed: boolean; fingerprint?: string; unreadable?: string | null; items?: GitTrustItem[]; more?: number }
 // A text file's result (null deletes it), or a binary file's choice.
 type ConflictResult = { path: string; text: string | null } | { path: string; choice: 'ours' | 'theirs' | 'delete' };
 // How finishing went: stage 'commit' means nothing was committed (the page stays editable), 'push' that the resolution
@@ -384,6 +387,9 @@ interface BreezeApi {
     // Rejects only for an ended session or a resolution that doesn't fit it; git failures resolve to { ok: false, stage }.
     prConflictFinish(id: string, results: ConflictResult[]): Promise<ConflictFinish>;
     prConflictAbort(id: string): Promise<void>;
+    // A repository whose own git settings or hooks can run programs needs the user's OK before Breeze runs git there.
+    trustInfo(): Promise<GitTrustInfo>;
+    trust(fingerprint: string): Promise<boolean>;
   };
   gh: {
     prs(base: string, force?: boolean): Promise<GhResult<GhPullList>>;

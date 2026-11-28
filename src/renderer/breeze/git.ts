@@ -572,16 +572,73 @@ $('#scm').addEventListener('pointerover', e => {
   }
 });
 
+// "Trust this repository?": a repository whose own git settings or hooks can run programs (a folder whose .git came
+// from someone else) is asked about once, before Breeze runs git there in a way that would run them. Until then main
+// (gittrust.ts) refuses those calls; status, diffs and history still show, with the programs switched off.
+// Resolves true when git may go ahead. Callers at the same time share one question.
+const UNTRUSTED_GIT = /isn't trusted yet/;
+let gitTrustAsk: Promise<boolean> | null = null;
+function ensureGitTrust(): Promise<boolean> {
+  gitTrustAsk ??= (async () => {
+    const info = await api.git.trustInfo().catch((): GitTrustInfo => ({ needed: false })); // main still refuses if it must
+    return info.needed ? askGitTrust(info) : true;
+  })().finally(() => { gitTrustAsk = null; });
+  return gitTrustAsk;
+}
+function gitTrustItemHtml(i: GitTrustItem): string {
+  const where = i.where === 'config' ? '' : ` <small>${esc(i.where)}</small>`;
+  const detail = i.kind === 'hook' ? '<span class="plain">A hook: runs by itself on git actions</span>' : `<span>${esc(i.detail)}</span>`;
+  return `<li><code>${esc(i.name)}</code>${where}${detail}</li>`;
+}
+function askGitTrust(info: GitTrustInfo): Promise<boolean> {
+  return new Promise(resolve => {
+    let answered = false;
+    const answer = (ok: boolean) => { if (!answered) { answered = true; resolve(ok); } };
+    if (info.unreadable) {
+      openModal(`<h3>Git can't read this repository</h3>
+        <p class="sub">Breeze won't run git here until its settings can be read.</p>
+        <pre class="git-err">${esc(info.unreadable)}</pre>
+        <div class="row end"><button class="btn btn-primary" data-close>OK</button></div>`, undefined, () => answer(false));
+      return;
+    }
+    const items = info.items ?? [];
+    const more = info.more ? `<p class="git-trust-more">and ${plural(info.more, 'more setting')}</p>` : '';
+    openModal(`<h3>Trust this repository?</h3>
+      <p class="sub">Its own git settings or hooks can run programs when Breeze stages, commits, switches branches or syncs. Trust it only if you know where this folder came from.</p>
+      <ul class="git-trust-list">${items.map(gitTrustItemHtml).join('')}</ul>${more}
+      <p class="git-trust-note">Breeze asks again if these change.</p>
+      <div class="row end"><button class="btn" data-close>Not now</button><button class="btn btn-primary" id="gitTrustOk">Trust repository</button></div>`, m => {
+      const ok = $<HTMLButtonElement>('#gitTrustOk', m);
+      ok.onclick = async () => {
+        ok.disabled = true;
+        try {
+          await api.git.trust(info.fingerprint ?? '');
+          answer(true);
+          closeModal();
+          toast('Repository trusted');
+        } catch (e) {
+          answer(false);
+          closeModal();
+          toast(errMsg(e)); // it changed while open: the next git action asks with what is there now
+        }
+      };
+    }, () => answer(false));
+  });
+}
+
 async function gitOp(fn: () => Promise<unknown>, done?: string): Promise<boolean> {
   if (gitBusy) return false;
   gitBusy = true;
   $('#scm').classList.add('busy');
   try {
+    if (!(await ensureGitTrust())) return false;
     await fn();
     if (done) toast(done);
     return true;
   } catch (e) {
     const m = errMsg(e);
+    // Its settings changed since it was trusted (or since the question): ask about what is there now.
+    if (UNTRUSTED_GIT.test(m)) { void ensureGitTrust(); return false; }
     if (m.length > 90 || m.includes('\n')) openModal(`<h3>Git said no</h3><pre class="git-err">${esc(m)}</pre><div class="row end"><button class="btn btn-primary" data-close>OK</button></div>`);
     else toast(m);
     return false;

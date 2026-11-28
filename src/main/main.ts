@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as vm from 'node:vm';
 import { LANG_KINDS, findTools, freshPath, toolEnv, runPlan, debugPlan, runSteps, ensureBuildIgnored, mergePath, installHint, installCmd, installUrl, unpacked } from './toolchains';
-import { isFileUrl, resolveUnder, blockedRel, agentBlocked, isLocalHost, safeGitArgs, shellCommand, autoCommand, readOnlyCommand, cleanEnv } from './guard';
+import { isFileUrl, resolveUnder, blockedRel, agentBlocked, safeGitArgs, shellCommand, autoCommand, readOnlyCommand, cleanEnv } from './guard';
 import { AntigravityAgentService } from './antigravityAgentService.js';
 import { parseGithubRemote, githubClient, GithubError, enrichPulls, MAX_COMMENT_LEN } from './github';
 import { costOf } from './pricing';
@@ -29,6 +29,9 @@ import { Kernels } from './kernel';
 import * as skillsLib from './skills';
 import * as mcpLib from './mcp';
 import { PREVIEW_SCHEME, PREVIEW_PRIVILEGES, createPreviewHandler } from './previewServer';
+import { createLiveHandler, newLiveToken } from './liveserver';
+import { inspectRepo, isTrusted, gateGitArgs, gitReadOnly, trustEntries } from './gittrust';
+import type { RepoRisk } from './gittrust';
 import { normalizeQuestion, normalizePlan, QuestionDesk, NO_ANSWER, NO_APPROVAL } from './askuser';
 import { BreezeMcpServer, BREEZE_TOOLS, BREEZE_MCP } from './breezemcp';
 import type { ToolReply, McpTool } from './breezemcp';
@@ -695,19 +698,12 @@ function watchLost(err: any): void {
 function stopWatching() { watcher?.close(); watcher = null; }
 
 /* ================= Live Share ================= */
-// A deliberately small local-only static server. Files are read on each request, so browser refreshes
-// always see the current on-disk project state; connected pages receive a reload event after edits.
+// A deliberately small local-only static server (liveserver.ts). Files are read on each request, so browser refreshes
+// always see the current on-disk project state; connected pages receive a reload event after edits. Each session
+// serves under its own random path (liveToken), so other web pages can't embed the project's files.
 const LIVE_PORT = 2026;
 const LIVE_URL = `http://127.0.0.1:${LIVE_PORT}/`;
-const LIVE_RELOAD_PATH = '/__breeze_live_reload';
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-  '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg',
-  '.mp4': 'video/mp4', '.webm': 'video/webm', '.wasm': 'application/wasm',
-};
-const liveReloadScript = `<script>(() => { const s = new EventSource('${LIVE_RELOAD_PATH}'); s.onmessage = () => location.reload(); })();</script>`;
+let liveToken: string | null = null; // this session's path; null while Live Share is off
 function notifyLiveClients(changed: string[]): void {
   if (!liveClients.size) return;
   const body = `data: ${JSON.stringify({ changed })}\n\n`;
@@ -730,6 +726,7 @@ function stopLiveServer() {
   }
   liveServer = null;
   liveRoot = null;
+  liveToken = null; // the next session gets a new one: old links stop working
 }
 async function findLiveIndex(dir: string | null = root): Promise<string | null> {
   if (!dir) return null;
@@ -745,66 +742,35 @@ async function findLiveIndex(dir: string | null = root): Promise<string | null> 
   }
   return null;
 }
+// The address to open: under this session's token while Live Share runs (only the bare server address while it's off).
 async function liveIndexUrl() {
+  const base = liveToken ? `${LIVE_URL}${liveToken}/` : LIVE_URL;
   const index = await findLiveIndex();
-  return index ? new URL(`${relTo(root!, index).replace(/index\.html$/, '')}`, LIVE_URL).href : LIVE_URL;
+  return index ? new URL(`${relTo(root!, index).replace(/index\.html$/, '')}`, base).href : base;
 }
 async function hasLiveIndex() {
   return !!(await findLiveIndex());
-}
-async function serveLive(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-  if (!isLocalHost(req.headers.host, LIVE_PORT)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Forbidden');
-    return;
-  }
-  try {
-    const parsed = new URL(req.url || '/', LIVE_URL);
-    if (parsed.pathname === LIVE_RELOAD_PATH) {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-      res.write(': connected\n\n');
-      liveClients.add(res);
-      req.on('close', () => liveClients.delete(res));
-      return;
-    }
-    const decoded = decodeURIComponent(parsed.pathname);
-    const rel = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
-    let abs = resolveUnder(liveRoot!, rel);
-    let st = await fsp.stat(abs);
-    if (st.isDirectory()) {
-      abs = resolveUnder(liveRoot!, path.join(rel, 'index.html'));
-      st = await fsp.stat(abs);
-    }
-    if (!st.isFile()) throw new Error('Not a file');
-    if (agentBlocked(liveRoot!, abs)) throw new Error('Not shared'); // .env files and .git stay private: answered as Not found
-    const type = MIME_TYPES[path.extname(abs).toLowerCase()] || 'application/octet-stream';
-    let body: Buffer = await fsp.readFile(abs);
-    if (type.startsWith('text/html')) {
-      const html = body.toString('utf8');
-      body = Buffer.from(/<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, `${liveReloadScript}</body>`) : html + liveReloadScript);
-    }
-    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
-    res.end(body);
-  } catch {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Not found');
-  }
 }
 async function startLiveServer() {
   const index = await findLiveIndex();
   if (!index) throw new Error('Live Share needs an index.html file in the project');
   liveRoot = root;
-  const url = await liveIndexUrl();
   if (!liveServer) {
-    const server = liveServer = http.createServer((req, res) => { void serveLive(req, res); });
+    const token = liveToken = newLiveToken();
+    const serve = createLiveHandler({
+      port: LIVE_PORT, token, root: () => liveRoot,
+      addClient: res => { liveClients.add(res); res.on('close', () => liveClients.delete(res)); },
+    });
+    const server = liveServer = http.createServer((req, res) => { void serve(req, res); });
     await new Promise<void>((resolve, reject) => {
-      const fail = (err: Error) => { liveServer?.off('listening', ready); liveServer = null; reject(err); };
+      const fail = (err: Error) => { liveServer?.off('listening', ready); liveServer = null; liveToken = null; reject(err); };
       const ready = () => { liveServer?.off('error', fail); resolve(); };
       server.once('error', fail);
       server.once('listening', ready);
       server.listen(LIVE_PORT, '127.0.0.1');
     });
   }
+  const url = await liveIndexUrl();
   openInBrowser(url);
   return { url, running: true };
 }
@@ -926,6 +892,9 @@ handle('fs:clone', async (_e, url) => {
         rej(new Error(msg.replace(/^fatal:\s*/, '')));
       });
   });
+  // A fresh clone brings no config or hooks from the remote: whatever it has came from the user's own git (templates,
+  // git-lfs), so it is trusted as it is now. Anything added later asks.
+  try { const risk = await inspectRepo(inspectGit, dir); if (risk && !risk.unreadable && risk.items.length) trustRepo(risk); } catch (e) { logError('clone trust')(e); }
   return setRoot(dir);
 });
 
@@ -4351,8 +4320,7 @@ const AGENT_TOOL_FNS: Record<string, (runId: number, args: Loose) => Promise<Too
   async git_status(runId) {
     const t = taskOfRun(runId);
     if (!t) throw new Error('This run is not part of an agentic task.');
-    const out = await new Promise<string>((res, rej) => execFile('git', ['status', '--short', '--branch'], { cwd: t.project, windowsHide: true, timeout: 20000, maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout, stderr) => (err ? rej(new Error((stderr || err.message).trim())) : res(stdout))));
+    const out = await runGitIn(t.project, ['status', '--short', '--branch']); // through the trust gate, like Breeze's own calls
     return { text: out.trim().slice(0, 8000) || 'Nothing changed.' };
   },
   async remember(runId, a) {
@@ -5062,11 +5030,85 @@ async function gitBin() {
   if (!gitPath) throw new Error('Git is not installed. Get it from https://git-scm.com/downloads');
   return gitPath;
 }
-async function git(args: string[], { input, timeout = 60000 }: { input?: string | null; timeout?: number } = {}): Promise<string> {
+/* ----- Trusting a repository's own settings and hooks (gittrust.ts) ----- */
+// breeze-state.json's `gitTrust`: repository (its common git folder) -> the fingerprint of the risky settings and hooks
+// the user trusted. Changed ones ask again. Kept in app state, never inside the repository.
+const gitTrustStore = (): Record<string, string> => {
+  const t = loadState().gitTrust;
+  return t && typeof t === 'object' ? t : {};
+};
+// Only rev-parse and config, which run nothing, look at a repository.
+async function inspectGit(cwd: string, args: string[]): Promise<string> {
   const bin = await gitBin();
   return new Promise<string>((res, rej) => {
-    const child = execFile(bin, safeGitArgs(args), {
-      cwd: resolveIn(''), windowsHide: true, timeout, maxBuffer: 64 * 1024 * 1024,
+    execFile(bin, ['-c', 'core.fsmonitor=false', ...args], {
+      cwd, windowsHide: true, timeout: 20000, maxBuffer: 16 * 1024 * 1024,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
+    }, (err, stdout, stderr) => {
+      if (!err) return res(stdout);
+      rej(Object.assign(new Error((stderr || err.message).trim()), { stderr }));
+    });
+  });
+}
+/// A status refresh makes several git calls at once: they share one look for a moment. A call that may run something
+// (not gitReadOnly) always looks afresh, nested repositories included; reads never go into those (safeGitArgs).
+const repoRisks = new Map<string, { at: number; risk: Promise<RepoRisk | null> }>();
+function repoRisk(cwd: string, fresh = false): Promise<RepoRisk | null> {
+  const hit = repoRisks.get(cwd);
+  if (!fresh && hit && Date.now() - hit.at < 2000) return hit.risk;
+  const risk = inspectRepo(inspectGit, cwd, { nested: fresh });
+  repoRisks.set(cwd, { at: Date.now(), risk });
+  risk.catch(() => repoRisks.delete(cwd));
+  return risk;
+}
+// The arguments every git call Breeze makes runs with: safeGitArgs, plus, in a repository that isn't trusted, its
+// programs switched off for a call that only reads, or a refusal (UNTRUSTED) for anything else.
+async function gitGate(cwd: string, args: string[]): Promise<string[]> {
+  const risk = await repoRisk(cwd, !gitReadOnly(args));
+  return gateGitArgs(args, { risk, store: gitTrustStore(), hooksDir: noHooksDir() });
+}
+// Trusts the repository and every nested one in the look, as they are now.
+function trustRepo(risk: RepoRisk): void {
+  saveState({ gitTrust: { ...gitTrustStore(), ...Object.fromEntries(trustEntries(risk)) } });
+  repoRisks.clear();
+}
+// One fingerprint for everything a Trust answer covers.
+const trustFingerprint = (risk: RepoRisk) => crypto.createHash('sha256').update(JSON.stringify(trustEntries(risk))).digest('hex');
+// What the Source Control page shows before a git action: whether this folder's repository (or one nested in it)
+// needs the user's OK, and why.
+handle('git:trustInfo', async () => {
+  if (!root) return { needed: false };
+  const risk = await repoRisk(resolveIn(''), true);
+  const store = gitTrustStore();
+  if (!risk || isTrusted(risk, store)) return { needed: false };
+  const all = [risk, ...(risk.nested ?? [])];
+  const bad = all.find(r => r.unreadable);
+  const items = all.filter(r => !isTrusted(r, store, false)).flatMap(r => r.items);
+  return {
+    needed: true, fingerprint: trustFingerprint(risk),
+    unreadable: bad ? `${bad.path ? `${bad.path}: ` : ''}${bad.unreadable}` : null,
+    items: items.slice(0, 50).map(i => ({ kind: i.kind, where: i.where, name: i.name, detail: i.kind === 'hook' ? '' : i.detail.slice(0, 300) })),
+    more: Math.max(0, items.length - 50),
+  };
+});
+// Trusts exactly what the user was shown: settings that changed since are refused, to be reviewed again.
+handle('git:trust', async (_e, fingerprint) => {
+  const risk = await repoRisk(resolveIn(''), true);
+  if (!risk) return true;
+  const bad = [risk, ...(risk.nested ?? [])].find(r => r.unreadable);
+  if (bad) throw new Error(`Breeze couldn't read the git settings of ${bad.path || 'this repository'}: ${bad.unreadable}`);
+  if (typeof fingerprint !== 'string' || fingerprint !== trustFingerprint(risk)) throw new Error('This repository\'s git settings or hooks changed while you were reviewing them. Review them again.');
+  trustRepo(risk);
+  return true;
+});
+
+async function git(args: string[], { input, timeout = 60000 }: { input?: string | null; timeout?: number } = {}): Promise<string> {
+  const bin = await gitBin();
+  const cwd = resolveIn('');
+  const gated = await gitGate(cwd, args);
+  return new Promise<string>((res, rej) => {
+    const child = execFile(bin, gated, {
+      cwd, windowsHide: true, timeout, maxBuffer: 64 * 1024 * 1024,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
     }, (err, stdout, stderr) => (err ? rej(new Error((stderr || err.message).trim())) : res(stdout)));
     if (input != null) child.stdin!.end(input);
@@ -5351,8 +5393,9 @@ function noHooksDir() {
 // prconflict's run(cwd, args, input?): git's stdout, or a rejection with the exit code on .code and the output on .stdout / .stderr.
 async function runGitIn(cwd: string, args: string[], input?: string): Promise<string> {
   const bin = await gitBin();
+  const gated = await gitGate(cwd, args); // a conflict worktree shares its repository's config, and its trust
   return new Promise<string>((res, rej) => {
-    const child = execFile(bin, safeGitArgs(args), {
+    const child = execFile(bin, gated, {
       cwd, windowsHide: true, timeout: 120000, maxBuffer: 64 * 1024 * 1024,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
     }, (err, stdout, stderr) => {
