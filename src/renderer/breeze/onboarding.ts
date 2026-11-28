@@ -728,7 +728,7 @@ function showContribYear(year: number | null): void {
   }));
 }
 // The squares cross-fade into the new year's (a view transition, .contrib-morph in breeze.css) while the blue pill
-// slides from the old year's button to the new one's and the count scrambles to its new number.
+// slides from the old year's button to the new one's and the count rolls to its new number.
 function morphContribYear(change: () => void): void {
   const root = document.documentElement;
   if (!document.startViewTransition || motionOff() || matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -741,7 +741,7 @@ function morphContribYear(change: () => void): void {
   t.finished.then(done, done);
   t.updateCallbackDone.then(() => {
     const count = document.querySelector<HTMLElement>('#homeContribTitle .cg-total');
-    if (count && count.textContent !== total) scrambleText(count);
+    if (count && total != null && count.textContent !== total) rollText(count, total);
     const pill = document.querySelector<HTMLElement>('.contrib-year-pill');
     const to = pill?.getBoundingClientRect();
     if (!pill || !from || !to?.width) return;
@@ -778,7 +778,7 @@ function contribMonth(m: number, named: Set<number>): HTMLSpanElement {
   return s;
 }
 const contribSpan = (c: GhContributions) => c.year ? `in ${c.year}` : 'in the last year';
-// The count sits in a span of its own, so a year change can scramble just that number (scrambleText, setup.ts).
+// The count sits in a span of its own, so a year change can roll just that number (rollText, setup.ts).
 function setContribTitle(c: GhContributions, tail: string): void {
   const n = document.createElement('span');
   n.className = 'cg-total';

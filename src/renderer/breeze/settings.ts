@@ -1414,7 +1414,8 @@ function flowNavPill(nav: HTMLElement, from: DOMRect | undefined): void {
   pill.className = 'set-pill';
   Object.assign(pill.style, { left: `${(to.left - box.left) / k}px`, width: `${to.width / k}px`, top: `${top(to)}px`, bottom: `${bottom(to)}px` });
   nav.append(pill);
-  const ms = 660, lead = SPRING, trail = 'cubic-bezier(.65, 0, .35, 1)', down = to.top > from.top;
+  // Both edges spring: the trailing one starts late and overshoots a touch, so the drop wobbles as it settles.
+  const ms = 420, lead = SPRING, trail = 'cubic-bezier(.6, 0, .25, 1.12)', down = to.top > from.top;
   pill.animate({ top: [`${top(from)}px`, `${top(to)}px`] }, { duration: ms, easing: down ? trail : lead });
   pill.animate({ bottom: [`${bottom(from)}px`, `${bottom(to)}px`] }, { duration: ms, easing: down ? lead : trail }).onfinish = () => pill.remove();
   el.animate([{ background: 'transparent' }, { background: 'transparent' }], { duration: ms });
@@ -1428,7 +1429,8 @@ function showSettingsPart(m: HTMLElement, i: number): void {
   main.scrollTo({ top, behavior: 'smooth' });
 }
 
-function bindSettings(m: HTMLElement): void {
+// slide: a section picked in the side tab, which slides the whole pane in (switchTab), so its rows don't stagger in too.
+function bindSettings(m: HTMLElement, slide = false): void {
   if (settingsTab === 'dev' && !appState.devMode) settingsTab = 'general';
   // Searching: the results stand in for the section, through redraws that come in meanwhile too.
   if (settingsQuery.trim()) { renderSettingsSearch(m); return; }
@@ -1486,8 +1488,10 @@ function bindSettings(m: HTMLElement): void {
   // A new section's rows come in one after another; redraws of the same section (a switch flipped) just appear.
   if (pane.dataset.tab !== settingsTab || entering != null) {
     pane.dataset.tab = settingsTab;
-    staggerIn(pane.children);
-    staggerIn(pane.querySelectorAll('.set-agents > *, .set-tools > *, .set-themes > *, .set-bd > *, .set-syn > *, .set-syn-picks > *'), 2);
+    if (!slide) {
+      staggerIn(pane.children);
+      staggerIn(pane.querySelectorAll('.set-agents > *, .set-tools > *, .set-themes > *, .set-bd > *, .set-syn > *, .set-syn-picks > *'), 2);
+    }
     pane.querySelector('.set-themes')?.classList.add('grow'); // the theme pictures' code lines grow in
     if (entering != null) for (const el of pane.querySelectorAll('.stagger-item')) for (const a of el.getAnimations()) if ((a as CSSAnimation).animationName === 'staggerRowIn') a.currentTime = entering;
   }
@@ -1840,9 +1844,34 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
         pane.style.animation = '';
       }
       if (changed || settingsQuery) {
+        const main = $('.set-main', root);
+        // A section picked from another: the old page slides away and the new one follows it in, up when the new
+        // section is lower in the side tab and down when it's higher, as if the sections were one long page.
+        const items = [...nav.querySelectorAll<HTMLElement>('.set-item')].map(b => b.dataset.setTab);
+        const dir = Math.sign(items.indexOf(tab) - items.indexOf(nav.querySelector<HTMLElement>('.set-item.on')?.dataset.setTab));
+        const slide = changed && !settingsQuery && dir !== 0 && !!pane && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+        let ghost: HTMLElement | null = null;
+        if (slide) {
+          main.querySelectorAll('.set-ghost').forEach(g => g.remove()); // picked again on the way
+          ghost = pane.cloneNode(true) as HTMLElement;
+          ghost.classList.add('set-ghost');
+          ghost.inert = true;
+          ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+          const top = pane.offsetTop - main.scrollTop;
+          Object.assign(ghost.style, { top: `${top}px`, left: `${pane.offsetLeft}px`, width: `${pane.offsetWidth}px`, height: `${main.clientHeight - top}px` });
+        }
         if (settingsQuery) { settingsQuery = ''; $<HTMLInputElement>('#setSearch', root).value = ''; }
-        $('.set-main', root).scrollTop = 0;
-        bindSettings(root);
+        main.scrollTop = 0;
+        bindSettings(root, slide);
+        if (ghost) {
+          main.append(ghost); // after the pane, so lookups of .set-pane still find the live one first
+          const d = 56 * dir;
+          ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateY(${-d}px)`, filter: 'blur(2px)' }],
+            { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' }).onfinish = () => ghost?.remove();
+          pane.getAnimations().forEach(a => { if (a.id === 'set-slide') a.cancel(); });
+          pane.animate([{ opacity: 0, transform: `translateY(${d}px)`, filter: 'blur(2px)' }, { opacity: 1, transform: 'none', filter: 'none' }],
+            { id: 'set-slide', duration: 460, delay: 60, easing: SPRING, fill: 'backwards' });
+        }
       }
       flowNavPill(nav, from);
       if (at) showSettingsPart(root, at); // the new pane is in the page already, so its headings can be measured

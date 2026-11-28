@@ -266,40 +266,48 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
   return tab;
 }
 
-const agentInkAt: Record<string, { x: number; y: number; w: number } | null> = { ide: null, box: null };
+// The line chases the active tab's live box each frame, so it glides while tabs open, fold away or lose their X
+// (a CSS transition aimed once at the tab's box would land where the tab was, then jump).
+type InkState = { x: number; y: number; w: number; until: number; raf: number };
+const agentInkAt: Record<string, InkState | null> = { ide: null, box: null };
 function placeAgentTabInk(s: Surface): void {
   if (isBoardSurface(s.name)) return;
   const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
   if (!tabsList) return;
-  const on = tabsList.querySelector<HTMLElement>('.agent-tab.active:not(.leaving)');
+  const activeTab = () => tabsList.querySelector<HTMLElement>('.agent-tab.active:not(.leaving)');
   const old = tabsList.querySelector<HTMLElement>('.agent-tab-ink');
-  if (!on) {
+  if (!activeTab()) {
     if (old) {
       old.style.opacity = '0';
       setTimeout(() => old.remove(), 120);
     }
+    if (agentInkAt[s.name]) cancelAnimationFrame(agentInkAt[s.name]!.raf);
     agentInkAt[s.name] = null;
     return;
   }
   const ink = old ?? tabsList.appendChild(Object.assign(document.createElement('span'), { className: 'agent-tab-ink' }));
   ink.style.opacity = '1';
-  const next = {
-    x: on.offsetLeft + 8,
-    y: on.offsetTop + on.offsetHeight - 2,
-    w: Math.max(0, on.offsetWidth - 16)
+  const st = agentInkAt[s.name] ??= { x: NaN, y: 0, w: 0, until: 0, raf: 0 };
+  st.until = performance.now() + 600; // outlasts the tab enter (.3s), leave (.27s) and X fold (.33s)
+  if (st.raf) return;
+  let last = performance.now();
+  const step = (now: number) => {
+    const on = activeTab();
+    if (!on || !ink.isConnected) { st.raf = 0; return; }
+    const tx = on.offsetLeft + 8, ty = on.offsetTop + on.offsetHeight - 2, tw = Math.max(0, on.offsetWidth - 16);
+    const snap = Number.isNaN(st.x) || matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const k = snap ? 1 : 1 - Math.exp(-(now - last) / 70);
+    last = now;
+    st.x = snap ? tx : st.x + (tx - st.x) * k;
+    st.y = snap ? ty : st.y + (ty - st.y) * k;
+    st.w = snap ? tw : st.w + (tw - st.w) * k;
+    const settled = Math.abs(tx - st.x) < .3 && Math.abs(ty - st.y) < .3 && Math.abs(tw - st.w) < .3;
+    if (settled) { st.x = tx; st.y = ty; st.w = tw; }
+    ink.style.transform = `translate(${st.x}px, ${st.y}px)`;
+    ink.style.width = `${st.w}px`;
+    st.raf = !settled || now < st.until ? requestAnimationFrame(step) : 0;
   };
-  const draw = (p: { x: number; y: number; w: number }) => {
-    ink.style.transform = `translate(${p.x}px, ${p.y}px)`;
-    ink.style.width = `${p.w}px`;
-  };
-  if (agentInkAt[s.name]) {
-    ink.style.transition = 'none';
-    draw(agentInkAt[s.name]!);
-    const _reflow = ink.offsetWidth;
-    ink.style.transition = '';
-  }
-  draw(next);
-  agentInkAt[s.name] = next;
+  step(last);
 }
 
 const closingAgentTabs = new Set<string>();
@@ -792,6 +800,8 @@ function morphText(el: HTMLElement, text: string, layout?: () => void): void {
   if (!shown) return;
   if (stillMotion()) { el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS, easing: MORPH_EASE }); return; }
   const w1 = el.getBoundingClientRect().width;
+  // Where each letter lands as plain text: letter spans lose kerning (up to ~3px over a line), so each aims here instead.
+  const land = charBoxes(el).filter(c => c.ch.trim());
   // The new text as letters, a word to a nowrap span, so they can move on their own and lines still break at spaces.
   const letters: HTMLElement[] = [];
   el.textContent = '';
@@ -809,10 +819,11 @@ function morphText(el: HTMLElement, text: string, layout?: () => void): void {
   const move = { duration: MORPH_MS, easing: MORPH_MOVE };
   // Letters that leave roll up and out, new ones roll up in from below, left to right a beat apart (capped for long text).
   const roll = (i: number) => Math.min(i, 24) * 12;
+  // Each letter holds its landing spot (fill) until the plain text takes over at the end.
   letters.forEach((c, j) => {
-    const k = from[j];
-    if (k >= 0) anims.push(c.animate([{ transform: `translate(${before[k].x - after[j].x}px, ${before[k].y - after[j].y}px)` }, { transform: 'none' }], move));
-    else anims.push(c.animate([{ opacity: 0, filter: soft, transform: 'translateY(.8em)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: MORPH_MS, delay: MORPH_MS * .15 + roll(j), easing: MORPH_EASE, fill: 'backwards' }));
+    const k = from[j], to = `translate(${land[j].x - after[j].x}px, ${land[j].y - after[j].y}px)`;
+    if (k >= 0) anims.push(c.animate([{ transform: `translate(${before[k].x - after[j].x}px, ${before[k].y - after[j].y}px)` }, { transform: to }], { ...move, fill: 'forwards' }));
+    else anims.push(c.animate([{ opacity: 0, filter: soft, transform: `${to} translateY(.8em)` }, { opacity: 1, filter: 'blur(0)', transform: to }], { duration: MORPH_MS, delay: MORPH_MS * .15 + roll(j), easing: MORPH_EASE, fill: 'both' }));
   });
   // Letters that leave: a copy where each stood, blurring away.
   before.forEach((b, i) => {

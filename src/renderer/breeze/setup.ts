@@ -951,42 +951,34 @@ function playDash(shot: DashShot | null): void {
     const was = shot.texts.get(k), now = el.textContent ?? '';
     if (was === undefined) el.animate(DASH_GROW, { duration: 450, easing: SPRING });
     else if (was === now) continue;
-    // The usage card's numbers roll like a clock's; the chart's scramble.
-    else if (!el.children.length && /\d/.test(now) && el.closest('.ad-usage')) rollText(el, was);
-    else if (!el.children.length && /\d/.test(now) && shape(was) === shape(now)) scrambleText(el);
+    // Numbers roll like a clock's: the usage card's always, the rest when only their numbers changed.
+    else if (!el.children.length && /\d/.test(now) && (el.closest('.ad-usage') || shape(was) === shape(now))) rollText(el, was);
     else el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease' });
   }
 }
-const scrambling = new WeakMap<HTMLElement, number>();
-// Its digits flicker at random and settle left to right; everything else in the text stays put.
-function scrambleText(el: HTMLElement): void {
-  const to = el.textContent ?? '';
-  cancelAnimationFrame(scrambling.get(el) ?? 0);
-  el.dataset.to = to;
-  const start = performance.now(), dur = 450;
-  const tick = (now: number) => {
-    const p = Math.min((now - start) / dur, 1), settled = Math.floor(p * to.length);
-    el.textContent = p < 1 ? [...to].map((ch, i) => i < settled || !/\d/.test(ch) ? ch : String(Math.floor(Math.random() * 10))).join('') : to;
-    if (p < 1) scrambling.set(el, requestAnimationFrame(tick));
-    else delete el.dataset.to;
-  };
-  scrambling.set(el, requestAnimationFrame(tick));
-}
 // Each character that changed rolls up like a clock's digit: the old one slides up and out as the new one comes up from
-// below, right to left a beat apart. Matched from the right, so "959.5M" → "1B" rolls the "M" into the "B".
+// below, right to left a beat apart. Matched from the right, so "959.5M" → "1B" rolls the "M" into the "B". A character
+// with nothing on the other side ("100%" → "0%" drops the "10") rolls to or from blank while its room closes or opens.
 function rollText(el: HTMLElement, from: string): void {
   const to = el.textContent ?? '';
   if (motionOff()) return;
   el.dataset.to = to;
   const off = from.length - to.length;
-  el.innerHTML = [...to].map((ch, i) => {
+  const roll = (old: string, ch: string) => `<span class="ad-roll"${old && ch ? '' : ` data-grow="${ch ? 1 : 0}"`}><span><span>${esc(old) || '&nbsp;'}</span><span>${esc(ch) || '&nbsp;'}</span></span></span>`;
+  el.innerHTML = [...from.slice(0, Math.max(off, 0))].map(ch => roll(ch, '')).join('') + [...to].map((ch, i) => {
     const old = from[i + off] ?? '';
-    return old === ch ? esc(ch) : `<span class="ad-roll"><span><span>${esc(old) || '&nbsp;'}</span><span>${esc(ch)}</span></span></span>`;
+    return old === ch ? esc(ch) : roll(old, ch);
   }).join('');
   const cols = $$<HTMLElement>('.ad-roll > span', el);
   let left = cols.length;
   cols.forEach((c, k) => {
-    const a = c.animate([{ transform: 'none' }, { transform: 'translateY(-50%)' }], { duration: 520, delay: (cols.length - 1 - k) * 45, easing: SPRING, fill: 'both' });
+    const timing = { duration: 520, delay: (cols.length - 1 - k) * 45, easing: SPRING, fill: 'both' } as const;
+    const box = c.parentElement!, grow = box.dataset.grow;
+    if (grow) {
+      const w = `${(c.children[+grow] as HTMLElement).getBoundingClientRect().width}px`;
+      box.animate(grow === '1' ? [{ width: '0px' }, { width: w }] : [{ width: w }, { width: '0px' }], timing);
+    }
+    const a = c.animate([{ transform: 'none' }, { transform: 'translateY(-50%)' }], timing);
     // Redrawn meanwhile (the rolls are gone): the new text stands.
     a.onfinish = a.oncancel = () => { if (--left === 0 && el.dataset.to === to) { if (el.querySelector('.ad-roll')) el.textContent = to; delete el.dataset.to; } };
   });
@@ -1202,7 +1194,7 @@ function showDashTip(bar: HTMLElement): void {
   // Already showing another bar's: it slides and resizes from there and its text blurs in, like the app tooltip
   // (morphTooltip). Measured before the last morph is dropped, so a quick sweep across bars carries on from mid-way.
   const from = tip.classList.contains('hidden') ? null : tip.getBoundingClientRect();
-  // The rows shown now, by label (the day by its place), so a number that carries over scrambles to its new value.
+  // The rows shown now, by label (the day by its place), so a number that carries over rolls to its new value.
   const tipKey = (row: Element) => (row.matches('.ad-tip-day') ? 'day' : Array.from(row.childNodes).find(n => n.nodeType === Node.TEXT_NODE)?.textContent ?? row.className);
   const tipNum = (row: Element) => (row.matches('.ad-tip-day') ? row as HTMLElement : row.querySelector<HTMLElement>('b'));
   const wasRows = new Map(from ? Array.from(tip.children, r => [tipKey(r), tipNum(r) ? dashText(tipNum(r)!) : '']) : []);
@@ -1222,7 +1214,7 @@ function showDashTip(bar: HTMLElement): void {
     { transform: 'none', width: `${to.width}px`, height: `${to.height}px` }], { duration: 390, easing: ease }).id = 'tip';
   for (const row of Array.from(tip.children)) {
     const num = tipNum(row), was = wasRows.get(tipKey(row));
-    if (was !== undefined && num) { if (was !== num.textContent) scrambleText(num); }
+    if (was !== undefined && num) { if (was !== num.textContent) rollText(num, was); }
     else row.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
   }
 }

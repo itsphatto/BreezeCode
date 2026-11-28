@@ -605,7 +605,7 @@ const UI_FONTS: FontChoice[] = [
   ['instrument-sans', 'Instrument Sans', '"Instrument Sans", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'],
   ['google-sans', 'Google Sans', '"Google Sans", "Instrument Sans", "Segoe UI", sans-serif'],
   ['inter', 'Inter', 'Inter, "Instrument Sans", "Segoe UI", sans-serif'],
-  ['system-ui', 'System default', 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'],
+  ['system-ui', 'System default', '"Segoe UI Variable Text", "Segoe UI Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'],
   ['segoe-ui', 'Segoe UI Variable', '"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", sans-serif'],
   ['roboto', 'Roboto', 'Roboto, "Segoe UI", sans-serif'],
 ];
