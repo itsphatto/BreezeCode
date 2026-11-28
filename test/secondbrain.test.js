@@ -290,3 +290,11 @@ test('a summarize reply parses into typed memories', () => {
   const m = extractMemories('Facts:\n- The app is an Electron IDE\nDecisions:\n- Chose plain tsc over a bundler\nPending Tasks:\n- Add the summarize button\nFiles:\n- src/main/main.ts: the main process');
   assert.deepEqual([...new Set(m.map(x => x.kind))].sort(), ['decision', 'fact', 'file', 'task']);
 });
+
+// Antigravity's actual reply: bold headings.
+test('a summarize reply with bold headings keeps its sections', () => {
+  const m = extractMemories('**Facts:**\n- Tokens are stored in the OS keychain.\n\n**Pending Tasks**:\n- Add a logout test.\n\n**Files:**\n- `src/auth.ts`: Handles the login click binding.\n');
+  assert.ok(m.some(x => x.kind === 'task' && x.text === 'Add a logout test.'));
+  assert.ok(m.some(x => x.kind === 'fact' && /keychain/.test(x.text)));
+  assert.ok(!m.some(x => /Facts|Pending Tasks/.test(x.text)), 'headings are not memories');
+});

@@ -139,7 +139,11 @@ const LEXERS: Record<string, RegExp> = {
   ]),
   md: lexer([
     ['kw', /(?<=^|\n)#{1,6}[^\n]*/], ['str', either(/```[^`]*(?:```|$)/, /`[^`\n]*`/)], ['com', /(?<=^|\n)>[^\n]*/],
-    ['attr', either(/\*\*[^*\n]+\*\*/, /\[[^[\]\n]*\]\([^()\n]*\)/)],
+    // Same marks as chat replies (emphasis, mdcore.ts). Editor fonts are monospaced, so bold and italic keep columns.
+    ['bold', either(/\*\*[^\s*](?:[^*\n]*?[^\s*])?\*\*/, /(?<!\w)__[^\s_](?:[^_\n]*?[^\s_])?__(?!\w)/)],
+    ['em', either(/(?<![*\w])\*[^\s*](?:[^*\n]*?[^\s*])?\*(?![*\w])/, /(?<!\w)_[^\s_](?:[^_\n]*?[^\s_])?_(?!\w)/)],
+    ['strike', /~~[^\s~](?:[^~\n]*?[^\s~])?~~/],
+    ['attr', /\[[^[\]\n]*\]\([^()\n]*\)/],
   ]),
   html: lexer([['com', /<!--[\s\S]*?(?:-->|$)/], ['tagblock', /<[!/]?[A-Za-z][^>]*>?/]]),
   // YAML: keys before ':' (also after list dashes), &anchors *aliases !tags, --- document markers, # comments after a space.

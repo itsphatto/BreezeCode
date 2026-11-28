@@ -278,7 +278,38 @@ test('buildSpawnArgs: configures agy with requested model, effort, and headless 
   assert.ok(args.includes('--output-format'), 'Must specify output format');
   assert.ok(args.includes('stream-json'), 'Must be stream-json');
   assert.ok(args.includes('--print'), 'Must specify print flag');
-  assert.ok(args.includes('Implement feature'), 'Must specify prompt');
+  assert.ok(!args.includes('Implement feature'), 'The prompt goes on stdin, not the command line');
+  assert.deepEqual(args.slice(args.indexOf('--print')), ['--print', '', '--input-format', 'stream-json']);
+});
+
+// Windows caps a command line at 32k characters (8k via a .cmd shim): Summarize's 60k prompts never started.
+test('start: the prompt goes on stdin as one stream-json message; slash commands stay on --print', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-stdin-'));
+  const out = path.join(dir, 'got.json');
+  // A stand-in agy that saves its argv and stdin.
+  const fake = path.join(dir, 'fake.js');
+  fs.writeFileSync(fake, `let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{require('fs').writeFileSync(${JSON.stringify(out)},JSON.stringify({argv:process.argv.slice(2),stdin:s}));});`);
+  const long = 'x'.repeat(70_000);
+  const svc = new AntigravityAgentService({ executablePath: process.execPath, args: undefined, prompt: long, mode: 'ask' });
+  svc['buildSpawnArgs'] = function (e) { return [fake, ...AntigravityAgentService.prototype['buildSpawnArgs'].call(this, e)]; };
+  const exited = new Promise(r => svc.on('exit', r));
+  await svc.start();
+  await exited;
+  const got = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.ok(!got.argv.includes(long));
+  assert.deepEqual(JSON.parse(got.stdin), { event: 'user', message: { content: long } });
+  const slash = new AntigravityAgentService({ prompt: '/quota' })['buildSpawnArgs']('agy.exe');
+  assert.deepEqual(slash.slice(slash.indexOf('--print')), ['--print', '/quota']);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a failed result says why (a used-up quota)', () => {
+  const service = new AntigravityAgentService({});
+  const outputs = [];
+  service.on('output', ev => outputs.push(ev));
+  service['handleStdoutChunk']('{"event":"result","result":{"status":"ERROR","response":"","error":"Individual quota reached."}}\n');
+  assert.ok(outputs.some(ev => ev.type === 'note' && ev.text.includes('quota reached')));
 });
 
 test('buildSpawnArgs: permissions are skipped only in build mode with Full access', () => {

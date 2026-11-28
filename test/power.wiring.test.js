@@ -45,7 +45,7 @@ test('preload exposes api.power', () => {
 test('the page loads power.js before the scripts that ask it', () => {
   const at = name => page.indexOf(`<script src="breeze/${name}.js" defer>`);
   assert.ok(at('power') > at('platform'), 'after platform.js (api)');
-  for (const name of ['greetings', 'setup', 'drop', 'editor', 'agents', 'space', 'git']) assert.ok(at(name) > at('power'), name);
+  for (const name of ['greetings', 'setup', 'drop', 'editor', 'agents', 'git']) assert.ok(at(name) > at('power'), name);
   assert.ok(read('tsconfig.json').includes('"src/renderer/breeze/power.ts"'));
 });
 
@@ -72,21 +72,20 @@ test('decorative loops go through the power gate', () => {
   assert.match(r('greetings'), /decorInterval\(tickGreeting, 10_000, 30_000\)/);
   assert.match(r('greetings'), /decorInterval\(\(\) => \{ if \(!frame && onHome\(\)\) frame = requestAnimationFrame\(step\); \}, 500\)/);
   assert.match(r('greetings'), /const onHome = \(\) => !decorResting\(\)/);
-  assert.match(r('space'), /decorInterval\(kick, 500, 1000\)/);
-  assert.match(r('space'), /if \(powerSaver\(\)\) \{ still = /);
-  assert.match(r('space'), /if \(!frame && !powerSaver\(\) && document\.documentElement\.dataset\.theme !== 'light'\)/);
-  assert.match(r('agents'), /decorInterval\(\(\) => \{\n  for \(const h of \$\$<HTMLElement>\('#boxChat \.empty h4'\)\)/);
-  assert.match(r('agents'), /if \(r && layer\.offsetParent\) nextPlaceholder\(r\);\n  \}\n\}, 2000, 2000\);/);
+  // Only where it can be seen: a collapsed panel kept offsetParent, so its hint morphed out of sight every 2 s.
+  assert.match(r('agents'), /if \(r && decorVisible\(layer\)\) nextPlaceholder\(r\);\n  \}\n\}, 2000, 2000\);/);
+  assert.match(r('agents'), /const shown = decorVisible\(el\);\n  const still = stillMotion\(\) \|\| powerSaver\(\);/);
   assert.match(r('setup'), /\}, DASH_REFRESH_MS, 15_000\);/);
   assert.match(r('drop'), /if \(state\.animId != null\) return;\n[^\n]*\n  if \(powerSaver\(\)\) return;/);
   // None of them is a bare setInterval any more.
-  for (const name of ['greetings', 'space', 'setup']) assert.ok(!/^\s*setInterval\(/m.test(r(name)), name);
+  for (const name of ['greetings', 'setup']) assert.ok(!/^\s*setInterval\(/m.test(r(name)), name);
 });
 
 test('the saver shows the still logo, fetches less often and throttles the minimap', () => {
   assert.match(r('agents'), /const idleLogoFile = \(\): string => powerSaver\(\) \|\| matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches \? 'Agent\.png' : 'AgentIdle\.webp';/);
   assert.match(r('git'), /const fetchEvery = \(\): number => \(powerSaver\(\) \? 15 : 5\) \* 60_000;/);
-  assert.match(r('editor'), /if \(powerSaver\(\)\) setTimeout\(draw, MM_SAVER_MS\); else draw\(\);/);
+  // A scroll only copies from the drawn strip and keeps up every frame; redrawing glyphs after an edit waits.
+  assert.match(r('editor'), /if \(powerSaver\(\) && edited\) setTimeout\(draw, MM_SAVER_MS\); else draw\(\);/);
 });
 
 test('the editor draws at most once a frame', () => {
@@ -98,12 +97,19 @@ test('the editor draws at most once a frame', () => {
 
 test('saver styles: blur and glass kept, loops stopped', () => {
   // Blur stays on in the saver (a design choice): the section must not strip it or swap the glass.
-  assert.doesNotMatch(saver, /--(glass|space|settings)-blur:/);
+  assert.doesNotMatch(saver, /--(glass|settings)-blur:/);
   assert.doesNotMatch(saver, /backdrop-filter:/);
   assert.doesNotMatch(saver, /--glass:/);
-  assert.match(saver, /animation-iteration-count: 1 !important;/);
-  // The caret and the spinners keep going.
-  assert.match(saver, /:is\(\.spinner, \.code-caret,[^{]*\{\s*animation-iteration-count: infinite !important;/);
+  // Loops stop through one custom property: a `:root[data-power] *` rule was tried on every element on every restyle.
+  assert.match(saver, /^:root\[data-power="saver"\] \{\n  --loop: 1;\n\}/);
+  assert.doesNotMatch(saver, /:root\[data-power="saver"\] \*/);
+  // Decorative loops read it; the caret and the spinners keep a plain infinite, so they keep going.
+  assert.match(rules, /\.skel-row \{[^}]*animation: skelShimmer 1\.6s ease-in-out var\(--loop, infinite\);/);
+  // The editor caret blinks from a timer, not a CSS loop (that drew a frame every vsync while an editor had focus).
+  assert.doesNotMatch(rules, /\.code-caret \{[^}]*animation:/);
+  assert.match(rules, /\.caret-off \.code-caret \{\s*visibility: hidden;/);
+  assert.match(read('src/renderer/codeview.ts'), /root\.classList\.toggle\('caret-off'\)/);
+  assert.match(rules, /\.spinner \{[^}]*animation: spin \.8s linear infinite;/);
 });
 
 test('every power-saver rule is scoped to the attribute', () => {

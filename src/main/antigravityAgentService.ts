@@ -430,13 +430,10 @@ export class AntigravityAgentService extends EventEmitter {
         // Setup stream listeners
         this.setupStreams(child, finishStartup);
 
-        // Send initial prompt if provided in options
-        if (this.options.prompt && child.stdin && !child.stdin.destroyed) {
-          try {
-            child.stdin.write(this.options.prompt + '\n');
-          } catch {
-            // Process may exit before reading prompt; its exit handler will catch this
-          }
+        // The prompt as one stream-json message (see buildSpawnArgs); closing stdin ends the run after that turn
+        if (this.promptOnStdin(execPath) && child.stdin && !child.stdin.destroyed) {
+          child.stdin.on('error', () => { /* exited before reading it; the exit handler reports that */ });
+          child.stdin.end(JSON.stringify({ event: 'user', message: { content: this.options.prompt } }) + '\n');
         }
 
         // Check if process spawned and remains running after a microtick
@@ -919,6 +916,9 @@ export class AntigravityAgentService extends EventEmitter {
           const why = `Antigravity stopped: it needed permission to use ${denied.join(', ')}, and it can't ask for permission when Breeze runs it. `
             + 'Turn on Full access for build runs, or add an allow rule under permissions.allow in Antigravity\'s settings.json.';
           this.emit('output', { type: resText ? 'note' : 'error', text: why, timestamp: Date.now() });
+        } else if (res?.status !== 'SUCCESS' && !resText && typeof res?.error === 'string' && res.error) {
+          // agy's own reason (a used-up quota, a model it doesn't have), not just "exit code 3"
+          this.emit('output', { type: 'note', text: `Antigravity: ${res.error}`, timestamp: Date.now() });
         }
         this.emit('output', {
           type: 'done',
@@ -1156,6 +1156,11 @@ export class AntigravityAgentService extends EventEmitter {
     }
   }
 
+  private promptOnStdin(execPath: string): boolean {
+    const p = this.options.prompt;
+    return !!p && !this.options.args?.length && !/language_server/i.test(execPath) && !p.trimStart().startsWith('/');
+  }
+
   private buildSpawnArgs(execPath: string): string[] {
     if (this.options.args && this.options.args.length > 0) {
       return this.options.args;
@@ -1202,9 +1207,12 @@ export class AntigravityAgentService extends EventEmitter {
       args.push('--conversation', this.options.sessionId);
     }
 
-    // Run prompt non-interactively
+    // Run prompt non-interactively. It goes on stdin (start()): on the command line Windows caps it at 32k
+    // characters (8k through a .cmd shim), so a long one (Summarize's 60k chunks) never started. agy answers slash
+    // commands only from --print, so those stay there.
     if (this.options.prompt) {
-      args.push('--print', this.options.prompt);
+      if (this.promptOnStdin(execPath)) args.push('--print', '', '--input-format', 'stream-json');
+      else args.push('--print', this.options.prompt);
     }
 
     return args;

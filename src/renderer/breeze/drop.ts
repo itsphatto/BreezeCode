@@ -696,7 +696,7 @@ function updateAgentDragPointer(container: HTMLElement, clientX: number, clientY
 }
 
 function setFluidContainer(container: HTMLElement | null, clientX: number, clientY: number): void {
-  const containers = [$('#sidebar'), $('#editorPane'), $('#agents'), $('#box')].filter((x): x is HTMLElement => !!x);
+  const containers = [$('#sidebar'), $('#editorPane'), $('#agents')].filter((x): x is HTMLElement => !!x);
   for (const c of containers) {
     if (c === container) {
       c.classList.add('agent-drop-over', 'drop-over-active');
@@ -736,7 +736,6 @@ function stopAgentDragPointer(immediate = false): void {
     }
   }
   $('#agents')?.classList.remove('agent-drop-over', 'drop-over-active');
-  $('#box')?.classList.remove('agent-drop-over', 'drop-over-active');
   $('#sidebar')?.classList.remove('agent-drop-over', 'drop-over-active');
   $('#editorPane')?.classList.remove('agent-drop-over', 'drop-over-active');
 }
@@ -788,7 +787,6 @@ function clearAgentDropMarks(): void {
     agentDropMark = null;
   }
   $('#agents')?.classList.remove('agent-drop-over', 'drop-over-active');
-  $('#box')?.classList.remove('agent-drop-over', 'drop-over-active');
   $('#sidebar')?.classList.remove('agent-drop-over', 'drop-over-active');
   $('#editorPane')?.classList.remove('agent-drop-over', 'drop-over-active');
   for (const b of $$<HTMLElement>('.composer-box')) b.classList.remove('drag-over');
@@ -816,16 +814,14 @@ function agentDropTarget(e: DragEvent): AgentDropTargetInfo | null {
   const boardBox = t.closest<HTMLElement>('.board-box.filled');
   const boardS = boardBox?.dataset.box ? SURFACES[`board:${boardBox.dataset.box}`] : undefined;
   if (boardBox && boardS) return { el: boardBox.querySelector<HTMLElement>('.composer-box') ?? boardBox, surface: boardS, tab: getActiveTab(boardS) };
-  const inBox = t.closest('#box');
-  const inAgents = t.closest('#agents');
-  if (!inBox && !inAgents) return null;
-  const s = inBox ? SURFACES.box : SURFACES.ide;
+  if (!t.closest('#agents')) return null;
+  const s = SURFACES.ide;
   const tabEl = t.closest<HTMLElement>('.agent-tab');
   if (tabEl?.dataset.agentTab) {
     const tab = surfaceTabs[s.name]?.find(x => x.id === tabEl.dataset.agentTab);
     if (tab) return { el: tabEl, surface: s, tab };
   }
-  const newTabBtn = t.closest<HTMLElement>('#agentNewTab, #boxNewTab');
+  const newTabBtn = t.closest<HTMLElement>('#agentNewTab');
   if (newTabBtn) {
     return { el: newTabBtn, surface: s, isNewTab: true };
   }
@@ -833,7 +829,7 @@ function agentDropTarget(e: DragEvent): AgentDropTargetInfo | null {
   if (composerBox) {
     return { el: composerBox, surface: s, tab: getActiveTab(s) };
   }
-  return { el: inBox ? $('#box') : $('#agents'), surface: s, tab: getActiveTab(s) };
+  return { el: $('#agents'), surface: s, tab: getActiveTab(s) };
 }
 function toRelProject(absPath: string): string | null {
   if (!rootInfo || !absPath) return null;
@@ -1040,7 +1036,7 @@ interface TreeImportAction {
 
 interface RemoveAttachmentAction {
   type: 'remove-attachment';
-  surface: 'ide' | 'box';
+  surface: 'ide';
   tabId: string;
   attachment: AgentAttachment;
   index: number;
@@ -1489,7 +1485,7 @@ document.addEventListener('dragover', e => {
     markDrop(null);
     clearTreeDropMarks();
     markAgentDrop(ag.el);
-    const container = isBoardSurface(ag.surface.name) ? null : ag.surface.name === 'box' ? $('#box') : $('#agents'); // a board box: just its prompt lights up
+    const container = isBoardSurface(ag.surface.name) ? null : $('#agents'); // a board box: just its prompt lights up
     setFluidContainer(container, e.clientX, e.clientY);
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     return;

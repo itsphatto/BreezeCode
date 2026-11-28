@@ -1,5 +1,5 @@
 /* ================= Composer: the one prompt-box layout every agent prompt shares ================= */
-// Home, the Agents panel, Breeze Space and each Agent board box draw the same box (breeze.html, board.ts):
+// Home, the Agents panel and each Agent board box draw the same box (breeze.html, board.ts):
 //   [+] [access ▾] ……… [model ▾] [mic] (↑)
 //   folder · Local · branch ……………………… usage limit ▭ 28%
 // This file wires the buttons and fills the line under the box. Each composer registers once with wireComposer;
@@ -222,7 +222,7 @@ async function flushQueue(tab: AgentTabState): Promise<void> {
 const cmpShow = (el: HTMLElement, on: boolean) => composersReady ? morphShow(el, on) : el.classList.toggle('hidden', !on);
 const cmpText = (el: HTMLElement, text: string) => { if (composersReady) swapText(el, text); else el.textContent = text; };
 function paintComposer(c: Composer): void {
-  // Folder: a composer that owns its folder chip (Home, Breeze Space) names it itself.
+  // Folder: a composer that owns its folder chip (Home) names it itself.
   const dir = composerFolder(c);
   const name = c.meta.querySelector<HTMLElement>('.cmp-folder-name');
   if (name) {
@@ -272,26 +272,12 @@ function refreshComposers(): void {
   }
 }
 
-// The Agents panel and Breeze Space; Home registers in homedock.ts and each board box in board.ts.
-for (const s of [SURFACES.ide, SURFACES.box]) {
+// The Agents panel; Home registers in homedock.ts and each board box in board.ts.
+{
+  const s = SURFACES.ide;
   const box = s.prompt.closest<HTMLElement>('.composer-box')!;
   wireComposer({ box, meta: box.parentElement!.querySelector<HTMLElement>('.cmp-meta')!, surface: s, send: () => sendPrompt(), attach: files => background(attachFilesToAgent(files, s)) });
 }
-// Breeze Space's prompt floats over the conversation, which keeps its height free under the last message (breeze.css).
-new ResizeObserver(([e]) => $('#box').style.setProperty('--box-cmp-h', `${Math.ceil(e.borderBoxSize[0].blockSize)}px`)).observe($('.box-composer'));
-// Its right edge lines up with the title bar's Settings button: --box-end is how far that button's right edge sits
-// in from the conversation column's right edge (breeze.css .box-chat).
-// Offsets, not on-screen boxes: Space's entrance animation scales the page while this first runs.
-const boxBarBtn = $('#boxSettings'), boxMain = $('.box-main');
-const boxEndWatch = new ResizeObserver(() => {
-  const bar = boxBarBtn.offsetParent as HTMLElement | null; // the title bar, which starts at the page's left edge
-  if (!bar || !boxBarBtn.offsetWidth) return;
-  const end = boxMain.offsetLeft + boxMain.offsetWidth - (bar.offsetLeft + boxBarBtn.offsetLeft + boxBarBtn.offsetWidth);
-  $('#box').style.setProperty('--box-end', `${Math.max(16, end)}px`);
-});
-boxEndWatch.observe(boxMain);
-// The button moves when anything to its right changes size (the account picture filling in, say).
-for (let el: Element | null = boxBarBtn; el; el = el.nextElementSibling) boxEndWatch.observe(el);
 // After every script has run (git.js and settings.js own what the line shows).
 // Plan usage, fetched when the app starts, after each run, and when the window comes back (at most every 30 s).
 let composerUsageAt = 0;

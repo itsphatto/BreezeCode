@@ -102,7 +102,8 @@ type NbMessage = { id: string } & (
 interface Diag { line: number; col: number; len: number; msg: string; sev?: number; } // sev 2: a warning
 type SyntaxResult = { ok: true } | (Diag & { eof?: boolean }) | null;
 // `movedFrom`: where the folder was before it was renamed or moved, since it was last opened (main's projectmove.ts).
-interface RootInfo { root: string; name: string; movedFrom?: string[]; }
+// solo: a file was opened on its own; root is just its folder, so the tree lists only the open files.
+interface RootInfo { root: string; name: string; solo?: boolean; movedFrom?: string[]; }
 // A folder opened from Explorer's "Open with Breeze Code", with the file that was right-clicked (project-relative).
 interface LaunchInfo extends RootInfo { open: string | null; launched: true; }
 interface SearchHit { path: string; line: number; col: number; text: string; }
@@ -314,7 +315,7 @@ interface BreezeApi {
   // Discord Rich Presence through the Discord app on this computer.
   discord: { set(activity: DiscordActivity): Promise<{ user: string | null }>; clear(): Promise<void>; };
   agent: {
-    run(opts: { agent: string; mode: AgentMode; prompt: string; session: string | null; box?: boolean; chat?: string }): Promise<number>;
+    run(opts: { agent: string; mode: AgentMode; prompt: string; session: string | null; chat?: string }): Promise<number>;
 
     stop(runId: number): Promise<void>;
     // Chat runs main still has (going, or done in the last minute), each with every event it sent: a reloaded page takes them back.
@@ -673,6 +674,20 @@ function patchRows(el: HTMLElement, rows: string[]): void {
     if (n === cur) cur = cur.nextElementSibling;
     else el.insertBefore(n, cur);
   }
+}
+// Overlay boxes (guides, squiggles, find hits) by position: only the ones that changed are swapped, since re-inserting
+// every box on each keystroke made the browser restyle and re-lay out all of them.
+function patchBoxes(el: HTMLElement, boxes: Element[]): void {
+  boxes.forEach((d, i) => {
+    const old = el.children[i];
+    if (!old) el.append(d);
+    else if (!old.isEqualNode(d)) old.replaceWith(d);
+  });
+  while (el.children.length > boxes.length) el.lastElementChild!.remove();
+}
+// Setting textContent always swaps the text node (and re-lays it out), even to the same words.
+function putText(el: Element, text: string): void {
+  if (el.textContent !== text) el.textContent = text;
 }
 // A row changed by hand (the current line's highlight, a folder's chevron) no longer matches its html, so it is never kept.
 const forgetRow = (n: Element | undefined) => { if (n) drawnHtml.delete(n); };

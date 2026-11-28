@@ -2,7 +2,7 @@
 // A panel that shows one file at a time: the last one an agent touched. A new file types in as the agent drafts it;
 // an edited one is read back after each write, with the lines that changed marked and scrolled into view.
 // What was last shown (or, the first time, the committed version) is what "changed" is measured against.
-// Breeze Space has one at its right (#boxLive); an Agent board box alone on the board has one at its left (board.ts).
+// An Agent board box alone on the board has one at its left (board.ts).
 const LIVE_MAX_LINES = 5000; // past this only the start is drawn; a huge file would take too long to lay out
 
 // The first and last line (0-based, inclusive) where `next` differs from `prev`; null when they match.
@@ -130,10 +130,3 @@ class LivePane {
     target?.scrollIntoView({ block: writing ? 'end' : 'center' });
   }
 }
-
-/* ----- Breeze Space: the panel at the right ----- */
-const spaceLive = new LivePane($('#boxLive'), $('#boxLiveHead'), $('#boxLiveBody'), path => { enterMode('ide'); openFile(path); });
-function liveEmpty(): void { spaceLive.empty(); }
-function liveDraft(path: string, text: string, phase?: string): void { spaceLive.draft(path, text, phase); }
-function liveFile(path: string): void { spaceLive.file(path); }
-liveEmpty();

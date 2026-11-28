@@ -1,21 +1,20 @@
 /* ================= App state (survives reloads) ================= */
-type WorkMode = 'ide' | 'box';
 interface AppState {
   onboarded: boolean; step: number; name: string | null; termsAcceptedAt: number | null;
   user: User | null; agent: string | null; detect: Detection | null;
-  vibeArmed: boolean; vibeSites: string[]; vibeSite: string | null; mode: WorkMode;
+  vibeArmed: boolean; vibeSites: string[]; vibeSite: string | null;
   discord: boolean; discordDetails: boolean; devMode: boolean;
   // Super Error Alert (Settings → Miscellaneous): a run that fails flashes the window's corners red and sounds a siren.
   superErrorAlert: boolean;
 }
 const savedApp = store.get<Partial<AppState>>('breeze.app', {});
 const appState: AppState = {
-  onboarded: false, step: 0, name: null, termsAcceptedAt: null, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null, mode: 'ide',
+  onboarded: false, step: 0, name: null, termsAcceptedAt: null, user: null, agent: null, detect: null, vibeArmed: false, vibeSites: [], vibeSite: null,
   discord: false, discordDetails: true, devMode: false, superErrorAlert: false,
   ...savedApp,
 };
-// The separate Breeze Agent workspace is now part of Breeze Space: a save from that build comes back to Space.
-if ((appState.mode as string) === 'agent') appState.mode = 'box';
+// Breeze Space (and the Breeze Agent workspace before it) is gone: a save from then still names the one it was on.
+delete (appState as unknown as Record<string, unknown>).mode;
 // A save from before the name screen has no `name` (every save since does) and counts the later steps one lower.
 if (savedApp.name === undefined && savedApp.step) appState.step++;
 const saveApp = () => store.set('breeze.app', appState);
@@ -669,7 +668,6 @@ function avatarHtml(u: User | null, title: string): string {
 function renderUser(): void {
   const title = user ? `${user.name} · ${user.provider}` : 'Not signed in';
   $('#avatars').innerHTML = avatarHtml(user, title);
-  $('#boxAvatar').innerHTML = avatarHtml(user, title);
   $('#userChip').textContent = user ? `● ${user.name} · ${user.provider}` : 'Not signed in';
   renderHomeProfile();
   renderConnected();
@@ -885,7 +883,7 @@ function openAccountMenu(anchor: HTMLElement): void {
     m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
   }
 }
-for (const id of ['#avatars', '#boxAvatar', '#homeProfile']) {
+for (const id of ['#avatars', '#homeProfile']) {
   $(id).onclick = e => {
     const anchor = e.currentTarget as HTMLElement;
     if (anchor.id === 'homeProfile' && !user) { closeMenu(); addAccount(); return; }

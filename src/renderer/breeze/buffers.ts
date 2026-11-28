@@ -76,7 +76,6 @@ async function swapWorkspace(info: RootInfo): Promise<void> {
   active = s.active && openTabs.includes(s.active) ? s.active : openTabs[0] ?? null;
   renderTabs(); renderEditor(); renderTree();
   restoreChat(SURFACES.ide);
-  renderBoxFolder();
   if (boardPageShowing() && boardFolder !== info.root) openBoard(); // its boxes are the last folder's
   void refreshLiveShare();
   void holdStartup(refreshGit());
@@ -276,7 +275,7 @@ function createSurface(b: EditorBuffer): CodeSurface {
   ta.addEventListener('input', e => linkTagAfter(ta, e)); // after the handler above has taken the text
   ta.addEventListener('blur', hideSuggest);
   ta.addEventListener('mousedown', hideSuggest);
-  ta.addEventListener('scroll', () => { if (suggest?.owner === ta.input) editorSuggest(b); else placeLineHint(); }); // follow the caret
+  ta.addEventListener('scroll', () => { if (suggest?.owner === ta.input) scrollSuggest(ta); else placeLineHint(); }); // follow the caret
   ta.addEventListener('scroll', syncScroll);
   ta.addEventListener('keydown', e => editorKeys(e as KeyboardEvent));
   ta.addEventListener('selectionchange', updateCaret); // also fires on focus

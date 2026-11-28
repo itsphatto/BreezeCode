@@ -1,5 +1,5 @@
 /* ================= Settings ================= */
-// One pop-up for everything: the gear opens it (in the IDE and in Breeze Space) and turns while it is open.
+// One pop-up for everything: the gear opens it (in the IDE and on Home) and turns while it is open.
 type SettingsTab = 'general' | 'appearance' | 'controls' | 'agents' | 'misc' | 'discord' | 'help' | 'dev';
 // The controller Discord puts beside a game's elapsed time (Lucide's gamepad-2), for the Discord tab's preview.
 // The same language art main.js hands Discord, so the preview shows what friends see.
@@ -487,9 +487,8 @@ function setBackdrop(next: Backdrop): void {
    solid enough (--bd-a) that secondary text keeps about 4.5:1 over the brightest (light theme: darkest) spot. Over a
    backdrop that already reads well, Glass is as see-through as ever.
    The share depends only on what is behind the window, never on which page is showing, so the editor, the debugger,
-   Home and Breeze Space always wear the same Glass: the title-bar and status-bar rows count as one layer thick, the
-   rows between as two (a panel on the window's base layer), whatever is really there. Breeze Space's one deep-space
-   layer stands in for both of those, so it gets a share of its own (--bd-box) worth the two. */
+   Home always wear the same Glass: the title-bar and status-bar rows count as one layer thick, the rows between as
+   two (a panel on the window's base layer), whatever is really there. */
 const GLASS_RANGE = { dark: [.34, .86], light: [.52, .9] } as const; // the least is breeze.css's own --bd-a for Glass
 const GLASS_TARGET = { dark: 62, light: 197 }; // the surface brightness (0–255) that --text-2 reads on at 4.5:1
 const GLASS_LEFT_MIN = .05; // a spot showing less than this much of the backdrop can't be read: its last value stands
@@ -501,8 +500,7 @@ const glassRange = (key: keyof typeof GLASS_RANGE): [number, number] => {
 };
 // The knob as shown: the one set, else the theme's own least.
 const glassOpacityNow = () => Math.round(glassRange(themeKey())[0] * 100);
-let glassA = clamp(Number(store.get<number>('breeze.glassA', 0)) || 0, 0, .9); // the shares last used, kept for the next launch
-let glassBox = clamp(Number(store.get<number>('breeze.glassBox', 0)) || 0, 0, .9);
+let glassA = clamp(Number(store.get<number>('breeze.glassA', 0)) || 0, 0, .9); // the share last used, kept for the next launch
 const glassSeen: (number | undefined)[] = []; // the brightness behind each point, when last it could be told
 let glassLast: number[] = []; // the screen's brightness at each point at the last reading worked through
 let glassTimer = 0, glassStep = 0, glassEaseEnd = 0;
@@ -520,25 +518,10 @@ function colorLuma(c: string): [number, number] | null {
 }
 // What the page paints at a point: its colours' brightness, stacked (`own`), and how much of the backdrop still shows
 // (`left`). null where something draws its own picture (a preview, an image), which says nothing about the backdrop.
-// Breeze Space's two nebulae, the one painted on top first: a background picture, which the colours below don't cover.
-// The same numbers as breeze.css's `.box` gradients (centre, radii in px, colour, strength; each fades out at 70%).
-const SPACE_GLOWS: { cx: number; cy: number; rx: number; ry: number; luma: number; a: number }[] = [
-  { cx: .78, cy: .08, rx: 900, ry: 500, luma: .2126 * 120 + .7152 * 80 + .0722 * 220, a: .13 },
-  { cx: .16, cy: .92, rx: 1000, ry: 620, luma: .7152 * 122 + .0722 * 255, a: .12 },
-];
 function glassStack(x: number, y: number): { own: number; left: number } | null {
   let own = 0, left = 1;
   for (const el of document.elementsFromPoint(x, y)) {
     if (el.matches('iframe, webview, img, video, canvas')) return null;
-    if (el.id === 'box' && theme !== 'light') {
-      const r = el.getBoundingClientRect();
-      for (const g of SPACE_GLOWS) {
-        const d = Math.hypot((x - r.left - g.cx * r.width) / g.rx, (y - r.top - g.cy * r.height) / g.ry) / .7;
-        const a = d < 1 ? g.a * (1 - d) : 0;
-        own += left * a * g.luma;
-        left *= 1 - a;
-      }
-    }
     const col = colorLuma(getComputedStyle(el).backgroundColor);
     if (!col || !col[1]) continue;
     own += left * col[1] * col[0];
@@ -547,29 +530,23 @@ function glassStack(x: number, y: number): { own: number; left: number } | null 
   }
   return { own, left };
 }
-// The shares in use: --bd-a (every surface) and --bd-box (Breeze Space's base layer), as fractions.
-function glassNow(): { a: number; box: number } {
-  const cs = getComputedStyle(document.documentElement), a = parseFloat(cs.getPropertyValue('--bd-a')) / 100;
-  return { a, box: parseFloat(cs.getPropertyValue('--bd-box')) / 100 || a };
+// The share in use: --bd-a (every surface), as a fraction.
+function glassNow(): { a: number } {
+  return { a: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bd-a')) / 100 };
 }
-// Both shares eased to their new values (each step restyles the window, so it is short), or set at once.
-function setGlassA(a: number, box: number, ease = true): void {
+// The share eased to its new value (each step restyles the window, so it is short), or set at once.
+function setGlassA(a: number, ease = true): void {
   const root = document.documentElement, from = glassNow();
   glassA = a;
-  glassBox = box;
   store.set('breeze.glassA', a);
-  store.set('breeze.glassBox', box);
   cancelAnimationFrame(glassStep);
-  const put = (va: number, vb: number) => {
-    root.style.setProperty('--bd-a', `${(va * 100).toFixed(1)}%`);
-    root.style.setProperty('--bd-box', `${(vb * 100).toFixed(1)}%`);
-  };
-  if (!ease || motionOff() || !(from.a > 0)) { put(a, box); return; }
+  const put = (va: number) => root.style.setProperty('--bd-a', `${(va * 100).toFixed(1)}%`);
+  if (!ease || motionOff() || !(from.a > 0)) { put(a); return; }
   const t0 = performance.now();
   glassEaseEnd = t0 + GLASS_EASE_MS;
   const step = (now: number) => {
     const p = clamp((now - t0) / GLASS_EASE_MS, 0, 1), e = 1 - (1 - p) ** 3; // a frame's time can be before t0
-    put(from.a + (a - from.a) * e, from.box + (box - from.box) * e);
+    put(from.a + (a - from.a) * e);
     if (p < 1) glassStep = requestAnimationFrame(step);
   };
   glassStep = requestAnimationFrame(step);
@@ -611,7 +588,7 @@ async function glassFrame(): Promise<{ cam: GlassCam; x: number; y: number; w: n
   });
   return glassCam === cam ? { cam, ...at } : null;
 }
-// Glass just turned on, or off: the shares last used go on at once (before the first reading), or all of it comes off.
+// Glass just turned on, or off: the share last used goes on at once (before the first reading), or all of it comes off.
 function startGlassTune(): void {
   clearTimeout(glassTimer);
   cancelAnimationFrame(glassStep);
@@ -619,12 +596,11 @@ function startGlassTune(): void {
   glassLast = [];
   if (backdrop !== 'glass') {
     stopGlassCam();
-    for (const v of ['--bd-a', '--bd-box']) document.documentElement.style.removeProperty(v);
+    document.documentElement.style.removeProperty('--bd-a');
     return;
   }
   const [min, max] = glassRange(themeKey());
-  const a = clamp(glassA || min, min, max);
-  setGlassA(a, clamp(glassBox || a, a, max), false);
+  setGlassA(clamp(glassA || min, min, max), false);
   glassTimer = window.setTimeout(tuneGlass, 600);
 }
 // The page is mid-change: a screen swap, a dialog or panel fading or sliding, a view transition, or the shares easing.
@@ -642,7 +618,7 @@ function glassPageMoving(): boolean {
 // as it was. A change is made only when the next reading agrees (so nothing passing counts), about half a second after
 // the backdrop changed.
 let glassBusy = false;
-let glassPending: { a: number; box: number } | null = null; // what the last reading wanted, if it wanted a change
+let glassPending: { a: number } | null = null; // what the last reading wanted, if it wanted a change
 async function tuneGlass(): Promise<void> {
   if (glassBusy) return;
   clearTimeout(glassTimer);
@@ -680,8 +656,8 @@ async function tuneGlass(): Promise<void> {
     if (!glassPending && lum.length === glassLast.length && lum.every((v, i) => Math.abs(v - glassLast[i]) <= 1.5)) return; // nothing moved
     if (glassPageMoving()) { glassPending = null; return; }
     const base = colorLuma(getComputedStyle(document.documentElement).getPropertyValue('--bd-solid'))?.[0] ?? (light ? 249 : 29);
-    // How solid the most demanding spot has to be (`most`), and the share per layer that gets every spot there (`share`).
-    let most = 0, share = 0;
+    // The share per layer that gets every spot readable.
+    let share = 0;
     lum.forEach((m, i) => {
       const [fx, fy] = at(i), s = m < 0 ? null : glassStack(fx * innerWidth, fy * innerHeight);
       if (!s) return;
@@ -702,22 +678,20 @@ async function tuneGlass(): Promise<void> {
       // only if the spot could be read again at the share it asks for. One that couldn't (a button on a bar, three
       // layers deep) would hold the window solid for good after a white window behind it had gone.
       if (!fresh && (1 - Math.max(need, min)) ** layers < GLASS_LEFT_MIN) return;
-      most = Math.max(most, cover);
       share = Math.max(share, need);
     });
     // Small differences are left alone, so it doesn't shimmer with every pixel that changes behind.
     const off = (to: number, from: number, least: number) => Math.abs(to - from) >= .03 || (to === least && Math.abs(from - least) > .001);
     const wantA = clamp(share, min, max), a = off(wantA, cur.a, min) ? wantA : cur.a;
-    const wantBox = clamp(most, a, max), box = off(wantBox, cur.box, a) ? wantBox : cur.box;
     // Settled (this reading wants nothing): the next ones are skipped until the screen at the points changes. A reading
     // that wants a change, or one dropped above, isn't noted, so it is worked through again.
-    if (a === cur.a && box === cur.box) { glassPending = null; glassLast = lum; return; }
-    if (glassPending && Math.abs(glassPending.a - a) < .08 && Math.abs(glassPending.box - box) < .08) {
-      setGlassA(a, box);
+    if (a === cur.a) { glassPending = null; glassLast = lum; return; }
+    if (glassPending && Math.abs(glassPending.a - a) < .08) {
+      setGlassA(a);
       glassPending = null;
       glassLast = [];
       next = GLASS_EASE_MS + 250; // past the easing and a frame
-    } else { glassPending = { a, box }; next = 100; }
+    } else { glassPending = { a }; next = 100; }
   } finally {
     glassBusy = false;
     if (backdrop === 'glass') glassTimer = window.setTimeout(tuneGlass, next);
@@ -728,12 +702,12 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 /* ----- A picture stays readable: text and icons take the contrast they need from it -----
    Unlike Glass nothing has to be read off the screen: the picture is known. It is drawn small, as the window covers it,
    and its brightest spot (the light theme: darkest) is put behind one see-through layer (the title and status bars,
-   Home, Breeze Space) and behind two (a panel on the window's base layer), at the opacity you chose and --bd-a. Each
+   Home) and behind two (a panel on the window's base layer), at the opacity you chose and --bd-a. Each
    text colour then moves toward white (or black) only as far as it must to read 4.5:1 there, so the picture keeps its
    look. A colour moves at most PICTURE_MAX_MIX of the way, so green stays green: past that, the surfaces turn a little
    more solid (--bd-a) instead. */
 const PICTURE_INK = ['--text', '--text-soft', '--text-2', '--text-3', '--code-text', '--blue-text', '--ok', '--warn', '--err-text', '--c-planner', '--c-builder'];
-const PICTURE_THIN = '.titlebar, .statusbar, #box, .home-step'; // on one layer; everything else counts as two
+const PICTURE_THIN = '.titlebar, .statusbar, .home-step'; // on one layer; everything else counts as two
 const PICTURE_MIN = 4.5, PICTURE_MAX_MIX = .6;
 let pictureSeq = 0, pictureResize = 0;
 async function tunePicture(): Promise<void> {
@@ -887,7 +861,7 @@ function bindBackdropSettings(pane: HTMLElement): void {
     bdSlider('sBgOpacity', 10, Math.round(GLASS_RANGE[themeKey()][1] * 100), '%', glassOpacityNow, v => {
       if (v === glassOpacityNow()) return; // the first paint of the knob, or no change: tuning carries on
       glassFloor = v; store.set('breeze.glassOpacity', v);
-      glassA = 0; glassBox = 0;
+      glassA = 0;
       startGlassTune();
     });
   } else bdSlider('sBgOpacity', BG_OPACITY_MIN, BG_OPACITY_MAX, '%', () => bgOpacity, v => { bgOpacity = v; store.set('breeze.bgOpacity', v); });
@@ -1038,7 +1012,6 @@ function settingsBody(tab: SettingsTab): string {
     case 'general': return `<h4>General</h4>
       ${accountHtml()}
       <h5>Preferences</h5>
-      ${''/* Breeze Space removed (2026-11-18), kept commented for now: settingRow('Workspace', 'Full editor, or chat only.', segHtml('sMode', [['ide', 'Breeze Code'], ['box', 'Breeze Space']], appState.mode)) */}
       ${settingRow('Sound', 'Clicks, typing ticks and agent chimes.', `<div class="set-volume"><button class="set-volume-ico" id="sVolumeIco" title="Mute" aria-label="Mute">${svgIcon(volumeIcon(sfx.volume), 14)}</button><input type="range" id="sVolume" min="0" max="100" step="1" value="${sfx.volume}" aria-label="Sound volume"><span class="set-volume-val" id="sVolumeVal">${sfx.volume}%</span></div>`)}
       ${settingRow('Performance', powerNote(), segHtml('sPower', [['auto', 'Auto'], ['on', 'Always on'], ['off', 'Off']], powerInfo.mode))}
       <h5>Editor</h5>
@@ -1087,7 +1060,7 @@ function settingsBody(tab: SettingsTab): string {
         ${settingRow('Add an API key', 'Gemini, OpenRouter, DeepSeek or a local LLM.', '<button class="btn btn-sm" id="sAgentPicker">Add</button>')}
         <h5>Instructions</h5>
         <p class="set-sub">Sent to every agent with each message: Claude, Codex and the rest, in chats, teams and the Agent Board.</p>
-        <textarea class="input set-instructions" id="sAgentInstructions" aria-label="Instructions for all agents" placeholder="e.g. Answer in English. Use TypeScript. Never commit without asking." spellcheck="false" rows="5" maxlength="${AGENT_INSTRUCTIONS_MAX}">${esc(agentInstructions)}</textarea>
+        <div class="set-instructions-wrap"><textarea class="input set-instructions" id="sAgentInstructions" aria-label="Instructions for all agents" placeholder="e.g. Answer in English. Use TypeScript. Never commit without asking." spellcheck="false" rows="5" maxlength="${AGENT_INSTRUCTIONS_MAX}">${esc(agentInstructions)}</textarea></div>
         <h5>API keys</h5>
         ${apiKeyRowsHtml(agents)}
         ${webSearchRowHtml()}
@@ -1532,7 +1505,6 @@ function bindSettings(m: HTMLElement, slide = false): void {
   const seg = (id: string, fn: (v: string) => void) => $$(`#${id} button`, pane).forEach(b => b.onclick = () => fn(b.dataset.v ?? ''));
 
   // General
-  seg('sMode', v => { if (v !== appState.mode) { closeModal(); enterMode(v as WorkMode); } });
   seg('sPower', v => { if (v !== powerInfo.mode) setPowerMode(v as PowerMode); });
   seg('sAutoSave', v => { const m = AUTO_SAVE_MODES.find(x => x === v); if (m && m !== autoSave) { setAutoSave(m); refreshSettings(); } });
   layoutSwitch('sSide', 'view.toggleSide');
@@ -1623,7 +1595,10 @@ function bindSettings(m: HTMLElement, slide = false): void {
   });
   on('sAgentPicker', () => openAgentPicker(true));
   const instrEl = $<HTMLTextAreaElement>('#sAgentInstructions', pane);
-  if (instrEl) instrEl.oninput = () => setAgentInstructions(instrEl.value);
+  if (instrEl) {
+    instrEl.oninput = () => setAgentInstructions(instrEl.value);
+    rotatePlaceholder(instrEl, instrEl.placeholder, [instrEl.placeholder]); // one example: it only blurs away and back
+  }
   $$<HTMLButtonElement>('[data-llm-remove]', pane).forEach(b => b.onclick = () => {
     b.disabled = true;
     background(removeApiAgent(b.dataset.llmRemove ?? '').finally(refreshSettings));
@@ -1823,7 +1798,7 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
   background(api.web.searchKey().then(v => { if (v !== braveKeySaved) { braveKeySaved = v; refreshSettings(); } }));
   closeMenu();
   if (tab) settingsTab = tab;
-  const gears = [$('#settingsBtn'), $('#boxSettings'), $('#homeSettings')];
+  const gears = [$('#settingsBtn'), $('#homeSettings')];
   gears.forEach(g => { g.classList.add('open'); g.setAttribute('aria-expanded', 'true'); });
   openModal(`<div class="settings-modal" aria-label="Settings">
       <nav class="set-nav" aria-label="Settings sections">${settingsNavHeadHtml()}</nav>
@@ -1881,15 +1856,17 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-set-tab], [data-go-tab]');
       if (b) switchTab((b.dataset.setTab ?? b.dataset.goTab) as SettingsTab, Number(b.dataset.at ?? 0));
     });
-    // Miscellaneous's dots hop once each time the pointer comes on, and finish the hop if it leaves early (breeze.css).
+    // Each section's icon plays its motion once each time the pointer comes on, and finishes it if the pointer leaves
+    // early (breeze.css): .hop stays on until nothing on the icon is still moving.
     $('.set-nav', root).addEventListener('pointerover', e => {
-      const b = (e.target as HTMLElement).closest('[data-set-tab="misc"]');
+      const b = (e.target as HTMLElement).closest('[data-set-tab]');
       if (b && !b.contains(e.relatedTarget as Node | null)) b.classList.add('hop');
     });
-    $('.set-nav', root).addEventListener('animationend', e => {
-      const t = e.target as Element;
-      if (t.matches('[data-set-tab="misc"] circle:nth-child(2)')) t.closest('.set-item')?.classList.remove('hop'); // the last dot to land
-    });
+    const landed = (e: Event) => {
+      const b = (e.target as Element).closest('.set-item.hop');
+      if (b && !b.getAnimations({ subtree: true }).some(a => a.playState === 'running')) b.classList.remove('hop');
+    };
+    for (const ev of ['animationend', 'transitionend', 'transitioncancel']) $('.set-nav', root).addEventListener(ev, landed);
     // A search result opens its section on its row, which is brought into view and glows for a moment. A shortcut
     // opens Controls already filtered to it.
     const openHit = (h: SettingsHit) => {
@@ -1943,7 +1920,6 @@ function openSettings(gear: HTMLElement, tab?: SettingsTab): void {
 }
 commands['settings.open'] = () => openSettings($('#settingsBtn'));
 $('#settingsBtn').onclick = e => openSettings(e.currentTarget as HTMLElement);
-$('#boxSettings').onclick = e => openSettings(e.currentTarget as HTMLElement);
 $('#homeSettings').onclick = e => openSettings(e.currentTarget as HTMLElement);
 
 // Buttons with data-act anywhere in the page run the matching command.

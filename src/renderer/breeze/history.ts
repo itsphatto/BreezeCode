@@ -1,13 +1,15 @@
 /* ----- Chat history: "New chat" files the current conversation away; the clock button brings one back ----- */
 // `sessions` is the current shape; an older entry has `session` (+ `agent`) instead, and openChat turns that into `sessions`.
-// `folder`: the project open when a Breeze Space chat began, so its side bar can group chats by folder.
+// `folder`: the project open when the chat began, so the Agent board's side bar can group chats by folder.
 // `log`: a chat from Claude Code's or Codex's own logs (the Agent Board lists them); its messages are read when it is opened.
 interface ChatEntry { id: string; title: string; at: number; html: string; agent: string | null; session: string | null; sessions?: Record<string, string>; folder?: string | null; log?: { agent: string; session: string }; }
-const historyKey = (s: Surface) => `breeze.history:${chatScope(s)}`;
-const chatIdKey = (s: Surface) => `breeze.chatId:${chatScope(s)}`;
+const historyKey = (s: ChatStore) => `breeze.history:${chatScope(s)}`;
+const chatIdKey = (s: ChatStore) => `breeze.chatId:${chatScope(s)}`;
 const HISTORY_MAX = 30, HISTORY_BYTES = 1_500_000;
 const newChatId = () => crypto.randomUUID();
-const chatHistory = (s: Surface) => store.get<ChatEntry[]>(historyKey(s), []);
+const chatHistory = (s: ChatStore) => store.get<ChatEntry[]>(historyKey(s), []);
+// The chats Breeze Space kept before it was removed: no screen of their own, but the board's side bar lists them.
+const SPACE_CHATS: ChatStore = { name: 'space' };
 // What each tab last filed. Filing parses and rewrites the whole history (up to HISTORY_BYTES), and the board files
 // every box's chat whenever one box finishes, so a chat that hasn't changed since isn't filed again.
 const archivedAs = new WeakMap<AgentTabState, string>();
@@ -36,9 +38,8 @@ function archiveChatTab(s: Surface, tab: AgentTabState): void {
   archivedAs.set(tab, filed);
   // Done replying: the new part goes to the folder's second brain (main summarizes it in the background).
   if (folder && !tabBusy(tab)) background(api.brain.syncChat(folder, { key: id, title, text: chatPlainText(html) }));
-  if (s.name === 'box') renderBoxSide();
   // The Agent Board's side bar lists this folder's chats (and Space's old ones).
-  else if (typeof renderBoardSide === 'function' && boardPageShowing()) renderBoardSide();
+  if (typeof renderBoardSide === 'function' && boardPageShowing()) renderBoardSide();
 }
 
 /* ----- A project folder renamed or moved (main's projectmove.ts noticed): its chats and settings follow it ----- */
@@ -141,7 +142,7 @@ async function reattachRuns(s: Surface): Promise<void> {
   let live: Awaited<ReturnType<typeof api.agent.live>>;
   try { live = await api.agent.live(); } catch { return; }
   for (const r of live) {
-    if (r.box !== (s.name === 'box') || findTabForRun(r.runId)) continue; // another surface's, or already on screen
+    if (findTabForRun(r.runId)) continue; // already on screen
     const e = chatHistory(s).find(x => x.id === r.chat);
     if (!e) continue;
     const tab = createAgentTab(s, e.title, e.html);
@@ -209,54 +210,11 @@ function showHistory(s: Surface, anchor: HTMLElement): void {
 }
 $('#chatHistory').onclick = e => showHistory(SURFACES.ide, e.currentTarget as HTMLElement);
 commands['chat.history'] = () => {
-  if (surface.name === 'box') { setBoxSide(true); openBoxSearch(); } else showHistory(surface, $('#chatHistory'));
+  showHistory(surface, $('#chatHistory'));
 };
 
-/* ----- Breeze Space side bar: New chat, Search, then the chats grouped by folder ----- */
-// Box switches chats here instead of with tabs: a chat that is not running and not on screen is filed away,
-// so only the open chat and any still working stay loaded.
-const boxSideFolded = new Set(store.get<string[]>('breeze.boxSideFolded', []));
-let boxSideQuery = '';
 // Just the folder's own name ("BreezeCode"), whichever slashes its path uses.
 const folderName = (p: string | null | undefined) => (p ? baseName(p.replaceAll('\\', '/').replace(/\/+$/, '')) : '');
-function boxSideOpen(): boolean { return store.get<boolean>('breeze.boxSide', true); }
-// Hidden, the side bar takes its own Hide button with it; the title bar's Show button brings it back. On screen, the bar
-// folds away to the left (or opens out) while its toggle icon flies between the two buttons and the logo slides over.
-let boxSideAnim: TimeoutId | undefined;
-function setBoxSide(open: boolean): void {
-  store.set('breeze.boxSide', open);
-  const box = $('#box'), side = $('#boxSide'), logo = $('#boxLogoHome');
-  const from = $(open ? '#boxSideShow' : '#boxSideHide'), to = $(open ? '#boxSideHide' : '#boxSideShow');
-  const was = from.getBoundingClientRect(), logoWas = logo.getBoundingClientRect().left;
-  const sideWas = getComputedStyle(side), widthWas = sideWas.width, padWas = sideWas.paddingLeft, fadeWas = sideWas.opacity;
-  const play = was.width > 0 && !matchMedia('(prefers-reduced-motion: reduce)').matches; // not at start-up, with Space hidden
-  // Laid out at once in its new state, so everything below is measured where it ends up; the animations then run
-  // from the old look to it. (Script-driven, so a drag on the bar's edge still follows the pointer straight away.)
-  box.classList.toggle('side-closed', !open);
-  side.inert = !open;
-  clearTimeout(boxSideAnim);
-  box.classList.toggle('side-anim', play);
-  if (!play) return;
-  const ms = 540, easing = SPRING, now = to.getBoundingClientRect();
-  boxSideAnim = setTimeout(() => box.classList.remove('side-anim'), ms + 40);
-  side.animate([{ width: widthWas, paddingLeft: padWas, paddingRight: padWas }, {}], { duration: ms, easing });
-  side.animate(open ? [{ opacity: fadeWas }, { opacity: 1, offset: .65 }, {}] : [{ opacity: fadeWas }, { opacity: fadeWas, offset: .2 }, { opacity: 0 }], { duration: ms });
-  // The icon flies as a copy above everything, since the bar clips its own button while it opens; the real one waits.
-  const ghost = to.cloneNode(true) as HTMLElement;
-  ghost.removeAttribute('id');
-  ghost.className = `${to.className} side-toggle-ghost`;
-  Object.assign(ghost.style, { left: `${now.left}px`, top: `${now.top}px`, width: `${now.width}px`, height: `${now.height}px` });
-  document.body.append(ghost);
-  ghost.animate([{ transform: `translate(${was.left - now.left}px, ${was.top - now.top}px)` }, { transform: 'none' }], { duration: ms, easing });
-  setTimeout(() => ghost.remove(), ms);
-  to.animate([{ opacity: 0 }, { opacity: 0 }], { duration: ms });
-  logo.animate([{ transform: `translateX(${logoWas - logo.getBoundingClientRect().left}px)` }, { transform: 'none' }], { duration: ms, easing });
-}
-function pruneBoxTabs(): void {
-  const s = SURFACES.box;
-  // A new chat with an unsent draft stays open, so New chat brings it back with its text and attachments.
-  for (const t of [...surfaceTabs.box]) if (t.id !== activeTabId.box && !tabBusy(t) && !(chatUnstarted(t) && tabHasDraft(s, t))) closeAgentTab(s, t.id);
-}
 /* A chat belongs to the project it began in. Opened from another project's group, that project is opened first, so the
    chat stays filed under it and its agent carries on in its own folder, never in whichever one happens to be open. */
 // A folder path written one way, whichever slashes and case it came with, so two spellings of one folder match.
@@ -268,153 +226,9 @@ async function openChatFolder(e: ChatEntry): Promise<boolean> {
   await openRecentFolder(e.folder as string);
   return chatInOpenFolder(e);
 }
-
-function openBoxChat(e: ChatEntry): void {
-  if (!chatInOpenFolder(e)) {
-    background(openChatFolder(e).then(ok => { if (ok) { renderBoxFolder(); openBoxChat(e); } }));
-    return;
-  }
-  const s = SURFACES.box;
-  const open = surfaceTabs.box.find(t => t.historyId === e.id);
-  if (open) switchAgentTab(s, open.id);
-  else openChat(s, e);
-  pruneBoxTabs();
-  renderBoxSide();
-}
-function newBoxChat(): void {
-  const cur = getActiveTab(SURFACES.box);
-  // Already on an empty chat: just put the cursor in it.
-  if (!cur.historyId && cur.panel.querySelector('.empty')) { SURFACES.box.prompt.focus(); return; }
-  // A new chat left with a draft (pruneBoxTabs kept it): back to that one instead of a blank one.
-  const kept = surfaceTabs.box.find(t => t !== cur && chatUnstarted(t) && tabHasDraft(SURFACES.box, t));
-  if (kept) switchAgentTab(SURFACES.box, kept.id);
-  else newAgentTabAction(SURFACES.box);
-  pruneBoxTabs();
-  renderBoxSide();
-}
-function openBoxSearch(): void {
-  const input = $<HTMLInputElement>('#boxSideSearch');
-  morphSearchRow($('#boxSideSearchBtn'), $('#boxSideSearchBox'), true);
-  input.focus();
-  input.select();
-}
-function closeBoxSearch(): void {
-  const input = $<HTMLInputElement>('#boxSideSearch');
-  input.value = '';
-  boxSideQuery = '';
-  morphSearchRow($('#boxSideSearchBtn'), $('#boxSideSearchBox'), false);
-  renderBoxSide();
-}
-function renameChatEntry(s: Surface, id: string, title: string): void {
+function renameChatEntry(s: ChatStore, id: string, title: string): void {
   store.set(historyKey(s), chatHistory(s).map(e => (e.id === id ? { ...e, title } : e)));
-  if (s.name === 'box') renderBoxSide();
 }
-function renameBoxChat(id: string): void {
-  const row = $('#boxSideList').querySelector<HTMLElement>(`[data-chat="${CSS.escape(id)}"]`);
-  const e = chatHistory(SURFACES.box).find(x => x.id === id);
-  if (!row || !e) return;
-  const h = getComputedStyle(row).height; // the box takes the row's exact height (not rounded), so nothing below it moves
-  renameInline(row, e.title, name => {
-    if (!name) { renderBoxSide(); return; }
-    const tab = surfaceTabs.box.find(t => t.historyId === id);
-    if (tab) setChatTitle(tab, name);
-    else renameChatEntry(SURFACES.box, id, name);
-  });
-  const input = row.nextElementSibling as HTMLElement | null;
-  if (input?.matches('.rename-input')) input.style.height = h;
-}
-function deleteBoxChat(id: string): void {
-  store.set(historyKey(SURFACES.box), chatHistory(SURFACES.box).filter(e => e.id !== id));
-  background(api.brain.forgetChats([id]));
-  const tab = surfaceTabs.box.find(t => t.historyId === id);
-  if (tab) tab.historyId = undefined; // still open: it is filed again as a new chat if it changes
-  renderBoxSide();
-  toast('Chat deleted');
-}
-// The list as last drawn. Run events redraw it many times a second; rebuilding unchanged rows re-pops their hover tip
-// and makes the list flicker, so an unchanged list is left alone.
-let boxSideHtml = '';
-function renderBoxSide(): void {
-  const list = $('#boxSideList');
-  if (list.querySelector('.rename-input')) return; // a chat is being renamed: redrawn once that is done
-  const q = boxSideQuery.toLowerCase();
-  const matches = (e: ChatEntry) => `${e.title}\n${folderName(e.folder)}`.toLowerCase().includes(q);
-  const entries = chatHistory(SURFACES.box).filter(e => !q || matches(e));
-  const activeId = surfaceTabs.box.find(t => t.id === activeTabId.box)?.historyId;
-  const busy = new Set(surfaceTabs.box.filter(t => tabBusy(t) && t.historyId).map(t => t.historyId));
-  const asking = new Set(surfaceTabs.box.filter(t => t.historyId && tabNeedsYou(t)).map(t => t.historyId));
-  // Groups keep the order of their newest chat; chats from before folders were kept go under "Breeze Space".
-  const groups = new Map<string, ChatEntry[]>();
-  for (const e of entries) {
-    const k = e.folder ?? '';
-    groups.set(k, [...groups.get(k) ?? [], e]);
-  }
-  if (!groups.size) {
-    list.innerHTML = `<div class="box-side-empty">${q ? 'No chats match' : 'Your chats show up here'}</div>`;
-    boxSideHtml = '';
-    return;
-  }
-  // Where each chat and folder sits now, so a chat that moves (the newest jumps to the top) slides to its new place.
-  const before = new Map($$<HTMLElement>('[data-chat], [data-folder]', list).map(el => [el.dataset.chat ?? `f:${el.dataset.folder}`, el.getBoundingClientRect().top]));
-  const html = [...groups].map(([folder, chats]) => {
-    const folded = !q && boxSideFolded.has(folder);
-    const name = folderName(folder) || 'Breeze Space';
-    const rows = chats.map(e => `<button class="box-side-chat${e.id === activeId ? ' on' : ''}" type="button" data-chat="${escAttr(e.id)}" title="${escAttr(e.title)}">
-        ${asking.has(e.id) ? '<span class="needs-you-dot" title="Needs you" aria-label="Needs you"></span>' : ''}<span class="nm">${esc(e.title)}</span>${busy.has(e.id) ? '<span class="box-side-busy" aria-label="Working"></span>' : `<span class="ago">${esc(timeAgo(e.at))}</span>`}</button>`).join('');
-    return `<div class="box-side-group${folded ? ' folded' : ''}">
-      <button class="box-side-folder" type="button" data-folder="${escAttr(folder)}" aria-expanded="${!folded}" title="${escAttr(folder || 'Chats with no folder open')}">
-        <span class="nm">${esc(name)}</span>${svgIcon('chevronDown', 12)}</button>
-      <div class="box-side-chats">${rows}</div>
-    </div>`;
-  }).join('');
-  if (html === boxSideHtml && list.querySelector('[data-chat]')) return;
-  boxSideHtml = html;
-  list.innerHTML = html;
-  if (motionOff() || !before.size) return;
-  for (const el of $$<HTMLElement>('[data-chat], [data-folder]', list)) {
-    const from = before.get(el.dataset.chat ?? `f:${el.dataset.folder}`);
-    const dy = from === undefined ? 0 : from - el.getBoundingClientRect().top;
-    if (Math.abs(dy) > 1) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 480, easing: SPRING });
-  }
-}
-$('#boxSideList').addEventListener('click', ev => {
-  const t = ev.target as HTMLElement;
-  const folder = t.closest<HTMLElement>('[data-folder]');
-  if (folder) {
-    const k = folder.dataset.folder ?? '';
-    if (boxSideFolded.has(k)) boxSideFolded.delete(k); else boxSideFolded.add(k);
-    store.set('breeze.boxSideFolded', [...boxSideFolded]);
-    renderBoxSide();
-    return;
-  }
-  const row = t.closest<HTMLElement>('[data-chat]');
-  const e = row && chatHistory(SURFACES.box).find(x => x.id === row.dataset.chat);
-  if (e) openBoxChat(e);
-});
-$('#boxSideList').addEventListener('contextmenu', ev => {
-  const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-chat]');
-  if (!row) return;
-  ev.preventDefault();
-  const id = row.dataset.chat as string;
-  popupMenu(ev.clientX, ev.clientY, [{ label: 'Rename chat', run: () => renameBoxChat(id) }, { label: 'Delete chat', run: () => deleteBoxChat(id) }]);
-});
-$('#boxSideList').addEventListener('dblclick', ev => {
-  const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-chat]')?.dataset.chat;
-  if (id) renameBoxChat(id);
-});
-$('#boxSideNew').onclick = newBoxChat;
-$('#boxSideSearchBtn').onclick = openBoxSearch;
-$('#boxSideSearch').addEventListener('input', ev => {
-  boxSideQuery = (ev.target as HTMLInputElement).value.trim();
-  renderBoxSide();
-});
-$('#boxSideSearch').addEventListener('keydown', ev => {
-  if (ev.key === 'Escape') { ev.preventDefault(); closeBoxSearch(); }
-});
-$('#boxSideSearch').addEventListener('blur', () => { if (!boxSideQuery) closeBoxSearch(); });
-$('#boxSideHide').onclick = () => setBoxSide(false);
-$('#boxSideShow').onclick = () => setBoxSide(true);
-setBoxSide(boxSideOpen());
 
 function renderAttachments(s: Surface): void {
   const list = attachmentsMap[s.name] || [];
@@ -458,7 +272,7 @@ function renderAttachments(s: Surface): void {
       const tab = getActiveTab(s);
       pushAppAction({
         type: 'remove-attachment',
-        surface: s.name as 'ide' | 'box',
+        surface: s.name as 'ide',
         tabId: tab.id,
         attachment: att,
         index: idx,

@@ -240,3 +240,11 @@ test('Perl: $@% sigils, $#array and # comments', () => {
   assert.deepEqual(plain(ofKind(text, 'pl', 'str')), ['"a#b"']);
   assert.deepEqual(plain(ofKind(text, 'pl', 'kw')), ['my', 'print']);
 });
+
+test('markdown: bold, italic and struck text get their own tokens; math and snake_case do not', () => {
+  const src = '**b** __b2__ *i* _i2_ ~~s~~ 2 * 3 * 4 snake_case [x](y)';
+  assert.deepEqual(plain(ofKind(src, 'md', 'bold')), ['**b**', '__b2__']);
+  assert.deepEqual(plain(ofKind(src, 'md', 'em')), ['*i*', '_i2_']);
+  assert.deepEqual(plain(ofKind(src, 'md', 'strike')), ['~~s~~']);
+  assert.deepEqual(plain(ofKind(src, 'md', 'attr')), ['[x](y)']);
+});

@@ -152,8 +152,10 @@
 }
 
 /* Slow drifting light inside the sky, so it feels alive while it holds. */
-:is(.launch-sky, .ob-sky)::before,
-:is(.launch-sky, .ob-sky)::after {
+:is(.launch-sky)::before,
+:is(.ob-sky)::before,
+:is(.launch-sky)::after,
+:is(.ob-sky)::after {
   content: "";
   position: absolute;
   width: 70vmax;
@@ -163,14 +165,16 @@
   opacity: .55;
 }
 
-:is(.launch-sky, .ob-sky)::before {
+:is(.launch-sky)::before,
+:is(.ob-sky)::before {
   left: -20vmax;
   top: -30vmax;
   background: var(--sky-drift-a);
   animation: launch-drift 5s ease-in-out infinite alternate;
 }
 
-:is(.launch-sky, .ob-sky)::after {
+:is(.launch-sky)::after,
+:is(.ob-sky)::after {
   right: -25vmax;
   bottom: -35vmax;
   background: var(--sky-drift-b);
@@ -298,7 +302,9 @@
 
 /* Power saver (breeze.css): the sky's drifting light holds still. The splash window runs no scripts and never has
    the attribute, so the launch intro itself plays as always. */
-:root[data-power="saver"] :is(.launch-sky, .ob-sky)::before,
-:root[data-power="saver"] :is(.launch-sky, .ob-sky)::after {
+:root[data-power="saver"] :is(.launch-sky)::before,
+:root[data-power="saver"] :is(.ob-sky)::before,
+:root[data-power="saver"] :is(.launch-sky)::after,
+:root[data-power="saver"] :is(.ob-sky)::after {
   animation: none !important;
 }

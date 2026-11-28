@@ -441,9 +441,8 @@ function dragTabEnd(e: PointerEvent): void {
   if (landed && rest) landed.animate([{ transform: `translateX(${rest}px)` }, { transform: 'none' }], { duration: 240, easing: SPRING });
 
   const dropEl = document.elementFromPoint(e.clientX, e.clientY);
-  if (dropEl?.closest('#agents, #box')) {
-    const s = dropEl.closest('#box') ? SURFACES.box : SURFACES.ide;
-    void attachPathToAgent(d.path, false, s);
+  if (dropEl?.closest('#agents')) {
+    void attachPathToAgent(d.path, false, SURFACES.ide);
   }
 }
 $('#tabs').addEventListener('pointerdown', e => {

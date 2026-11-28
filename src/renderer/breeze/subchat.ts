@@ -85,7 +85,7 @@ function subLineHtml(sub: SubChat, l: SubLine): string {
 }
 const subClock = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 function subScroller(el: HTMLElement): HTMLElement | null {
-  return el.closest<HTMLElement>('.box-main') ?? el.parentElement;
+  return el.parentElement;
 }
 function paintSubState(el: HTMLElement, sub: SubChat): void {
   $('.sub-view-state', el).textContent = SUB_STATE[sub.state];

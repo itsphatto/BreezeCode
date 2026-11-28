@@ -63,20 +63,6 @@ function tickVibeClock(): void {
   const a = Object.values(agentsDef).find(x => x.status === 'working');
   if (a) swapText($('#vibeTask'), `${a.name}: ${a.task}`);
 }
-// Beside Breeze Space's chat the panel runs from where the conversation's first line sits (under the chat's top
-// padding) down to the bottom of the message box, and the feed takes whatever height is left in it, still 9:16.
-// At most half the window wide.
-function fitVibeSide(): void {
-  if (!document.body.classList.contains('vibe-side')) return;
-  const top = $('.box-main').getBoundingClientRect().top + parseFloat(getComputedStyle($('#boxChat')).paddingTop);
-  const bottom = $('.box-composer .composer-box').getBoundingClientRect().bottom;
-  const extra = $('.vibe-panel').offsetHeight - vibeFrame.offsetHeight; // its bar, status row, gaps, padding, border
-  const h = Math.max(160, Math.min(bottom - top - extra, (innerWidth / 2 - 58) * 16 / 9));
-  const s = document.body.style;
-  s.setProperty('--vibe-top', `${top}px`);
-  s.setProperty('--vibe-bottom', `${innerHeight - bottom}px`);
-  s.setProperty('--vibe-h', `${h}px`);
-}
 // `fresh`: a new run started it. Reopening from the eye keeps the run's clock and its ready card.
 function enterVibe(fresh = true): void {
   if (vibeOn) return;
@@ -88,10 +74,7 @@ function enterVibe(fresh = true): void {
   $('#vibeStatus').classList.toggle('hidden', !working);
   $('#vibePeek').classList.add('hidden');
   $('#vibe').classList.remove('hidden');
-  // In Breeze Space the feed takes the window's right side and the chat stays usable beside it (breeze.css).
-  document.body.classList.toggle('vibe-side', !$('#box').classList.contains('hidden'));
   document.body.classList.add('vibing');
-  fitVibeSide();
   if (working) {
     tickVibeClock();
     vibeClock = setInterval(tickVibeClock, 1000);
@@ -105,8 +88,7 @@ function exitVibe(): void {
   vibeCollapsed = true;
   clearInterval(vibeClock);
   if (isDesktop) background(api.vibe.hide());
-  document.body.classList.remove('vibing', 'vibe-side');
-  ['--vibe-top', '--vibe-bottom', '--vibe-h'].forEach(p => document.body.style.removeProperty(p));
+  document.body.classList.remove('vibing');
   $('#vibe').classList.add('hidden');
   $('#vibePeek').classList.remove('hidden'); // collapsed, not gone: the eye brings the feed back
 }
@@ -180,7 +162,6 @@ $('#vibeMute').onclick = () => {
 };
 // Keep the live feed glued to the frame when the window changes size.
 const glueFeed = () => { if (vibeOn && vibeSiteShown && isDesktop) background(api.vibe.bounds(frameRect())); };
-addEventListener('resize', fitVibeSide); // before glueFeed below, so the feed follows the refitted frame
 new ResizeObserver(glueFeed).observe(vibeFrame);
 addEventListener('resize', glueFeed); // the frame can move without changing size
 

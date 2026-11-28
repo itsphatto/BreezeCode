@@ -174,17 +174,20 @@ function mentionRanges(text: string): [number, number][] {
   return out;
 }
 // `text` escaped, with its "/skill"s and (with `agents`) its mentions of installed agents wrapped in
-// <span class="mention">, so they show blue.
-function mentionHtml(text: string, agents = true): string {
+// <span class="mention">, so they show blue. Bold, italic and struck text show styled (emphasis, mdcore.ts); `keep`: with
+// their marks, for the prompt's layer, which must draw every character the textarea holds.
+// shortcut: emphasis that spans a mention isn't styled; tokenize the whole line together if people write that.
+function mentionHtml(text: string, agents = true, keep = false): string {
   let html = '';
   let from = 0;
+  const plain = (s: string) => emphasis(esc(s), keep);
   const ranges = [...slashRanges(text), ...(agents ? mentionRanges(text) : [])].sort((x, y) => x[0] - y[0]);
   for (const [a, b] of ranges) {
     if (a < from) continue; // overlapping ranges can't happen ("/" and "@" each start one), but never draw text twice
-    html += `${esc(text.slice(from, a))}<span class="mention">${esc(text.slice(a, b))}</span>`;
+    html += `${plain(text.slice(from, a))}<span class="mention">${esc(text.slice(a, b))}</span>`;
     from = b;
   }
-  return html + esc(text.slice(from));
+  return html + plain(text.slice(from));
 }
 // The prompt's text is drawn by a layer behind it (the textarea's own text is transparent), so mentions can be blue.
 const promptHl = $('#promptHl');
@@ -355,7 +358,7 @@ const GROW_SEL = 'textarea, button, .btn, p, h1, h2, h3, h4, label, .side-note, 
 // Things with their own size animation, or that must never lag: the agent prompt, the code editors, terminals, menus,
 // and the one-line rows of the file tree and search results (redrawn often, never rewrapped), and onboarding's
 // ghosts (their copies resize every frame of a flight and must land exactly on the real piece).
-const GROW_SKIP = '#prompt, #boxPrompt, .ta, .editor, .term-body, .menu, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, #tree, #searchResults, .ob-ghost, [data-no-grow]';
+const GROW_SKIP = '#prompt, .ta, .editor, .term-body, .menu, .suggest, .tabs, .term-tabs, .agent-tabs-bar, .agent-bar, #tree, #searchResults, .ob-ghost, [data-no-grow]';
 interface GrowState { w: number; h: number; anim?: Animation }
 const growState = new WeakMap<Element, GrowState>();
 // Dragging a sash resizes hundreds of watched blocks every frame, so this stays cheap: it reads all the new heights
@@ -429,7 +432,7 @@ function syncPromptHl(kit: PromptKit = IDE_KIT): void {
   fitPrompt(kit);
   animatePromptHeight(kit, fromH);
   // A trailing newline needs a character after it, or the layer is a line short.
-  kit.hl.innerHTML = mentionHtml(ta.value, kit.mentions) + (ta.value.endsWith('\n') ? ' ' : '');
+  kit.hl.innerHTML = mentionHtml(ta.value, kit.mentions, true) +(ta.value.endsWith('\n') ? ' ' : '');
   kit.hl.style.right = `${ta.offsetWidth - ta.clientWidth}px`; // clear of its scroll bar, if it shows one
   kit.hl.scrollTop = ta.scrollTop;
 }
@@ -443,45 +446,11 @@ const IDE_KIT: PromptKit = { ta: SURFACES.ide.prompt, hl: promptHl, models: $('#
 SURFACES.ide.prompt.addEventListener('scroll', () => { promptHl.scrollTop = SURFACES.ide.prompt.scrollTop; });
 new ResizeObserver(() => syncPromptHl()).observe(SURFACES.ide.prompt);
 
-// Breeze Space's prompt has the same layer behind it, for its "/skill"s (Box doesn't @mention agents).
-const boxPromptHl = $('#boxPromptHl');
-// Breeze Space's prompt grows with its text like the Agents tab's does, up to a cap, then scrolls; the buttons stay
-// pinned under it.
-const BOX_PROMPT_MAX_H = () => Math.max(160, Math.round(innerHeight * 0.4));
-function fitBoxPrompt(): void {
-  const ta = SURFACES.box.prompt;
-  const max = BOX_PROMPT_MAX_H();
-  ta.style.height = 'auto';
-  const need = ta.scrollHeight;
-  const h = `${Math.min(max, need)}px`;
-  ta.style.height = h;
-  ta.style.overflowY = need > max ? 'auto' : 'hidden';
-}
-let boxPromptAnim: Animation | null = null;
-function syncBoxPromptHl(grow = false): void {
-  const ta = SURFACES.box.prompt;
-  if (grow) {
-    const fromH = ta.getBoundingClientRect().height;
-    boxPromptAnim?.cancel();
-    fitBoxPrompt();
-    const toH = ta.offsetHeight;
-    if (Math.abs(toH - fromH) >= 1) boxPromptAnim = ta.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 180, easing: SPRING });
-  }
-  boxPromptHl.innerHTML = mentionHtml(ta.value, false) + (ta.value.endsWith('\n') ? ' ' : '');
-  boxPromptHl.style.right = `${ta.offsetWidth - ta.clientWidth}px`;
-  boxPromptHl.scrollTop = ta.scrollTop;
-}
-SURFACES.box.prompt.addEventListener('input', () => mentionWarning(SURFACES.box));
-SURFACES.box.prompt.addEventListener('scroll', () => { boxPromptHl.scrollTop = SURFACES.box.prompt.scrollTop; });
-new ResizeObserver(() => syncBoxPromptHl()).observe(SURFACES.box.prompt);
-// A wider or narrower window rewraps the text: the prompt takes its new height (no animation, it follows the resize).
-addEventListener('resize', () => { fitBoxPrompt(); syncBoxPromptHl(); });
 // Once the skills are known, a "/skill" already typed turns blue.
-void loadSlashSkills().then(() => { syncPromptHl(); syncBoxPromptHl(); });
+void loadSlashSkills().then(() => { syncPromptHl(); });
 
 function mentionWarning(s: Surface): void {
   if (s.name === 'ide') syncPromptHl();
-  else syncBoxPromptHl(true);
   const warn = s.name === 'ide' ? uninstalledMention(s.prompt.value) : null;
   const anchor = s.prompt.closest<HTMLElement>('.prompt-field') ?? s.prompt;
   let el = anchor.parentElement?.querySelector<HTMLElement>(':scope > .mention-warn') ?? null;
@@ -562,7 +531,7 @@ for (const s of Object.values(SURFACES)) {
   }
 }
 
-// Copy-paste image into agent tab (IDE aside/composer) or Breeze Space
+// Copy-paste image into agent tab (IDE aside/composer)
 document.addEventListener('paste', async (e: ClipboardEvent) => {
   const items = e.clipboardData?.items;
   const filesList = e.clipboardData?.files;
@@ -583,13 +552,9 @@ document.addEventListener('paste', async (e: ClipboardEvent) => {
     await addPastedImage(f, boardS);
     return;
   }
-  const inBox = !!(target?.closest('#box, .box-composer') || activeEl === SURFACES.box.prompt || appState.mode === 'box');
-  const inIde = !!(target?.closest('#agents, .composer') || activeEl === SURFACES.ide.prompt || (!inBox && appState.mode === 'ide'));
+  if (activeEl?.classList.contains('ta') && !target?.closest('#agents, .composer')) return;
 
-  if (!inBox && !inIde) return;
-  if (activeEl?.classList.contains('ta') && !target?.closest('#agents, #box, .composer, .box-composer')) return;
-
-  const targetSurface = inBox ? SURFACES.box : SURFACES.ide;
+  const targetSurface = SURFACES.ide;
   const file = imgItem ? imgItem.getAsFile() : (imgFile || null);
   if (!file) return;
 
@@ -637,8 +602,6 @@ document.addEventListener('click', e => {
 const newChatBtn = document.getElementById('newChat');
 if (newChatBtn) newChatBtn.onclick = () => newAgentTabAction(SURFACES.ide);
 $('#agentNewTab')?.addEventListener('click', () => newAgentTabAction(SURFACES.ide));
-$('#boxNewTab')?.addEventListener('click', () => newAgentTabAction(SURFACES.box));
-$('[data-act="chat.new"]')?.addEventListener('click', () => newAgentTabAction(SURFACES.box));
 commands['chat.new'] = () => newAgentTabAction(surface);
 commands['agent.stop'] = () => stopAgent();
 
@@ -676,7 +639,7 @@ async function sendPrompt(): Promise<void> {
   if (!agent) { openAgentPicker(); return; }
   if (s.name === 'ide' && !rootInfo) { toast('Open a folder first, so the agent knows what to work on'); return; }
 
-  // @mentions split an IDE prompt between agents. Breeze Space sends "@Codex" as plain text to its agent.
+  // @mentions split an IDE prompt between agents.
   let parsed: TeamParse | null = null;
   if (s.name === 'ide' && text.includes('@')) {
     tab.parsing = true;
@@ -723,13 +686,6 @@ async function sendPrompt(): Promise<void> {
   if (parsed && tasks.length === 1) {
     const body = [parsed.shared, tasks[0].text].filter(Boolean).join('\n\n') || text;
     await startAgentRun(tasks[0].agentId, MODES[uiMode] ?? 'plan', withAttachments(headers, body), uiMode, tab, true);
-    return;
-  }
-  // Breeze Space reads each message: a task (plan → steps → checks) goes to the agentic brain (agentmode.ts).
-  if (s.name === 'box') {
-    const routed = await routeAgentic(tab, withAttachments(headers, text));
-    if (routed.handled) return;
-    await startAgentRun(selectedAgent()?.id ?? agent.id, MODES[uiMode] ?? 'plan', routed.text, uiMode, tab, true);
     return;
   }
   await startAgentRun(agent.id, MODES[uiMode] ?? 'plan', withAttachments(headers, text), uiMode, tab, true);

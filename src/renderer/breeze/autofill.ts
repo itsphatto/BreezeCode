@@ -47,19 +47,32 @@ function renderSuggest(): void {
 function showSuggest(state: SuggestState, x: number, y: number, above: number): void {
   if (!state.items.length) { hideSuggest(); return; }
   suggest = state;
+  suggestEl.style.translate = '';
   renderSuggest();
   suggestEl.classList.remove('hidden');
   const h = suggestEl.offsetHeight, w = suggestEl.offsetWidth;
   suggestEl.style.left = `${Math.max(8, Math.min(x, innerWidth - w - 8))}px`;
   suggestEl.style.top = `${y + h > innerHeight - 8 ? Math.max(8, above - h) : y}px`;
 }
+// Where the editor's list and ghost were placed, so scrolling carries them along with the text (a translate: no layout)
+// instead of ranking the words and asking the language server again on every wheel tick.
+let suggestView: { ta: CodeSurface; top: number; left: number; caretY: number; minY: number; maxY: number } | null = null;
+function scrollSuggest(ta: CodeSurface): void {
+  const v = suggestView;
+  if (!v || v.ta !== ta) return;
+  const dx = ta.scrollLeft - v.left, dy = ta.scrollTop - v.top, y = v.caretY - dy;
+  if (y < v.minY || y > v.maxY) { hideSuggest(); return; } // the caret scrolled out of the editor
+  suggestEl.style.translate = editorGhost.style.translate = `${-dx}px ${-dy}px`;
+}
 // Counts closes, so a late answer (the Emmet preview) can tell the list was closed after it was asked for.
 let suggestHidden = 0;
 function hideSuggest(): void {
   suggestHidden++;
   suggest = null;
+  suggestView = null;
   suggestEl.classList.add('hidden');
   editorGhost.textContent = '';
+  editorGhost.style.translate = '';
   $('#editor').classList.remove('suggesting');
 }
 // Arrow keys move, Tab or Enter accepts, Escape closes. True when the key was used.
@@ -170,8 +183,10 @@ function editorSuggest(b: EditorBuffer, force = false): void {
     $('#editor').classList.add('suggesting');
   };
   let emmetItem: Suggestion | undefined, listed: Suggestion[] = [];
+  const view = { ta, top: ta.scrollTop, left: ta.scrollLeft, caretY: top, minY: r.top, maxY: r.bottom - LINE_H };
   const show = (items: Suggestion[]) => {
     listed = items;
+    suggestView = view;
     showSuggest({
       owner: ta.input, items: emmetItem ? [emmetItem, ...items] : items, sel: 0, typed: prefix.length,
       accept: s => {
@@ -181,6 +196,7 @@ function editorSuggest(b: EditorBuffer, force = false): void {
       },
       onRender: ghost,
     }, x - 8, top + LINE_H + 2, top - 2);
+    scrollSuggest(ta); // a late answer (the server's, Emmet's) lands where the text has scrolled to since
   };
   const words = member || short ? [] : editorCandidates(b, prefix, pos);
   if (words.length) show(words); else hideSuggest();
@@ -216,6 +232,7 @@ function placeLineHint(): void {
   const h = lineHint;
   if (!h || !lineHintLive(h.ta)) return;
   const v = h.ta.value, ls = lineStart(v, h.pos), r = h.ta.getBoundingClientRect();
+  editorGhost.style.translate = '';
   editorGhost.style.left = `${r.left + 4 + visualCol(v.slice(ls, h.pos), h.pos - ls) * measureChar() - h.ta.scrollLeft}px`;
   editorGhost.style.top = `${r.top + 10 + lineAt(v, h.pos) * LINE_H - h.ta.scrollTop}px`;
 }
