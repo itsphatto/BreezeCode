@@ -15,6 +15,32 @@ type SelDir = 'forward' | 'backward' | 'none';
 // A Shift+Alt drag has `box`, the press point: it selects the box between that and the pointer, a cursor a line.
 interface SurfaceDrag { unit: number; a: number; b: number; x: number; y: number; raf: number; box?: { line: number; vcol: number } }
 const SURFACE_NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+const WHEEL_GLIDE_MS = 110; // a mouse notch eases over this long, about as the native wheel scroll does
+
+/* The caret blinks from a timer that flips .caret-off on the focused editor twice a second (breeze.css hides the caret
+   under it). An infinite CSS blink made Chromium draw a frame every vsync for as long as an editor had focus: about 8%
+   of a core with nothing else going on. Shared with the big-file surface; reduced motion keeps the caret solid. */
+const CARET_HALF_MS = 530;
+let blinkRoot: Element | null = null;
+let blinkTimer: number | undefined;
+// Shows `root`'s caret solid and starts its blink over, so a caret that just moved is never caught hidden.
+function restartBlink(root: Element): void {
+  if (blinkRoot !== root) blinkRoot?.classList.remove('caret-off');
+  blinkRoot = root;
+  root.classList.remove('caret-off');
+  clearInterval(blinkTimer);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  blinkTimer = window.setInterval(() => {
+    if (!root.isConnected || !root.classList.contains('focused')) { stopBlink(root); return; }
+    if (!document.hidden) root.classList.toggle('caret-off');
+  }, CARET_HALF_MS);
+}
+function stopBlink(root: Element): void {
+  if (blinkRoot !== root) return;
+  clearInterval(blinkTimer);
+  root.classList.remove('caret-off');
+  blinkRoot = null;
+}
 
 class CodeSurface extends EventTarget {
   readonly root: HTMLDivElement;
@@ -38,6 +64,7 @@ class CodeSurface extends EventTarget {
   private drag: SurfaceDrag | null = null;
   private clicks = { n: 0, t: -1e9, x: 0, y: 0 }; // last pointerdown, for double and triple clicks
   private readonly resizer: ResizeObserver;
+  private glide: { x: number; y: number; fromX: number; fromY: number; at: number; raf: number } | null = null;
 
   constructor(host: HTMLElement, opts: SurfaceOpts) {
     super();
@@ -61,10 +88,15 @@ class CodeSurface extends EventTarget {
     host.append(this.root);
     this.input.addEventListener('focus', () => {
       this.root.classList.add('focused');
+      restartBlink(this.root);
       this.dispatchEvent(new Event('selectionchange')); // so the app redraws its current line
     });
-    this.input.addEventListener('blur', () => this.root.classList.remove('focused'));
+    this.input.addEventListener('blur', () => { this.root.classList.remove('focused'); stopBlink(this.root); });
     this.root.addEventListener('scroll', () => this.paint());
+    // The wheel scrolls from here, not on the compositor: the app draws the code outside this scroller and follows it
+    // from the scroll event, which comes a frame after a compositor scroll, so a wheel turn skipped frames (about
+    // 115 fps on a 144 Hz screen). A scroll set from script lands in the same frame as the code that follows it.
+    this.root.addEventListener('wheel', e => this.onWheel(e), { passive: false });
     // Bubble phase on the input itself, so app keydown listeners (capture, see addEventListener) run first.
     this.input.addEventListener('keydown', e => this.onKey(e));
     this.input.addEventListener('input', e => this.onInput(e as InputEvent));
@@ -204,9 +236,9 @@ class CodeSurface extends EventTarget {
   }
 
   get scrollTop() { return this.root.scrollTop; }
-  set scrollTop(v: number) { this.root.scrollTop = v; this.paint(); }
+  set scrollTop(v: number) { this.stopGlide(); this.root.scrollTop = v; this.paint(); }
   get scrollLeft() { return this.root.scrollLeft; }
-  set scrollLeft(v: number) { this.root.scrollLeft = v; this.paint(); }
+  set scrollLeft(v: number) { this.stopGlide(); this.root.scrollLeft = v; this.paint(); }
   get clientHeight() { return this.root.clientHeight; }
   get clientWidth() { return this.root.clientWidth; }
   get scrollHeight() { return this.root.scrollHeight; }
@@ -220,7 +252,7 @@ class CodeSurface extends EventTarget {
   focus(opts?: FocusOptions) { this.input.focus(opts); }
   blur() { this.input.blur(); }
   getBoundingClientRect() { return this.root.getBoundingClientRect(); }
-  remove() { clearTimeout(this.widthTimer); this.endDrag(); this.resizer.disconnect(); this.root.remove(); }
+  remove() { clearTimeout(this.widthTimer); this.endDrag(); this.stopGlide(); this.resizer.disconnect(); this.root.remove(); }
 
   // After a font or metric change: re-size the spacer for the new char width and repaint.
   refresh() { this.sizeSpacer(); this.paint(); }
@@ -343,8 +375,48 @@ class CodeSurface extends EventTarget {
     }
   }
 
+  // A mouse notch (a step of 50px or more) glides; a touchpad's small steps land at once, and so does every step under
+  // reduced motion or the power saver (a glide draws a changed frame every vsync, a jump only one per notch). Ctrl+wheel
+  // (zoom) and a turn past the edge are left alone for the app and outer scrollers.
+  private onWheel(e: WheelEvent) {
+    if (e.ctrlKey || e.defaultPrevented) return;
+    const r = this.root, unit = e.deltaMode === 1 ? this.opts.lineHeight : e.deltaMode === 2 ? r.clientHeight : 1;
+    let dx = e.deltaX * unit, dy = e.deltaY * unit;
+    if (e.shiftKey && !dx) { dx = dy; dy = 0; } // Shift+wheel goes sideways, as the native scroll does
+    const g = this.glide, fromX = g ? g.x : r.scrollLeft, fromY = g ? g.y : r.scrollTop;
+    const x = Math.max(0, Math.min(r.scrollWidth - r.clientWidth, fromX + dx));
+    const y = Math.max(0, Math.min(r.scrollHeight - r.clientHeight, fromY + dy));
+    if (Math.abs(x - fromX) < 0.5 && Math.abs(y - fromY) < 0.5) return;
+    e.preventDefault();
+    this.stopGlide();
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 50 || powerSaver() || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      r.scrollLeft = x;
+      r.scrollTop = y;
+      return;
+    }
+    const gl = { x, y, fromX: r.scrollLeft, fromY: r.scrollTop, at: performance.now(), raf: 0 };
+    this.glide = gl;
+    const step = (now: number) => {
+      const t = Math.max(0, Math.min(1, (now - gl.at) / WHEEL_GLIDE_MS)), k = 1 - (1 - t) ** 3; // ease-out
+      r.scrollLeft = gl.fromX + (gl.x - gl.fromX) * k;
+      r.scrollTop = gl.fromY + (gl.y - gl.fromY) * k;
+      // Set from a frame callback, the browser's scroll event would come a frame late: tell the app now.
+      r.dispatchEvent(new Event('scroll'));
+      if (t < 1) gl.raf = requestAnimationFrame(step);
+      else if (this.glide === gl) this.glide = null;
+    };
+    gl.raf = requestAnimationFrame(step);
+  }
+
+  // Any other scroll (the caret coming into view, the app jumping somewhere) wins over a glide still under way.
+  private stopGlide() {
+    if (this.glide) cancelAnimationFrame(this.glide.raf);
+    this.glide = null;
+  }
+
   // Scroll just enough to show the caret (and the line it sits on).
   private revealCaret() {
+    this.stopGlide();
     const { lineHeight: lh, pad } = this.opts, starts = this.lines(), head = this.head();
     const line = lineOfOffset(starts, head), y = pad.top + line * lh, x = this.xOf(line, head - starts[line]);
     const r = this.root;
@@ -562,10 +634,10 @@ class CodeSurface extends EventTarget {
       at += `;${cx},${cy}`;
     }
     for (let i = n; i < this.extraCarets.length; i++) this.extraCarets[i].style.display = 'none';
-    // Any caret moving restarts every blink, so they stay in step.
+    // Any caret moving restarts the blink (all carets share it, so they stay in step).
     if (at !== this.caretAt) {
       this.caretAt = at;
-      for (const c of [this.caret, ...this.extraCarets.slice(0, n)]) for (const a of c.getAnimations()) a.currentTime = 0;
+      if (this.root.classList.contains('focused')) restartBlink(this.root);
     }
   }
 }

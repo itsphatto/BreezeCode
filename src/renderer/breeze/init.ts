@@ -1,23 +1,22 @@
 /* ================= Init ================= */
-// Launching comes back to the screen the app was last on (the editor or Breeze Space), remembered by swapScreen.
-// The editor needs its project back: if the last one is gone, the app opens on Home instead. Breeze Space works
-// without a project, so it always comes back. A debug session doesn't survive: back to the editor.
-const lastMode: WorkMode | null = (() => {
-  if (!appState.onboarded) return null;
+// Launching comes back to the editor if the app was last on it, remembered by swapScreen. The editor needs its project
+// back: if the last one is gone, the app opens on Home instead. A debug session doesn't survive: back to the editor.
+// '#box' is the removed Breeze Space, which a save from then still names.
+const lastIde: boolean = (() => {
+  if (!appState.onboarded) return false;
   const s = store.get<string>(SCREEN_KEY, '');
-  // Breeze Space removed (2026-11-18), kept commented for now: return s === '#ide' || s === '#debug' || s === '#board' ? 'ide' : s === '#box' ? 'box' : null;
-  return s === '#ide' || s === '#debug' || s === '#board' || s === '#box' ? 'ide' : null;
+  return s === '#ide' || s === '#debug' || s === '#board' || s === '#box';
 })();
 // A reload of the window (Ctrl+R, a settings change that reloads) still has its project, so it swaps back before
 // start-up and Home never flashes by. A fresh launch waits for the project (the window stays hidden until then).
-const reloadedMode: WorkMode | null = (() => {
+const reloadedIde: boolean = (() => {
   const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-  return nav?.type === 'reload' ? lastMode : null;
+  return nav?.type === 'reload' && lastIde;
 })();
 // Opened from Explorer: straight into the editor with the right-clicked file (setup still comes first on a first run).
 function showLaunched(info: LaunchInfo): void {
   if (info.open) openFile(info.open);
-  if (appState.onboarded) enterMode('ide');
+  if (appState.onboarded) enterIde();
 }
 async function boot(): Promise<void> {
   void holdStartup(Promise.all([
@@ -49,11 +48,9 @@ async function boot(): Promise<void> {
   if (info) await loadWorkspace(info);
   else { term.cwd = await api.term.cwd(); renderPs(); }
   if (info && 'launched' in info) showLaunched(info);
-  else if (reloadedMode) enterMode(reloadedMode);
-  else if (lastMode === 'box' || (lastMode === 'ide' && info)) enterMode(lastMode); // a folder from the command line won above
+  else if (reloadedIde || (lastIde && info)) enterIde(); // a folder from the command line won above
   renderTree(); renderScm();
   if (step === STEP.home) renderHome();
-  renderBoxFolder();
   // Wait for what the startup above set going, then for every picture on screen (logos, avatar) to be decoded.
   // Work started by that work (a git refresh queuing another) is caught by looping until nothing new was added.
   for (let seen = 0; startupWaits && seen < startupWaits.length;) {
@@ -62,7 +59,7 @@ async function boot(): Promise<void> {
     await Promise.all(batch);
   }
   // And the pictures on the screen that's showing, decoded so they don't land in the fade.
-  await Promise.all([...document.querySelectorAll<HTMLImageElement>('#ide:not(.hidden) img, #box:not(.hidden) img, #onboard:not(.hidden) img')]
+  await Promise.all([...document.querySelectorAll<HTMLImageElement>('#ide:not(.hidden) img, #onboard:not(.hidden) img')]
     .map(img => img.decode().catch(() => undefined)));
   startupWaits = null;
   // One frame so the last renders are painted before start-up counts as done.
@@ -73,7 +70,7 @@ async function boot(): Promise<void> {
 // off until your first click or key press (sound.ts lifts data-starting), so nothing chirps on its own at launch.
 {
   if (appState.onboarded) goStep(STEP.home);
-  if (reloadedMode) swapScreen(reloadedMode === 'ide' ? '#ide' : '#box'); // before start-up, so Home never flashes by
+  if (reloadedIde) swapScreen('#ide'); // before start-up, so Home never flashes by
   const welcome = $('.ob-step[data-step="0"]');
   const starting = boot();
   background(starting);

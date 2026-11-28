@@ -36,6 +36,9 @@ const brain = {
   query: '',
   matches: null as Set<string> | null, // null: no search
   mode: 'graph' as 'graph' | 'list',
+  morphU: 0, // Graph -> List, 0..1: the dots fly from the graph onto the list rows' dots
+  morphFrame: 0,
+  morphTo: new Map<string, { x: number; y: number; i: number }>(), // each row's dot, in canvas pixels, and its order
   colors: {} as Record<string, string>,
   back: null as HTMLElement | null,
   off: null as (() => void) | null,
@@ -60,7 +63,7 @@ function brainBuild(): HTMLElement {
       <div class="brain-legend" role="group" aria-label="Show or hide each kind of memory">${BRAIN_KINDS.map(k =>
         `<button type="button" class="brain-chip" data-kind="${k.kind}" aria-pressed="true"><i></i><span>${k.label}</span><b></b></button>`).join('')}</div>
       <span class="flex-1"></span>
-      <div class="brain-seg" role="tablist" aria-label="View"><button type="button" role="tab" data-mode="graph" aria-selected="true">Graph</button><button type="button" role="tab" data-mode="list" aria-selected="false">List</button></div>
+      <div class="brain-seg" role="tablist" aria-label="View"><span class="brain-seg-pill" aria-hidden="true"></span><button type="button" role="tab" data-mode="graph" aria-selected="true">Graph</button><button type="button" role="tab" data-mode="list" aria-selected="false">List</button></div>
     </div>
     <div class="brain-body">
       <div class="brain-stage">
@@ -108,6 +111,7 @@ function brainBuild(): HTMLElement {
   brainQ('.brain-panel').addEventListener('click', brainPanelClick);
   brainPointer(brain.canvas);
   new ResizeObserver(() => brainDraw()).observe(brain.canvas);
+  new ResizeObserver(() => brainPill()).observe(brainQ('.brain-seg'));
   return el;
 }
 
@@ -164,6 +168,7 @@ function closeSecondBrain(): void {
   cancelAnimationFrame(brain.frame);
   cancelAnimationFrame(brain.fly);
   brain.frame = brain.fly = 0;
+  if (brain.morphFrame) brainMorphEnd();
   el.classList.add('closing');
   // Not if it was opened again meanwhile.
   const done = () => { if (el.classList.contains('closing')) { el.classList.add('hidden'); el.classList.remove('closing'); } };
@@ -236,15 +241,122 @@ function brainRefresh(): void {
   brainDraw();
 }
 function brainMode(mode: 'graph' | 'list'): void {
+  if (mode === brain.mode) return;
   brain.mode = mode;
   for (const b of brain.el!.querySelectorAll<HTMLElement>('.brain-seg button')) b.setAttribute('aria-selected', String(b.dataset.mode === mode));
-  brain.canvas!.classList.toggle('hidden', mode !== 'graph');
-  brainQ('.brain-zoom').classList.toggle('hidden', mode !== 'graph');
-  brainQ('.brain-hint').classList.toggle('hidden', mode !== 'graph');
-  brainQ('.brain-list').classList.toggle('hidden', mode !== 'list');
+  brainPill(mode === 'list' ? 'right' : 'left');
+  brainQ('.brain-stage').classList.toggle('is-list', mode === 'list');
   brainQ('.brain-hover').classList.add('hidden');
+  if (brainStill() || !brain.dots.length) {
+    brain.morphU = mode === 'list' ? 1 : 0;
+    brain.canvas!.classList.toggle('hidden', mode !== 'graph');
+    brainQ('.brain-list').classList.toggle('hidden', mode !== 'list');
+    brainRefresh();
+    return;
+  }
+  brainMorph(mode === 'list' ? 1 : 0);
+}
+// The tab pill's edges, from the selected button; `dir` animates it (leading edge first), none places it.
+function brainPill(dir?: 'left' | 'right'): void {
+  const seg = brainQ('.brain-seg'), on = seg.querySelector<HTMLElement>('[aria-selected="true"]')!;
+  if (!seg.clientWidth) return;
+  if (dir) seg.dataset.dir = dir; else delete seg.dataset.dir;
+  // offset*, not getBoundingClientRect: the panel opens with a scale() that would skew the measure.
+  seg.style.setProperty('--pill-l', `${on.offsetLeft}px`);
+  seg.style.setProperty('--pill-r', `${seg.clientWidth - on.offsetLeft - on.offsetWidth}px`);
+}
+
+/* ----- Graph <-> List morph: the canvas stays over the list while each dot flies to its row's dot (or back) and
+   shrinks to the row dot's size; links and names fade out, the list's text fades in. Dots with no row on screen fade
+   where they are. Clicking again mid-way turns it around from where it is. ----- */
+const BRAIN_MORPH_MS = 560;
+function brainMorph(to: 0 | 1): void {
+  const list = brainQ('.brain-list'), stage = brainQ('.brain-stage');
+  cancelAnimationFrame(brain.fly);
+  brain.fly = 0;
+  if (!brain.morphFrame) {
+    // From rest: lay the list out (unseen) and measure where each row's dot sits.
+    brainList();
+    list.classList.remove('hidden');
+    list.style.opacity = String(brain.morphU);
+    brain.canvas!.classList.remove('hidden');
+    brainSize();
+    const c = brain.canvas!.getBoundingClientRect(), l = list.getBoundingClientRect();
+    brain.morphTo = new Map();
+    let i = 0;
+    for (const dot of list.querySelectorAll<HTMLElement>('.brain-row > i')) {
+      const r = dot.getBoundingClientRect(), y = r.top + r.height / 2;
+      if (y < l.top - 8 || y > l.bottom + 8) continue;
+      brain.morphTo.set((dot.parentElement as HTMLElement).dataset.id!, { x: r.left + r.width / 2 - c.left, y: y - c.top, i: i++ });
+    }
+    stage.classList.add('morphing');
+  }
+  cancelAnimationFrame(brain.morphFrame);
+  let last = performance.now();
+  const step = (now: number) => {
+    const du = Math.max(0, now - last) / BRAIN_MORPH_MS;
+    last = now;
+    brain.morphU = to ? Math.min(1, brain.morphU + du) : Math.max(0, brain.morphU - du);
+    // The text comes in once the dots are mostly there, and leaves first on the way back.
+    list.style.opacity = String(brainEase(Math.max(0, (brain.morphU - 0.35) / 0.65)));
+    if (brain.morphU === to) { brainMorphEnd(); return; }
+    brainDraw();
+    brain.morphFrame = requestAnimationFrame(step);
+  };
+  brain.morphFrame = requestAnimationFrame(step);
+  brainDraw();
+}
+function brainMorphEnd(): void {
+  cancelAnimationFrame(brain.morphFrame);
+  brain.morphFrame = 0;
+  brain.morphU = brain.mode === 'list' ? 1 : 0;
+  const list = brainQ('.brain-list');
+  list.style.opacity = '';
+  brainQ('.brain-stage').classList.remove('morphing');
+  brain.canvas!.classList.toggle('hidden', brain.mode !== 'graph');
+  list.classList.toggle('hidden', brain.mode !== 'list');
   brainRefresh();
 }
+// One morph frame, in screen pixels. Lower rows start a little later, so the dots pour into the list.
+function brainDrawMorph(g: CanvasRenderingContext2D, w: number, h: number, dpr: number): void {
+  const { x, y, k } = brain.view, col = brain.colors, u = brain.morphU;
+  const rows = brain.morphTo.size, spread = Math.min(0.3, rows * 0.015);
+  const at = new Map<BrainDot, { x: number; y: number; r: number; a: number }>();
+  for (const d of brain.dots) {
+    if (!brainShown(d)) continue;
+    const sx = w / 2 + x + d.x * k, sy = h / 2 + y + d.y * k, row = brain.morphTo.get(d.id);
+    const a0 = brainMatch(d) ? 1 : 0.16;
+    if (!row) { at.set(d, { x: sx, y: sy, r: d.r * k, a: a0 * (1 - brainEase(Math.min(1, u * 1.6))) }); continue; }
+    const delay = rows > 1 ? (row.i / (rows - 1)) * spread : 0;
+    const p = brainMorphEase(Math.max(0, Math.min(1, (u - delay) / (1 - spread))));
+    at.set(d, { x: sx + (row.x - sx) * p, y: sy + (row.y - sy) * p, r: d.r * k + (4 - d.r * k) * p, a: a0 + (1 - a0) * p });
+  }
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const fade = Math.max(0, 1 - u * 2.5);
+  if (fade > 0) {
+    g.globalAlpha = fade * (brain.matches ? 0.3 : 1);
+    g.strokeStyle = col.link;
+    g.lineWidth = 1;
+    g.beginPath();
+    for (const l of brain.links) {
+      const a = at.get(l.a), b = at.get(l.b);
+      if (a && b) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
+    }
+    g.stroke();
+  }
+  for (const [d, p] of at) {
+    if (p.a <= 0.005) continue;
+    g.globalAlpha = p.a;
+    g.fillStyle = col[d.kind];
+    g.beginPath();
+    g.arc(p.x, p.y, Math.max(0.5, p.r), 0, Math.PI * 2);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+}
+// Ease in and out, so a dot lifts off and lands softly; symmetric, so the trip back retraces the same path.
+const brainMorphEase = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 /* ----- Keys: / searches, F fits, + and − zoom, Esc clears, closes the card, then closes ----- */
 function brainKeys(e: KeyboardEvent): void {
@@ -399,9 +511,10 @@ function brainZoomBy(f: number): void {
 /* ----- Drawing ----- */
 function brainDraw(): void {
   const c = brain.canvas;
-  if (!c || !brain.el || brain.el.classList.contains('hidden') || brain.mode !== 'graph') return;
+  if (!c || !brain.el || brain.el.classList.contains('hidden') || (brain.mode !== 'graph' && !brain.morphFrame)) return;
   const { w, h, dpr } = brainSize();
   const g = c.getContext('2d')!;
+  if (brain.morphFrame) { brainDrawMorph(g, w, h, dpr); brainHoverCard(); return; }
   const { x, y, k } = brain.view, col = brain.colors;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
@@ -510,7 +623,7 @@ const brainWhen = (d: BrainNode) => new Date(d.at).toLocaleDateString(undefined,
 function brainHoverCard(): void {
   const card = brainQ('.brain-hover');
   const d = brain.held === brain.hover ? brain.held : null;
-  if (!d || d === brain.pinned || !brainShown(d) || brain.mode !== 'graph') { card.classList.add('hidden'); delete card.dataset.id; return; }
+  if (!d || d === brain.pinned || !brainShown(d) || brain.mode !== 'graph' || brain.morphFrame) { card.classList.add('hidden'); delete card.dataset.id; return; }
   if (card.dataset.id !== d.id) {
     card.dataset.id = d.id;
     card.innerHTML = `<div class="brain-kind" data-kind="${d.kind}"><i></i>${BRAIN_KIND_NAME[d.kind]}</div><p>${esc(d.text)}</p><div class="brain-meta">${esc(brainWho(d))} · ${esc(brainWhen(d))} · click to open</div>`;

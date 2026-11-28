@@ -232,7 +232,7 @@ body {
   overflow: hidden;
   transform: translateX(-50%);
   color: var(--text-2);
-  text-overflow: ellipsis;
+  text-overflow: clip; animation: trunc-fade linear both; animation-timeline: scroll(self inline);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -473,3 +473,11 @@ body.focused .tw-caret[class*="term-cmd-"] { color: var(--bg); }
 .ps-prefix { color: var(--ps); font-weight: 500; margin-right: 6px; }
 .ps-path,
 .ps-arrow { color: var(--ps); font-weight: 500; }
+
+/* Text that runs out of room fades at its edge instead of ending in "…"; inactive (no mask) while it fits. */
+@keyframes trunc-fade {
+  from, to {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+  }
+}

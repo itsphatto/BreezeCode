@@ -32,7 +32,7 @@ function searchSelection(): void {
 }
 function backToOnboarding(n: number): void {
   appState.onboarded = false; saveApp();
-  for (const id of ['#ide', '#box', '#debug', '#board']) $(id).classList.add('hidden');
+  for (const id of ['#ide', '#debug', '#board']) $(id).classList.add('hidden');
   $('#onboard').classList.remove('hidden');
   goStep(n);
 }
@@ -155,15 +155,13 @@ const commands: Record<string, () => unknown> = {
   'term.toggle': () => {
     if (termPopped()) { termPopup?.focus(); termInput.focus(); return; } // it lives in its own window: bring that up
     const prev = { ...layout };
-    // Open back in the IDE but not brought over yet, Breeze Space's button shows it rather than closing it unseen.
-    const showing = layout.termOpen && (appState.mode !== 'box' || $('#terminal').parentElement === $('#box'));
+    const showing = layout.termOpen;
     terminalHere();
     layout.termOpen = !showing;
     sfx.play('whoosh');
     pushAppAction({ type: 'layout', prev, next: { ...layout } });
     applyLayoutAnimated(); // below the editor it slides its height; beside it, its width (breeze.css)
     if (layout.termOpen) termInput.focus();
-    else if (appState.mode === 'box') SURFACES.box.prompt.focus();
   },
   'term.focus': () => { if (termPopped()) termPopup?.focus(); terminalHere(); layout.termOpen = true; applyLayoutAnimated(); termInput.focus(); },
   'term.new': () => {
@@ -195,8 +193,7 @@ const commands: Record<string, () => unknown> = {
   'help.setup': () => backToOnboarding(STEP.tools),
   'account.signIn': addAccount,
   'account.signOut': signOut,
-  'mode.ide': () => enterMode('ide'),
-  // Breeze Space removed (2026-11-18), kept commented for now: 'mode.box': () => enterMode('box'),
+  'mode.ide': () => enterIde(),
   'mode.box': () => openBoard(), // old bindings and saved settings land on the Agent Board
   'help.about': showAbout,
 };
@@ -462,9 +459,7 @@ const MENUS: Menu[] = [
       { label: 'Sound Effects', act: 'sound.toggle', checked: () => sfx.on },
       { sep: true },
       { label: 'Home', act: 'app.home' },
-      { label: 'Breeze Code', act: 'mode.ide', checked: () => appState.mode === 'ide' },
-      // Breeze Space removed (2026-11-18), kept commented for now:
-      // { label: 'Breeze Space', act: 'mode.box', checked: () => appState.mode === 'box' },
+      { label: 'Breeze Code', act: 'mode.ide' },
       { label: 'Agent Board', act: 'view.board' },
       { sep: true },
       { label: 'Add Account', act: 'account.signIn' },
@@ -1058,7 +1053,7 @@ document.addEventListener('mousedown', e => {
       closeMenu();
       return;
     }
-    if (!target.closest('.menu, .menubar, #settingsBtn, #boxSettings, #homeSettings, .avatars, .dd-btn, #chatHistory,#boxModel, #boxFolder, [data-act="git.more"]')) {
+    if (!target.closest('.menu, .menubar, #settingsBtn, #homeSettings, .avatars, .dd-btn, #chatHistory, [data-act="git.more"]')) {
       closeMenu();
     }
   }

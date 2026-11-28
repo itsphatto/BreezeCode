@@ -37,6 +37,24 @@ function codeSpans(escaped: string): string {
   return escaped.replace(/(?<!`)(`+)(?!`)([^\n]*?[^`\n][^\n]*?)(?<!`)\1(?!`)/g, (_m: string, _ticks: string, code: string) => `<code>${code.trim()}</code>`);
 }
 
+// **bold** __bold__ *italic* _italic_ ~~struck~~ in text that is already HTML-escaped, on one line each. A mark needs a
+// letter next to it on the inside ("2 * 3 * 4" and "* item" stay), _ inside a word is a letter (snake_case), and text in
+// <code> is left alone. `keep`: the marks stay, each in a .md-mk span and the text between in .md-t (a line-through
+// can't be taken off a child, so it goes on the text alone), styled by classes (the prompt's layer, mentions.ts, must
+// keep every character the textarea has).
+const EMPHASIS: [RegExp, string, string][] = [
+  [/\*\*([^\s*](?:[^*\n]*?[^\s*])?)\*\*/g, '**', 'b'],
+  [/(?<!\w)__([^\s_](?:[^_\n]*?[^\s_])?)__(?!\w)/g, '__', 'b'],
+  [/(?<![*\w])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?![*\w])/g, '*', 'i'],
+  [/(?<!\w)_([^\s_](?:[^_\n]*?[^\s_])?)_(?!\w)/g, '_', 'i'],
+  [/~~([^\s~](?:[^~\n]*?[^\s~])?)~~/g, '~~', 's'],
+];
+function emphasis(escaped: string, keep = false): string {
+  return escaped.split(/(<code>[\s\S]*?<\/code>)/).map((part, i) => i % 2 ? part : EMPHASIS.reduce((s, [re, mk, tag]) => s.replace(re, keep
+    ? `<span class="md-${tag}"><span class="md-mk">${mk}</span><span class="md-t">$1</span><span class="md-mk">${mk}</span></span>`
+    : `<${tag}>$1</${tag}>`), part)).join('');
+}
+
 /* ----- Edit Manually in a Markdown file's preview (preview.ts) ----- */
 // The page shows the Markdown rendered, so its text is found in the file by the words themselves. Each change carries
 // `nth`: how many times its old text showed in the page before it, which picks the copy in the file.

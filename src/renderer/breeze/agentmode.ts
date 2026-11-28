@@ -25,13 +25,13 @@ function bindTask(id: string, tab: AgentTabState): void {
   if (tab.historyId && agTabLinks[id] !== tab.historyId) { agTabLinks[id] = tab.historyId; store.set('breeze.agentic.tabs', agTabLinks); }
 }
 // The chat a task reports in: the one it came from, else the one linked to it, else a new chat named after it
-// (a schedule firing after a restart, say), which shows in the side bar like any chat.
+// (a schedule firing after a restart, say), which opens in the Agents panel like any chat.
 function taskTab(t: AgentTask): AgentTabState {
-  const tabs = surfaceTabs.box;
+  const tabs = surfaceTabs.ide;
   const bound = agTaskTab.get(t.id);
   if (bound && tabs.includes(bound)) { bindTask(t.id, bound); return bound; }
   const linked = agTabLinks[t.id] ? tabs.find(x => x.historyId === agTabLinks[t.id]) : undefined;
-  const tab = linked ?? createAgentTab(SURFACES.box, t.goal.replaceAll(/\s+/g, ' ').slice(0, 64), undefined, null, true);
+  const tab = linked ?? createAgentTab(SURFACES.ide, t.goal.replaceAll(/\s+/g, ' ').slice(0, 64), undefined, null, true);
   if (!linked && tab.panel.querySelector('.empty')) tab.panel.innerHTML = '';
   bindTask(t.id, tab);
   return tab;
@@ -59,7 +59,6 @@ function agenticAgent(tab: AgentTabState): DetectedAgent | null {
   appState.agent = alt.id;
   saveApp();
   renderAgentBar();
-  updateBoxEmptyWho();
   toolLine('note', `${cur?.name ?? 'Your agent'} can’t run agentic tasks, so Breeze switched to ${alt.name}.`, tab);
   return alt;
 }
@@ -180,7 +179,7 @@ api.agentTask.onEvent(msg => {
     AGENT_EVENTS[msg.ev.t]?.(r, msg.ev, tab);
     saveChat(tab);
     refreshNeedsYou(tab);
-    if (msg.ev.t === 'question' && (appState.mode !== 'box' || activeTabId.box !== tab.id)) toast('An agentic task needs your answer in Breeze Space');
+    if (msg.ev.t === 'question' && activeTabId.ide !== tab.id) toast('An agentic task needs your answer in the Agents panel');
   } else if (msg.type === 'run-start') {
     const t = agTasks.get(msg.taskId);
     if (!t || msg.mode !== 'build') return; // the planning run stays out of the chat
@@ -188,7 +187,7 @@ api.agentTask.onEvent(msg => {
   } else if (msg.type === 'notify') {
     const t = agTasks.get(msg.id);
     const tab = t && agTaskTab.get(t.id);
-    if (t && tab && (appState.mode !== 'box' || activeTabId.box !== tab.id)) toast(`${t.goal.slice(0, 50)}: ${msg.text}`);
+    if (t && tab && activeTabId.ide !== tab.id) toast(`${t.goal.slice(0, 50)}: ${msg.text}`);
   }
 });
 // A Run for the chat to file a task's events under: the same shape a sent message gets (teams.ts startAgentRun).

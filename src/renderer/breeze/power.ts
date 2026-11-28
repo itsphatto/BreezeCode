@@ -11,6 +11,15 @@ let pageFocused = document.hasFocus();
 const decorUnseen = (): boolean => document.hidden || !pageFocused;
 const decorResting = (): boolean => powerInfo.saver || decorUnseen();
 
+// Whether someone could see `el` now: rendered, not visibility:hidden or transparent, not collapsed to nothing, and
+// inside the window. A collapsed panel keeps its boxes laid out, so offsetParent alone said yes and its decoration
+// kept animating out of sight.
+function decorVisible(el: Element): boolean {
+  if (!el.isConnected || !el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return false;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+}
+
 const decorWatchers = new Set<() => void>();
 // Runs `cb` whenever decorResting() may have changed.
 function onDecorChange(cb: () => void): void {

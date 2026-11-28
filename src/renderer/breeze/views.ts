@@ -78,79 +78,10 @@ $$('.act-btn[data-view]').forEach(b => b.onclick = () => {
   else showView(v, true, true);
 });
 
-/* ================= Breeze Space (chat only) ================= */
-// The same agents and conversation as the IDE's agent panel, with nothing else on screen.
-function enterMode(mode: WorkMode): void {
-  appState.mode = mode;
+// Into the editor: the screen every way out of Home and setup lands on.
+function enterIde(): void {
   appState.onboarded = true;
   saveApp();
   closeMenu();
-  if (mode === 'ide') { showIde(); return; }
-  swapScreen('#box');
-  useSurface('box');
-  renderUser(); renderAgentBar(); renderBoxFolder();
-  // Box lists every agent Breeze found, so look for them if that hasn't happened yet.
-  if (!appState.detect) detectTools().catch(() => toast('Could not look for agents on this computer'));
-  if (!SURFACES.box.chat.children.length) restoreChat(SURFACES.box);
-  renderBoxSide();
-  SURFACES.box.prompt.focus();
+  showIde();
 }
-function renderBoxFolder(): void {
-  const chip = $('#boxFolder');
-  const name = rootInfo ? rootInfo.name : 'Breeze Space folder';
-  const label = chip.querySelector('span');
-  if (label) swapText(label, name); else chip.innerHTML = `${svgIcon('folder', 13)}<span>${esc(name)}</span>`;
-  chip.title = rootInfo ? `Agents work in ${rootInfo.root}` : 'No project open: agents work in Documents/Breeze Space';
-  if (typeof refreshComposers === 'function') refreshComposers();
-}
-function boxAgentItems(): MenuItem[] {
-  const a = selectedAgent();
-  // The agents to switch to first, then Switch Model, with the effort slider last.
-  const items: MenuItem[] = [{ label: 'Switch Agent:', enabled: () => false }];
-  const agents = appState.detect?.agents ?? [];
-  for (const ag of agents) {
-    items.push({
-      label: ag.api && ag.version ? `${ag.name} · ${ag.version}` : ag.name,
-      icon: brandMark('menu-ico', ag.id, ag.name[0]),
-      key: ag.found ? undefined : 'not set up',
-      checked: () => ag.id === appState.agent,
-      enabled: () => ag.found,
-      run: () => {
-        appState.agent = ag.id;
-        saveApp();
-        renderAgentBar();
-        updateBoxEmptyWho();
-        toast(`Breeze Space now uses ${ag.name}`);
-      },
-    });
-  }
-  items.push({ label: 'Manage agents', run: () => openAgentPicker() });
-  if (a?.found && a.models?.length) items.push({ sep: true }, ...modelPickerItems(a));
-  return items;
-}
-$('#boxModel').onclick = e => {
-  const btn = e.currentTarget as HTMLElement;
-  if (menuWasOpen(btn)) { closeMenu(); return; }
-  btn.classList.add('open');
-  const r = btn.getBoundingClientRect();
-  popupMenu(r.left, r.top - 8, boxAgentItems(), () => btn.classList.remove('open'));
-  const m = $('#menuRoot .menu');
-  m.classList.add('up');
-  m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`; // open upwards, above the composer
-};
-$('#boxFolder').onclick = e => {
-  const btn = e.currentTarget as HTMLElement;
-  if (menuWasOpen(btn)) { closeMenu(); return; }
-  btn.classList.add('open');
-  const r = btn.getBoundingClientRect();
-  const choose = (create: boolean) => background(chooseProject(create).then(renderBoxFolder));
-  popupMenu(r.left, r.top - 8, [
-    { label: 'Open Folder', run: () => choose(false) },
-    { label: 'Create New Project', run: () => choose(true) },
-    ...(rootInfo ? [{ sep: true }, { label: 'Close Folder', run: () => background(closeFolderCmd().then(renderBoxFolder)) }] : []),
-  ], () => btn.classList.remove('open'));
-  const m = $('#menuRoot .menu');
-  m.classList.add('up');
-  m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`;
-};
-

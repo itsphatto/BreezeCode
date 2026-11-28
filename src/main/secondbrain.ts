@@ -44,7 +44,8 @@ function kindOf(text: string): Kind {
   return 'fact';
 }
 const looksLikeCode = (t: string) => /^(?:const|let|var|function|import|export|return|class|def|if|for)\b|[;{}]\s*$|=>/.test(t);
-const HEADING = /^\s*(?:#{1,6}\s+|\d+\.\s+)?([A-Z][^:]{1,60}):\s*$/;
+// Gemini (Antigravity) bolds them: **Facts:** or **Facts**:
+const HEADING = /^\s*(?:#{1,6}\s+|\d+\.\s+)?(?:\*\*|__)?([A-Z][^:*_]{1,60}?)(?:\*\*|__)?:(?:\*\*|__)?\s*$/;
 const PREAMBLE = /^(?:this session is being continued|summary:?$|the conversation is summarized below|analysis:?$)/i;
 // Long lines are cut at sentence ends to fit MAX_TEXT.
 function pieces(text: string): string[] {
@@ -78,7 +79,7 @@ export function extractMemories(summary: string): { kind: Kind; text: string }[]
     const line = raw.trim();
     if (!line || PREAMBLE.test(line)) continue;
     const head = HEADING.exec(line);
-    if (head && !/^[-*•]/.test(line)) { section = sectionOf(head[1]); file = null; continue; }
+    if (head && !/^[-*•]\s/.test(line)) { section = sectionOf(head[1]); file = null; continue; }
     if (section === 'skip') continue;
     let text = line.replace(/^(?:[-*•+]|\d+[.)])\s+/, '').replace(/\s+/g, ' ').trim();
     text = text.replace(/^\*\*(.+?)\*\*:?\s*/, '$1: ').replace(/`/g, '').trim();
@@ -200,6 +201,8 @@ Pending Tasks:
 Files:
 
 Under Files, name each important file by its path, then a colon and what it is for. Skip a heading with nothing under it.
+
+Reply with only the headings and bullets: no text before or after them, and don't write any file or plan.
 
 <chats>${chats}
 </chats>`;

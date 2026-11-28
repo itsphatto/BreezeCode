@@ -527,7 +527,7 @@ async function applyModelAndEffort(a: DetectedAgent, model: string, effort: Effo
 }
 
 // "Switch Model": the agent's models in a flat list, then a slider for its effort (a local server has none).
-// Every surface that picks a model uses this, so Breeze Space and the agents panel behave the same.
+// Every surface that picks a model uses this, so they all behave the same.
 // makeDefault (an agent's own chip): setting its model or effort also makes it the default agent.
 // `target`: where the pick goes instead of the agent's own settings (an Agent board box keeps its own model and effort).
 interface ModelTarget { model(): string; effort(): EffortLevel; set(model: string, effort: EffortLevel): void }
@@ -706,8 +706,6 @@ function renderAgentBar(): void {
   const a = selectedAgent();
   const model = a?.api && a.version ? ' · ' + a.version : '';
   const label = a ? a.name + model : 'Choose an agent';
-  // The agent's logo first, as in the menu it opens.
-  $('#boxModel').innerHTML = `${a ? brandMark('menu-ico', a.id, a.name[0]) : ''}${esc(label)}${svgIcon('chevronDown', 12)}`;
   for (const k of Object.values(agentsDef)) k.model = modelLabel(a);
   renderAgents();
   renderPromptModels();
@@ -1296,7 +1294,7 @@ function renderRecentList(): void {
   el.innerHTML = html;
 }
 function leaveHome(): void {
-  enterMode(appState.mode);
+  enterIde();
 }
 function goHome(): void {
   closeMenu();
@@ -1304,7 +1302,6 @@ function goHome(): void {
   goStep(STEP.home);
 }
 $('#logoHome').onclick = goHome;
-$('#boxLogoHome').onclick = goHome;
 async function openFromHome(dir: string, row: HTMLElement): Promise<void> {
   const r = homeRecent?.find(x => x.path === dir);
   // A folder that's gone can't be opened, so picking it takes it off the list.
@@ -1369,12 +1366,12 @@ async function chooseFile(): Promise<void> {
   if (rootInfo?.root !== r.root) await loadWorkspace(r);
   if (r.open) openFile(r.open);
   toast(`Opened ${r.open ?? r.name}`);
-  enterMode('ide');
+  enterIde();
 }
 // "New file" goes straight to the IDE and asks only for a name; the file is written once it is saved or run, which
 // asks where to put it (see saveUntitled).
 async function newUntitledFile(): Promise<void> {
-  enterMode('ide');
+  enterIde();
   const name = (await askName('New file', 'untitled.txt', 'Create'))?.replaceAll('\\', '/').split('/').pop()?.trim();
   if (!name) return;
   const b = untitledBuffer(name);
@@ -1457,7 +1454,7 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
   background(run());
 });
-// Switching between the onboarding, the IDE and Breeze Space: the old screen fades back, the new one rises in.
+// Switching between the onboarding, the IDE and the board: the old screen fades back, the new one rises in.
 let swapTimer: TimeoutId | undefined;
 let swapSeq = 0;
 let booted = false;
@@ -1472,7 +1469,7 @@ const SCREEN_KEY = 'breeze.screen'; // the screen showing, for a reload or the n
 function swapScreen(to: string): void {
   store.set(SCREEN_KEY, to);
   const next = $(to);
-  const screens = ['#onboard', '#ide', '#box', '#debug', '#board'].map(id => $(id));
+  const screens = ['#onboard', '#ide', '#debug', '#board'].map(id => $(id));
   $('#debugBtn').classList.toggle('on', to === '#debug'); // the activity bar's Debug stays lit while its page shows
   $('#boardBtn').classList.toggle('on', to === '#board');
   // At launch the remembered screen just appears; the animation is for switching.

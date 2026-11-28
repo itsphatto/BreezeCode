@@ -335,7 +335,7 @@ function finishTeamMember(r: Run, ev: AgentEvent, tab: AgentTabState, team: Agen
   labelAgent = label;
   if (!hasAnyActiveRun()) vibeDone(allOk);
   const s = SURFACES[tab.surfaceName];
-  if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
+  if (!isBoardSurface(s.name)) s.prompt.placeholder = ' '; // a board box keeps its own
   if (lastRunFiles.length && idePreview.running) autoReloadPreview();
 }
 
@@ -362,7 +362,6 @@ async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, u
   agentsDef[phase].agentId = agentId;
 
   try {
-    const box = tab.surfaceName === 'box';
     // Each agent resumes only its own session (a Codex thread id means nothing to Claude Code).
     const session = tab.sessions[agentId] ?? null;
     // Settings -> Agents -> Instructions go to every agent with every message.
@@ -372,7 +371,7 @@ async function startAgentRun(agentId: string, mode: AgentMode, prompt: string, u
     // An Agent board box runs through the board, which keeps its files apart from the other boxes'.
     const id = isBoardSurface(tab.surfaceName)
       ? await api.board.run({ boxKey: boxKeyOf(tab.surfaceName), agent: agentId, prompt, session, chat, root: SURFACES[tab.surfaceName].folder ?? undefined, ...boardPickOf(boxKeyOf(tab.surfaceName), agentId) })
-      : await api.agent.run({ agent: agentId, mode, prompt, session, box, chat });
+      : await api.agent.run({ agent: agentId, mode, prompt, session, chat });
     const run: Run = {
       id,
       tabId: tab.id,
@@ -423,7 +422,6 @@ function onAgentFile(r: Run, path: string, created = false, written = false): vo
   renderTree(); renderTabs();
   queueGitRefresh();
   if (r.surfaceName === 'ide') background(openAgentFile(path, created, written));
-  else if (r.surfaceName === 'box') liveFile(path);
   else if (isBoardSurface(r.surfaceName)) {
     const key = boxKeyOf(r.surfaceName);
     boardLiveFile(key, path);
@@ -479,7 +477,6 @@ async function openAgentFile(path: string, created = false, written = false): Pr
 // The agent's text for a file it is creating, as it writes it.
 function onAgentDraft(r: Run, path: string, text: string): void {
   if (surfaceAway(r.surfaceName)) return;
-  if (r.surfaceName === 'box') { liveDraft(path, text, r.phase); return; }
   if (isBoardSurface(r.surfaceName)) {
     boardLiveDraft(boxKeyOf(r.surfaceName), path, text, r.phase);
     if (boardWatchFor(boxKeyOf(r.surfaceName))) boardWatchStart(boxKeyOf(r.surfaceName));
@@ -1034,14 +1031,12 @@ document.addEventListener('click', e => {
   }
   const failed = t.closest<HTMLElement>('[data-test-file]');
   if (failed && rootInfo) {
-    if (surface.name === 'box') enterMode('ide');
     const line = Math.max(0, Number(failed.dataset.testLine) - 1); // the card counts from 1, the editor from 0
     openFile(failed.dataset.testFile as string, { line, col: 0 });
     return;
   }
   const file = t.closest<HTMLElement>('[data-edit-file]');
   if (file && rootInfo) {
-    if (surface.name === 'box') enterMode('ide');
     openFile(file.dataset.editFile as string);
   }
 });
@@ -1124,7 +1119,7 @@ function finishRun(r: Run, ev: AgentEvent, tab: AgentTabState): void {
   }
   addMsg(`<div class="run-done">${svgIcon('check', 14)}<span>${bits.length ? bits.join(' · ') : 'Done'}</span></div>`, tab);
   followUpCard(r, tab);
-  if (!isBoardSurface(s.name)) s.prompt.placeholder = s.name === 'box' ? 'Ask Breeze anything' : ' '; // a board box keeps its own
+  if (!isBoardSurface(s.name)) s.prompt.placeholder = ' '; // a board box keeps its own
   if (r.files.size && !away && idePreview.running) autoReloadPreview();
 }
 

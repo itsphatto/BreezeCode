@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const ctx = vm.createContext({});
 vm.runInContext(stripTypeScriptTypes(fs.readFileSync(require.resolve('../src/renderer/breeze/mdcore.ts'), 'utf8')), ctx);
-const { splitFences, codeSpans } = vm.runInContext('({ splitFences, codeSpans })', ctx);
+const { splitFences, codeSpans, emphasis } = vm.runInContext('({ splitFences, codeSpans, emphasis })', ctx);
 const plain = v => JSON.parse(JSON.stringify(v));
 
 test('a fence at the start of a line is a code block', () => {
@@ -95,4 +95,21 @@ test('artifactKind: a whole page or an SVG shows live, a snippet stays code', ()
   assert.equal(artifactKind('xml', 'snippet.xml', '<note></note>'), '');
   assert.equal(artifactKind('mermaid', 'snippet.mmd', 'flowchart TD\n  A --> B'), 'mermaid');
   assert.equal(artifactKind('mermaid', 'snippet.mmd', '  '), '');
+});
+
+test('emphasis: bold, italic and struck text', () => {
+  assert.equal(emphasis('**a** __b__ *c* _d_ ~~e~~'), '<b>a</b> <b>b</b> <i>c</i> <i>d</i> <s>e</s>');
+  assert.equal(emphasis('*a **b** c*'), '<i>a <b>b</b> c</i>');
+});
+
+test('emphasis leaves math, list bullets, snake_case and code alone', () => {
+  for (const s of ['2 * 3 * 4', '* item', 'snake_case_name', '** not bold **', 'a*b']) assert.equal(emphasis(s), s);
+  assert.equal(emphasis('<code>*x*</code> *y*'), '<code>*x*</code> <i>y</i>');
+});
+
+test('emphasis with keep holds every character (the prompt layer lines up with the textarea)', () => {
+  const s = 'say **hi** to _you_ and ~~not~~ *me* <code>*k*</code>';
+  const html = emphasis(s, true);
+  assert.equal(html.replace(/<[^>]+>/g, ''), s.replace(/<[^>]+>/g, ''));
+  assert.match(html, /<span class="md-b"><span class="md-mk">\*\*<\/span><span class="md-t">hi<\/span><span class="md-mk">\*\*<\/span><\/span>/);
 });

@@ -82,7 +82,7 @@ async function sendFromHome(): Promise<void> {
   }
   input.value = '';
   saveDraft(input);
-  enterMode('ide');
+  enterIde();
   if (!layout.agentsOpen) commands['view.toggleAgents']();
   const files = homeAskFiles.splice(0);
   renderHomeAskFiles();

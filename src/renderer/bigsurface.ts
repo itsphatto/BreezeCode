@@ -87,8 +87,8 @@ class BigSurface extends EventTarget {
     this.root.append(this.gutter, this.code, this.slider);
     host.append(this.root);
 
-    this.input.addEventListener('focus', () => { this.root.classList.add('focused'); this.dispatchEvent(new Event('selectionchange')); });
-    this.input.addEventListener('blur', () => this.root.classList.remove('focused'));
+    this.input.addEventListener('focus', () => { this.root.classList.add('focused'); restartBlink(this.root); this.dispatchEvent(new Event('selectionchange')); });
+    this.input.addEventListener('blur', () => { this.root.classList.remove('focused'); stopBlink(this.root); });
     this.input.addEventListener('keydown', e => this.onKey(e));
     this.input.addEventListener('input', e => {
       if ((e as InputEvent).isComposing || this.input.classList.contains('composing')) { this.sizeComposing(); return; }
@@ -602,7 +602,7 @@ class BigSurface extends EventTarget {
     this.input.style.left = x + 'px';
     this.input.style.top = Math.max(0, Math.min(cy, this.code.clientHeight - lh)) + 'px';
     const at = x + ',' + cy;
-    if (at !== this.caretAt) { this.caretAt = at; for (const an of this.caretEl.getAnimations()) an.currentTime = 0; }
+    if (at !== this.caretAt) { this.caretAt = at; if (this.root.classList.contains('focused')) restartBlink(this.root); }
   }
 
   private thumbGeom(view: number) {

@@ -125,32 +125,54 @@ function morphClass(el: HTMLElement, cls: string, on: boolean, part: HTMLElement
 const morphShow = (el: HTMLElement, show: boolean) => morphClass(el, 'hidden', !show);
 // New content in place (a panel's other view, a label): it settles in, as swapText does for words.
 const settleIn = (el: Element) => motionReduced() || el.animate([{ opacity: 0, filter: 'blur(3px)', transform: 'translateY(2px)' }, {}], { duration: 360, easing: SPRING });
-// Search in a chats side bar opens into its field and closes back as one row: the highlight carries over, and
-// "Search chats" grows out of the word "Search" (closing, shrinks back into it) rather than the two swapping.
+// Search in a chats side bar opens into its field and closes back as one row: the highlight carries over, and the
+// placeholder morphs out of the word "Search": the word stays put and dims, " chats" comes in letter by letter after it
+// (closing, the letters go and the word brightens back). A stand-in drawn over the field does it, since a placeholder
+// can't be animated in parts; typing removes it at once.
+function searchGhost(box: HTMLElement, input: HTMLInputElement, word: string): { word: HTMLElement; tail: HTMLElement[]; end: () => void } | null {
+  box.querySelector('.search-ghost')?.remove();
+  if (!word || !input.placeholder.startsWith(word) || input.value) return null;
+  const el = document.createElement('span');
+  el.className = 'search-ghost';
+  el.setAttribute('aria-hidden', 'true');
+  el.style.left = `${input.offsetLeft}px`;
+  const w = el.appendChild(document.createElement('span'));
+  w.textContent = word;
+  const tail = [...input.placeholder.slice(word.length)].map(ch => Object.assign(el.appendChild(document.createElement('span')), { textContent: ch }));
+  box.append(el);
+  box.classList.add('morphing');
+  const end = () => { el.remove(); if (!box.querySelector('.search-ghost')) box.classList.remove('morphing'); input.removeEventListener('input', end); };
+  input.addEventListener('input', end);
+  return { word: w, tail, end };
+}
 function morphSearchRow(btn: HTMLElement, box: HTMLElement, open: boolean): void {
   const input = box.querySelector('input') as HTMLInputElement;
   const swap = () => { box.classList.toggle('hidden', !open); btn.classList.toggle('hidden', open); };
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const clip = (w: number) => `inset(0 calc(100% - ${w + 2}px) 0 0)`; // +2: the field's text sits a hair right of the word's
+  const label = btn.querySelector('span');
+  const word = label?.textContent?.trim() ?? '';
   if (open) {
-    const w = btn.querySelector('span')?.offsetWidth ?? 0;
     const glow = getComputedStyle(btn, '::before');
     const from = { opacity: glow.opacity, transform: glow.transform };
+    const color = label ? getComputedStyle(label).color : '';
     swap();
-    box.dataset.word = String(w);
-    if (still || !w) return;
+    if (still) return;
     box.animate([from, {}], { pseudoElement: '::before', duration: 510, easing: SPRING });
-    input.animate([{ clipPath: clip(w) }, { clipPath: 'inset(0)' }], { duration: 300, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    const g = searchGhost(box, input, word);
+    if (!g) return;
+    g.word.animate([{ color }, {}], { duration: 320, easing: 'ease' });
+    const last = g.tail.map((c, i) => c.animate([{ opacity: 0, filter: 'blur(4px)', transform: 'translateX(-6px)' }, {}], { duration: 320, delay: 40 + i * 24, easing: SPRING, fill: 'backwards' })).at(-1);
+    if (last) last.finished.then(g.end, g.end); else g.end();
     return;
   }
-  const w = Number(box.dataset.word);
-  if (still || !w || !box.checkVisibility()) { swap(); return; }
-  const shrink = input.animate([{ clipPath: 'inset(0)' }, { clipPath: clip(w) }], { duration: 160, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
-  shrink.onfinish = () => {
-    swap();
-    shrink.cancel();
-    btn.animate([{ opacity: 1, transform: 'none' }, {}], { pseudoElement: '::before', duration: 260, easing: 'ease' });
-  };
+  if (still || !box.checkVisibility()) { box.querySelector('.search-ghost')?.remove(); box.classList.remove('morphing'); swap(); return; }
+  const g = searchGhost(box, input, word);
+  const done = () => { g?.end(); swap(); btn.animate([{ opacity: 1, transform: 'none' }, {}], { pseudoElement: '::before', duration: 260, easing: 'ease' }); };
+  if (!g) { done(); return; }
+  const n = g.tail.length;
+  g.word.animate([{}, { color: 'var(--text-2)' }], { duration: 180, easing: 'ease', fill: 'forwards' });
+  const last = g.tail.map((c, i) => c.animate([{}, { opacity: 0, filter: 'blur(4px)', transform: 'translateX(-4px)' }], { duration: 140, delay: (n - 1 - i) * 14, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'both' }))[0];
+  if (last) last.finished.then(done, done); else done();
 }
 // One hover highlight for a list of rows, instead of each row lighting up on its own: it fades in where the pointer
 // comes in, glides from row to row as it moves, and fades out where it leaves. Rows matching `skip` (disabled ones)
@@ -234,7 +256,7 @@ function closeModal(): void {
   modalGrowOwner = null;
   // Play the closing animation on a detached copy so a new modal can open immediately.
   scrim.classList.add('closing');
-  setTimeout(() => scrim.remove(), scrim.querySelector('.settings-shell') ? 460 : 380);
+  setTimeout(() => scrim.remove(), scrim.querySelector('.settings-shell') ? 340 : 380);
   const cb = modalOnClose; modalOnClose = null;
   const under = modalUnder && topScrim();
   if (modalUnder && under) {

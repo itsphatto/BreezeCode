@@ -73,22 +73,20 @@ interface AgentAttachment {
   fileRel?: string;
 }
 type ImageAttachment = AgentAttachment;
-// A chat surface: the IDE panel, Breeze Space, or one box of the Agent board (`board:box1`…`board:box8`).
-type SurfaceName = WorkMode | `board:${string}`;
+// A chat surface: the IDE panel, or one box of the Agent board (`board:box1`…`board:box8`).
+type SurfaceName = 'ide' | `board:${string}`;
 const isBoardSurface = (name: SurfaceName): name is `board:${string}` => name.startsWith('board:');
 const boxKeyOf = (name: SurfaceName): string => name.slice('board:'.length);
 // A board box whose project isn't the one open: its paths belong there, so the editor, the tree and git leave them alone.
 const surfaceAway = (name: SurfaceName): boolean => { const f = SURFACES[name]?.folder; return !!f && (!rootInfo || folderKey(f) !== folderKey(rootInfo.root)); };
-const attachmentsMap: Record<string, AgentAttachment[]> = { ide: [], box: [] };
+const attachmentsMap: Record<string, AgentAttachment[]> = { ide: [] };
 
 // `folder`: an Agent board box's own project, which stays its own when another one is opened.
 interface Surface { name: SurfaceName; folder?: string | null; chat: HTMLElement; prompt: HTMLTextAreaElement; send: HTMLElement; mode: HTMLSelectElement; attachmentsEl: HTMLElement; }
-const SURFACES: Record<string, Surface> & Record<WorkMode, Surface> = {
+const SURFACES: Record<string, Surface> & Record<'ide', Surface> = {
   ide: { name: 'ide', chat: $('#chat'), prompt: $<HTMLTextAreaElement>('#prompt'), send: $('#send'), mode: $<HTMLSelectElement>('#agentMode'), attachmentsEl: $('#promptAttachments') },
-  box: { name: 'box', chat: $('#boxChat'), prompt: $<HTMLTextAreaElement>('#boxPrompt'), send: $('#boxSend'), mode: $<HTMLSelectElement>('#boxMode'), attachmentsEl: $('#boxPromptAttachments') },
 };
 keepDraft(SURFACES.ide.prompt, () => `breeze.draft:ide:${rootInfo?.root ?? ''}`); // restoreChat puts a folder's back
-keepDraft(SURFACES.box.prompt, () => 'breeze.draft:box');
 let surface = SURFACES.ide;     // the one on screen
 let msgSurface = surface;       // fallback surface
 
@@ -178,8 +176,8 @@ function findTabForRun(runId: number): { tab: AgentTabState; run: Run } | null {
   return null;
 }
 
-const surfaceTabs: Record<string, AgentTabState[]> & Record<WorkMode, AgentTabState[]> = { ide: [], box: [] };
-const activeTabId: Record<string, string> = { ide: '', box: '' };
+const surfaceTabs: Record<string, AgentTabState[]> & Record<'ide', AgentTabState[]> = { ide: [] };
+const activeTabId: Record<string, string> = { ide: '' };
 // An Agent board box: a surface of its own with one chat and no tab strip.
 function registerSurface(s: Surface): void {
   SURFACES[s.name] = s;
@@ -200,7 +198,7 @@ function tabNeedsYou(t: AgentTabState): boolean {
   if (t.panel.querySelector('.card.plan:not(.question) [data-live]')) return true;
   return tabBusy(t) && !!t.panel.querySelector('.card [data-live]');
 }
-// Repaints the tab strip (and Breeze Space's side bar) so a chat's "needs you" dot comes and goes.
+// Repaints the tab strip so a chat's "needs you" dot comes and goes.
 function refreshNeedsYou(tab: AgentTabState): void {
   if (isBoardSurface(tab.surfaceName)) { if (typeof paintBoardTabRow === 'function') paintBoardTabRow(tab); return; }
   if (surfaceTabs[tab.surfaceName]?.includes(tab)) renderAgentTabs(SURFACES[tab.surfaceName]);
@@ -254,8 +252,6 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
   tab.panel.className = 'agent-tab-panel';
   if (initialHtml) {
     setSavedHtml(tab.panel, initialHtml);
-  } else if (s.name === 'box') {
-    tab.panel.innerHTML = boxEmptyHtml();
   } else {
     tab.panel.innerHTML = `<div class="empty"><div>${idleLogo(40)}<h4>Your agents are ready</h4><div class="empty-line">Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
   }
@@ -269,10 +265,10 @@ function createAgentTab(s: Surface, title?: string, initialHtml?: string, sessio
 // The line chases the active tab's live box each frame, so it glides while tabs open, fold away or lose their X
 // (a CSS transition aimed once at the tab's box would land where the tab was, then jump).
 type InkState = { x: number; y: number; w: number; until: number; raf: number };
-const agentInkAt: Record<string, InkState | null> = { ide: null, box: null };
+const agentInkAt: Record<string, InkState | null> = { ide: null };
 function placeAgentTabInk(s: Surface): void {
   if (isBoardSurface(s.name)) return;
-  const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
+  const tabsList = $('#agentTabsList');
   if (!tabsList) return;
   const activeTab = () => tabsList.querySelector<HTMLElement>('.agent-tab.active:not(.leaving)');
   const old = tabsList.querySelector<HTMLElement>('.agent-tab-ink');
@@ -313,7 +309,7 @@ function placeAgentTabInk(s: Surface): void {
 const closingAgentTabs = new Set<string>();
 function renderAgentTabs(s: Surface): void {
   if (isBoardSurface(s.name)) return; // a box has one chat and no tab strip
-  const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
+  const tabsList = $('#agentTabsList');
   if (!tabsList) return;
   const list = surfaceTabs[s.name];
   const curId = activeTabId[s.name];
@@ -408,8 +404,6 @@ function renderAgentTabs(s: Surface): void {
   });
 
   placeAgentTabInk(s);
-  // Box shows its chats in a side bar (history.ts, which loads after this file) rather than in the tab bar.
-  if (s.name === 'box' && typeof renderBoxSide === 'function') renderBoxSide();
 }
 
 // Swaps a name for a text box: Enter or clicking away keeps what was typed, Escape the old name (done gets null).
@@ -444,11 +438,11 @@ function renameInline(el: HTMLElement, value: string, done: (name: string | null
   input.select();
 }
 function renameAgentTab(s: Surface, t: AgentTabState): void {
-  const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
+  const tabsList = $('#agentTabsList');
   const span = tabsList?.querySelector<HTMLElement>(`[data-agent-tab="${t.id}"] .tab-title`);
   if (span && !span.nextElementSibling?.matches('.rename-input')) renameInline(span, t.title, name => { if (name) setChatTitle(t, name); });
 }
-// A chat's name, on its tab and in its history entry (the Breeze Space side bar).
+// A chat's name, on its tab and in its history entry.
 function setChatTitle(t: AgentTabState, name: string, auto = false): void {
   t.title = name;
   t.titleAuto = auto;
@@ -471,7 +465,6 @@ function switchAgentTab(s: Surface, tid: string): void {
     current.uiMode = s.mode.value;
     current.attachments = [...(attachmentsMap[s.name] || [])];
     current.panel.classList.remove('active');
-    if (s.name === 'box' && typeof liveEmpty === 'function') liveEmpty(); // that chat's file isn't this one's
   }
   const next = surfaceTabs[s.name].find(t => t.id === tid);
   if (!next) return;
@@ -508,7 +501,7 @@ function closeAgentTab(s: Surface, tid: string): void {
   if (tabBusy(tab)) stopAgent(tab);
   else if (tab.agentTeam || tab.lastTeamId) dropAgentTeam(tab); // its snapshots go with it
 
-  const tabsList = s.name === 'box' ? $('#boxAgentTabsList') : $('#agentTabsList');
+  const tabsList = $('#agentTabsList');
   const tabEl = tabsList?.querySelector<HTMLElement>(`[data-agent-tab="${tid}"]`);
 
   const finalize = () => {
@@ -603,8 +596,7 @@ function newAgentTabAction(s: Surface = surface): void {
   if (cur) archiveChatTab(s, cur);
   const newTab = createAgentTab(s, undefined, undefined, null, true);
   switchAgentTab(s, newTab.id);
-  if (s.name === 'box') newTab.panel.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
-  const bar = s.name === 'box' ? $('#boxAgentTabsBar') : $('#agentTabsBar');
+  const bar = $('#agentTabsBar');
   bar?.scrollTo({ left: bar.scrollWidth, behavior: 'smooth' });
 }
 
@@ -615,8 +607,7 @@ function useSurface(name: SurfaceName): void {
 
 function scrollChat(s: Surface): void {
   if (s.chat.querySelector(':scope > .agent-tab-panel.active.viewing-sub')) return; // a subagent's chat is open: it scrolls itself
-  const scroller = s.name === 'box' ? $('.box-main') : s.chat;
-  if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  s.chat.scrollTop = s.chat.scrollHeight;
 }
 
 function addMsg(html: string, tab?: AgentTabState): HTMLElement {
@@ -790,18 +781,29 @@ function pairLetters(a: string[], b: string[]): number[] {
   }
   return to;
 }
-function morphText(el: HTMLElement, text: string, layout?: () => void): void {
+// `width: false` keeps the box at its new width from the start (a heading in a centred row: easing its width slides
+// the row and rewraps the new words mid-morph); the old letters then start from where they stood on screen.
+function morphText(el: HTMLElement, text: string, layout?: () => void, { width = true } = {}): void {
   stopTextMorph(el);
   if (el.textContent === text) return;
-  const shown = el.isConnected && !!el.getClientRects().length;
-  const before = shown ? charBoxes(el) : [], w0 = shown ? el.getBoundingClientRect().width : 0;
+  // Out of sight it is a plain swap. Under the power saver a fade (one layer on the compositor) stands in for the
+  // letter-by-letter blur, which lays out and filters every letter for half a second.
+  const shown = decorVisible(el);
+  const still = stillMotion() || powerSaver();
+  const was = shown && !still ? charBoxes(el) : [], r0 = el.getBoundingClientRect();
   el.textContent = text;
   layout?.();
   if (!shown) return;
-  if (stillMotion()) { el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS, easing: MORPH_EASE }); return; }
-  const w1 = el.getBoundingClientRect().width;
+  if (still) { el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MORPH_MS, easing: MORPH_EASE }); return; }
+  const r1 = el.getBoundingClientRect(), w0 = r0.width, w1 = r1.width;
+  const dx = width ? 0 : r0.left - r1.left, dy = width ? 0 : r0.top - r1.top;
+  const before = was.map(c => ({ ch: c.ch, x: c.x + dx, y: c.y + dy }));
   // Where each letter lands as plain text: letter spans lose kerning (up to ~3px over a line), so each aims here instead.
   const land = charBoxes(el).filter(c => c.ch.trim());
+  // Those wider letters can wrap a line that only just fits: the box keeps the plain text's height meanwhile, so
+  // nothing around it (a centred column, the prompt under it) moves. Each letter still aims at `land`.
+  const heightWas = el.style.height;
+  el.style.height = getComputedStyle(el).height;
   // The new text as letters, a word to a nowrap span, so they can move on their own and lines still break at spaces.
   const letters: HTMLElement[] = [];
   el.textContent = '';
@@ -840,7 +842,7 @@ function morphText(el: HTMLElement, text: string, layout?: () => void): void {
     ghosts.push(g);
     anims.push(g.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: soft, transform: 'translateY(-.8em)' }], { duration: MORPH_MS * .6, delay: roll(i), easing: MORPH_EASE, fill: 'both' }));
   });
-  if (Math.abs(w1 - w0) > .5) anims.push(el.animate([{ width: `${w0}px` }, { width: `${w1}px` }], move));
+  if (width && Math.abs(w1 - w0) > .5) anims.push(el.animate([{ width: `${w0}px` }, { width: `${w1}px` }], move));
   let done = false;
   const end = () => {
     if (done) return;
@@ -848,6 +850,7 @@ function morphText(el: HTMLElement, text: string, layout?: () => void): void {
     anims.forEach(a => a.cancel());
     ghosts.forEach(g => g.remove());
     el.classList.remove('tm-run');
+    el.style.height = heightWas;
     el.textContent = text;
     if (textMorphs.get(el) === end) textMorphs.delete(el);
   };
@@ -966,7 +969,7 @@ function hideThinking(tab?: AgentTabState): void {
   }
 }
 
-/* ----- Rotating prompts: a composer's placeholder changes every 2 s; Breeze Space's greeting every 5 s ----- */
+/* ----- Rotating prompts: a composer's placeholder changes every 2 s ----- */
 // Built from parts, so each list holds about a thousand lines without writing them out one by one. Each verb only meets
 // the things it makes sense for ("Add types to" meets code, "Restyle" meets screens), so no line reads as nonsense.
 const combine = (templates: string[], parts: string[]) => templates.flatMap(t => parts.map(p => t.replace('{x}', p)));
@@ -996,33 +999,6 @@ const IDE_PLACEHOLDERS = [
     [...CODE_PARTS, ...UI_PARTS, 'the file upload', 'the test suite', 'the drag and drop', 'the keyboard shortcuts']),
   ...combine(['Speed up {x}', 'Write tests for {x}', 'Document {x}', 'Add types to {x}', 'Explain {x}', 'Add error handling to {x}'], CODE_PARTS),
   ...combine(['Restyle {x}', 'Polish {x}'], UI_PARTS),
-];
-const BOX_PLACEHOLDERS = [
-  'Ask Breeze anything',
-  ...combine(['How do I {x}?', 'Help me {x}', 'Can you {x}?', 'Show me how to {x}', 'Explain how to {x}', "What's the best way to {x}?", 'Walk me through how to {x}', 'Teach me to {x}', 'Quick: how do I {x}?', 'Is there an easy way to {x}?',
-    'I want to {x}', 'Remind me how to {x}', "What's a clean way to {x}?", 'Help me figure out how to {x}', 'Write code to {x}', 'Give me an example of how to {x}', 'Step by step, how do I {x}?', "What's the fastest way to {x}?", 'Can you help me {x}?', 'Show me the right way to {x}'], [
-    'center a div', 'set up a Python venv', 'write a regex for emails', 'deploy to Vercel', 'read a CSV file',
-    'debounce a search box', 'fix a merge conflict', 'undo my last commit', 'add dark mode', 'call an API in JavaScript',
-    'sort a list of objects', 'use async/await', 'write a SQL join', 'parse JSON safely', 'set up ESLint',
-    'speed up my page', 'write unit tests', 'build a REST API', 'handle form errors', 'resize images',
-    'use TypeScript generics', 'use CSS grid', 'make a responsive layout', 'store passwords safely', 'schedule a cron job',
-    'rename files in bulk', 'read environment variables', 'connect to Postgres', 'paginate results', 'upload files',
-    'send an email from Node', 'profile slow code', 'write a Dockerfile', 'rebase a branch', 'cache API responses',
-    'validate user input', 'animate a button', 'build a CLI', 'scrape a web page', 'use WebSockets',
-    'format dates', 'write a bash script', 'handle time zones', 'make a chart', 'lazy load images',
-    'set up GitHub Actions', 'write good commit messages', 'organize my project folders', 'find a memory leak', 'turn callbacks into promises',
-  ]),
-];
-const BOX_HEADINGS = [
-  'What can I help with?',
-  ...combine(['Ready to {x}?', "Let's {x}", 'Shall we {x}?', 'Want to {x}?', 'How about we {x}?', 'Time to {x}', "Today, let's {x}", 'What if we {x}?', 'Care to {x}?', "Let's {x} together",
-    "Ready? Let's {x}", 'Mind if we {x}?', 'Why not {x}?', 'Shall we {x} today?', 'Want to {x} today?', "Let's {x} now", 'Ready to {x} today?', 'Should we {x}?', 'Could we {x}?', "Let's {x}, shall we?"], [
-    'build something', 'ship it', 'fix that bug', 'make it faster', 'write some code', 'try an idea', 'clean things up', 'start fresh', 'make it pretty', 'learn something',
-    'squash bugs', 'plan a feature', 'sketch an app', 'tidy the code', 'write the tests', 'go further', 'dream big', 'launch it', 'make it work', 'make it right',
-    'explore an idea', 'prototype fast', 'refactor boldly', 'debug together', 'design a page', 'code something fun', 'automate a chore', 'build a game', 'polish the UI', 'solve a puzzle',
-    'start a project', 'finish that feature', 'break it down', 'make magic', 'craft an API', 'build a tool', 'write the docs', 'speed things up', 'get unstuck', 'try something new',
-    'ship today', 'cook up an app', 'fix the build', 'make a website', 'level up', 'pair up', 'brainstorm', 'untangle the mess', 'go live', 'make it shine',
-  ]),
 ];
 function pickOther(list: string[], current: string): string {
   const r = new Uint32Array(1);
@@ -1084,17 +1060,12 @@ function nextPlaceholder(r: PlaceholderRotator): void {
 decorInterval(() => {
   for (const layer of $$<HTMLElement>('.ph-rot')) {
     const r = phRotators.get(layer);
-    if (r && layer.offsetParent) nextPlaceholder(r);
+    if (r && decorVisible(layer)) nextPlaceholder(r);
   }
 }, 2000, 2000);
 // Each example reads as a hint, not as a prompt already sent: "Describe a change… e.g. fix the router".
 const IDE_HINTS = IDE_PLACEHOLDERS.map(p => `Describe a change… e.g. ${p[0].toLowerCase()}${p.slice(1)}`);
 rotatePlaceholder(SURFACES.ide.prompt, ' ', IDE_HINTS);
-rotatePlaceholder(SURFACES.box.prompt, BOX_PLACEHOLDERS[0], BOX_PLACEHOLDERS);
-// Rests under the power saver and while the window is unseen (power.ts).
-decorInterval(() => {
-  for (const h of $$<HTMLElement>('#boxChat .empty h4')) if (h.offsetParent) morphText(h, pickOther(BOX_HEADINGS, h.textContent ?? ''));
-}, 5000);
 // The empty state's logo: Agent.png with its strokes rippling in a breeze, as a lossless animated WebP rendered from
 // that image. An image, not a video: a looping video shows a seam each time it restarts. Reduced motion and the power
 // saver get the still: the animated one decodes and paints a frame for as long as it is on screen.
@@ -1108,34 +1079,17 @@ function idleLogo(size: number): string {
   return `<img class="idle-logo" src="../../assets/brand/${file}" alt="" width="${size}" height="${size}" draggable="false">`;
 }
 
-function boxEmptyWho(): string {
-  const agent = selectedAgent();
-  return agent ? `Breeze Space talks to ${agent.name}. Pick another agent below.` : 'Pick an agent below to start.';
-}
-// The greeting is BOX_HEADINGS[0], written out: a tab can be made before that list exists.
-function boxEmptyHtml(): string {
-  return `<div class="empty"><div>${idleLogo(56)}<h4>What can I help with?</h4><div class="empty-who">${esc(boxEmptyWho())}</div></div></div>`;
-}
-// Picking another agent rewrites the line under the greeting in place, with the same blur.
-function updateBoxEmptyWho(): void {
-  for (const el of $$<HTMLElement>('#boxChat .empty-who')) blurSwap(el, boxEmptyWho());
-}
-
 function emptyChat(s: Surface = SURFACES.ide, tab?: AgentTabState): void {
   const t = tab || getActiveTab(s);
-  if (s.name === 'box') {
-    t.panel.innerHTML = boxEmptyHtml();
-    return;
-  }
   t.panel.innerHTML = `<div class="empty"><div>${idleLogo(40)}<h4>Your agents are ready</h4><div class="empty-line">Tell them what to build. They'll ask if anything's unclear.</div></div></div>`;
 }
-// A small, safe subset of Markdown for agent replies: inline code, bold and line breaks. Fenced code blocks
+// A small, safe subset of Markdown for agent replies: inline code, bold, italic, strikethrough and line breaks. Fenced code blocks
 // become artifacts: a card with the file name, Copy and Download. A fence may name its file: ```html index.html
 // A line starting "# " to "###### " is a heading. It is a block span (it may sit inside a <p>), so the blank lines
 // next to it are dropped: its margins already space it.
 const MD_HEADING = /^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
 function inlineMd(s: string): string {
-  const lines = codeSpans(esc(s)).replaceAll(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').split('\n');
+  const lines = emphasis(codeSpans(esc(s))).split('\n');
   const isHead = (l: string | undefined) => l !== undefined && MD_HEADING.test(l);
   let out = '';
   let prevBlock = false;
@@ -1237,8 +1191,10 @@ function toolLine(kind: string, label: string, tab?: AgentTabState): void {
   addMsg(`<div class="tool-line ${kind}"><span class="ti">${svgIcon(TOOL_ICON[kind] ?? 'dot', 14)}</span><span class="tl">${esc(label)}</span></div>`, tab);
 }
 
-// The open chat is kept per project folder (and once for Breeze Space) so a reload brings it back.
-const chatScope = (s: Surface) => (s.name === 'box' ? 'box' : s.folder ?? rootInfo?.root ?? '');
+// The open chat is kept per project folder so a reload brings it back. `SPACE_CHATS` (history.ts): the chats Breeze
+// Space kept, under its own scope, which the Agent board's side bar still lists.
+type ChatStore = Pick<Surface, 'folder'> & { name: string };
+const chatScope = (s: ChatStore) => (s.name === 'space' ? 'box' : s.folder ?? rootInfo?.root ?? '');
 const chatKey = (s: Surface = msgSurface) => `breeze.chat:${chatScope(s)}`;
 const agentSessionKey = (s: Surface = msgSurface, agent: string | null = appState.agent) => `breeze.agentSession:${chatScope(s)}:${agent ?? ''}`;
 

@@ -27,26 +27,83 @@
         <feColorMatrix result="goo" in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 16 -10" />
         <feComposite in="goo" operator="atop" />
       </filter>
-      <!-- Scroll edges (breeze.css, .set-main and the lists after it): rows squeeze toward the edge they leave by.
+      <!-- Scroll edges (breeze.css, .set-main and the lists after it): rows squeeze toward the edge they leave by, and
+           blur more the nearer they get to it: four blurs, each taking over a quarter further out (a 1x40 gray ramp).
            Each map is as tall as its layer and wider than any pane; green says how far out a row looks, from the
            edge (half the layer's height) easing to nothing at its inner side. The thin pair is for the prompt.
            The maps are 1x40 bitmaps stretched to fit, not SVG: a vector map that wide was redrawn on every frame
            and took the whole app down to 18fps. -->
       <filter id="squeeze-top" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
         <feImage result="map" x="0" y="0" width="9999" height="40" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAIAAACw1AcgAAAAXklEQVR42j3DoQrCUAAAwAdLtpWlJYtpZWXBsrJgWDAYBMEwGIgwRJiIw8336V4QDy7EJIS4MjUzd+3GwtLKrbWNO1v3Hjx68mxn78Wrgzfvjj58+nLy7ezy+zH+fwF2PSFa+3VveQAAAABJRU5ErkJggg==" />
-        <feDisplacementMap in="SourceGraphic" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G" />
+        <feDisplacementMap result="sq" in="SourceGraphic" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G" />
+        <feImage result="ramp" x="0" y="0" width="9999" height="40" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAAAAAAa3c+rAAAAWElEQVR4nAXBERCDAAAAwL/LRlEWRbNoFo2yaJSNsmg0G0Wz0SwaZdEoi7JRlEWjWbB/gZ1QJJbYSx1kjnKFk9JZpXZxddO4e3hqvXR6b4PR5GO2WH39bH8T4BPtp2AifQAAAABJRU5ErkJggg==" />
+        <feColorMatrix in="ramp" result="m1" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -4 0 0 0 4" />
+        <feGaussianBlur in="sq" result="b1" stdDeviation="1" edgeMode="duplicate" />
+        <feComposite in="b1" in2="m1" operator="in" result="c1" />
+        <feColorMatrix in="ramp" result="m2" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -4 0 0 0 3" />
+        <feGaussianBlur in="sq" result="b2" stdDeviation="3" edgeMode="duplicate" />
+        <feComposite in="b2" in2="m2" operator="in" result="c2" />
+        <feColorMatrix in="ramp" result="m3" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -4 0 0 0 2" />
+        <feGaussianBlur in="sq" result="b3" stdDeviation="8" edgeMode="duplicate" />
+        <feComposite in="b3" in2="m3" operator="in" result="c3" />
+        <feColorMatrix in="ramp" result="m4" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -4 0 0 0 1" />
+        <feGaussianBlur in="sq" result="b4" stdDeviation="20" edgeMode="duplicate" />
+        <feComposite in="b4" in2="m4" operator="in" result="c4" />
+        <feMerge><feMergeNode in="sq" /><feMergeNode in="c1" /><feMergeNode in="c2" /><feMergeNode in="c3" /><feMergeNode in="c4" /></feMerge>
       </filter>
       <filter id="squeeze-bot" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
         <feImage result="map" x="0" y="0" width="9999" height="40" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAIAAACw1AcgAAAAXUlEQVR42j3DoQrCABQAwPfpm4riGAMRxkAYLAiGhQXDgsFisaysWEwmk8lk2AXZwUWSRMxTF/9LV67duDUzt3Dn3tLKg7WNR0+2dp7tvXj15t3B0YdPX779+PUXE5z/Lp1gDkX1AAAAAElFTkSuQmCC" />
-        <feDisplacementMap in="SourceGraphic" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G" />
+        <feDisplacementMap result="sq" in="SourceGraphic" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G" />
+        <feImage result="ramp" x="0" y="0" width="9999" height="40" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAAAAAAa3c+rAAAAWElEQVR4nAXBERCDAAAAwL/LRlEWRbNoFo2yaJSNsmg0G0Wz0SwaZdEoi7JRlEWjWbB/gZ1QJJbYSx1kjnKFk9JZpXZxddO4e3hqvXR6b4PR5GO2WH39bH8T4BPtp2AifQAAAABJRU5ErkJggg==" />
+        <feColorMatrix in="ramp" result="m1" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 0" />
+        <feGaussianBlur in="sq" result="b1" stdDeviation="1" edgeMode="duplicate" />
+        <feComposite in="b1" in2="m1" operator="in" result="c1" />
+        <feColorMatrix in="ramp" result="m2" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 -1" />
+        <feGaussianBlur in="sq" result="b2" stdDeviation="3" edgeMode="duplicate" />
+        <feComposite in="b2" in2="m2" operator="in" result="c2" />
+        <feColorMatrix in="ramp" result="m3" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 -2" />
+        <feGaussianBlur in="sq" result="b3" stdDeviation="8" edgeMode="duplicate" />
+        <feComposite in="b3" in2="m3" operator="in" result="c3" />
+        <feColorMatrix in="ramp" result="m4" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 -3" />
+        <feGaussianBlur in="sq" result="b4" stdDeviation="20" edgeMode="duplicate" />
+        <feComposite in="b4" in2="m4" operator="in" result="c4" />
+        <feMerge><feMergeNode in="sq" /><feMergeNode in="c1" /><feMergeNode in="c2" /><feMergeNode in="c3" /><feMergeNode in="c4" /></feMerge>
       </filter>
       <filter id="squeeze-top-thin" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
         <feImage result="map" x="0" y="0" width="9999" height="12" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAIAAACw1AcgAAAAXklEQVR42j3DoQrCUAAAwAdLtpWlJYtpZWXBsrJgWDAYBMEwGIgwRJiIw8336V4QDy7EJIS4MjUzd+3GwtLKrbWNO1v3Hjx68mxn78Wrgzfvjj58+nLy7ezy+zH+fwF2PSFa+3VveQAAAABJRU5ErkJggg==" />
-        <feDisplacementMap in="SourceGraphic" in2="map" scale="12" xChannelSelector="R" yChannelSelector="G" />
+        <feDisplacementMap result="sq" in="SourceGraphic" in2="map" scale="12" xChannelSelector="R" yChannelSelector="G" />
+        <feImage result="ramp" x="0" y="0" width="9999" height="12" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAAAAAAa3c+rAAAAWElEQVR4nAXBERCDAAAAwL/LRlEWRbNoFo2yaJSNsmg0G0Wz0SwaZdEoi7JRlEWjWbB/gZ1QJJbYSx1kjnKFk9JZpXZxddO4e3hqvXR6b4PR5GO2WH39bH8T4BPtp2AifQAAAABJRU5ErkJggg==" />
+        <feColorMatrix in="ramp" result="m1" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -4 0 0 0 4" />
+        <feGaussianBlur in="sq" result="b1" stdDeviation="0.5" edgeMode="duplicate" />
+        <feComposite in="b1" in2="m1" operator="in" result="c1" />
+        <feColorMatrix in="ramp" result="m2" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -4 0 0 0 3" />
+        <feGaussianBlur in="sq" result="b2" stdDeviation="1" edgeMode="duplicate" />
+        <feComposite in="b2" in2="m2" operator="in" result="c2" />
+        <feColorMatrix in="ramp" result="m3" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -4 0 0 0 2" />
+        <feGaussianBlur in="sq" result="b3" stdDeviation="2.5" edgeMode="duplicate" />
+        <feComposite in="b3" in2="m3" operator="in" result="c3" />
+        <feColorMatrix in="ramp" result="m4" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -4 0 0 0 1" />
+        <feGaussianBlur in="sq" result="b4" stdDeviation="6" edgeMode="duplicate" />
+        <feComposite in="b4" in2="m4" operator="in" result="c4" />
+        <feMerge><feMergeNode in="sq" /><feMergeNode in="c1" /><feMergeNode in="c2" /><feMergeNode in="c3" /><feMergeNode in="c4" /></feMerge>
       </filter>
       <filter id="squeeze-bot-thin" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
         <feImage result="map" x="0" y="0" width="9999" height="12" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAIAAACw1AcgAAAAXUlEQVR42j3DoQrCABQAwPfpm4riGAMRxkAYLAiGhQXDgsFisaysWEwmk8lk2AXZwUWSRMxTF/9LV67duDUzt3Dn3tLKg7WNR0+2dp7tvXj15t3B0YdPX779+PUXE5z/Lp1gDkX1AAAAAElFTkSuQmCC" />
-        <feDisplacementMap in="SourceGraphic" in2="map" scale="12" xChannelSelector="R" yChannelSelector="G" />
+        <feDisplacementMap result="sq" in="SourceGraphic" in2="map" scale="12" xChannelSelector="R" yChannelSelector="G" />
+        <feImage result="ramp" x="0" y="0" width="9999" height="12" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAoCAAAAAAa3c+rAAAAWElEQVR4nAXBERCDAAAAwL/LRlEWRbNoFo2yaJSNsmg0G0Wz0SwaZdEoi7JRlEWjWbB/gZ1QJJbYSx1kjnKFk9JZpXZxddO4e3hqvXR6b4PR5GO2WH39bH8T4BPtp2AifQAAAABJRU5ErkJggg==" />
+        <feColorMatrix in="ramp" result="m1" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 0" />
+        <feGaussianBlur in="sq" result="b1" stdDeviation="0.5" edgeMode="duplicate" />
+        <feComposite in="b1" in2="m1" operator="in" result="c1" />
+        <feColorMatrix in="ramp" result="m2" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 -1" />
+        <feGaussianBlur in="sq" result="b2" stdDeviation="1" edgeMode="duplicate" />
+        <feComposite in="b2" in2="m2" operator="in" result="c2" />
+        <feColorMatrix in="ramp" result="m3" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 -2" />
+        <feGaussianBlur in="sq" result="b3" stdDeviation="2.5" edgeMode="duplicate" />
+        <feComposite in="b3" in2="m3" operator="in" result="c3" />
+        <feColorMatrix in="ramp" result="m4" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 -3" />
+        <feGaussianBlur in="sq" result="b4" stdDeviation="6" edgeMode="duplicate" />
+        <feComposite in="b4" in2="m4" operator="in" result="c4" />
+        <feMerge><feMergeNode in="sq" /><feMergeNode in="c1" /><feMergeNode in="c2" /><feMergeNode in="c3" /><feMergeNode in="c4" /></feMerge>
       </filter>
       <filter id="knockout" color-interpolation-filters="sRGB">
         <feColorMatrix result="knocked" type="matrix" values="
@@ -624,7 +681,6 @@
 
         <div class="terminal" id="terminal">
           <div class="sash sash-h" data-sash="term"></div>
-          <div class="sash sash-v sash-left" data-sash="boxTerm"></div>
           <div class="term-head" id="termToggle">
             <span id="termTitle"><svg data-i="chevronRight" data-size="14"></svg> <span id="termTitleText">Terminal</span></span>
             <div class="term-tabs" id="termTabs"></div>
@@ -701,77 +757,8 @@
     </footer>
   </div>
 
-  <!-- ================= BREEZE SPACE (chat only) ================= -->
-  <div class="box hidden" id="box">
-    <canvas class="space-sky" id="spaceSky" aria-hidden="true" tabindex="-1"></canvas>
-    <div class="agent-fluid-blur" aria-hidden="true"></div>
-    <canvas class="agent-fluid-canvas" aria-hidden="true" tabindex="-1"></canvas>
-    <header class="titlebar box-bar">
-      <button class="icon-btn box-side-show" id="boxSideShow" type="button" title="Show chats" aria-controls="boxSide"><svg width="16" height="16"><use href="#i-left" /></svg></button>
-      <button class="logo logo-home" id="boxLogoHome" title="Home" aria-label="Go to Home"><img src="../../assets/brand/BreezeSpace.png" alt=""></button>
-      <span class="spacer"></span>
-      <button class="whatsnew-link" type="button" data-whatsnew hidden>What’s new</button>
-      <button class="update-btn" id="boxUpdateBtn" data-update hidden><span>Update</span></button>
-      <button class="icon-btn box-gear" id="boxSettings" title="Settings" aria-haspopup="dialog"><svg width="18"
-          height="18">
-          <use href="#i-gear" />
-        </svg></button>
-      <button class="icon-btn toggle" id="boxTerm" data-act="term.toggle" title="Terminal (Ctrl+`)" aria-label="Terminal" aria-pressed="false"><svg data-i="terminal" data-size="16"></svg></button>
-      <button class="avatars" id="boxAvatar" aria-haspopup="menu" title="Account"></button>
-    </header>
-    <!-- Chats, grouped by the folder they were in: switching chats happens here (the tab bar stays hidden in Box). -->
-    <aside class="box-side" id="boxSide" aria-label="Chats">
-      <div class="sash sash-v" data-sash="boxSide"></div>
-      <div class="box-side-top">
-        <button class="box-side-row" id="boxSideNew" type="button"><svg data-i="plus" data-size="15"></svg><span>New chat</span></button>
-        <button class="icon-btn box-side-hide" id="boxSideHide" type="button" title="Hide chats" aria-controls="boxSide"><svg width="16" height="16"><use href="#i-left-on" /></svg></button>
-      </div>
-      <button class="box-side-row" id="boxSideSearchBtn" type="button" aria-controls="boxSideSearch"><svg data-i="search" data-size="15"></svg><span>Search</span></button>
-      <label class="box-side-row box-side-search hidden" id="boxSideSearchBox"><svg data-i="search" data-size="15"></svg><input id="boxSideSearch" type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" spellcheck="false"></label>
-      <button class="box-side-row" type="button" data-ext-open="skills" aria-haspopup="dialog"><svg data-i="puzzle" data-size="15"></svg><span>Skills</span></button>
-      <button class="box-side-row" type="button" data-ext-open="plugins" aria-haspopup="dialog"><svg data-i="blocks" data-size="15"></svg><span>Plugins</span></button>
-      <button class="box-side-row" type="button" data-ext-open="mcp" aria-haspopup="dialog"><svg data-i="plug" data-size="15"></svg><span>MCP</span></button>
-      <div class="box-side-list" id="boxSideList"></div>
-    </aside>
-    <div class="agent-tabs-bar box-tabs-bar" id="boxAgentTabsBar">
-      <div class="agent-tabs-list" id="boxAgentTabsList"></div>
-      <button class="icon-btn term-new-btn agent-tab-new" id="boxNewTab" type="button" title="New chat" aria-label="New chat"><svg data-i="plus" data-size="13"></svg></button>
-    </div>
-    <!-- The file a Box agent is editing, one at a time, as it is written (live.ts). -->
-    <aside class="box-live closed" id="boxLive" aria-label="File the agent is editing">
-      <div class="box-live-head" id="boxLiveHead"></div>
-      <div class="box-live-body" id="boxLiveBody"></div>
-    </aside>
-    <main class="box-main">
-      <div class="box-chat" id="boxChat" aria-live="polite"></div>
-    </main>
-    <!-- Progressive blur over the conversation's ends (breeze.css .box-fade): six layers, each blurring twice the last. -->
-    <div class="box-fade box-fade-top" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="box-fade box-fade-bot" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="box-composer">
-      <div class="composer-box cmp">
-        <div class="composer-attachments hidden" id="boxPromptAttachments"></div>
-        <div class="prompt-field">
-          <div class="prompt-hl" id="boxPromptHl" aria-hidden="true"></div>
-          <textarea id="boxPrompt" rows="2" aria-label="Message to the agent"
-            placeholder="Ask Breeze anything"></textarea>
-        </div>
-        <div class="row cmp-row">
-          <select class="select hidden" id="boxMode" aria-hidden="true" tabindex="-1"><option value="build">Auto</option></select>
-          <button class="icon-btn cmp-plus" type="button" title="Add files, mentions and more" aria-label="Add files, mentions and more" aria-haspopup="menu"><svg data-i="plus" data-size="16"></svg><span class="spinner sm" aria-hidden="true"></span></button><input class="cmp-attach-pick" type="file" multiple hidden>
-          <span class="flex-1"></span>
-          <button class="cmp-model" id="boxModel" aria-haspopup="menu" title="Choose the agent">No agent</button>
-          <button class="icon-btn improve-prompt" data-improve-prompt type="button" title="Improve prompt" aria-label="Improve prompt"><svg data-i="sparkles" data-size="14"></svg><span class="spinner sm" aria-hidden="true"></span></button>
-          <button class="icon-btn cmp-mic" type="button" title="Dictate (Win+H)" aria-label="Dictate"><svg data-i="mic" data-size="15"></svg></button>
-          <button class="cmp-send" id="boxSend" title="Send (Enter)" aria-label="Send"><svg data-i="arrowUp" data-size="15"></svg></button>
-        </div>
-      </div>
-      <div class="cmp-meta"><button class="cmp-folder cmp-folder-btn box-folder" id="boxFolder" title="The folder the agent works in" aria-haspopup="menu">No folder</button><span class="cmp-env" title="Agents run on this computer"><svg data-i="monitor" data-size="13"></svg><span>Local</span></span><span class="cmp-branch hidden"><svg data-i="gitBranch" data-size="13"></svg><span class="cmp-branch-name"></span></span><span class="flex-1"></span><span class="cmp-ctx hidden" role="meter" aria-label="Usage limit used" aria-valuemin="0" aria-valuemax="100"><span class="cmp-ctx-bar"><i></i></span><span class="cmp-ctx-pct"></span></span></div>
-    </div>
-  </div>
-
   <!-- ================= DEBUGGER (full page; debugview.ts) ================= -->
-  <!-- Shown with swapScreen like Breeze Space; leaving it keeps the session running. -->
+  <!-- Shown with swapScreen like the board; leaving it keeps the session running. -->
   <!-- Agent board (board.ts): an agent in each box; every box runs at once, and blocked edits are relayed -->
   <div class="board hidden" id="board">
     <header class="titlebar board-bar">
@@ -968,7 +955,6 @@
   <script src="breeze/board.js" defer></script>
   <script src="breeze/brain.js" defer></script>
   <script src="breeze/live.js" defer></script>
-  <script src="breeze/space.js" defer></script>
   <script src="breeze/dropdowns.js" defer></script>
   <script src="breeze/scmcore.js" defer></script>
   <script src="breeze/conflictcore.js" defer></script>

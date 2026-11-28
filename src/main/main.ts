@@ -88,6 +88,7 @@ const MAX_SEARCH_RESULTS = 500;
 
 let win: BrowserWindow | null = null;
 let root: string | null = null;          // absolute path of the open project folder
+let solo = false;                        // root is only the folder of a file opened on its own (setRoot)
 let watcher: fs.FSWatcher | null = null;
 let liveServer: http.Server | null = null;
 let liveRoot: string | null = null;      // project root used by the local share server
@@ -213,18 +214,18 @@ function launchTarget(argv: string[], cwd: string = process.cwd()): { abs: strin
 // What the page has yet to open from the command line: set at launch, or by a second launch while running.
 let launch: { abs: string; isDir: boolean } | null = launchTarget(process.argv);
 // A folder opens as the project. A file opens in the project it is already part of (the open or last one),
-// or else with its own folder as the project.
-function placeLaunch(target: { abs: string; isDir: boolean }, current: string | null): { dir: string; file: string | null } {
-  if (target.isDir) return { dir: target.abs, file: null };
+// or else on its own: its folder is the root, but the tree shows only the open files (solo), not the folder.
+function placeLaunch(target: { abs: string; isDir: boolean }, current: string | null, currentSolo = false): { dir: string; file: string | null; solo: boolean } {
+  if (target.isDir) return { dir: target.abs, file: null, solo: false };
   const rel = current ? path.relative(current, target.abs) : '';
-  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return { dir: current!, file: rel.split(path.sep).join('/') };
-  return { dir: path.dirname(target.abs), file: path.basename(target.abs) };
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return { dir: current!, file: rel.split(path.sep).join('/'), solo: currentSolo };
+  return { dir: path.dirname(target.abs), file: path.basename(target.abs), solo: true };
 }
-async function openLaunch(current: string | null) {
+async function openLaunch(current: string | null, currentSolo: boolean) {
   if (!launch) return null;
-  const { dir, file } = placeLaunch(launch, current);
+  const { dir, file, solo: alone } = placeLaunch(launch, current, currentSolo);
   launch = null;
-  return { ...(await setRoot(dir)), open: file, launched: true };
+  return { ...(await setRoot(dir, alone)), open: file, launched: true };
 }
 
 // A second copy would fight the first over those caches ("Unable to move the cache: Access is denied"),
@@ -606,11 +607,13 @@ function boxDir() {
   return dir;
 }
 
-async function setRoot(dir: string) {
+// alone: a file was opened on its own, so the page's tree shows only the open files, not this whole folder.
+async function setRoot(dir: string, alone = false) {
   const st = await fsp.stat(dir);
   if (!st.isDirectory()) throw new Error('Not a folder');
   if (root !== dir) { stopLiveServer(); stopTeams(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); }
   root = dir;
+  solo = alone;
   termCwd = dir;
   const movedFrom = followMove(dir);
   openBrainFolder(dir);
@@ -619,14 +622,14 @@ async function setRoot(dir: string) {
   const recent = [dir, ...(saved.recent || []).filter((r: string) => r !== dir)].slice(0, 10);
   // When each recent folder was last opened, for the Home screen's "2h ago".
   const recentAt = Object.fromEntries(recent.map((r: string) => [r, r === dir ? Date.now() : saved.recentAt?.[r] ?? null]));
-  saveState({ lastRoot: dir, recent, recentAt });
+  saveState({ lastRoot: dir, lastSolo: alone, recent, recentAt });
   startWatching();
   // Worktrees a crash left behind from resolving a pull request's conflicts in this folder.
   for (const [id, c] of conflictSessions) if (path.resolve(c.session.repoDir) === path.resolve(dir)) conflictSessions.delete(id); // pruned just below
   // A Resolve started right after waits for this (conflictPrunes), so the prune can't remove its fresh worktree.
   const prune = Promise.resolve().then(() => prconflict.pruneConflicts({ run: runGitIn, hooksDir: noHooksDir(), repoDir: dir, worktreesDir: conflictWorktrees() })).catch(() => {}).finally(() => { if (conflictPrunes.get(dir) === prune) conflictPrunes.delete(dir); });
   conflictPrunes.set(dir, prune);
-  return { root: dir, name: path.basename(dir), ...(movedFrom.length ? { movedFrom } : {}) };
+  return { root: dir, name: path.basename(dir), ...(alone ? { solo: true } : {}), ...(movedFrom.length ? { movedFrom } : {}) };
 }
 
 // The folder was renamed or moved since it was last opened (projectmove.ts): what Breeze kept under the old paths
@@ -839,8 +842,8 @@ handle('fs:createFolder', async () => {
 handle('fs:openFile', async () => {
   const r = await dialog.showOpenDialog(win!, { properties: ['openFile'] });
   if (r.canceled || !r.filePaths[0]) return null;
-  const { dir, file } = placeLaunch({ abs: r.filePaths[0], isDir: false }, root);
-  return { ...(await setRoot(dir)), open: file, launched: true };
+  const { dir, file, solo: alone } = placeLaunch({ abs: r.filePaths[0], isDir: false }, root, solo);
+  return { ...(await setRoot(dir, alone)), open: file, launched: true };
 });
 
 // Saves a file written in an untitled tab: asks where (the name it was given comes filled in), writes its text there
@@ -855,21 +858,21 @@ handle('fs:newFile', async (_e, name, text) => {
   const body = String(text ?? '');
   if (isDocFile(r.filePath)) await fsp.writeFile(r.filePath, body.trim() ? textToDocFile(r.filePath, body, null) : blankDocFile(r.filePath));
   else await fsp.writeFile(r.filePath, body, 'utf8');
-  const { dir, file } = placeLaunch({ abs: r.filePath, isDir: false }, root);
-  return { ...(await setRoot(dir)), open: file, launched: true };
+  const { dir, file, solo: alone } = placeLaunch({ abs: r.filePath, isDir: false }, root, solo);
+  return { ...(await setRoot(dir, alone)), open: file, launched: true };
 });
 
 handle('fs:restore', async () => {
-  const { lastRoot } = loadState();
-  try { const opened = await openLaunch(lastRoot); if (opened) return opened; } catch (e) { logError('open from Explorer')(e); }
+  const { lastRoot, lastSolo } = loadState();
+  try { const opened = await openLaunch(lastRoot, !!lastSolo); if (opened) return opened; } catch (e) { logError('open from Explorer')(e); }
   if (!lastRoot) return null;
-  try { return await setRoot(lastRoot); } catch { saveState({ lastRoot: null }); return null; }
+  try { return await setRoot(lastRoot, !!lastSolo); } catch { saveState({ lastRoot: null }); return null; }
 });
 
-handle('fs:openLaunch', () => openLaunch(root));
+handle('fs:openLaunch', () => openLaunch(root, solo));
 
 handle('fs:closeFolder', () => {
-  root = null; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); watchAwayBoards(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
+  root = null; solo = false; termCwd = os.homedir(); stopWatching(); stopLiveServer(); stopTeams(); watchAwayBoards(); lsp.stopAll(); kernels.stopAll(); closeAllDocs(); stopDebug(); saveState({ lastRoot: null });
 });
 
 handle('fs:recent', () => {

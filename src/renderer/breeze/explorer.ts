@@ -73,6 +73,13 @@ function renderTree(): void {
   }
   const rows: string[] = [];
   const decor = gitDecor();
+  if (rootInfo.solo) {
+    for (const p of openTabs) if (!isUntitled(p)) rows.push(treeRow({ name: p.slice(p.lastIndexOf('/') + 1), dir: false }, p, 0, decor, false));
+    if (rows.length) patchRows(el, rows);
+    else el.innerHTML = '<p class="side-note">No files open.</p>';
+    for (const row of $$('[data-depth]', el)) if (!row.style.paddingLeft) row.style.paddingLeft = '4px';
+    return;
+  }
   const walk = (rel: string, depth: number) => {
     if (treeEdit && treeEdit.rename == null && treeEdit.dir === rel) rows.push(treeEditRow(depth)); // a new entry's name box tops its folder
     const list = dirCache.get(rel) ?? [];

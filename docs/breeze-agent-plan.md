@@ -11,7 +11,7 @@ Status: **built, then merged into Breeze Space. Device Control (section 11) was 
 > - **Emails, Discord and other services** work through MCP servers you connect in Breeze. Breeze doesn't include its own Gmail or Discord clients. Deleting Discord messages needs a bot in a server you manage; automating a personal Discord account breaks Discord's rules.
 
 **What changed from the plan while building:**
-- **Device Control was not built.** Its tool layer couldn't be completed in this build. The `breeze-hands` sidecar (`hands/`, `src/main/hands.ts`) and the block list and control rules (`src/main/deviceguard.ts`, with tests) are in the repo but nothing calls them. The composer has no Device Control toggle, and every task is created with `device: false`.
+- **Device Control was not built.** Its tool layer couldn't be completed in this build. The `breeze-hands` sidecar (`hands/`, `src/main/hands.ts`) and the block list and control rules (`src/main/deviceguard.ts`, with tests) are in the repo, but nothing starts the sidecar or runs a device tool. Only the Control level type (`agentcore.ts`) and the secret check that keeps keys out of task memory (`agentmemory.ts`) are used. The composer has no Device Control toggle, and every task is created with `device: false`.
 - **Triggers wired:** "file saved" (open project only, from the folder watcher) and "tests failed" (from any run's test output). "Git commit" and "PR comment" are in the brain and its tests, but nothing fires them yet, so the UI doesn't offer them.
 - **Kill switch:** `Ctrl+Alt+Esc` while Breeze has focus, the **Stop all** button, and the tray's **Stop all tasks**. It is not a system-wide hotkey.
 - **Vision check:** not needed without screen tools.

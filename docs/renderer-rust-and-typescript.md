@@ -10,10 +10,13 @@ The Rust sidecar in [`engine/`](../engine/) is the document engine. It is used f
 - Applies edits, normalizes line endings, tracks whether a document is dirty, and saves safely.
 - Maintains undo/redo history and an on-disk journal for recovery.
 - Searches and counts matches without copying the complete file into the UI process.
+- Runs the quick structural checks behind the red error lines (`engine/src/lint/`: brackets, strings, comments, tags, JSON, CSS, Python and Rust).
 - Supplies a requested range of lines to the app, truncating exceptionally long lines when appropriate.
 - Enforces document limits and read-only behavior for files that cannot be edited as UTF-8.
 
-The Rust engine communicates through JSON-lines requests. It runs outside the renderer, so a large document does not need to be fully held by the web page.
+The Rust engine communicates through JSON-lines requests (`open`, `lines`, `edit`, `undo`, `redo`, `text`, `find`, `count`, `lint`, `save`, `changed`, `reload`, `close`). It runs outside the renderer, so a large document does not need to be fully held by the web page.
+
+Every text file uses it now. A file above the page's read limit opens only in the engine (`bigfile.ts`, `bigsurface.ts`). A normal file up to 50 MB is also kept in the page as `b.text`, and each edit is sent to the engine too (`docsync.ts`, `doccore.ts`); a file the engine can't edit (not UTF-8, or with a lone `\r`) stays on the page-only path.
 
 ## TypeScript: visible, interactive renderer
 
@@ -31,26 +34,31 @@ The TypeScript in [`src/renderer/`](../src/renderer/) runs in Electron's rendere
 
 ## What belongs in Rust for performance
 
-The most useful candidates are existing TypeScript code that repeatedly scans an entire normal-sized file. The huge-file path already uses the Rust engine, so the next performance gain is to extend that same model to normal files without moving the browser UI.
+The most useful candidates are existing TypeScript code that repeatedly scans an entire normal-sized file.
+
+Done so far:
+
+- **Normal files share the engine** (`docsync.ts`), as described above.
+- **Error checks.** The checkers from `languages.ts` were ported to `engine/src/lint/` and run through the `lint` request (`buffers.ts`). `languages.ts` keeps them as the fallback for a file the engine doesn't hold, and `test/lintengine.test.js` keeps the two in step.
+- **Find.** For an engine-backed file, find asks the engine for every hit (`doc:findAll`, `engineFind` in `editor.ts`) and checks them against `b.text`; the page searches itself only when that fails.
+
+Still in TypeScript:
 
 | Priority | Existing Breeze code | Rust replacement | Why it can help |
 | --- | --- | --- | --- |
-| High | `src/renderer/breeze/languages.ts`: `fullToks`, `relex`, `scanCode`, `JsonChecker`, `PythonChecker`, and `MarkupChecker` | A document-aware lexer/parser that returns token spans and diagnostics for requested lines | These functions regex-scan and slice the whole document to colour code and find simple mistakes. They currently run in the renderer whenever highlighting needs updating. |
-| High | `src/renderer/breeze/editor.ts`: `runFind`, `replaceAll`, `allOccurrences`, and normal-file find highlighting | Extend the engine's existing `find`, `count`, and edit protocol to normal files | The Rust engine already performs rope-based search for huge files. Normal files still use `toLowerCase`, `indexOf`, arrays of up to 20,000 offsets, and string rebuilding in the renderer. |
+| High | `src/renderer/breeze/languages.ts`: `fullToks`, `relex`, `scanCode` | A lexer that returns token spans for requested lines | These regex-scan and slice the whole document to colour code, in the renderer, whenever highlighting needs updating. |
+| Medium | `src/renderer/breeze/editor.ts`: `replaceAll` | One engine-side, undoable replace-all edit | Replace all still rebuilds the string in the renderer and sends the result as an edit. |
 | Medium | `src/renderer/editcore.ts`: line-start scanning, edit-span comparison, and position calculations | Engine-owned line index and position/range APIs | These operations are correct in TypeScript, but they duplicate facts Rust can keep beside the rope. This matters most after every open file is engine-backed. |
 | Medium | `src/renderer/bigcore.ts`: `LineCache.apply`, newline counting, and split/rejoin work | Let Rust return revised line windows after an edit | The current cache is small and useful, but it mirrors document-edit logic in JavaScript. Rust can make the cache authoritative and reduce duplicated string work. |
 | Later | `src/renderer/breeze/docview.ts`: `dfParse` and Office XML parsing | Background Rust/XML parsing that returns a document-view model | This can help with very large `.docx`, `.pptx`, or `.xlsx` files, but it is a larger feature because the TypeScript view relies on browser DOM XML objects. |
 
-### Best first change: share the Rust engine with normal files
+### Next changes
 
-The clearest first project is to move **normal text files** onto the existing Rust document engine, then request only the lines and token spans that are visible. This removes the need for the renderer to keep and repeatedly scan a second full copy of each file.
-
-The engine already has the foundations for this: rope storage, edits, undo/redo, paged line reads, search, count, and save. The highest-value additions would be:
+Normal files are on the engine, but the page still keeps and scans its own full copy for highlighting and positions. The highest-value additions now are:
 
 1. `tokens(doc, firstLine, lineCount)` returning compact syntax-token spans for a visible line range.
-2. `diagnostics(doc, changedRange)` returning parser/checker warnings asynchronously.
-3. `replaceAll(doc, query, replacement, options)` performing one engine-side undoable edit.
-4. Position and line-index operations exposed by document id instead of recomputing them from a renderer-owned string.
+2. `replaceAll(doc, query, replacement, options)` performing one engine-side undoable edit.
+3. Position and line-index operations exposed by document id instead of recomputing them from a renderer-owned string.
 
 TypeScript should still convert these results into HTML spans, gutter markers, selection boxes, and the caret. Moving DOM construction or input handling to Rust would not improve rendering performance because Chromium must do that work in the renderer.
 

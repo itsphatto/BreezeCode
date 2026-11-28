@@ -524,8 +524,8 @@ function freshBoard(agent: string): void {
   });
   sfx.play('send');
 }
-// The board is already one fresh chat with this agent, nothing asked yet: New chat stays on it, as
-// Breeze Space's New chat does, instead of playing the swap to an identical box.
+// The board is already one fresh chat with this agent, nothing asked yet: New chat stays on it instead of playing
+// the swap to an identical box.
 function blankBoxFor(agent: string): BoardBox | undefined {
   const only = boardBoxes.size === 1 ? [...boardBoxes.values()][0] : undefined;
   return only?.agent === agent && !only.tab.historyId && only.tab.panel.querySelector('.empty') ? only : undefined;
@@ -671,7 +671,13 @@ const helloFit = new ResizeObserver((es) => es.forEach((e) => fitHello(e.target)
 // Every 10 seconds each new chat's greeting fades to another line (greetings.ts BOARD_GREETINGS).
 decorInterval(() => {
   for (const h of document.querySelectorAll<HTMLElement>('.board-hello h4')) {
-    morphText(h, boardGreeting(), () => fitHello(h.parentElement));
+    const logo = h.previousElementSibling as HTMLElement | null, l0 = logo?.getBoundingClientRect();
+    morphText(h, boardGreeting(), () => fitHello(h.parentElement), { width: false });
+    // The row recentres on the new line at once: the logo glides there alongside the letters.
+    const l1 = logo?.getBoundingClientRect();
+    if (!logo || !l0 || !l1 || !decorVisible(logo) || stillMotion() || powerSaver()) continue;
+    const x = l0.left - l1.left, y = l0.top - l1.top;
+    if (Math.abs(x) > .5 || Math.abs(y) > .5) logo.animate([{ transform: `translate(${x}px, ${y}px)` }, { transform: 'none' }], { duration: MORPH_MS, easing: MORPH_MOVE });
   }
 }, 10_000, 10_000);
 // `fresh` while the chat is only its greeting. The prompt glides between the middle and the bottom (FLIP).
@@ -1121,7 +1127,7 @@ function reopenInBox(e: ChatEntry, into?: string, place?: { by: string; side: Dr
 }
 // The side bar replaced the History button (breeze.html): $('#boardHistory').onclick = e => boardHistoryMenu(e.currentTarget as HTMLElement);
 
-/* ----- Side bar: New chat, Search, then chats grouped by folder (as Breeze Space had, without its sky) ----- */
+/* ----- Side bar: New chat, Search, then chats grouped by folder ----- */
 // A click opens a chat alone on the board; dragged onto the board, it opens beside the boxes there (or in a blank one).
 // Claude Code's and Codex's own chats are listed too (main/agentlogs.ts), each carried on with its own session.
 const boardSideFolded = new Set(store.get<string[]>('breeze.board.sideFolded', []));
@@ -1144,7 +1150,7 @@ function boardSideEntries(): ChatEntry[] {
   // Chats of other projects still working here out of sight.
   const away = [...parkedBoxes.values()].filter(boxAway).flatMap(b => chatHistory(b.surface).filter(e => e.id === b.tab.historyId));
   for (const e of away) ids.add(e.id);
-  const ours = [...here, ...away, ...chatHistory(SURFACES.box).filter(e => !ids.has(e.id))];
+  const ours = [...here, ...away, ...chatHistory(SPACE_CHATS).filter(e => !ids.has(e.id))];
   // A log chat Breeze already has (it ran there, or was carried on in a box) is listed once, as Breeze's.
   const known = new Set(ours.flatMap(e => [e.id, ...(e.session ? [e.session] : []), ...Object.values(e.sessions ?? {})]));
   const hidden = new Set(store.get<string[]>(LOG_HIDDEN_KEY, []));
@@ -1191,14 +1197,14 @@ async function logChatHtml(e: ChatEntry): Promise<string> {
   const name = esc(agentNameOf(e.log.agent));
   const time = (at: number) => (at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
   return msgs.map(m => (m.role === 'user'
-    ? `<div class="msg user"><div class="meta"><b>${esc(displayName() ?? 'You')}</b> ${time(m.at)}</div><div class="body"><div>${esc(m.text).replaceAll('\n', '<br>')}</div></div></div>`
+    ? `<div class="msg user"><div class="meta"><b>${esc(displayName() ?? 'You')}</b> ${time(m.at)}</div><div class="body"><div>${emphasis(esc(m.text)).replaceAll('\n', '<br>')}</div></div></div>`
     : `<div class="msg"><div class="meta">${brandMark('avatar mini', st.tint, st.letter)}<b>${name}</b> ${time(m.at)}</div><div class="body">${md(m.text)}</div></div>`)).join('');
 }
 // The list an entry is kept in: this folder's, or Space's.
-const sideStore = (id: string): Surface => {
+const sideStore = (id: string): ChatStore => {
   const b = boxWithChat(id);
   if (b && boxAway(b)) return b.surface;
-  return chatHistory(SURFACES.ide).some(e => e.id === id) ? SURFACES.ide : SURFACES.box;
+  return chatHistory(SURFACES.ide).some(e => e.id === id) ? SURFACES.ide : SPACE_CHATS;
 };
 const boxWithChat = (id: string) => allBoardBoxes().find(b => b.tab.historyId === id);
 // morph: false at start-up, before ui.js (morphShow) has loaded.

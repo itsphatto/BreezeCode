@@ -343,10 +343,13 @@ function visibleDiags(b: EditorBuffer, lineCount: number): Map<number, Diag> {
   }
   return errAt;
 }
-function squiggles(b: EditorBuffer, lineCount: number, cw: number): HTMLElement[] {
-  if (!b.diags?.length || b.diagLines !== lineCount) return [];
+function squiggles(b: EditorBuffer, cw: number): HTMLElement[] {
+  if (!b.diags?.length) return [];
   const text = b.text, starts = lineStartsOf(text);
-  return b.diags.map(d => {
+  if (b.diagLines !== starts.length) return [];
+  // Only the drawn window's: a file full of problems rebuilt hundreds of boxes on every keystroke.
+  const shown = b.diags.filter(d => { const ln = Math.min(d.line, starts.length - 1); return ln >= winFirst && ln < winLast; });
+  return shown.map(d => {
     const ln = Math.min(d.line, starts.length - 1), lt = text.slice(starts[ln], lineEnd(text, starts[ln]));
     const from = Math.min(d.col, lt.length), to = Math.min(lt.length, d.col + d.len);
     const x = codeX(lt, from, cw);
@@ -406,7 +409,18 @@ function tagBoxes(b: EditorBuffer, cw: number): HTMLElement[] {
 // from/to are lines: the guide runs below line `from` and stops at the top of line `to`.
 // gaps: runs of inner lines [a, b) whose text starts at or left of the guide, so the guide fades out behind them.
 interface Block { from: number; to: number; start: number; end: number; col: number; gaps?: [number, number][]; }
-const blockCache = new WeakMap<EditorBuffer, { text: string; blocks: Block[] }>();
+const blockCache = new WeakMap<EditorBuffer, { text: string; lines: number; blocks: Block[] }>();
+// Typing inside a line moves no block's first or last line, so the guides from before stand until typing pauses
+// rather than every bracket in the file being paired again on each key (a few ms a key in a long file).
+const BLOCKS_LATER_MS = 250;
+const blocksLater = new WeakMap<EditorBuffer, TimeoutId>();
+const blocksDue = new WeakSet<EditorBuffer>();
+// (debugpanels.ts has a countLines, but it loads after this file.)
+function linesIn(text: string): number {
+  let n = 1;
+  for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) n++;
+  return n;
+}
 // Every {} [] () pair as [open, close] offsets, skipping strings and comments.
 const OPENER: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
 function bracketPairs(text: string): [number, number][] {
@@ -450,6 +464,17 @@ function bracketPairs(text: string): [number, number][] {
 function blocksOf(b: EditorBuffer): Block[] {
   const c = blockCache.get(b);
   if (c?.text === b.text) return c.blocks;
+  const lineCount = linesIn(b.text);
+  if (c && c.lines === lineCount && !blocksDue.has(b)) {
+    clearTimeout(blocksLater.get(b));
+    blocksLater.set(b, setTimeout(() => {
+      blocksDue.add(b);
+      if (b.path === active) queueRender();
+      if (b.path === splitPath) paintSplit();
+    }, BLOCKS_LATER_MS));
+    return c.blocks;
+  }
+  blocksDue.delete(b);
   const text = b.text, lexer = langOf(b.path)[0], ext = extOf(b.path);
   const blocks: Block[] = [];
   if (text.length <= 200000) {
@@ -489,7 +514,7 @@ function blocksOf(b: EditorBuffer): Block[] {
       });
     }
   }
-  blockCache.set(b, { text, blocks });
+  blockCache.set(b, { text, lines: lineCount, blocks });
   return blocks;
 }
 // Guides for the blocks in view; the innermost one around the caret is brighter.
@@ -697,7 +722,7 @@ function renderCode(): void {
   hlLines.style.top = `${winFirst * LINE_H}px`;
   patchRows(gutLines, nums);
   gutLines.style.top = `${winFirst * LINE_H}px`;
-  hlBoxes.replaceChildren(...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, count, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw));
+  paintBoxes(b, cw);
   placeTypeHand(b, cw);
   tagKey = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
   $('#gutter').style.width = `${Math.max(3, String(count).length) * 8 + 48}px`; // +8 each for the mark dot and the breakpoint dot
@@ -705,6 +730,9 @@ function renderCode(): void {
   b.ta.refresh();
   syncScroll();
   updateStatus();
+}
+function paintBoxes(b: EditorBuffer & { ta: CodeSurface }, cw: number): void {
+  patchBoxes(hlBoxes, [...guideBoxes(b, b.ta.selectionStart, cw), ...findBoxes(b, cw), ...squiggles(b, cw), ...tagBoxes(b, cw), ...typingCaretBox(b, cw)]);
 }
 function syncScroll(): void {
   const b = activeText();
@@ -808,23 +836,26 @@ mmView.className = 'minimap-view';
 mmEl.append(mmCanvas, mmView);
 $('#editor').append(mmEl);
 let mmQueued = false;
+// The map's glyphs, drawn ahead (minimapStrip).
+let mmStrip: { doc: HlDoc; key: string; first: number; count: number; canvas: OffscreenCanvas } | null = null;
 function setMinimap(on: boolean): void {
   minimapOn = on;
   store.set('breeze.minimap', on);
   queueMinimap();
 }
-// Once a frame at most. Under the power saver (power.ts) about eight times a second: every scroll step redraws the
-// whole map, which is the costliest thing scrolling does after the code itself.
+// Once a frame at most. A scroll only copies from the drawn strip (minimapStrip), so it keeps up every frame; a text
+// change draws the glyphs again, which under the power saver (power.ts) waits for about eight a second.
 const MM_SAVER_MS = 120;
 function queueMinimap(): void {
   if (mmQueued) return;
   mmQueued = true;
   const draw = () => requestAnimationFrame(() => { mmQueued = false; drawMinimap(); });
-  if (powerSaver()) setTimeout(draw, MM_SAVER_MS); else draw();
+  const b = activeText(), edited = !b || hlCache.get(b) !== mmStrip?.doc;
+  if (powerSaver() && edited) setTimeout(draw, MM_SAVER_MS); else draw();
 }
 // Token colours come from the editor's own CSS (tk-* classes), read once per theme.
 const mmColors = new Map<string, string>();
-new MutationObserver(() => { mmColors.clear(); queueMinimap(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+new MutationObserver(() => { mmColors.clear(); mmStrip = null; queueMinimap(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 function mmColor(kind: string | null): string {
   const key = kind ?? '';
   let c = mmColors.get(key);
@@ -863,23 +894,47 @@ function drawMinimap(): void {
   }
   const ctx = mmCanvas.getContext('2d');
   if (!ctx) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, g.h);
+  const strip = minimapStrip(doc, g, dpr);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, mmCanvas.width, mmCanvas.height);
+  if (strip) ctx.drawImage(strip.canvas, 0, (g.y.offset - strip.first * MM_LINE) * dpr, mmCanvas.width, mmCanvas.height, 0, 0, mmCanvas.width, mmCanvas.height);
+  mmView.style.transform = `translate(${g.x.start}px, ${g.y.start}px)`;
+  mmView.style.width = `${g.x.size}px`;
+  mmView.style.height = `${g.y.size}px`;
+}
+// The map's glyphs for a run of lines, drawn into a canvas of their own and copied onto the map per frame. Drawing
+// every glyph on each scroll step was the costliest part of scrolling. A text change draws just the lines in view;
+// scrolling the same text draws twice the view's worth, so the next many steps are copies.
+const MM_STRIP_MAX = 16000; // device px: much taller canvases are refused or slow
+function minimapStrip(doc: HlDoc, g: ReturnType<typeof mmGeometry>, dpr: number): typeof mmStrip {
+  const lines = doc.lines.length, perLine = MM_LINE * dpr;
+  const first = Math.floor(g.y.offset / MM_LINE), last = Math.min(lines, Math.ceil((g.y.offset + g.h) / MM_LINE));
+  const family = getComputedStyle($('#hl')).fontFamily || 'monospace';
+  const key = `${g.w}|${dpr}|${g.x.offset}|${family}`;
+  const old = mmStrip, same = old?.doc === doc && old.key === key;
+  if (same && first >= old.first && last <= old.first + old.count) return old;
+  const span = last - first, most = Math.max(span, Math.floor(MM_STRIP_MAX / perLine));
+  const count = Math.max(1, Math.min(lines, most, same ? span * 2 : span + 2));
+  const start = clamp(Math.floor((first + last - count) / 2), 0, Math.max(0, lines - count));
+  const canvas = old?.canvas ?? new OffscreenCanvas(1, 1);
+  canvas.width = Math.max(1, Math.round(g.w * dpr));
+  canvas.height = Math.max(1, Math.ceil(count * perLine));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
   ctx.globalAlpha = .85;
   // Glyphs are squeezed sideways so each one fills exactly one column, like a monospace grid.
-  ctx.font = `${MM_FONT}px ${getComputedStyle($('#hl')).fontFamily || 'monospace'}`;
+  ctx.font = `${MM_FONT}px ${family}`;
   ctx.textBaseline = 'top';
   const cols = MM_COLS, charW = g.colW;
   const sx = charW / (ctx.measureText('M').width || charW);
   ctx.setTransform(dpr * sx, 0, 0, dpr, 0, 0);
-  const first = Math.floor(g.y.offset / MM_LINE), last = Math.min(lines, Math.ceil((g.y.offset + g.h) / MM_LINE));
   const colFrom = Math.floor(g.x.offset / charW), colEnd = Math.ceil(g.x.offset / charW) + cols;
   const text = doc.text, starts = doc.starts, kinds = doc.kinds;
   const plain = mmColor(null);
-  for (let i = first; i < last; i++) {
+  for (let i = start; i < start + count; i++) {
     const end = i + 1 < lines ? doc.lines[i + 1] - 1 : text.length;
     const entry = walkToCol(text, doc.lines[i], end, colFrom), from = entry.at, to = Math.min(end, from + cols * 2);
-    const y = i * MM_LINE - g.y.offset;
+    const y = (i - start) * MM_LINE;
     let k = starts.length ? lineOfOffset(starts, from) : -1;
     let col = entry.col, runStart = -1, runColor = '', run = '';
     const flush = () => { if (runStart >= 0) { ctx.fillStyle = runColor; ctx.fillText(run, (runStart * charW - g.x.offset) / sx, y); runStart = -1; run = ''; } };
@@ -895,9 +950,7 @@ function drawMinimap(): void {
     }
     flush();
   }
-  mmView.style.transform = `translate(${g.x.start}px, ${g.y.start}px)`;
-  mmView.style.width = `${g.x.size}px`;
-  mmView.style.height = `${g.y.size}px`;
+  return mmStrip = { doc, key, first: start, count, canvas };
 }
 mmEl.addEventListener('pointerdown', e => {
   const b = activeText();
@@ -1129,24 +1182,23 @@ function updateCaret(): void {
     curLine = i;
   }
   // Clicking (or arrowing) into a tag marks it and its partner; the boxes are swapped without redrawing the code.
+  // A queued render redraws them anyway (typing): skip the extra pass in the key's own event.
   const key = `${b.path}:${b.ta.selectionStart}:${b.text.length}`;
-  if (key !== tagKey) {
+  if (key !== tagKey && !renderQueued) {
     tagKey = key;
-    $$('.tagpair, .guide', hlBoxes).forEach(x => x.remove());
-    hlBoxes.prepend(...guideBoxes(b, b.ta.selectionStart, measureChar()));
-    hlBoxes.append(...tagBoxes(b, measureChar()));
+    paintBoxes(b, measureChar());
   }
-  updateStatus();
+  if (!renderQueued) updateStatus();
 
 }//end of update caret
 function updateStatus(): void {
   const b = activeBuf();
   const tb = activeText();
   $('#sbPos').classList.toggle('hidden', !tb);
-  $('#sbLang').textContent = b ? langOf(b.path)[1] : '';
+  putText($('#sbLang'), b ? langOf(b.path)[1] : '');
   $('#sbLang').classList.toggle('hidden', !b);
   const eol = b?.eol === '\r\n' ? 'CRLF' : 'LF';
-  $('#sbEol').textContent = b?.kind === 'text' ? `${eol} · UTF-8` : '';
+  putText($('#sbEol'), b?.kind === 'text' ? `${eol} · UTF-8` : '');
   $('#sbEol').classList.toggle('hidden', b?.kind !== 'text');
   const problems = tb?.diags?.length ?? 0;
   const problemsHtml = `${svgIcon('circleX', 12)}<span>${plural(problems, 'problem')}</span>`;
@@ -1156,17 +1208,17 @@ function updateStatus(): void {
   if (bb) {
     const c = bb.big!.surface.caret;
     $('#sbPos').classList.remove('hidden');
-    $('#sbPos').textContent = `Ln ${c.line + 1}, Col ${c.col + 1}`;
-    $('#sbEol').textContent = `${eol} · UTF-8 · ${fmtSize(bb.size)}${bb.big!.readOnly ? ' · Read only' : ''}`;
+    putText($('#sbPos'), `Ln ${c.line + 1}, Col ${c.col + 1}`);
+    putText($('#sbEol'), `${eol} · UTF-8 · ${fmtSize(bb.size)}${bb.big!.readOnly ? ' · Read only' : ''}`);
     $('#sbEol').classList.remove('hidden');
     return;
   }
   if (!tb) return;
-  if (tb.ta.multi) { $('#sbPos').textContent = plural(tb.ta.selections.length, 'selection'); return; }
+  if (tb.ta.multi) { putText($('#sbPos'), plural(tb.ta.selections.length, 'selection')); return; }
   const { selectionStart: s, selectionEnd: e } = tb.ta;
   const ls = lineStart(tb.text, s);
   const selected = e > s ? ` (${e - s} selected)` : '';
-  $('#sbPos').textContent = `Ln ${lineAt(tb.text, s) + 1}, Col ${s - ls + 1}${selected}`;
+  putText($('#sbPos'), `Ln ${lineAt(tb.text, s) + 1}, Col ${s - ls + 1}${selected}`);
 }
 // F8: move the caret to the next syntax error after it, wrapping around.
 function nextProblem(): void {

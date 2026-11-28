@@ -70,21 +70,43 @@ const sfx = (() => {
       hush.gain.value = 0.0005;
       awake.connect(hush).connect(ctx.destination);
       awake.start();
+      napSoon();
     } catch { ctx = null; } // no audio available
   }
+  // That awake tone (and any running context) keeps Chromium's audio thread and the sound device busy for as long as
+  // the app is open. Under the power saver the context sleeps a few seconds after the last sound instead, and play()
+  // wakes it (a dozing device may then swallow that first blip: the price of not drawing power in silence).
+  const NAP_MS = 4000;
+  let quietAt = 0; // when the last sound asked for has finished
+  let humming = 0; // charge hums still held
+  let napTimer: TimeoutId | undefined;
+  const heard = (ms: number) => { quietAt = Math.max(quietAt, performance.now() + ms); napSoon(); };
+  function napSoon(): void {
+    clearTimeout(napTimer);
+    napTimer = setTimeout(function nap() {
+      if (!ctx || ctx.state !== 'running' || !powerSaver()) return;
+      const wait = humming ? NAP_MS : quietAt + NAP_MS - performance.now();
+      if (wait > 0) { napTimer = setTimeout(nap, wait); return; }
+      void ctx.suspend().catch(() => {});
+    }, NAP_MS);
+  }
+  document.addEventListener('powerchange', napSoon);
+  const wanted = () => on && volume > 0;
   // A real press or key also ends the start-up hush and wakes a dozing context: start-up waits on slow work (an agent
   // scan, a git refresh) for up to 8s, and every click made meanwhile was silent.
   const wake = (e: Event) => {
     if (!e.isTrusted) return;
     document.documentElement.removeAttribute('data-starting');
+    if (!wanted()) return; // muted: no context at all, so nothing keeps the audio device busy
     unlock();
     if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => {});
+    napSoon();
   };
   for (const t of ['pointerdown', 'keydown']) addEventListener(t, wake, { capture: true, passive: true });
   // The desktop window allows audio without a gesture, so the context is ready before the first sound is asked for;
   // coming back to the window wakes it if Chromium put it to sleep meanwhile.
-  unlock();
-  addEventListener('focus', () => { if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => {}); });
+  if (wanted()) unlock();
+  addEventListener('focus', () => { if (wanted() && ctx && ctx.state !== 'running') { void ctx.resume().catch(() => {}); napSoon(); } });
 
   // Every pitch lands on D-major pentatonic (D E F# A B), in whatever octave it was asked for, so sounds that
   // overlap (a tab and a save, the thinking hum and an answer) always agree. Pitch classes counted from C.
@@ -265,6 +287,7 @@ const sfx = (() => {
     // Leans toward where you just clicked or typed; a sound nobody asked for (an agent answering) sits centre.
     panNow = now - placeAt < 1500 ? place : 0;
     dryNow = AMBIENT.has(name);
+    heard(1500); // the longest blip, with its room tail
     // Chromium suspends an idle context (and Windows can interrupt one when the audio device changes). Notes
     // scheduled while it is paused would land in the past and be dropped, so they wait for it to run again.
     if (ctx.state !== 'running') {
@@ -355,12 +378,15 @@ const sfx = (() => {
       if (!first && mx) [1175, 1480, 1760].forEach((fr, i) => tone(fr, 0.07, { vol: 0.04, at: 0.05 + i * 0.05, ...C }));
     };
     apply(level, max, true);
+    humming++;
     lastAt = anyAt = performance.now();
     return {
       set(lv, mx) { if (!stopped && on && volume) apply(lv, mx, false); },
       stop() {
         if (stopped) return;
         stopped = true;
+        humming--;
+        heard(500);
         const now = c.currentTime;
         // Powers down: the pitch sags as it fades.
         for (const [o, mult] of voices) o.frequency.setTargetAtTime(60 * mult, now, 0.08);
@@ -407,6 +433,7 @@ const sfx = (() => {
       return o;
     });
     for (const o of [lfo, ...oscs]) { o.start(t0); o.stop(t1 + 0.05); }
+    heard(secs * 1000 + 500);
   }
 
   // The menu item mutes; the slider in Settings → General sets the level (0 is silent).
@@ -414,6 +441,7 @@ const sfx = (() => {
     unlock();
     on = !on;
     store.set('breeze.sound', on);
+    if (!on) void ctx?.suspend().catch(() => {}); // the siren wakes it when it is asked for
     play('tick');
   }
   function setVolume(v: number): void {
@@ -522,6 +550,7 @@ const sfx = (() => {
     return n;
   };
   const removals = new MutationObserver(all => {
+    if (!wanted()) return;
     // Code lines and terminal rows are redrawn constantly; nothing there is a removal worth hearing.
     const records = all.filter(r => !(r.target as Element).closest?.('.editor, .term-body'));
     if (!records.length) return;
