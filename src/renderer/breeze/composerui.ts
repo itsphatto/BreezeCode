@@ -103,16 +103,130 @@ function wireComposer(c: Composer): void {
     m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`;
   };
   const mic = $<HTMLButtonElement>('.cmp-mic', c.box);
-  // Voice typing is Windows' own; elsewhere the system's dictation already types into the box.
-  mic.hidden = !/Windows/.test(navigator.userAgent);
-  mic.onclick = () => {
-    ta.focus();
-    background(api.win.dictate().then(ok => { if (!ok) toast('Voice typing isn’t available here. Use your system’s dictation instead.'); }));
-  };
+  // Voice typing is local Whisper; where it can't run (the browser build, non-Windows) the system's dictation still works.
+  mic.hidden = true;
+  api.dictate.status().then(s => { mic.hidden = !s.supported; }).catch(() => { /* stays hidden */ });
+  mic.onclick = () => void toggleVoice(mic, ta);
   // One made after start-up (a board box) paints at once; the first ones wait for git.js and settings.js to run.
   if (composersReady) paintComposer(c);
 }
 let composersReady = false;
+
+/* ----- Voice typing -----
+   Click the mic to talk, click again (or Enter / Escape) to stop. The page records 16 kHz mono and main runs Whisper on
+   it locally; the words land at the caret. The first click downloads Whisper once (about 200 MB). */
+interface VoiceTake { mic: HTMLButtonElement; ta: HTMLTextAreaElement; stop: () => Promise<Float32Array>; cancel: () => void }
+let voice: VoiceTake | null = null;
+let voiceInstalling: Promise<void> | null = null;
+const VOICE_RATE = 16000;
+
+async function toggleVoice(mic: HTMLButtonElement, ta: HTMLTextAreaElement): Promise<void> {
+  if (mic.classList.contains('busy')) return;
+  if (voice) { const same = voice.mic === mic; await finishVoice(); if (same) return; }
+  try {
+    const s = await api.dictate.status();
+    if (!s.ready) { await installVoice(mic); return; }
+    voice = await startVoice(mic, ta);
+  } catch (e) { setMic(mic, 'idle'); toast(voiceError(e)); }
+}
+
+function setMic(mic: HTMLButtonElement, state: 'idle' | 'recording' | 'busy', title?: string): void {
+  mic.classList.toggle('recording', state === 'recording');
+  mic.classList.toggle('busy', state === 'busy');
+  mic.setAttribute('aria-pressed', String(state === 'recording'));
+  mic.title = title ?? (state === 'recording' ? 'Stop and type it (Enter)' : state === 'busy' ? 'Writing it out…' : 'Voice typing');
+}
+
+function installVoice(mic: HTMLButtonElement): Promise<void> {
+  if (voiceInstalling) return voiceInstalling;
+  toast('Setting up voice typing: a one-time 200 MB download. It runs on your PC after that.');
+  setMic(mic, 'busy', 'Downloading voice typing…');
+  const off = api.dictate.onProgress(p => {
+    const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+    mic.title = `Downloading voice typing… ${pct}%`;
+  });
+  voiceInstalling = api.dictate.install()
+    .then(() => toast('Voice typing is ready. Click the mic and talk.'))
+    .finally(() => { off(); setMic(mic, 'idle'); voiceInstalling = null; });
+  return voiceInstalling;
+}
+
+async function startVoice(mic: HTMLButtonElement, ta: HTMLTextAreaElement): Promise<VoiceTake> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  // The context resamples the mic to 16 kHz, the rate Whisper wants.
+  const ctx = new AudioContext({ sampleRate: VOICE_RATE });
+  const src = ctx.createMediaStreamSource(stream);
+  // ScriptProcessor needs no worklet module, which the page's CSP would have to allow.
+  const node = ctx.createScriptProcessor(4096, 1, 1);
+  const chunks: Float32Array[] = [];
+  node.onaudioprocess = e => { chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+  src.connect(node);
+  node.connect(ctx.destination);
+  const close = () => {
+    node.disconnect(); src.disconnect();
+    stream.getTracks().forEach(t => t.stop());
+    void ctx.close();
+    document.removeEventListener('keydown', keys, true);
+  };
+  // Enter stops and types it; Escape throws it away. Both are kept from the prompt, so Enter doesn't send.
+  const keys = (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.key === 'Escape') { voice?.cancel(); voice = null; } else void finishVoice();
+  };
+  document.addEventListener('keydown', keys, true);
+  setMic(mic, 'recording');
+  ta.focus();
+  return {
+    mic, ta,
+    stop: async () => {
+      close();
+      const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
+      let at = 0;
+      for (const c of chunks) { out.set(c, at); at += c.length; }
+      return out;
+    },
+    cancel: () => { close(); setMic(mic, 'idle'); },
+  };
+}
+
+async function finishVoice(): Promise<void> {
+  const take = voice;
+  if (!take) return;
+  voice = null;
+  const samples = await take.stop();
+  // Under about a third of a second is a stray click, not speech.
+  if (samples.length < VOICE_RATE / 3) { setMic(take.mic, 'idle'); return; }
+  setMic(take.mic, 'busy');
+  try {
+    const text = await api.dictate.transcribe(encodeWav(samples, VOICE_RATE));
+    if (text) insertAtCaret(take.ta, text);
+    else toast('Didn’t catch that. Try again a little closer to the mic.');
+  } catch (e) { toast(voiceError(e)); } finally { setMic(take.mic, 'idle'); take.ta.focus(); }
+}
+
+function voiceError(e: unknown): string {
+  const name = (e as { name?: string })?.name;
+  if (name === 'NotAllowedError') return 'Breeze can’t use the microphone. Allow it in Windows Settings › Privacy › Microphone.';
+  if (name === 'NotFoundError') return 'No microphone found.';
+  return errMsg(e);
+}
+
+// 16-bit PCM mono WAV.
+function encodeWav(samples: Float32Array, rate: number): Uint8Array {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const str = (at: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(at + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Uint8Array(buf);
+}
 
 /* ----- A second message while the agent works -----
    Enter adds it to the task the agent is on (Claude Code takes it mid-task; agent:steer in main). Ctrl+Enter, or an

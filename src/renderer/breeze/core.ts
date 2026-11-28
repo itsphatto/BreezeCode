@@ -411,6 +411,13 @@ interface BreezeApi {
     remove(id: string): Promise<User | null>;
     onEvent(cb: (ev: AuthEvent) => void): () => void;
   };
+  // The composer's mic: local Whisper in main. install() downloads it once (progress in bytes); transcribe() takes 16 kHz mono WAV.
+  dictate: {
+    status(): Promise<{ supported: boolean; ready: boolean }>;
+    install(): Promise<void>;
+    transcribe(wav: Uint8Array): Promise<string>;
+    onProgress(cb: (p: { done: number; total: number }) => void): () => void;
+  };
   // Social feeds for Vibe Mode. The desktop app signs in through its own browser window and lays the feed over #vibeFrame.
   vibe: {
     status(): Promise<Record<string, boolean>>;
@@ -425,7 +432,6 @@ interface BreezeApi {
   };
   win: { reload(): Promise<void>; toggleDevTools(): Promise<void>; quit(): Promise<void>; edit(role: string): Promise<void>; theme(t: Theme): Promise<void>; devIcon(on: boolean): Promise<void>;
     glass(on: boolean): Promise<boolean>; // false: this system can't draw a see-through window
-    dictate(): Promise<boolean>; // Windows voice typing into the focused field; false where there is none
     backdropWhere(): Promise<{ source: string; x: number; y: number; w: number; h: number } | null>; // the window's display (a capture source) and its place on it, in fractions; null: not offered here
     pickBackdrop(): Promise<{ url: string; name: string } | null>;
     minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean>;

@@ -7059,6 +7059,47 @@ textarea:not(:placeholder-shown) + .ph-rot {
   display: none;
 }
 
+/* Voice typing: red with a breathing ring while it listens, a spinner while Whisper writes it out. */
+.cmp-row .cmp-mic.recording {
+  color: var(--err-text);
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+}
+
+.cmp-row .cmp-mic.recording::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--err) 45%, transparent);
+  animation: mic-breathe 1.4s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes mic-breathe {
+  to {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+.cmp-mic .spinner {
+  display: none;
+}
+
+.cmp-mic.busy .spinner {
+  display: block;
+}
+
+.cmp-mic.busy svg {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmp-row .cmp-mic.recording::after {
+    animation: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--err) 45%, transparent);
+  }
+}
+
 /* Improve prompt runs from the + menu: the + spins while it works. */
 .cmp-plus .spinner {
   display: none;

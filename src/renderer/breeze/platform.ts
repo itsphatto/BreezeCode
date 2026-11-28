@@ -872,6 +872,12 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
     emmet: {
       async expand() { return null; },
     },
+    dictate: {
+      async status() { return { supported: false, ready: false }; },
+      async install() { throw new Error('Voice typing is available in the desktop app'); },
+      async transcribe() { return ''; },
+      onProgress() { return () => { /* nothing to stop */ }; },
+    },
     discord: {
       async set() { return { user: null }; },
       async clear() { /* nothing to clear in the browser */ },
@@ -888,7 +894,6 @@ A skill from the browser preview. In the app this shows the skill's SKILL.md.`; 
       edit: demoEdit,
       async theme() { /* the browser draws its own title bar */ },
       async glass() { return true; /* the page's own see-through panels show over the tab */ },
-      async dictate() { return false; },
       async backdropWhere() { return null; },
       async pickBackdrop() { toast('Custom backgrounds are available in the desktop app'); return null; },
       async devIcon() { /* the tab keeps its favicon */ },

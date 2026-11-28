@@ -273,6 +273,12 @@ contextBridge.exposeInMainWorld('breeze', {
     mute: (muted: unknown) => invoke('vibe:mute', muted),
     hide: () => invoke('vibe:hide'),
   },
+  dictate: {
+    status: () => invoke('dictate:status'),
+    install: () => invoke('dictate:install'),
+    transcribe: (wav: unknown) => invoke('dictate:transcribe', wav),
+    onProgress: (cb: Listener) => listen('dictate:progress', cb),
+  },
   discord: {
     set: (activity: unknown) => invoke('discord:set', activity),
     clear: () => invoke('discord:clear'),
@@ -284,7 +290,6 @@ contextBridge.exposeInMainWorld('breeze', {
     edit: (role: unknown) => invoke('win:edit', role),
     theme: (t: unknown) => invoke('win:theme', t),
     glass: (on: unknown) => invoke('win:glass', on),
-    dictate: () => invoke('win:dictate'),
     backdropWhere: () => invoke('win:backdropWhere'),
     pickBackdrop: () => invoke('win:pickBackdrop'),
     devIcon: (on: unknown) => invoke('win:devIcon', on),

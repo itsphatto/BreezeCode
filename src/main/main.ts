@@ -38,6 +38,7 @@ import { noteOpened, movedPath, moveRecent, copyClaudeSessions, moveLlmSessions 
 import { BrainStore, claudeCompactSummary, codexCompactions, droppedReplies, summaryKey, summaryChunks, summarizePrompt, SUMMARY_MAX_CHUNKS, BRAIN_TOOL_DEFS, BRAIN_DIR, formatSearch } from './secondbrain';
 import type { ChatText } from './secondbrain';
 import { detectIntent } from './agentintent';
+import { Dictation } from './dictate';
 import { IMAGE_EXT, IMAGE_MAX_BYTES, imagePathsIn, imageRefusal, imageMime } from './agentimages';
 import { parseTestOutput } from './testresults';
 import { expandAbbr } from './emmet';
@@ -1385,18 +1386,16 @@ function handleTerm(channel: string, fn: (st: TermState, ...args: any[]) => unkn
   });
 }
 handle('win:newTerminal', () => openTermWindow());
-// The composer's mic: Windows' own voice typing (Win+H), which types into whatever has focus, so the page focuses its
-// prompt first. keybd_event from a short PowerShell, as Breeze has no native module. False where there is none.
-const DICTATE_CS = `using System.Runtime.InteropServices;
-public static class BreezeKeys {
-  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
-  public static void WinH() { keybd_event(0x5B, 0, 0, System.UIntPtr.Zero); keybd_event(0x48, 0, 0, System.UIntPtr.Zero); keybd_event(0x48, 0, 2, System.UIntPtr.Zero); keybd_event(0x5B, 0, 2, System.UIntPtr.Zero); }
-}`;
-handle('win:dictate', () => {
-  if (process.platform !== 'win32') return false;
-  const script = `Add-Type -TypeDefinition @'\n${DICTATE_CS}\n'@\n[BreezeKeys]::WinH()`;
-  return new Promise<boolean>(resolve => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
-    { windowsHide: true, timeout: 20_000 }, err => resolve(!err)));
+// The composer's mic: local Whisper (dictate.ts). The page records; main downloads whisper.cpp once and transcribes.
+let dictation: Dictation | null = null;
+const dictator = () => (dictation ??= new Dictation(path.join(app.getPath('userData'), 'whisper')));
+handle('dictate:status', () => ({ supported: dictator().supported, ready: dictator().ready() }));
+handle('dictate:install', e => dictator().ensure((done, total) => {
+  if (!e.sender.isDestroyed()) e.sender.send('dictate:progress', { done, total });
+}));
+handle('dictate:transcribe', (_e, wav: unknown) => {
+  if (!(wav instanceof Uint8Array)) throw new Error('That recording can’t be read');
+  return dictator().transcribe(wav);
 });
 handleTerm('tw:new', () => openTermWindow());
 handleTerm('tw:info', async st => ({ cwd: st.cwd, platform: process.platform, user: `${os.userInfo().username}@${os.hostname()}`, sys: await termSysInfo() }));
