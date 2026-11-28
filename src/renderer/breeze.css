@@ -14548,7 +14548,7 @@ body.layout-animating #previewPane {
   background: var(--text-3);
   pointer-events: none;
   z-index: 2;
-  transition: transform .48s var(--spring), width .48s var(--spring), opacity .15s ease;
+  transition: opacity .15s ease; /* position and width are driven per frame by placeAgentTabInk */
 }
 
 .agent-tab.enter {
@@ -14595,11 +14595,6 @@ body.layout-animating #previewPane {
   white-space: nowrap !important;
 }
 
-.agent-tab.leaving ~ .agent-tab-ink,
-.agent-tab.active.leaving ~ .agent-tab-ink {
-  opacity: 0 !important;
-  transition: opacity .12s ease-out !important;
-}
 
 /* Renaming a chat: the name turns into a box the same size, on its tab or its side bar row. */
 .rename-input {
@@ -15178,6 +15173,15 @@ body.layout-animating #previewPane {
   max-width: 920px;
   margin-inline: auto; /* centered in the space beside the side tab */
 }
+
+/* The page being left, sliding away above (or below) the new one (switchTab, settings.ts): a still copy. */
+.set-pane.set-ghost {
+  position: absolute;
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.set-ghost, .set-ghost * { animation: none !important; transition: none !important; }
 
 .set-nav .set-item,
 .home-nav button {
@@ -15763,8 +15767,8 @@ body.layout-animating #previewPane {
   width: 100%;
   min-height: 96px;
   margin: 8px 0 4px;
-  resize: vertical;
-  font: 13px/1.5 var(--font-code);
+  resize: none;
+  font: 13px/1.5 var(--font-ui);
 }
 
 .set-pane .btn-sm,
